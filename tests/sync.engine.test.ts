@@ -17,6 +17,7 @@ import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { AppEvent } from '../src/storage/DataStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
 import { SyncAuthError, type PullPage, type SyncBackend } from '../src/sync/backend.ts';
+import { SYNC_CONFIG, syncConfigured } from '../src/sync/config.ts';
 import { SyncEngine, backoffDelay, type SyncStatus } from '../src/sync/engine.ts';
 import { SYNC_META_KEY, readSyncMeta } from '../src/sync/meta.ts';
 
@@ -646,5 +647,31 @@ describe('status', () => {
     expect(off.pendingCount()).toBe(0);
     off.dispose();
     rig.engine.dispose();
+  });
+});
+
+/* ------------------------------------------------------- the master switch */
+
+describe('syncConfigured', () => {
+  const real = { url: 'https://demo.supabase.co', anonKey: 'anon-key' };
+
+  it('is off with the placeholder config that ships in the repo', () => {
+    expect(syncConfigured(SYNC_CONFIG, 'https:')).toBe(false);
+    expect(syncConfigured({ url: real.url, anonKey: '' }, 'https:')).toBe(false);
+    expect(syncConfigured({ url: '', anonKey: real.anonKey }, 'https:')).toBe(false);
+  });
+
+  it('is off on file:// even when a project IS configured', () => {
+    // The single-file build opened from disk has an opaque origin: OAuth
+    // redirects cannot come back to it. The feature stays completely dark
+    // rather than failing visibly halfway through a sign-in.
+    expect(syncConfigured(real, 'file:')).toBe(false);
+    expect(syncConfigured(real, 'https:')).toBe(true);
+    expect(syncConfigured(real, 'http:')).toBe(true);
+  });
+
+  it('rejects a URL that is not http(s)', () => {
+    expect(syncConfigured({ ...real, url: 'demo.supabase.co' }, 'https:')).toBe(false);
+    expect(syncConfigured({ ...real, url: 'ftp://demo.supabase.co' }, 'https:')).toBe(false);
   });
 });

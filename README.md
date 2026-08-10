@@ -634,7 +634,7 @@ RLS: כל policy מוגבלת ל‑`auth.uid()`. אין ולא יהיה כאן s
 ## בדיקות
 
 ```bash
-npm test          # 354 בדיקות Vitest, 19 קבצים
+npm test          # 357 בדיקות Vitest, 19 קבצים
 ```
 
 * `xp` · `game` · `workout` · `program` · `migrate` — נוסחאות, reducer, replay,
