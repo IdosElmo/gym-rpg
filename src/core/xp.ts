@@ -41,6 +41,7 @@ import { BALANCE } from './balance.ts';
 import {
   GAME_STATE_VERSION,
   type AppEvent,
+  type BattleProgress,
   type EventType,
   type GameState,
   type PartsProgress,
@@ -273,7 +274,13 @@ export function emptyGame(): GameState {
     bonusDays: {},
     workoutDays: [],
     streak: { tier: 0, weekStart: null, daysThisWeek: 0, needed: BALANCE.streak.daysPerWeek },
+    battle: emptyBattle(),
   };
+}
+
+/** A fresh battle progress: world 1, wave 1, no coins. */
+export function emptyBattle(): BattleProgress {
+  return { world: 1, wave: 1, coins: 0, wavesCleared: 0, miniBossesCleared: 0 };
 }
 
 /** Key of one payout slot — the anti-farming guard. */
@@ -336,6 +343,26 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
     case 'pr_achieved':
       game.prCount += 1;
       break;
+    /**
+     * One cleared wave: charge the energy, pay the coins, move the marker.
+     * The wave/world in the payload is authoritative (the log is the source of
+     * truth), so a replay lands on exactly the same spot as the live battle.
+     */
+    case 'wave_cleared': {
+      const b = game.battle;
+      const world = Math.max(1, Math.floor(toNumber(payload['world']) || b.world));
+      const wave = Math.max(1, Math.floor(toNumber(payload['wave']) || b.wave));
+      const spent = Math.max(0, toNumber(payload['energySpent']));
+      const coins = Math.max(0, toNumber(payload['coins']));
+
+      game.energy = round2(Math.max(0, game.energy - spent));
+      b.coins = round2(b.coins + coins);
+      b.wavesCleared += 1;
+      if (payload['miniBoss'] === true) b.miniBossesCleared += 1;
+      b.world = world;
+      b.wave = wave + 1;
+      break;
+    }
     case 'data_cleared': {
       const fresh = emptyGame();
       Object.assign(game, fresh);

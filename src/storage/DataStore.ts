@@ -31,8 +31,8 @@ export interface Session {
   ex: Record<string, (SetEntry | null)[]>;
 }
 
-/** `A|B|C` = workout days, `CH` = דמות (character), `H` = היסטוריה. */
-export type ViewKey = DayKey | 'CH' | 'H';
+/** `A|B|C` = workout days, `CH` = דמות, `BT` = קרב (battle), `H` = היסטוריה. */
+export type ViewKey = DayKey | 'CH' | 'BT' | 'H';
 
 export interface UiState {
   view: ViewKey;
@@ -46,7 +46,7 @@ export interface UiState {
  * a step to `GAME_MIGRATIONS` in `storage/migrate.ts` — an unrecognised version
  * is simply rebuilt from the event log, which is always the source of truth.
  */
-export const GAME_STATE_VERSION = 1;
+export const GAME_STATE_VERSION = 2;
 
 /** XP pool of one body part. `level` is DERIVED from `xp` (see core/xp.ts). */
 export interface PartProgress {
@@ -65,6 +65,26 @@ export interface StreakState {
   daysThisWeek: number;
   /** Days needed for a "perfect week". */
   needed: number;
+}
+
+/**
+ * Battle progress (Phase 2). Every field is folded from `wave_cleared` events,
+ * so it replays exactly like the rest of the game state.
+ *
+ * There is deliberately NO RNG state here: a battle session is seeded when the
+ * קרב tab opens and each cleared wave records the seed it ran with, which keeps
+ * "live state === rebuildFromEvents(log)" trivially true.
+ */
+export interface BattleProgress {
+  /** Current world (1-based, see WORLDS in data/gameContent.ts). */
+  world: number;
+  /** Next wave to fight inside that world (1-based). */
+  wave: number;
+  /** Coins earned from waves — the Phase 3 shop spends them. */
+  coins: number;
+  /** Lifetime counters, for the history feed and future trophies. */
+  wavesCleared: number;
+  miniBossesCleared: number;
 }
 
 /**
@@ -92,6 +112,8 @@ export interface GameState {
   /** Distinct dates of LIVE (non-retroactive) training — the streak source. */
   workoutDays: string[];
   streak: StreakState;
+  /** Phase 2 — battle progress (world / wave / coins). */
+  battle: BattleProgress;
 }
 
 export interface AppMeta {
@@ -133,8 +155,9 @@ export type EventType =
   | 'level_up'
   | 'pr_achieved'
   | 'streak_changed'
-  // Phase 2+ — battle (reserved)
-  | 'battle_won'
+  // Phase 2 — battle. ONE event per cleared wave; attack ticks are never events.
+  | 'wave_cleared'
+  // Phase 3 — reserved
   | 'boss_defeated'
   | 'item_equipped';
 
@@ -222,6 +245,30 @@ export interface StreakChangedPayload extends Record<string, unknown> {
   from: number;
   to: number;
   weekStart: string | null;
+}
+
+/* ----------------------------------------------- Phase 2 battle payloads */
+
+/**
+ * THE battle record — emitted once per cleared wave and nothing else.
+ *
+ * Individual attacks are NOT events: they are a deterministic function of
+ * `seed` (see core/combat.ts) and logging them would bloat the log by three
+ * orders of magnitude. This one payload carries everything the state needs:
+ * where the player is, what it cost and what it paid.
+ */
+export interface WaveClearedPayload extends Record<string, unknown> {
+  date: string;
+  world: number;
+  wave: number;
+  miniBoss: boolean;
+  enemyId: string;
+  coins: number;
+  /** ⚡ charged for this wave (charged on CLEAR, never on a defeat). */
+  energySpent: number;
+  /** Seed the cleared attempt ran with — makes the fight replayable. */
+  seed: number;
+  durationMs: number;
 }
 
 /* ------------------------------------------------------------------ store */

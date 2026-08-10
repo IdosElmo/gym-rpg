@@ -10,7 +10,14 @@
  */
 
 import type { BodyPart, DayKey, Exercise } from '../data/program.ts';
-import type { AppEvent, DataStore, GameState } from '../storage/DataStore.ts';
+import type {
+  AppEvent,
+  BattleProgress,
+  DataStore,
+  GameState,
+  WaveClearedPayload,
+} from '../storage/DataStore.ts';
+import type { WaveResult } from './combat.ts';
 import { todayISO } from './workout.ts';
 import {
   applyGameEvent,
@@ -123,6 +130,32 @@ export function onWorkoutFinished(
   if (pending.length === 0) return EMPTY_RESULT;
   commit(store, pending, now);
   return summarize(pending);
+}
+
+/* ---------------------------------------------------------------- battle */
+
+/**
+ * Persist ONE cleared wave.
+ *
+ * This is the only battle write in the whole app: `core/combat.ts` simulates,
+ * the UI renders, and exactly one `wave_cleared` event per cleared wave lands in
+ * the log (never per attack tick). Energy is charged and coins are paid by the
+ * same reducer `rebuildFromEvents` uses, so replay reproduces battle progress.
+ */
+export function onWaveCleared(store: DataStore, r: WaveResult, now: Date = new Date()): BattleProgress {
+  const payload: WaveClearedPayload = {
+    date: todayISO(now),
+    world: r.world,
+    wave: r.wave,
+    miniBoss: r.miniBoss,
+    enemyId: r.enemyId,
+    coins: r.coins,
+    energySpent: r.energySpent,
+    seed: r.seed,
+    durationMs: r.durationMs,
+  };
+  commit(store, [{ type: 'wave_cleared', payload, ts: now.getTime() }], now);
+  return gameOf(store).battle;
 }
 
 export interface StreakRefresh {

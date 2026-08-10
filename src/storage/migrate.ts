@@ -20,6 +20,7 @@ import { BODY_PARTS, isDayKey, type BodyPart, type DayKey } from '../data/progra
 import { todayISO } from '../core/workout.ts';
 import {
   buildRetroactiveGrants,
+  emptyBattle,
   emptyGame,
   isoToTs,
   rebuildGame,
@@ -30,6 +31,7 @@ import {
   GAME_STATE_VERSION,
   type AppEvent,
   type AppState,
+  type BattleProgress,
   type EventLog,
   type EventType,
   type GameState,
@@ -175,10 +177,26 @@ function normalizeParts(raw: unknown): PartsProgress {
   return parts;
 }
 
+/** Phase 2 battle progress. Anything odd falls back to "world 1, wave 1". */
+function normalizeBattle(raw: unknown): BattleProgress {
+  const b = emptyBattle();
+  if (!isRecord(raw)) return b;
+  return {
+    world: Math.max(1, Math.floor(numOr(raw['world'], b.world))),
+    wave: Math.max(1, Math.floor(numOr(raw['wave'], b.wave))),
+    coins: Math.max(0, numOr(raw['coins'], 0)),
+    wavesCleared: Math.max(0, Math.floor(numOr(raw['wavesCleared'], 0))),
+    miniBossesCleared: Math.max(0, Math.floor(numOr(raw['miniBossesCleared'], 0))),
+  };
+}
+
 /**
  * Validate a persisted `game` blob. Returns `null` for anything missing or from
  * a version we don't know — the caller (`ensureGameState`) then rebuilds it from
  * the event log, which is always authoritative.
+ *
+ * v1 -> v2 (Phase 2) added `battle`; a v1 blob is therefore rejected here and
+ * rebuilt from the log, which is lossless because every fact is an event.
  */
 export function normalizeGame(raw: unknown): GameState | null {
   if (!isRecord(raw)) return null;
@@ -207,6 +225,7 @@ export function normalizeGame(raw: unknown): GameState | null {
       daysThisWeek: Math.max(0, numOr(streakRaw['daysThisWeek'], 0)),
       needed: Math.max(1, numOr(streakRaw['needed'], base.streak.needed)),
     },
+    battle: normalizeBattle(raw['battle']),
   };
 }
 
@@ -219,7 +238,7 @@ function normalizeUi(raw: unknown, now: Date = new Date()): UiState {
     for (const k of Object.keys(openRaw)) open[k] = openRaw[k] === true;
   }
   const v: ViewKey =
-    isDayKey(view) || view === 'H' || view === 'CH' ? (view as ViewKey) : defaultDay(now);
+    isDayKey(view) || view === 'H' || view === 'CH' || view === 'BT' ? (view as ViewKey) : defaultDay(now);
   return { view: v, open };
 }
 
