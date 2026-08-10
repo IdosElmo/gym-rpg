@@ -7,7 +7,8 @@
  *
  * Two things are persisted side by side:
  *   1. the current state snapshot (`AppState`) — fast reads for rendering;
- *   2. an append-only `EventLog` — the source of truth for future sync/merge.
+ *   2. an append-only `EventLog` — the source of truth, and what cloud sync
+ *      merges (`storage/merge.ts`, `sync/engine.ts`).
  * Both blobs carry a `schemaVersion` and are read through `storage/migrate.ts`.
  */
 
@@ -439,7 +440,7 @@ export interface DataStore {
   append(type: EventType, payload?: Record<string, unknown>): AppEvent;
   /** The whole append-only log, oldest first. */
   getEvents(): readonly AppEvent[];
-  /** Replace both state and log (used by JSON import). */
+  /** Replace both state and log (JSON import, and every cloud merge). */
   replaceAll(state: AppState, events: readonly AppEvent[]): void;
   /** Wipe everything (keeps a `data_cleared` event in the fresh log). */
   clear(): void;

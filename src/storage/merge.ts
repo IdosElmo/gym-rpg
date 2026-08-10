@@ -15,10 +15,17 @@
  * `(ts, id)` is a property of the event SET, so both devices reach byte-identical
  * state regardless of who saw what first (see `tests/merge.test.ts`).
  *
- * Two things are carried over from the live state rather than replayed, because
- * neither is in the log:
+ * Three things are carried over from the live state rather than replayed,
+ * because none of them is in the log — they describe THIS INSTALL, not the
+ * account:
  *   - `ui` — which tab you are on is not other devices' business;
- *   - `meta.createdAt` — when THIS install was created.
+ *   - `meta.createdAt` — when this install was created;
+ *   - `meta.legacyImported` — whether this install already scanned its own
+ *     `hyp3_data_v1`. It is a latch: replaying can only ever re-derive it from
+ *     import events, and a wipe leaves a log that has none, so a merge after a
+ *     `clear()` would otherwise un-remember it and the next boot would import
+ *     the legacy blob all over again — resurrecting deleted data into the
+ *     account (`tests/merge.test.ts`).
  */
 
 import { compareEvents } from '../core/xp.ts';
@@ -56,6 +63,12 @@ export function mergeIntoStore(
   const next = rebuildFromEvents(merged, now);
   next.ui = before.ui;
   next.meta.createdAt = before.meta.createdAt;
+  if (before.meta.legacyImported) {
+    next.meta.legacyImported = true;
+    if (before.meta.legacyImportedAt !== undefined) {
+      next.meta.legacyImportedAt = before.meta.legacyImportedAt;
+    }
+  }
   store.replaceAll(next, merged);
   return { added: fresh.length, total: merged.length };
 }

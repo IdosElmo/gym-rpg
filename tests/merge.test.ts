@@ -2,9 +2,10 @@
  * merge.test.ts — the convergence properties multi-device sync will rest on.
  *
  * Sync is defined as "union of event sets, then deterministic replay". Nothing
- * here talks to a network or to a sync engine (neither exists yet): the tests
- * simulate two independent installs by driving two `LocalStore`s and folding
- * the union of their logs. What must hold is:
+ * here talks to a network or to the sync engine (that is `sync.engine.test.ts`
+ * above it, and `e2e.sync.test.ts` around both): the tests simulate two
+ * independent installs by driving two `LocalStore`s and folding the union of
+ * their logs. What must hold is:
  *
  *   1. TOTAL ORDER — the fold order is a function of the event SET alone, so
  *      merging in either direction (or in any shuffled order) gives byte-
@@ -20,6 +21,7 @@ import { describe, expect, it } from 'vitest';
 import { onSetCompleted, onWorkoutFinished } from '../src/core/game.ts';
 import { compareEvents } from '../src/core/xp.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
+import { mergeIntoStore } from '../src/storage/merge.ts';
 import type { AppEvent, AppState } from '../src/storage/DataStore.ts';
 import { findExercise, type Exercise } from '../src/data/program.ts';
 import { LEGACY_KEY, rebuildFromEvents, type StorageLike } from '../src/storage/migrate.ts';
@@ -345,5 +347,47 @@ describe('data_cleared inside a union', () => {
     expect(merged.game?.energy).toBe(0);
     expect(merged.game?.granted).toEqual({});
     expect(merged.game?.energyGranted).toEqual({});
+  });
+});
+
+/* ------------------------------------------------- what a merge must NOT do */
+
+describe('a merge folds the account, not this install', () => {
+  /**
+   * `meta.legacyImported` is not account data — it is this device's note that
+   * it has already scanned its own `hyp3_data_v1`. Replaying the log cannot
+   * know that (a wipe leaves a log with nothing but the marker), so
+   * `mergeIntoStore` has to carry it across exactly like `meta.createdAt`.
+   *
+   * Without that, the sequence below resurrects deleted data: wipe the account,
+   * pull anything at all, reload — and the legacy blob is imported all over
+   * again, back into the account this time.
+   */
+  it('keeps the legacy import remembered, so a wipe survives a reload', () => {
+    const storage = fakeStorage({ [LEGACY_KEY]: JSON.stringify(LEGACY_BLOB) });
+    const store = new LocalStore(storage);
+    expect(Object.keys(store.getState().sessions)).toContain('2025-01-05');
+    expect(store.getState().meta.legacyImported).toBe(true);
+
+    store.clear();
+    expect(store.getState().sessions).toEqual({});
+    expect(store.getState().meta.legacyImported).toBe(true);
+
+    // Something arrives from another device (a cloud pull, or an additive
+    // import): the state is rebuilt from the union of the logs.
+    const foreign: AppEvent = {
+      id: 'zzz-foreign',
+      ts: Date.now() + 5_000,
+      type: 'set_completed',
+      payload: { date: TODAY, day: 'A', exId: 'a1', setIndex: 0, w: '40', r: '10' },
+      device: 'other-device',
+    };
+    expect(mergeIntoStore(store, [foreign]).added).toBe(1);
+    expect(store.getState().meta.legacyImported).toBe(true);
+
+    // The proof: the next boot does not bring the wiped history back.
+    const reloaded = new LocalStore(storage);
+    expect(reloaded.getState().sessions['2025-01-05']).toBeUndefined();
+    expect(Object.keys(reloaded.getState().sessions)).toEqual([TODAY]);
   });
 });

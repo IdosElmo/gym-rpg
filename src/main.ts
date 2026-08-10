@@ -1,9 +1,10 @@
 /**
  * main.ts — composition root.
  *
- * Wires the concrete `LocalStore` (swap here for a future cloud-backed store),
- * the rest timer, the toast and the screens, then registers the service worker
- * — but ONLY over http/https, so the single-file `file://` build still runs.
+ * Wires the concrete `LocalStore` (the cloud does not replace it — the sync
+ * engine runs beside it, see `wireSync` below), the rest timer, the toast and
+ * the screens, then registers the service worker — but ONLY over http/https, so
+ * the single-file `file://` build still runs.
  *
  * It is also the ONLY module that knows cloud sync exists at all: it is the one
  * place `sync/supabaseBackend.ts` (and therefore `@supabase/supabase-js`) is

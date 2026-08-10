@@ -6,7 +6,8 @@
  * or disabled storage never breaks the workout in the middle of a set.
  */
 
-import { emptyGame } from '../core/xp.ts';
+import { todayISO } from '../core/workout.ts';
+import { emptyGame, finalizeGame } from '../core/xp.ts';
 import type {
   AppEvent,
   AppState,
@@ -168,8 +169,14 @@ export class LocalStore implements DataStore {
     this.state = emptyState(now);
     // Legacy data was already imported once; don't resurrect it after a wipe.
     this.state.meta.legacyImported = true;
-    // A wipe resets the character too — `data_cleared` replays to the same state.
-    this.state.game = emptyGame();
+    // A wipe resets the character too — `data_cleared` replays to the same
+    // state. `finalizeGame` is what makes that literally true: a replay of the
+    // marker runs it (via `rebuildGame`), so the derived fields — the streak's
+    // current week above all — have to be derived here as well, or the live
+    // state would disagree with a rebuild of its own log until the next boot.
+    const game = emptyGame();
+    finalizeGame(game, todayISO(new Date(now)));
+    this.state.game = game;
     const marker = makeEvent('data_cleared', {}, this.nextTs(), this.deviceId);
     this.events = [marker];
     this.persistState();

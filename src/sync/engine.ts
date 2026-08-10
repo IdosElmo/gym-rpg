@@ -45,7 +45,7 @@
 
 import type { AppEvent, DataStore, Unsubscribe } from '../storage/DataStore.ts';
 import { mergeIntoStore } from '../storage/merge.ts';
-import type { StorageLike } from '../storage/migrate.ts';
+import { ensureDeviceId, type StorageLike } from '../storage/migrate.ts';
 import { isAuthError, type SyncBackend } from './backend.ts';
 import {
   clearSyncMeta,
@@ -249,7 +249,10 @@ export class SyncEngine {
     this.isOnline = opts.isOnline ?? defaultOnline;
     this.isVisible = opts.isVisible ?? defaultVisible;
 
-    this.meta = readSyncMeta(this.storage, opts.deviceId ?? '');
+    // The device id belongs to the INSTALL, not to the engine: it already sits
+    // in this same storage (`LocalStore` minted it), so the notebook records the
+    // real one instead of an empty string nobody ever passed.
+    this.meta = readSyncMeta(this.storage, opts.deviceId ?? ensureDeviceId(this.storage));
     this.knownIds = new Set(this.store.getEvents().map((e) => e.id));
     this.kind = !this.enabled ? 'disabled' : this.meta.userId ? 'idle' : 'signedOut';
   }
