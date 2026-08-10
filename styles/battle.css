@@ -1,0 +1,146 @@
+/* ---------- Battle screen (קרב) ----------
+   Extends the palette with per-world accents (--w-accent / --w-bg1 / --w-bg2,
+   set inline from data/gameContent.ts) but keeps the app's card language:
+   #1E2638 cards, #2C3A55 lines, 14px radius, ≥40px touch targets.           */
+
+.bt-card{
+  background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  padding:10px 12px 12px; margin-bottom:14px;
+}
+
+.bt-worldbar{display:flex; align-items:center; gap:10px; margin-bottom:8px}
+.bt-world{flex:1; min-width:0}
+.bt-world b{display:block; font-size:14.5px; font-weight:800}
+.bt-world span{
+  display:block; font-size:11px; color:var(--muted);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.bt-wave{
+  flex:0 0 auto; text-align:center; background:var(--card-2);
+  border:1px solid var(--line); border-radius:12px; padding:4px 12px; min-width:56px;
+}
+.bt-wave b{display:block; font-size:19px; font-weight:900; color:var(--accent); line-height:1.1}
+.bt-wave span{display:block; font-size:10px; color:var(--muted)}
+
+/* ---------- arena ---------- */
+.bt-arena{
+  position:relative; display:flex; align-items:flex-end; gap:6px;
+  background:radial-gradient(circle at 50% 30%, var(--w-bg1,#24304A) 0%, var(--w-bg2,#151E2E) 75%);
+  border:1px solid var(--line); border-radius:12px;
+  padding:10px 8px 12px; overflow:hidden; min-height:210px;
+}
+.bt-arena::after{ /* ground line */
+  content:''; position:absolute; inset-inline:6px; bottom:34px; height:1px; opacity:.45;
+  background:linear-gradient(90deg,transparent,var(--w-accent,#3B82F6),transparent);
+}
+.bt-side{
+  flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; gap:5px;
+  background:none; border:0; padding:0; color:inherit;
+}
+.bt-enemy{
+  cursor:pointer; border-radius:12px; padding:4px 2px; min-height:44px;
+  transition:transform .08s ease, background .15s ease;
+}
+.bt-enemy:active{transform:scale(.96); background:#FFFFFF0E}
+.bt-vs{
+  flex:0 0 auto; align-self:center; font-size:11px; font-weight:900; letter-spacing:.1em;
+  color:var(--dim); direction:ltr;
+}
+.bt-sprite{width:100%; display:flex; justify-content:center}
+.bt-sprite.hero .ch-svg{width:min(28vw,104px)}
+.bt-sprite.enemy{min-height:96px; align-items:center}
+.bt-sprite .en-svg{width:min(30vw,110px); height:auto; display:block}
+.bt-sprite.enemy.mini-boss .en-svg{width:min(36vw,132px); filter:drop-shadow(0 0 10px #F59E0B77)}
+
+.bt-bar{
+  width:86%; height:9px; background:#0B0F1999; border:1px solid var(--line);
+  border-radius:99px; overflow:hidden;
+}
+.bt-bar span{display:block; height:100%; border-radius:99px; transition:width .15s linear}
+.bt-bar.hp span{background:linear-gradient(90deg,var(--ok),#34D399)}
+.bt-bar.hp span.low{background:linear-gradient(90deg,var(--danger),#F87171)}
+.bt-bar.foe span{background:linear-gradient(90deg,var(--danger),#FB923C)}
+.bt-bar.energy span{background:linear-gradient(90deg,var(--warn),#FBBF24)}
+.bt-bar.super span{background:linear-gradient(90deg,#A78BFA,#F472B6)}
+.bt-hp-txt{font-size:10.5px; color:var(--muted); direction:ltr; font-variant-numeric:tabular-nums}
+.bt-foe-name{font-size:12px; font-weight:800; color:var(--text); text-align:center}
+
+/* floating damage numbers */
+.bt-fx{position:absolute; inset:0; pointer-events:none}
+.bt-float{
+  position:absolute; font-size:13px; font-weight:900; direction:ltr;
+  text-shadow:0 2px 8px #000C; animation:btFloat .9s ease-out forwards;
+}
+.bt-float.dmg{color:#FDE68A}
+.bt-float.crit{color:var(--warn); font-size:16px}
+.bt-float.super{color:#F472B6; font-size:19px}
+.bt-float.foe{color:#FCA5A5}
+.bt-float.heal{color:var(--ok); font-size:12px}
+.bt-float.coin{color:#FCD34D; font-size:14px}
+@keyframes btFloat{
+  0%{opacity:0; transform:translateY(6px) scale(.8)}
+  20%{opacity:1; transform:translateY(-2px) scale(1.05)}
+  100%{opacity:0; transform:translateY(-34px) scale(1)}
+}
+
+/* screen shake — also guarded in JS via prefers-reduced-motion */
+.bt-arena.shake{animation:btShake .22s ease-in-out}
+.bt-arena.shake-strong{animation:btShake .48s ease-in-out}
+@keyframes btShake{
+  0%,100%{transform:translate(0,0)}
+  20%{transform:translate(-4px,2px)}
+  45%{transform:translate(5px,-2px)}
+  70%{transform:translate(-3px,-1px)}
+}
+
+/* ---------- status line ---------- */
+.bt-status{
+  margin:10px 0 0; font-size:12.5px; line-height:1.5; color:var(--muted);
+  min-height:38px;
+}
+.bt-status.rest{color:var(--warn); font-weight:700}
+.bt-status.warn{color:var(--warn)}
+.bt-status.down{color:#FCA5A5}
+.bt-status.gate{color:#A78BFA; font-weight:700}
+
+/* ---------- meters ---------- */
+.bt-meters{display:flex; gap:8px; margin-top:10px}
+.bt-meter{
+  flex:1; min-width:0; background:var(--card-2); border:1px solid var(--line);
+  border-radius:12px; padding:8px 10px;
+}
+.bm-head{display:flex; justify-content:space-between; align-items:baseline; font-size:11.5px; color:var(--muted)}
+.bm-head b{font-size:13px; color:var(--text); direction:ltr}
+.bm-head+.bt-bar{width:100%; margin:6px 0 4px}
+.bm-foot{font-size:10px; color:var(--dim); line-height:1.4}
+
+.bt-super-btn{
+  width:100%; min-height:44px; margin-top:10px;
+  background:var(--card-2); border:1px solid var(--line); color:var(--dim);
+  border-radius:12px; font-size:14px; font-weight:800; transition:.15s;
+}
+.bt-super-btn.ready{
+  background:linear-gradient(90deg,#7C3AED,#DB2777); border-color:#A78BFA; color:#fff;
+}
+.bt-super-btn:disabled{cursor:default}
+
+.bt-stats{display:flex; gap:8px; margin-top:10px}
+
+/* ---------- world-boss gate (Phase 3 fights it) ---------- */
+.bt-gate-body{display:flex; gap:12px; align-items:center}
+.bt-gate-sprite{flex:0 0 76px}
+.bt-gate-sprite .en-svg{width:76px; height:auto; display:block}
+.bt-gate.locked .bt-gate-sprite{filter:grayscale(.7) brightness(.7)}
+.bt-reqs{flex:1; margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:6px}
+.bt-reqs li{
+  font-size:12.5px; font-weight:700; background:var(--card-2);
+  border:1px solid var(--line); border-radius:10px; padding:6px 10px;
+}
+.bt-reqs li span{font-weight:600; color:var(--dim); font-size:11px}
+.bt-reqs li.met{color:var(--ok); border-color:#10B98155}
+.bt-reqs li.unmet{color:var(--muted)}
+
+/* ---------- nav tab ---------- */
+.tab.battle-tab{flex:.7}
+.tab.battle-tab.active{background:var(--card-2); border-color:var(--warn); color:var(--warn)}
+.tab.battle-tab .w{font-size:10px}

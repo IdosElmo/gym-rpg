@@ -1,16 +1,18 @@
 /**
  * ui/app.ts — the app shell: tabs, header and screen switching.
  *
- * Tab order follows the brief: the three workout days, דמות, היסטוריה
- * (Phase 2 inserts קרב before היסטוריה). The tab list is data-driven, so a new
- * screen only needs an entry plus a render function.
+ * Tab order follows the brief: the three workout days, דמות, קרב, היסטוריה.
+ * The tab list is data-driven, so a new screen only needs an entry plus a
+ * render function.
  */
 
 import { DAY_NAMES, DAY_ORDER, PROGRAM, isDayKey } from '../data/program.ts';
 import { fmtDate, lastLoggedDate } from '../core/workout.ts';
 import { gameOf } from '../core/game.ts';
+import { worldById } from '../data/gameContent.ts';
 import type { DataStore, ViewKey } from '../storage/DataStore.ts';
 import type { RestTimer } from './timer.ts';
+import { renderBattle, stopBattle } from './battle.ts';
 import { renderCharacter } from './character.ts';
 import { must } from './dom.ts';
 import { renderHistory } from './history.ts';
@@ -45,13 +47,16 @@ export function createApp(store: DataStore, timer: RestTimer): App {
       `<button class="tab char-tab ${view === 'CH' ? 'active' : ''}" data-view="CH">
       <span class="d">🦸</span><span class="w">דמות</span>
     </button>` +
+      `<button class="tab battle-tab ${view === 'BT' ? 'active' : ''}" data-view="BT">
+      <span class="d">🎮</span><span class="w">קרב</span>
+    </button>` +
       `<button class="tab hist-tab ${view === 'H' ? 'active' : ''}" data-view="H">
       <span class="d">🗓</span><span class="w">היסטוריה</span>
     </button>`;
     tabsEl.querySelectorAll<HTMLButtonElement>('.tab').forEach((b) => {
       b.addEventListener('click', () => {
         const v = b.dataset['view'];
-        if (v === 'H' || v === 'CH' || isDayKey(v)) setView(v);
+        if (v === 'H' || v === 'CH' || v === 'BT' || isDayKey(v)) setView(v);
       });
     });
   }
@@ -78,6 +83,13 @@ export function createApp(store: DataStore, timer: RestTimer): App {
       <p class="day-meta">רמה <b>${game.level}</b> · כל סט אמיתי מחזק חלק אחר בגוף</p>${energyPill()}`;
       return;
     }
+    if (view === 'BT') {
+      const game = gameOf(store);
+      const world = worldById(game.battle.world);
+      headerEl.innerHTML = `<h1 class="app-title">מצב קרב <span class="en">Battle</span></h1>
+      <p class="day-meta">${world.he} · גל <b>${game.battle.wave}</b> · רמה <b>${game.level}</b></p>${energyPill()}`;
+      return;
+    }
     const p = PROGRAM[view];
     const last = lastLoggedDate(state, view);
     headerEl.innerHTML = `
@@ -88,6 +100,9 @@ export function createApp(store: DataStore, timer: RestTimer): App {
   }
 
   function render(): void {
+    // Battles run ONLY while the קרב tab is on screen — every render tears the
+    // previous loop down before the new screen is mounted.
+    stopBattle();
     renderTabs();
     renderHeader();
     const view = store.getState().ui.view;
@@ -95,6 +110,8 @@ export function createApp(store: DataStore, timer: RestTimer): App {
       renderHistory(mainEl, { store, rerender: render });
     } else if (view === 'CH') {
       renderCharacter(mainEl, { store });
+    } else if (view === 'BT') {
+      renderBattle(mainEl, { store, refreshHeader: renderHeader });
     } else {
       renderWorkout(mainEl, view, { store, timer, refreshHeader: renderHeader });
     }

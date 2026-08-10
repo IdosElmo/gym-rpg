@@ -7,6 +7,7 @@
  */
 
 import { BODY_PARTS, BODY_PART_HE, type BodyPart } from '../data/program.ts';
+import { worldById } from '../data/gameContent.ts';
 import { gameOf } from '../core/game.ts';
 import { deriveStats, levelProgress } from '../core/xp.ts';
 import type { DataStore } from '../storage/DataStore.ts';
@@ -84,6 +85,7 @@ export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
     <div class="char-meta">
       <div class="cm-item"><b>${fmtXp(game.totalXp)}</b><span>סה״כ XP</span></div>
       <div class="cm-item"><b>⚡ ${fmtXp(game.energy)}</b><span>אנרגיית קרב</span></div>
+      <div class="cm-item"><b>🪙 ${fmtXp(game.battle.coins)}</b><span>מטבעות</span></div>
       <div class="cm-item"><b>🏆 ${game.prCount}</b><span>שיאים אישיים</span></div>
     </div>
   </section>
@@ -98,7 +100,9 @@ export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
       <div class="stat"><span class="s-k">קריטי</span><b>${Math.round(stats.critChance * 100)}%</b></div>
       <div class="stat"><span class="s-k">התאוששות</span><b>${stats.regen}</b></div>
     </div>
-    <p class="gc-note">הקרבות מגיעים בשלב הבא — הסטטיסטיקות כבר גדלות מכל אימון אמיתי.</p>
+    <p class="gc-note">
+      אלה הסטטיסטיקות שמפעילות את לשונית 🎮 קרב · ${esc(worldById(game.battle.world).he)} · גל ${game.battle.wave} · ${game.battle.wavesCleared} גלים נוצחו
+    </p>
   </section>
 
   <section class="game-card">
@@ -128,7 +132,9 @@ export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
     <div class="slot-grid">
       ${['כפפות', 'חגורה', 'נעליים', 'גלימה'].map((s) => `<div class="slot">${esc(s)}<span>ריק</span></div>`).join('')}
     </div>
-    <p class="gc-note">חנות הציוד תיפתח עם מצב הקרב — פריטים יוסיפו סטטיסטיקות ויופיעו על הדמות.</p>
+    <p class="gc-note">
+      חנות הציוד תיפתח בעדכון הבא — המטבעות שאתם צוברים בקרב (🪙 ${fmtXp(game.battle.coins)}) כבר נשמרים.
+    </p>
   </section>
 
   <section class="game-card locked">
