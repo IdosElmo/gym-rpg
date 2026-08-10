@@ -33,8 +33,15 @@ export interface Session {
   ex: Record<string, (SetEntry | null)[]>;
 }
 
-/** `A|B|C` = workout days, `CH` = דמות, `BT` = קרב (battle), `H` = היסטוריה. */
-export type ViewKey = DayKey | 'CH' | 'BT' | 'H';
+/**
+ * `A|B|C` = workout days, `CH` = דמות, `BT` = קרב (battle), `H` = היסטוריה,
+ * `PL` = תוכנית (the plan editor).
+ *
+ * `PL` deliberately has NO tab in the main nav: six tabs is already the limit
+ * of what stays tappable one-handed on a phone. It is reached from the ⚙️
+ * button in the workout header and from the plan card on the history screen.
+ */
+export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL';
 
 export interface UiState {
   view: ViewKey;

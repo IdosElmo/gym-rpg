@@ -306,7 +306,9 @@ function normalizeUi(raw: unknown, now: Date = new Date()): UiState {
     for (const k of Object.keys(openRaw)) open[k] = openRaw[k] === true;
   }
   const v: ViewKey =
-    isDayKey(view) || view === 'H' || view === 'CH' || view === 'BT' ? (view as ViewKey) : defaultDay(now);
+    isDayKey(view) || view === 'H' || view === 'CH' || view === 'BT' || view === 'PL'
+      ? (view as ViewKey)
+      : defaultDay(now);
   return { view: v, open };
 }
 

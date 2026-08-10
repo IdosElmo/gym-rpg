@@ -4,11 +4,19 @@
  * Tab order follows the brief: the three workout days, דמות, קרב, היסטוריה.
  * The tab list is data-driven, so a new screen only needs an entry plus a
  * render function.
+ *
+ * PLAN EDITOR PLACEMENT (a Phase 4 decision): `'PL'` is a real view but NOT a
+ * seventh tab. Six tabs already fill the width of a phone; a seventh would make
+ * the row unusable one-handed for the thing people actually do every day, which
+ * is tapping their workout day. The editor is instead reached from a ⚙️ button
+ * in the workout header (where you notice you want to change today's exercises)
+ * and from a card on the היסטוריה screen (where the other data actions live).
+ * Leaving it restores the view you came from.
  */
 
 import { DAY_NAMES, DAY_ORDER, isDayKey } from '../data/program.ts';
 import { fmtDate, lastLoggedDate } from '../core/workout.ts';
-import { resolveProgram } from '../core/plan.ts';
+import { isDefaultPlan, resolveProgram } from '../core/plan.ts';
 import { gameOf } from '../core/game.ts';
 import { worldById } from '../data/gameContent.ts';
 import type { DataStore, ViewKey } from '../storage/DataStore.ts';
@@ -17,6 +25,7 @@ import { renderBattle, stopBattle } from './battle.ts';
 import { renderCharacter } from './character.ts';
 import { must } from './dom.ts';
 import { renderHistory } from './history.ts';
+import { renderPlanEditor, resetPlanDraft } from './planEditor.ts';
 import { renderWorkout } from './workout.ts';
 import { fmtXp } from './xpfx.ts';
 
@@ -24,12 +33,28 @@ export interface App {
   render: () => void;
 }
 
+/** Views that are not the plan editor — where "close the editor" goes back to. */
+function isReturnable(v: ViewKey): boolean {
+  return v !== 'PL';
+}
+
 export function createApp(store: DataStore, timer: RestTimer): App {
   const tabsEl = must('tabs');
   const headerEl = must('header');
   const mainEl = must('main');
 
+  /** The screen the plan editor was opened from, so ✕ can return to it. */
+  let returnView: ViewKey = store.getState().ui.view;
+  if (!isReturnable(returnView)) returnView = 'H';
+
   function setView(v: ViewKey): void {
+    const current = store.getState().ui.view;
+    if (v === 'PL') {
+      if (isReturnable(current)) returnView = current;
+      // Always start the editor from what is actually saved — a draft left over
+      // from a previous visit must never be mistaken for the stored plan.
+      resetPlanDraft();
+    }
     store.update((draft) => {
       draft.ui.view = v;
     });
@@ -79,6 +104,16 @@ export function createApp(store: DataStore, timer: RestTimer): App {
       <p class="day-meta">כל הנתונים נשמרים במכשיר · ניתן לגבות ולשחזר כקובץ JSON</p>${energyPill()}`;
       return;
     }
+    if (view === 'PL') {
+      const custom = !isDefaultPlan(state.plan);
+      headerEl.innerHTML = `<h1 class="app-title">עריכת תוכנית <span class="en">Plan</span></h1>
+      <p class="day-meta">${custom ? 'תוכנית מותאמת אישית' : 'התוכנית המקורית'} · שינויים נשמרים רק בלחיצה על 💾</p>
+      <button class="plan-back" id="btnPlanBack">← חזרה</button>`;
+      headerEl.querySelector<HTMLButtonElement>('#btnPlanBack')?.addEventListener('click', () => {
+        setView(returnView);
+      });
+      return;
+    }
     if (view === 'CH') {
       const game = gameOf(store);
       headerEl.innerHTML = `<h1 class="app-title">הדמות שלי <span class="en">Character</span></h1>
@@ -92,14 +127,15 @@ export function createApp(store: DataStore, timer: RestTimer): App {
       <p class="day-meta">${world.he} · גל <b>${game.battle.wave}</b> · רמה <b>${game.level}</b></p>${energyPill()}`;
       return;
     }
-    const program = resolveProgram(state.plan);
-    const p = program[view];
-    const last = lastLoggedDate(state, view, program);
+    const p = resolveProgram(state.plan)[view];
+    const last = lastLoggedDate(state, view, resolveProgram(state.plan));
     headerEl.innerHTML = `
     <h1 class="app-title">יום ${p.day} · ${p.label} <span class="en">Hypertrophy</span></h1>
     <p class="day-meta"><b>${p.dur}</b> · ${p.focus}</p>
     <p class="last-log">אימון אחרון שתועד: <span class="val">${last ? fmtDate(last) : '— עדיין לא תועד'}</span></p>
+    <button class="plan-edit-btn" id="btnEditPlan" aria-label="עריכת תוכנית האימונים">⚙️ עריכת תוכנית</button>
     ${energyPill()}`;
+    headerEl.querySelector<HTMLButtonElement>('#btnEditPlan')?.addEventListener('click', () => setView('PL'));
   }
 
   /** Rebuild the arena in place (a world boss fell — the whole world changed). */
@@ -114,6 +150,13 @@ export function createApp(store: DataStore, timer: RestTimer): App {
     renderCharacter(mainEl, { store, rerender: renderCharacterScreen });
   }
 
+  /** Re-render the editor in place (draft edits must not reset the scroll). */
+  function renderPlanScreen(): void {
+    if (store.getState().ui.view !== 'PL') return;
+    renderHeader();
+    renderPlanEditor(mainEl, { store, rerender: renderPlanScreen, close: () => setView(returnView) });
+  }
+
   function render(): void {
     // Battles run ONLY while the קרב tab is on screen — every render tears the
     // previous loop down before the new screen is mounted.
@@ -122,7 +165,9 @@ export function createApp(store: DataStore, timer: RestTimer): App {
     renderHeader();
     const view = store.getState().ui.view;
     if (view === 'H') {
-      renderHistory(mainEl, { store, rerender: render });
+      renderHistory(mainEl, { store, rerender: render, editPlan: () => setView('PL') });
+    } else if (view === 'PL') {
+      renderPlanEditor(mainEl, { store, rerender: renderPlanScreen, close: () => setView(returnView) });
     } else if (view === 'CH') {
       // A shop purchase re-renders the דמות screen in place (header + main, no
       // scroll reset) so the character, the stat grid and the purse update

@@ -7,9 +7,9 @@
  * fills. Import accepts BOTH the new blob and the legacy `{sessions:{…}}` file.
  */
 
-import { isDayKey } from '../data/program.ts';
+import { DAY_ORDER, isDayKey } from '../data/program.ts';
 import { fmtDate, isSetFilled, todayISO } from '../core/workout.ts';
-import { makeResolver, resolveProgram } from '../core/plan.ts';
+import { isDefaultPlan, makeResolver, resolveProgram } from '../core/plan.ts';
 import type { DataStore } from '../storage/DataStore.ts';
 import { buildExport, parseImport } from '../storage/migrate.ts';
 import { esc, must } from './dom.ts';
@@ -19,6 +19,29 @@ import { toast } from './toast.ts';
 export interface HistoryDeps {
   store: DataStore;
   rerender: () => void;
+  /** Open the plan editor (the second entry point after the workout header). */
+  editPlan?: () => void;
+}
+
+/**
+ * The plan card — the history screen's entry point into the editor.
+ *
+ * It sits above the data actions because "what am I training" belongs with
+ * export/import/clear: they are all things you do to your DATA, not during a
+ * workout.
+ */
+function planCard(state: ReturnType<DataStore['getState']>): string {
+  const custom = !isDefaultPlan(state.plan);
+  const program = resolveProgram(state.plan);
+  const counts = DAY_ORDER.map((k) => `${program[k].label}: ${program[k].exercises.length}`).join(' · ');
+  return `
+  <section class="game-card plan-card">
+    <h3 class="gc-title">תוכנית האימונים
+      <span class="gc-sub">${custom ? `מותאמת אישית · גרסה ${state.plan?.rev ?? 1}` : 'התוכנית המקורית'}</span>
+    </h3>
+    <p class="gc-note">${esc(counts)}</p>
+    <button class="action-btn plan-card-btn" id="btnPlanEdit">⚙️ עריכת התוכנית</button>
+  </section>`;
 }
 
 export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
@@ -36,6 +59,7 @@ export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
     <button class="action-btn" id="btnImport">⬆ ייבוא JSON</button>
     <button class="action-btn danger" id="btnClear">🗑 מחיקה</button>
   </div>
+  ${planCard(state)}
   ${renderFeed(deps.store.getEvents(), 40, resolve)}
   <h2 class="hist-heading">אימונים מתועדים</h2>`;
 
@@ -83,6 +107,10 @@ function bind(main: HTMLElement, deps: HistoryDeps): void {
 
   main.querySelector<HTMLButtonElement>('#btnImport')?.addEventListener('click', () => {
     fileInput.click();
+  });
+
+  main.querySelector<HTMLButtonElement>('#btnPlanEdit')?.addEventListener('click', () => {
+    deps.editPlan?.();
   });
 
   main.querySelector<HTMLButtonElement>('#btnClear')?.addEventListener('click', () => {

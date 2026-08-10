@@ -52,7 +52,9 @@ function mount(store: LocalStore = new LocalStore(fakeStorage())): { store: Loca
 
 function currentDay(store: LocalStore) {
   const view = store.getState().ui.view;
-  if (view === 'H' || view === 'CH' || view === 'BT') throw new Error('unexpected default view');
+  if (view === 'H' || view === 'CH' || view === 'BT' || view === 'PL') {
+    throw new Error('unexpected default view');
+  }
   return view;
 }
 
