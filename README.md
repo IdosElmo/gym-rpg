@@ -101,6 +101,7 @@ legacy/index.html        # האפליקציה המקורית, נשמרה כפי 
 |---|---|
 | `gymrpg_state_v1` | תמונת מצב נוכחית (`AppState`) |
 | `gymrpg_events_v1` | יומן אירועים append‑only |
+| `gymrpg_device_v1` | מזהה **התקנה** (uuid) — מוטבע על כל אירוע שהמכשיר כותב |
 | `hyp3_data_v1` | הנתונים הישנים — נקראים פעם אחת לייבוא, **לא נמחקים** |
 | `hyp3_ui_v1` | מצב UI ישן (טאב נבחר, כרטיסים פתוחים) |
 
@@ -117,12 +118,14 @@ legacy/index.html        # האפליקציה המקורית, נשמרה כפי 
   },
   ui:   { view: "A" | "B" | "C" | "CH" | "BT" | "H", open: { [exerciseId]: boolean } },
   game: {                           // GameState — ראו "שכבת המשחק" למטה
-    version: 3,                     // v3 (Phase 3): bossesDefeated + equipment
+    version: 4,                     // v4: מנעולי מיזוג (energyGranted + prKeys)
     parts: { chest: {xp, level}, back: …, legs: …, shoulders: …, arms: …, core: … },
     level, totalXp, energy, energyEarned, prCount,
     best:       { [exerciseId]: bestVolume },      // weight×reps הגבוה ביותר
     granted:    { "date|exId|setIndex": true },    // מנעול נגד חקלאות XP
     bonusDays:  { "YYYY-MM-DD": true },            // בונוס סיום אימון — פעם אחת ליום
+    energyGranted: { "<key>": true },              // מנעול אנרגיה לפי key של האירוע
+    prKeys:     { "date|exId|setIndex": true },    // מנעול ספירת שיאים
     workoutDays: ["YYYY-MM-DD", …],                // ימי אימון חיים (בסיס הרצף)
     streak: { tier, weekStart, daysThisWeek, needed },
     battle: {                                      // Phase 2 + 3
@@ -148,8 +151,9 @@ legacy/index.html        # האפליקציה המקורית, נשמרה כפי 
 
 ### יומן אירועים (append‑only)
 
-כל פעולה משמעותית נרשמת כאירוע `{ id: uuid, ts: epochMs, type, payload }`
-ונשמרת לצד תמונת המצב. זה מה שיאפשר בעתיד סנכרון בין מכשירים בלי כתיבה מחדש.
+כל פעולה משמעותית נרשמת כאירוע
+`{ id: uuid, ts: epochMs, type, payload, device? }` ונשמרת לצד תמונת המצב. זה מה
+שיאפשר בעתיד סנכרון בין מכשירים בלי כתיבה מחדש.
 
 | סוג | נרשם מתי |
 |---|---|
@@ -160,13 +164,14 @@ legacy/index.html        # האפליקציה המקורית, נשמרה כפי 
 | `session_imported` | אימון היסטורי שיובא — כולל כל הסטים, עם `ts` של תאריך האימון |
 | `data_imported` / `data_cleared` | ייבוא קובץ JSON / מחיקת הכול |
 | `xp_gained` | כל הענקת XP — כולל הפיצול לחלקי גוף, `volume`, `factor`, `pr`, `retro` |
-| `energy_gained` | אנרגיית קרב (10 לסט, 50 לסיום אימון) |
+| `energy_gained` | אנרגיית קרב (10 לסט, 50 לסיום אימון) — נושא `key` למניעת תשלום כפול |
 | `pr_achieved` | שיא אישי חדש בתרגיל |
 | `level_up` / `streak_changed` | אינפורמטיביים (הרמה והדרגה **נגזרות**, ראו למטה) |
 | `wave_cleared` | גל שנוצח — `{world, wave, miniBoss, enemyId, coins, energySpent, seed, durationMs}` |
 | `boss_defeated` | בוס עולם הופל — `{world, wave, bossId, coins, energySpent, seed, durationMs, nextWorld, nextWave, endgame}` |
 | `coins_spent` | רכישה בחנות — `{itemId, slot, cost}` (מוריד מטבעות ומוסיף ל‑`owned`) |
 | `item_equipped` | הצטיידות/הסרה — `{slot, itemId \| null}` |
+| `plan_updated` / `data_merged` | **מוצהרים בלבד** — תוכנית אימונים ומיזוג ענן, יגיעו בשלבים הבאים |
 
 **מטען סמכותי (authoritative payload):** `boss_defeated` נושא את `nextWorld`/
 `nextWave` ולא רק את מזהה הבוס. כך ה‑reducer לא צריך *לגזור* מחדש את חוק
@@ -177,8 +182,18 @@ legacy/index.html        # האפליקציה המקורית, נשמרה כפי 
 שנגבתה, וזה כל מה שצריך כדי לשחזר את ההתקדמות ב‑`rebuildFromEvents`.
 
 `rebuildFromEvents(events)` בונה מחדש את המצב מהיומן בלבד (דטרמיניסטי, ממוין
-לפי `ts`), כולל `state.game` דרך `rebuildGame`. האפליקציה החיה וה‑replay מריצים
-**בדיוק את אותו reducer על אותם אירועים** — יש בדיקות שמוכיחות שהתוצאה זהה.
+לפי `(ts, id)`), כולל `state.game` דרך `rebuildGame`. האפליקציה החיה וה‑replay
+מריצים **בדיוק את אותו reducer על אותם אירועים** — יש בדיקות שמוכיחות שהתוצאה
+זהה.
+
+**בטיחות מיזוג (merge-safety).** הסדר נקבע לפי `(ts, id)` ולכן הוא תכונה של
+*קבוצת* האירועים ולא של סדר ההגעה: שני מכשירים שמחזיקים את אותם אירועים יקפלו
+אותם לאותו מצב בדיוק. בנוסף, ה‑reducer **אידמפוטנטי לפי מפתח סמנטי** — אותה
+הענקה משני מכשירים (uuid שונה, אותה משמעות) משלמת פעם אחת בלבד: `granted`
+לסטים, `bonusDays` לבונוס היומי, `prKeys` לשיאים ו‑`energyGranted` לאנרגיה. כל
+מכשיר גם מוטבע ב‑`device` ומחתים חותמות זמן **עולות ממש**, כך שאפילו שעון
+שקופץ אחורה לא הופך את סדר האירועים של אותו מכשיר. `tests/merge.test.ts` מוכיח
+את ההתכנסות.
 
 ### מיגרציה מהאפליקציה הישנה
 
