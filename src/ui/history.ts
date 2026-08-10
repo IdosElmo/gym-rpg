@@ -7,8 +7,9 @@
  * fills. Import accepts BOTH the new blob and the legacy `{sessions:{…}}` file.
  */
 
-import { PROGRAM, findExercise, isDayKey } from '../data/program.ts';
+import { isDayKey } from '../data/program.ts';
 import { fmtDate, isSetFilled, todayISO } from '../core/workout.ts';
+import { makeResolver, resolveProgram } from '../core/plan.ts';
 import type { DataStore } from '../storage/DataStore.ts';
 import { buildExport, parseImport } from '../storage/migrate.ts';
 import { esc, must } from './dom.ts';
@@ -23,6 +24,11 @@ export interface HistoryDeps {
 export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
   const state = deps.store.getState();
   const dates = Object.keys(state.sessions).sort().reverse();
+  const program = resolveProgram(state.plan);
+  // History shows exercises BY ID, long after a plan may have changed — so it
+  // resolves through the plan (customs included) and still tolerates an id that
+  // resolves to nothing at all.
+  const resolve = makeResolver(state.plan);
 
   let html = `
   <div class="data-actions">
@@ -30,7 +36,7 @@ export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
     <button class="action-btn" id="btnImport">⬆ ייבוא JSON</button>
     <button class="action-btn danger" id="btnClear">🗑 מחיקה</button>
   </div>
-  ${renderFeed(deps.store.getEvents())}
+  ${renderFeed(deps.store.getEvents(), 40, resolve)}
   <h2 class="hist-heading">אימונים מתועדים</h2>`;
 
   const nonEmpty = dates.filter((d) => Object.keys(state.sessions[d]?.ex ?? {}).length > 0);
@@ -41,22 +47,22 @@ export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
       .map((date) => {
         const s = state.sessions[date];
         if (!s) return '';
-        const p = isDayKey(s.day) ? PROGRAM[s.day] : PROGRAM.A;
+        const p = isDayKey(s.day) ? program[s.day] : program.A;
         const exHtml = Object.keys(s.ex)
           .map((exId) => {
-            const exDef = findExercise(exId);
+            const exDef = resolve(exId);
             const sets = (s.ex[exId] ?? []).filter((x) => isSetFilled(x));
             if (!sets.length) return '';
             const setsTxt = sets
               .map((x) => `${x && x.w !== '' ? esc(x.w) : '–'}kg×${x && x.r !== '' ? esc(x.r) : '–'}${x && x.done ? '✓' : ''}`)
               .join('  |  ');
-            return `<div class="hist-ex"><b>${exDef ? exDef.he : esc(exId)}</b><br><span class="hist-sets">${setsTxt}</span></div>`;
+            return `<div class="hist-ex"><b>${esc(exDef ? exDef.he : exId)}</b><br><span class="hist-sets">${setsTxt}</span></div>`;
           })
           .join('');
         if (!exHtml) return '';
         return `<div class="hist-day">
-        <h3>${fmtDate(date)} · ${p.label} (יום ${p.day})</h3>
-        <div class="sub">${p.focus}</div>
+        <h3>${fmtDate(date)} · ${esc(p.label)} (יום ${esc(p.day)})</h3>
+        <div class="sub">${esc(p.focus)}</div>
         ${exHtml}
       </div>`;
       })

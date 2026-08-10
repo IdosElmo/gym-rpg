@@ -14,7 +14,7 @@
  * farming XP by unchecking and re-checking a set.
  */
 
-import { BODY_PART_HE, PROGRAM, equipHe, type DayKey, type Exercise } from '../data/program.ts';
+import { BODY_PART_HE, equipHe, type DayKey, type Exercise, type ProgramMap } from '../data/program.ts';
 import {
   doneCount,
   getSetData,
@@ -22,6 +22,7 @@ import {
   prevPerf,
   todayISO,
 } from '../core/workout.ts';
+import { resolveProgram } from '../core/plan.ts';
 import { onSetCompleted, onWorkoutFinished, type GrantResult } from '../core/game.ts';
 import type { DataStore } from '../storage/DataStore.ts';
 import type { RestTimer } from './timer.ts';
@@ -40,7 +41,10 @@ export interface WorkoutDeps {
 export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps): void {
   const { store } = deps;
   const state = store.getState();
-  const p = PROGRAM[view];
+  // The user's plan when there is one, the built-in PROGRAM object itself when
+  // there isn't — so an un-edited install renders exactly the same objects.
+  const program = resolveProgram(state.plan);
+  const p = program[view];
   const today = todayISO();
 
   main.innerHTML = p.exercises
@@ -80,27 +84,32 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
       }
       const open = state.ui.open[ex.id] ? 'open' : '';
       const allDone = done === ex.sets ? 'done-all' : '';
+      // A custom exercise has no coaching copy, so it gets no toggle and no
+      // panel at all — an empty "הסבר ודגשי ביצוע" drawer would just be a lie.
+      const hasGuide = ex.steps.length > 0 || ex.cue !== '' || ex.mistake !== '';
+      const guide = hasGuide
+        ? `<button class="form-toggle" data-toggle="${esc(ex.id)}">
+        <span>הסבר ודגשי ביצוע</span><span class="chev">▾</span>
+      </button>
+      <div class="form-panel">
+        ${ex.steps.length > 0 ? `<h4>שלבי ביצוע</h4><ol>${ex.steps.map((s) => `<li>${s}</li>`).join('')}</ol>` : ''}
+        ${ex.cue ? `<div class="cue">💡 <b>דגש:</b> ${ex.cue}</div>` : ''}
+        ${ex.mistake ? `<div class="mistake">⚠️ ${ex.mistake}</div>` : ''}
+      </div>`
+        : '';
       return `
     <section class="ex-card ${open} ${allDone}" id="card-${esc(ex.id)}">
       <div class="ex-head">
         <div class="ex-order">תרגיל ${idx + 1} / ${p.exercises.length}</div>
-        <h2 class="ex-title">${ex.he}</h2>
-        <div class="ex-title-en">${ex.en}</div>
+        <h2 class="ex-title">${esc(ex.he)}</h2>
+        <div class="ex-title-en">${esc(ex.en)}</div>
         <div class="badges">
-          <span class="badge muscle">🎯 ${ex.muscle}</span>
-          <span class="badge scheme">${ex.sets} סטים × ${ex.reps}</span>
-          ${ex.equip.map((e) => `<span class="badge equip">${equipHe(e)}</span>`).join('')}
+          <span class="badge muscle">🎯 ${esc(ex.muscle)}</span>
+          <span class="badge scheme">${ex.sets} סטים × ${esc(ex.reps)}</span>
+          ${ex.equip.map((e) => `<span class="badge equip">${esc(equipHe(e))}</span>`).join('')}
         </div>
       </div>
-      <button class="form-toggle" data-toggle="${esc(ex.id)}">
-        <span>הסבר ודגשי ביצוע</span><span class="chev">▾</span>
-      </button>
-      <div class="form-panel">
-        <h4>שלבי ביצוע</h4>
-        <ol>${ex.steps.map((s) => `<li>${s}</li>`).join('')}</ol>
-        <div class="cue">💡 <b>דגש:</b> ${ex.cue}</div>
-        <div class="mistake">⚠️ ${ex.mistake}</div>
-      </div>
+      ${guide}
       <div class="log">
         <div class="log-row head">
           <div style="text-align:center">סט</div><div style="text-align:center">משקל (ק"ג)</div>
@@ -113,14 +122,20 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
     })
     .join('');
 
-  bind(main, view, deps, today);
+  bind(main, view, deps, today, program);
 }
 
-function findEx(view: DayKey, exId: string): Exercise | undefined {
-  return PROGRAM[view].exercises.find((e) => e.id === exId);
+function findEx(program: ProgramMap, view: DayKey, exId: string): Exercise | undefined {
+  return program[view].exercises.find((e) => e.id === exId);
 }
 
-function bind(main: HTMLElement, view: DayKey, deps: WorkoutDeps, today: string): void {
+function bind(
+  main: HTMLElement,
+  view: DayKey,
+  deps: WorkoutDeps,
+  today: string,
+  program: ProgramMap,
+): void {
   const { store, timer, refreshHeader } = deps;
 
   main.querySelectorAll<HTMLButtonElement>('.form-toggle').forEach((b) => {
@@ -159,7 +174,7 @@ function bind(main: HTMLElement, view: DayKey, deps: WorkoutDeps, today: string)
       const exId = btn.dataset['ex'];
       const i = Number(btn.dataset['set']);
       if (!exId || !Number.isInteger(i)) return;
-      const ex = findEx(view, exId);
+      const ex = findEx(program, view, exId);
       if (!ex) return;
 
       let nowDone = false;
@@ -195,7 +210,7 @@ function bind(main: HTMLElement, view: DayKey, deps: WorkoutDeps, today: string)
         timer.start(ex.rest, `${ex.he} · סט ${i + 1} הושלם`);
         const grant = onSetCompleted(store, { date: today, day: view, ex, setIndex: i, w, r });
         celebrateSet(btn, ex, grant);
-        maybeFinishWorkout(store, view, today, btn);
+        maybeFinishWorkout(store, view, today, btn, program);
       }
       refreshHeader();
     });
@@ -226,8 +241,14 @@ function celebrateSet(anchor: Element, ex: Exercise, grant: GrantResult): void {
  * every body part + bonus battle energy). Guarded twice — by the event log here
  * and by `game.bonusDays` inside the engine — so it can only pay once per date.
  */
-function maybeFinishWorkout(store: DataStore, view: DayKey, date: string, anchor: Element): void {
-  if (!isWorkoutComplete(store.getState(), view, date)) return;
+function maybeFinishWorkout(
+  store: DataStore,
+  view: DayKey,
+  date: string,
+  anchor: Element,
+  program: ProgramMap,
+): void {
+  if (!isWorkoutComplete(store.getState(), view, date, program)) return;
   const already = store.getEvents().some((e) => e.type === 'workout_finished' && e.payload['date'] === date);
   if (already) return;
   store.append('workout_finished', { date, day: view });

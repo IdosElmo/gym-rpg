@@ -6,8 +6,9 @@
  * render function.
  */
 
-import { DAY_NAMES, DAY_ORDER, PROGRAM, isDayKey } from '../data/program.ts';
+import { DAY_NAMES, DAY_ORDER, isDayKey } from '../data/program.ts';
 import { fmtDate, lastLoggedDate } from '../core/workout.ts';
+import { resolveProgram } from '../core/plan.ts';
 import { gameOf } from '../core/game.ts';
 import { worldById } from '../data/gameContent.ts';
 import type { DataStore, ViewKey } from '../storage/DataStore.ts';
@@ -37,11 +38,12 @@ export function createApp(store: DataStore, timer: RestTimer): App {
 
   function renderTabs(): void {
     const view = store.getState().ui.view;
+    const program = resolveProgram(store.getState().plan);
     tabsEl.innerHTML =
       DAY_ORDER.map(
         (k) => `
     <button class="tab ${view === k ? 'active' : ''}" data-view="${k}">
-      <span class="d">${DAY_NAMES[k]}</span><span class="w">${PROGRAM[k].label}</span>
+      <span class="d">${DAY_NAMES[k]}</span><span class="w">${program[k].label}</span>
     </button>`,
       ).join('') +
       `<button class="tab char-tab ${view === 'CH' ? 'active' : ''}" data-view="CH">
@@ -90,8 +92,9 @@ export function createApp(store: DataStore, timer: RestTimer): App {
       <p class="day-meta">${world.he} · גל <b>${game.battle.wave}</b> · רמה <b>${game.level}</b></p>${energyPill()}`;
       return;
     }
-    const p = PROGRAM[view];
-    const last = lastLoggedDate(state, view);
+    const program = resolveProgram(state.plan);
+    const p = program[view];
+    const last = lastLoggedDate(state, view, program);
     headerEl.innerHTML = `
     <h1 class="app-title">יום ${p.day} · ${p.label} <span class="en">Hypertrophy</span></h1>
     <p class="day-meta"><b>${p.dur}</b> · ${p.focus}</p>

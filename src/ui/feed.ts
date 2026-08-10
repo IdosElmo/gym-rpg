@@ -10,7 +10,7 @@
  * readable; mini-bosses and world bosses always get their own line.
  */
 
-import { BODY_PART_HE, findExercise, type BodyPart } from '../data/program.ts';
+import { BODY_PART_HE, findExercise, type BodyPart, type ExerciseResolver } from '../data/program.ts';
 import {
   EQUIPMENT_SLOTS,
   SLOT_HE,
@@ -62,8 +62,17 @@ interface WaveRun {
 
 /**
  * Build the feed, newest first. `limit` caps the number of LINES, not events.
+ *
+ * `resolve` defaults to the built-in lookup; the history screen passes a
+ * plan-aware resolver so a PR on a CUSTOM exercise shows its name instead of
+ * its raw `cx_…` id. An exercise that has since been deleted from the plan
+ * still falls back to the id, exactly as a removed built-in always did.
  */
-export function buildFeed(events: readonly AppEvent[], limit = 40): FeedItem[] {
+export function buildFeed(
+  events: readonly AppEvent[],
+  limit = 40,
+  resolve: ExerciseResolver = findExercise,
+): FeedItem[] {
   const items: FeedItem[] = [];
   let run: WaveRun | null = null;
 
@@ -127,7 +136,7 @@ export function buildFeed(events: readonly AppEvent[], limit = 40): FeedItem[] {
         break;
       }
       case 'pr_achieved': {
-        const ex = findExercise(str(p['exId']));
+        const ex = resolve(str(p['exId']));
         items.push({
           ts: ev.ts,
           date,
@@ -207,8 +216,12 @@ export function buildFeed(events: readonly AppEvent[], limit = 40): FeedItem[] {
   return items.reverse().sort((a, b) => b.ts - a.ts).slice(0, limit);
 }
 
-export function renderFeed(events: readonly AppEvent[], limit = 40): string {
-  const items = buildFeed(events, limit);
+export function renderFeed(
+  events: readonly AppEvent[],
+  limit = 40,
+  resolve: ExerciseResolver = findExercise,
+): string {
+  const items = buildFeed(events, limit, resolve);
   if (items.length === 0) {
     return `<section class="game-card">
       <h3 class="gc-title">יומן הרפתקה <span class="gc-sub">אירועי המשחק</span></h3>
