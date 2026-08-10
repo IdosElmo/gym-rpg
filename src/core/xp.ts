@@ -1,42 +1,639 @@
 /**
- * core/xp.ts — XP formulas, levels, streaks.
+ * core/xp.ts — XP formulas, body-part levels, streaks and the game reducer.
  *
- * PHASE 0 PLACEHOLDER — types only, no logic yet.
- * Phase 1 implements these as PURE functions (no DOM, no storage) plus Vitest
- * coverage for: the level curve, volumeFactor clamping, PR detection (×2 XP +
- * `pr_achieved` event), workout-completion bonus and the Sun–Sat streak tiers.
+ * Everything here is PURE: no DOM, no storage, no `Date.now()`. The current
+ * date is always passed in, so live state and replayed state are byte-identical.
  *
- * Inputs it will consume, already available in Phase 0:
- *   - `bodyPartWeights(exercise)` from `data/program.ts` (incl. 70/30 splits)
- *   - `session_imported` events from `storage/migrate.ts` for retroactive XP
- *   - tuning constants from `core/balance.ts`
+ * DESIGN — event sourcing
+ * ----------------------
+ * `GameState` is a CACHE. The append-only log is the source of truth:
+ *   grant builders (`buildSetGrant`, `buildWorkoutCompletionGrant`) look at the
+ *   current game state and RETURN the events to append; `applyGameEvent` folds
+ *   an event into the state. The live app and `rebuildGame()` run the exact same
+ *   reducer over the exact same events, which is what makes replay provably
+ *   equivalent (see tests/xp.test.ts + tests/game.test.ts).
+ *
+ * DESIGN — no XP farming
+ * ----------------------
+ * XP/energy are granted ONCE per (date, exercise, set index), recorded in
+ * `game.granted`. Unchecking a set does NOT refund XP, and re-checking it grants
+ * nothing new — so the check button can never be used as an XP faucet. Same idea
+ * for the workout-completion bonus, guarded once per date via `game.bonusDays`.
+ *
+ * DESIGN — retroactive history
+ * ----------------------------
+ * Sessions that predate the game layer (legacy import, JSON import, or workouts
+ * logged under Phase 0) are granted XP with `retro: true`. Retro grants pay XP
+ * and PRs, but deliberately NOT battle energy and NOT streak days — the streak
+ * starts at 0 for imported history, per the brief.
  */
 
-import type { BodyPart } from '../data/program.ts';
+import {
+  BODY_PARTS,
+  PROGRAM,
+  bodyPartWeights,
+  findExercise,
+  type BodyPart,
+  type DayKey,
+  type Exercise,
+} from '../data/program.ts';
+import { BALANCE } from './balance.ts';
+import {
+  GAME_STATE_VERSION,
+  type AppEvent,
+  type EventType,
+  type GameState,
+  type PartsProgress,
+  type Session,
+  type SetEntry,
+  type StreakState,
+} from '../storage/DataStore.ts';
 
-/** XP pool of one body part. */
-export interface PartProgress {
+/* ------------------------------------------------------------- primitives */
+
+export function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
+}
+
+/** Round to 2 decimals — keeps the event log tidy and float noise out of tests. */
+export function round2(v: number): number {
+  return Math.round(v * 100) / 100;
+}
+
+/** Parse a logged string field ("42.5", "", "abc") into a non-negative number. */
+export function toNumber(v: unknown): number {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  if (typeof v !== 'string') return 0;
+  const n = Number.parseFloat(v.replace(',', '.'));
+  return Number.isFinite(n) ? n : 0;
+}
+
+/* ------------------------------------------------------------ level curve */
+
+/** XP needed to go FROM level `n` to level `n+1` — `100 × 1.35^(n−1)`. */
+export function xpForLevel(level: number): number {
+  const n = Math.max(1, Math.floor(level));
+  return BALANCE.xp.levelBase * Math.pow(BALANCE.xp.levelGrowth, n - 1);
+}
+
+/** Cumulative XP needed to REACH level `n` (level 1 costs nothing). */
+export function totalXpToReach(level: number): number {
+  const n = Math.max(1, Math.floor(level));
+  const g = BALANCE.xp.levelGrowth;
+  return (BALANCE.xp.levelBase * (Math.pow(g, n - 1) - 1)) / (g - 1);
+}
+
+/** Level for a total XP pool. Levels start at 1 and are capped by balance. */
+export function levelForXp(totalXp: number): number {
+  let remaining = Math.max(0, totalXp);
+  let level = 1;
+  while (level < BALANCE.xp.maxLevel) {
+    const need = xpForLevel(level);
+    if (remaining < need) break;
+    remaining -= need;
+    level += 1;
+  }
+  return level;
+}
+
+export interface LevelProgress {
+  level: number;
+  /** XP accumulated inside the current level. */
+  into: number;
+  /** XP the current level needs in total. */
+  need: number;
+  /** `into / need`, clamped to 0..1 — the progress-bar width. */
+  ratio: number;
+}
+
+export function levelProgress(totalXp: number): LevelProgress {
+  const level = levelForXp(totalXp);
+  const into = Math.max(0, totalXp - totalXpToReach(level));
+  const need = xpForLevel(level);
+  return { level, into: round2(into), need: round2(need), ratio: clamp(need > 0 ? into / need : 1, 0, 1) };
+}
+
+/** Headline character level = floor(average of the six body-part levels). */
+export function characterLevel(parts: PartsProgress): number {
+  let sum = 0;
+  for (const part of BODY_PARTS) sum += parts[part].level;
+  return Math.max(1, Math.floor(sum / BODY_PARTS.length));
+}
+
+/* ---------------------------------------------------------------- volume */
+
+/**
+ * Volume of one logged set.
+ * - weighted sets: `weight × reps`
+ * - bodyweight / timed sets (no weight): the reps or seconds value alone
+ * - a weight with no reps: the weight alone (partial log, better than 0)
+ */
+export function setVolume(w: string, r: string): number {
+  const weight = toNumber(w);
+  const reps = toNumber(r);
+  if (weight > 0 && reps > 0) return round2(weight * reps);
+  if (reps > 0) return reps;
+  if (weight > 0) return weight;
+  return 0;
+}
+
+/** `clamp(volume / previousBest, 0.5, 1.5)`; 1 when there is nothing to compare. */
+export function volumeFactor(volume: number, previousBest: number): number {
+  if (!(volume > 0) || !(previousBest > 0)) return 1;
+  return clamp(volume / previousBest, BALANCE.xp.volumeFactorMin, BALANCE.xp.volumeFactorMax);
+}
+
+/**
+ * A PR needs a previous best to beat: the very first set of an exercise
+ * ESTABLISHES the baseline rather than being celebrated as a record.
+ */
+export function isPersonalRecord(volume: number, previousBest: number): boolean {
+  return volume > 0 && previousBest > 0 && volume > previousBest;
+}
+
+export interface SetXpResult {
   xp: number;
-  level: number;
+  factor: number;
+  pr: boolean;
+  volume: number;
 }
 
-export type PartsProgress = Record<BodyPart, PartProgress>;
-
-export interface StreakState {
-  /** Permanent stacking tier; +10% all stats per tier. */
-  tier: number;
-  /** ISO date (Sunday) of the last week that was evaluated. */
-  lastWeekStart: string | null;
+/** `baseXP × volumeFactor`, doubled on a new personal record. */
+export function xpForSet(volume: number, previousBest: number): SetXpResult {
+  const factor = volumeFactor(volume, previousBest);
+  const pr = isPersonalRecord(volume, previousBest);
+  const xp = round2(BALANCE.xp.baseSetXp * factor * (pr ? BALANCE.xp.prMultiplier : 1));
+  return { xp, factor: round2(factor), pr, volume };
 }
 
-export interface CharacterState {
-  parts: PartsProgress;
-  streak: StreakState;
-  /** Headline level, derived from the part levels. */
-  level: number;
+/** Split a set's XP across the exercise's body parts (weights always sum to 1). */
+export function splitXp(xp: number, ex: Exercise): Partial<Record<BodyPart, number>> {
+  const weights = bodyPartWeights(ex);
+  const out: Partial<Record<BodyPart, number>> = {};
+  for (const part of BODY_PARTS) {
+    const w = weights[part];
+    if (w > 0) out[part] = round2(xp * w);
+  }
+  return out;
 }
 
-// TODO(phase 1): xpForLevel(n), levelForXp(xp), volumeOf(set, exercise),
-// volumeFactor(volume, previousBest), xpForSet(...), applyWorkoutCompletion(...),
-// evaluateStreak(sessionDates, week), grantRetroactiveXp(events).
-export {};
+/** The workout-completion bonus: a flat amount to EVERY body part. */
+export function completionSplit(): Partial<Record<BodyPart, number>> {
+  const out: Partial<Record<BodyPart, number>> = {};
+  for (const part of BODY_PARTS) out[part] = BALANCE.xp.workoutCompletionBonus;
+  return out;
+}
+
+/* ---------------------------------------------------------------- streaks */
+
+const DAY_MS = 86_400_000;
+
+/** ISO date -> epoch ms at 00:00 UTC (deterministic, DST-free date math). */
+export function isoToTs(date: string): number {
+  const t = Date.parse(`${date}T00:00:00.000Z`);
+  return Number.isNaN(t) ? 0 : t;
+}
+
+export function tsToIso(ts: number): string {
+  return new Date(ts).toISOString().slice(0, 10);
+}
+
+export function addDays(date: string, days: number): string {
+  return tsToIso(isoToTs(date) + days * DAY_MS);
+}
+
+/** Sunday that starts the calendar week containing `date` (Sun–Sat weeks). */
+export function weekStartISO(date: string): string {
+  const ts = isoToTs(date);
+  const dow = new Date(ts).getUTCDay(); // 0 = Sunday
+  return tsToIso(ts - dow * DAY_MS);
+}
+
+/**
+ * Streak tier from the distinct LIVE workout days.
+ *
+ * Every calendar week that has already CLOSED (i.e. every week before the one
+ * containing `today`), starting from the week of the first workout, is judged:
+ * ≥3 distinct workout days → tier +1, otherwise tier −1 (floor 0). The week in
+ * progress is never judged. Levels and XP are never touched by a tier drop.
+ */
+export function computeStreak(days: readonly string[], today: string): StreakState {
+  const needed = BALANCE.streak.daysPerWeek;
+  const currentWeek = weekStartISO(today);
+  const unique = [...new Set(days)].sort();
+  const first = unique[0];
+  if (first === undefined) {
+    return { tier: 0, weekStart: currentWeek, daysThisWeek: 0, needed };
+  }
+
+  let tier = 0;
+  let week = weekStartISO(first);
+  // Guard against a corrupt far-past date turning this into an infinite loop.
+  for (let guard = 0; week < currentWeek && guard < 5200; guard += 1) {
+    const end = addDays(week, 7);
+    const count = unique.filter((d) => d >= week && d < end).length;
+    tier = count >= needed ? tier + 1 : Math.max(0, tier - 1);
+    week = end;
+  }
+
+  const weekEnd = addDays(currentWeek, 7);
+  const daysThisWeek = unique.filter((d) => d >= currentWeek && d < weekEnd).length;
+  return { tier, weekStart: currentWeek, daysThisWeek, needed };
+}
+
+/** The permanent stacking buff multiplier: `1 + 0.1 × tier`. */
+export function streakMultiplier(tier: number): number {
+  return 1 + BALANCE.streak.buffPerTier * Math.max(0, tier);
+}
+
+/* ------------------------------------------------------------ game state */
+
+export function emptyParts(): PartsProgress {
+  return {
+    chest: { xp: 0, level: 1 },
+    back: { xp: 0, level: 1 },
+    legs: { xp: 0, level: 1 },
+    shoulders: { xp: 0, level: 1 },
+    arms: { xp: 0, level: 1 },
+    core: { xp: 0, level: 1 },
+  };
+}
+
+export function emptyGame(): GameState {
+  return {
+    version: GAME_STATE_VERSION,
+    parts: emptyParts(),
+    level: 1,
+    totalXp: 0,
+    energy: 0,
+    energyEarned: 0,
+    prCount: 0,
+    best: {},
+    granted: {},
+    bonusDays: {},
+    workoutDays: [],
+    streak: { tier: 0, weekStart: null, daysThisWeek: 0, needed: BALANCE.streak.daysPerWeek },
+  };
+}
+
+/** Key of one payout slot — the anti-farming guard. */
+export function grantKey(date: string, exId: string, setIndex: number): string {
+  return `${date}|${exId}|${setIndex}`;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function isBodyPart(v: string): v is BodyPart {
+  return (BODY_PARTS as readonly string[]).includes(v);
+}
+
+/**
+ * Fold ONE event into the game state (in place).
+ *
+ * Only the "authoritative" events change state: `xp_gained`, `energy_gained`,
+ * `pr_achieved` (a counter) and `data_cleared` (a reset). `level_up` and
+ * `streak_changed` are informational — levels and tiers are DERIVED, so folding
+ * them would be double bookkeeping; they exist for the history feed and the UI.
+ */
+export function applyGameEvent(game: GameState, type: EventType, payload: Record<string, unknown>): void {
+  switch (type) {
+    case 'xp_gained': {
+      const parts = payload['parts'];
+      if (isRecord(parts)) {
+        for (const key of Object.keys(parts)) {
+          if (!isBodyPart(key)) continue;
+          const amount = toNumber(parts[key]);
+          if (amount <= 0) continue;
+          game.parts[key].xp = round2(game.parts[key].xp + amount);
+          game.totalXp = round2(game.totalXp + amount);
+        }
+      }
+      const date = typeof payload['date'] === 'string' ? payload['date'] : '';
+      const exId = typeof payload['exId'] === 'string' ? payload['exId'] : '';
+      const setIndex = typeof payload['setIndex'] === 'number' ? payload['setIndex'] : -1;
+      if (date && exId && setIndex >= 0) game.granted[grantKey(date, exId, setIndex)] = true;
+
+      const volume = toNumber(payload['volume']);
+      if (exId && volume > 0) game.best[exId] = Math.max(game.best[exId] ?? 0, volume);
+
+      if (payload['source'] === 'workout_complete' && date) game.bonusDays[date] = true;
+      if (payload['retro'] !== true && date && !game.workoutDays.includes(date)) {
+        game.workoutDays.push(date);
+        game.workoutDays.sort();
+      }
+      break;
+    }
+    case 'energy_gained': {
+      const amount = toNumber(payload['amount']);
+      if (amount > 0) {
+        game.energy = round2(game.energy + amount);
+        game.energyEarned = round2(game.energyEarned + amount);
+      }
+      break;
+    }
+    case 'pr_achieved':
+      game.prCount += 1;
+      break;
+    case 'data_cleared': {
+      const fresh = emptyGame();
+      Object.assign(game, fresh);
+      break;
+    }
+    // Derived / not owned by the game state — see the doc comment above.
+    default:
+      break;
+  }
+}
+
+/** Recompute every derived field (levels, headline level, streak). */
+export function finalizeGame(game: GameState, today: string): void {
+  for (const part of BODY_PARTS) {
+    game.parts[part].level = levelForXp(game.parts[part].xp);
+  }
+  game.level = characterLevel(game.parts);
+  game.streak = computeStreak(game.workoutDays, today);
+}
+
+/** Deterministically rebuild the whole game layer from the event log. */
+export function rebuildGame(events: readonly AppEvent[], today: string): GameState {
+  const game = emptyGame();
+  const ordered = [...events].sort((a, b) => (a.ts === b.ts ? 0 : a.ts - b.ts));
+  for (const ev of ordered) applyGameEvent(game, ev.type, ev.payload);
+  finalizeGame(game, today);
+  return game;
+}
+
+/* --------------------------------------------------------- grant builders */
+
+/** An event that is about to be appended: `{type, payload}` plus its timestamp. */
+export interface PendingEvent {
+  type: EventType;
+  payload: Record<string, unknown>;
+  ts: number;
+}
+
+function levelUpEvents(
+  before: PartsProgress,
+  parts: Partial<Record<BodyPart, number>>,
+  meta: { date: string; retro: boolean; ts: number },
+): PendingEvent[] {
+  const out: PendingEvent[] = [];
+  let offset = 0;
+  for (const part of BODY_PARTS) {
+    const gain = parts[part];
+    if (!gain || gain <= 0) continue;
+    const from = levelForXp(before[part].xp);
+    const to = levelForXp(before[part].xp + gain);
+    if (to > from) {
+      out.push({
+        type: 'level_up',
+        payload: { date: meta.date, part, from, to, retro: meta.retro },
+        ts: meta.ts + offset,
+      });
+      offset += 1;
+    }
+  }
+  return out;
+}
+
+export interface SetGrantArgs {
+  date: string;
+  day: DayKey;
+  ex: Exercise;
+  setIndex: number;
+  w: string;
+  r: string;
+  /** Retro grants pay XP + PRs but no energy and no streak day. */
+  retro: boolean;
+  /** Timestamp of the first emitted event (siblings get +1ms each). */
+  ts: number;
+}
+
+/**
+ * Events for completing ONE set. Returns `[]` when this exact
+ * (date, exercise, set) already paid out — the anti-farming guard.
+ */
+export function buildSetGrant(game: GameState, a: SetGrantArgs): PendingEvent[] {
+  if (game.granted[grantKey(a.date, a.ex.id, a.setIndex)]) return [];
+
+  const volume = setVolume(a.w, a.r);
+  const previousBest = game.best[a.ex.id] ?? 0;
+  const res = xpForSet(volume, previousBest);
+  const parts = splitXp(res.xp, a.ex);
+
+  const events: PendingEvent[] = [
+    {
+      type: 'xp_gained',
+      payload: {
+        date: a.date,
+        day: a.day,
+        exId: a.ex.id,
+        setIndex: a.setIndex,
+        source: 'set',
+        parts,
+        total: res.xp,
+        volume,
+        factor: res.factor,
+        pr: res.pr,
+        retro: a.retro,
+      },
+      ts: a.ts,
+    },
+  ];
+  if (res.pr) {
+    events.push({
+      type: 'pr_achieved',
+      payload: {
+        date: a.date,
+        exId: a.ex.id,
+        setIndex: a.setIndex,
+        volume,
+        previousBest,
+        retro: a.retro,
+      },
+      ts: a.ts + 1,
+    });
+  }
+  if (!a.retro) {
+    events.push({
+      type: 'energy_gained',
+      payload: { date: a.date, amount: BALANCE.energy.perSet, source: 'set', retro: false },
+      ts: a.ts + 2,
+    });
+  }
+  events.push(...levelUpEvents(game.parts, parts, { date: a.date, retro: a.retro, ts: a.ts + 3 }));
+  return events;
+}
+
+export interface WorkoutGrantArgs {
+  date: string;
+  day: DayKey;
+  retro: boolean;
+  ts: number;
+}
+
+/**
+ * Events for finishing every set of every exercise of a day: a flat XP bonus to
+ * EVERY body part plus bonus battle energy. Guarded once per date.
+ */
+export function buildWorkoutCompletionGrant(game: GameState, a: WorkoutGrantArgs): PendingEvent[] {
+  if (game.bonusDays[a.date]) return [];
+  const parts = completionSplit();
+  let total = 0;
+  for (const part of BODY_PARTS) total = round2(total + (parts[part] ?? 0));
+
+  const events: PendingEvent[] = [
+    {
+      type: 'xp_gained',
+      payload: {
+        date: a.date,
+        day: a.day,
+        source: 'workout_complete',
+        parts,
+        total,
+        retro: a.retro,
+      },
+      ts: a.ts,
+    },
+  ];
+  if (!a.retro) {
+    events.push({
+      type: 'energy_gained',
+      payload: { date: a.date, amount: BALANCE.energy.perWorkout, source: 'workout_complete', retro: false },
+      ts: a.ts + 1,
+    });
+  }
+  events.push(...levelUpEvents(game.parts, parts, { date: a.date, retro: a.retro, ts: a.ts + 2 }));
+  return events;
+}
+
+/** Apply a batch of pending events to a game state (used by both paths). */
+export function applyPending(game: GameState, events: readonly PendingEvent[]): void {
+  for (const e of events) applyGameEvent(game, e.type, e.payload);
+}
+
+/* ----------------------------------------------------- retroactive grants */
+
+function doneSetsOf(arr: readonly (SetEntry | null)[] | undefined): number[] {
+  if (!arr) return [];
+  const out: number[] = [];
+  arr.forEach((s, i) => {
+    if (s?.done) out.push(i);
+  });
+  return out;
+}
+
+function sessionComplete(session: Session): boolean {
+  const program = PROGRAM[session.day];
+  return program.exercises.every((ex) => doneSetsOf(session.ex[ex.id]).length >= ex.sets);
+}
+
+/** Program order first (stable + meaningful), then any unknown ids, sorted. */
+function exerciseOrder(session: Session): string[] {
+  const inProgram = PROGRAM[session.day].exercises.map((e) => e.id).filter((id) => session.ex[id]);
+  const rest = Object.keys(session.ex)
+    .filter((id) => !inProgram.includes(id))
+    .sort();
+  return [...inProgram, ...rest];
+}
+
+/**
+ * Generate the XP grants for history that never went through the game layer
+ * (legacy import, JSON import, or workouts logged under Phase 0).
+ *
+ * Deterministic: dates ascending, exercises in program order, sets by index.
+ * Each event is stamped at its own workout date (00:00 UTC + a per-event offset)
+ * so the log stays chronological and `best`/PR detection replays correctly.
+ * Already-granted sets are skipped, so running this twice is a no-op.
+ */
+export function buildRetroactiveGrants(
+  sessions: Readonly<Record<string, Session>>,
+  existing: readonly AppEvent[],
+  today: string,
+): PendingEvent[] {
+  const scratch = rebuildGame(existing, today);
+  const out: PendingEvent[] = [];
+
+  for (const date of Object.keys(sessions).sort()) {
+    const session = sessions[date];
+    if (!session) continue;
+    let offset = 0;
+    const baseTs = isoToTs(date);
+
+    for (const exId of exerciseOrder(session)) {
+      const ex = findExercise(exId);
+      if (!ex) continue; // an exercise the program no longer has — no XP mapping
+      for (const setIndex of doneSetsOf(session.ex[exId])) {
+        const entry = session.ex[exId]?.[setIndex];
+        if (!entry) continue;
+        const events = buildSetGrant(scratch, {
+          date,
+          day: session.day,
+          ex,
+          setIndex,
+          w: entry.w,
+          r: entry.r,
+          retro: true,
+          ts: baseTs + offset,
+        });
+        if (events.length === 0) continue;
+        offset += 10;
+        applyPending(scratch, events);
+        out.push(...events);
+      }
+    }
+
+    if (sessionComplete(session)) {
+      const bonus = buildWorkoutCompletionGrant(scratch, {
+        date,
+        day: session.day,
+        retro: true,
+        ts: baseTs + offset,
+      });
+      if (bonus.length > 0) {
+        applyPending(scratch, bonus);
+        out.push(...bonus);
+      }
+    }
+  }
+
+  return out;
+}
+
+/* ------------------------------------------------------- derived stats */
+
+/**
+ * PROVISIONAL combat stats derived from the six part levels + the streak buff.
+ * Phase 1 only DISPLAYS these; Phase 2 (`core/combat.ts`) consumes them.
+ */
+export interface CharacterStats {
+  /** chest */ atk: number;
+  /** back */ def: number;
+  /** legs */ maxHp: number;
+  /** shoulders — ms between auto attacks (lower is faster) */ attackIntervalMs: number;
+  /** arms */ critChance: number;
+  /** arms */ critMultiplier: number;
+  /** core — hp per tick */ regen: number;
+  /** `1 + 0.1 × streak tier`, already applied to the numbers above. */
+  buff: number;
+}
+
+export function deriveStats(parts: PartsProgress, streakTier: number): CharacterStats {
+  const s = BALANCE.stats;
+  const buff = streakMultiplier(streakTier);
+  const lv = (p: BodyPart): number => Math.max(0, parts[p].level - 1);
+  return {
+    atk: round2((s.atkBase + s.atkPerLevel * lv('chest')) * buff),
+    def: round2((s.defBase + s.defPerLevel * lv('back')) * buff),
+    maxHp: Math.round((s.hpBase + s.hpPerLevel * lv('legs')) * buff),
+    attackIntervalMs: Math.round(
+      Math.max(s.attackIntervalMinMs, s.attackIntervalBaseMs - s.attackIntervalPerLevelMs * lv('shoulders') * buff),
+    ),
+    critChance: round2(Math.min(s.critChanceMax, (s.critChanceBase + s.critChancePerLevel * lv('arms')) * buff)),
+    critMultiplier: round2((s.critMultiplierBase + s.critMultiplierPerLevel * lv('arms')) * buff),
+    regen: round2((s.regenBase + s.regenPerLevel * lv('core')) * buff),
+    buff: round2(buff),
+  };
+}

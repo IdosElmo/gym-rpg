@@ -10,19 +10,34 @@
  * flag survives. Each imported session additionally produces a
  * `session_imported` event carrying the full set data, so Phase 1 can grant
  * retroactive XP simply by replaying the log — no second parse of legacy data.
+ *
+ * Phase 1 adds `ensureGameState()`: whenever the `game` blob is missing or from
+ * an unknown version it is REBUILT from the log, and any training history that
+ * never paid XP gets retroactive grants appended to the log (see core/xp.ts).
  */
 
-import { isDayKey, type DayKey } from '../data/program.ts';
+import { BODY_PARTS, isDayKey, type BodyPart, type DayKey } from '../data/program.ts';
+import { todayISO } from '../core/workout.ts';
+import {
+  buildRetroactiveGrants,
+  emptyGame,
+  isoToTs,
+  rebuildGame,
+  type PendingEvent,
+} from '../core/xp.ts';
 import { uuid } from '../util/uuid.ts';
-import type {
-  AppEvent,
-  AppState,
-  EventLog,
-  EventType,
-  Session,
-  SetEntry,
-  UiState,
-  ViewKey,
+import {
+  GAME_STATE_VERSION,
+  type AppEvent,
+  type AppState,
+  type EventLog,
+  type EventType,
+  type GameState,
+  type PartsProgress,
+  type Session,
+  type SetEntry,
+  type UiState,
+  type ViewKey,
 } from './DataStore.ts';
 
 /* ------------------------------------------------------------- constants */
@@ -32,8 +47,11 @@ export const EVENTS_KEY = 'gymrpg_events_v1';
 export const LEGACY_KEY = 'hyp3_data_v1';
 export const LEGACY_UI_KEY = 'hyp3_ui_v1';
 
-/** Bump when the shape of `AppState` changes, and add a step to STATE_MIGRATIONS. */
-export const CURRENT_STATE_VERSION = 1;
+/**
+ * Bump when the shape of `AppState` changes, and add a step to STATE_MIGRATIONS.
+ * v2 (Phase 1): the opaque `game` slot became a typed `GameState`.
+ */
+export const CURRENT_STATE_VERSION = 2;
 /** Bump when the shape of `EventLog` changes. */
 export const CURRENT_EVENTLOG_VERSION = 1;
 
@@ -122,6 +140,76 @@ export function normalizeSessions(raw: unknown): Record<string, Session> {
   return out;
 }
 
+/* ------------------------------------------------------ game blob routing */
+
+function numOr(v: unknown, fallback: number): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+}
+
+function normalizeNumberMap(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!isRecord(raw)) return out;
+  for (const k of Object.keys(raw)) {
+    const n = raw[k];
+    if (typeof n === 'number' && Number.isFinite(n)) out[k] = n;
+  }
+  return out;
+}
+
+function normalizeFlagMap(raw: unknown): Record<string, true> {
+  const out: Record<string, true> = {};
+  if (!isRecord(raw)) return out;
+  for (const k of Object.keys(raw)) if (raw[k] === true) out[k] = true;
+  return out;
+}
+
+function normalizeParts(raw: unknown): PartsProgress {
+  const parts = emptyGame().parts;
+  if (!isRecord(raw)) return parts;
+  for (const part of BODY_PARTS) {
+    const p: BodyPart = part;
+    const entry = raw[p];
+    if (!isRecord(entry)) continue;
+    parts[p] = { xp: Math.max(0, numOr(entry['xp'], 0)), level: Math.max(1, numOr(entry['level'], 1)) };
+  }
+  return parts;
+}
+
+/**
+ * Validate a persisted `game` blob. Returns `null` for anything missing or from
+ * a version we don't know — the caller (`ensureGameState`) then rebuilds it from
+ * the event log, which is always authoritative.
+ */
+export function normalizeGame(raw: unknown): GameState | null {
+  if (!isRecord(raw)) return null;
+  if (numOr(raw['version'], 0) !== GAME_STATE_VERSION) return null;
+
+  const base = emptyGame();
+  const streakRaw = isRecord(raw['streak']) ? raw['streak'] : {};
+  const days = Array.isArray(raw['workoutDays'])
+    ? raw['workoutDays'].filter((d): d is string => typeof d === 'string')
+    : [];
+  return {
+    version: GAME_STATE_VERSION,
+    parts: normalizeParts(raw['parts']),
+    level: Math.max(1, numOr(raw['level'], 1)),
+    totalXp: Math.max(0, numOr(raw['totalXp'], 0)),
+    energy: Math.max(0, numOr(raw['energy'], 0)),
+    energyEarned: Math.max(0, numOr(raw['energyEarned'], 0)),
+    prCount: Math.max(0, numOr(raw['prCount'], 0)),
+    best: normalizeNumberMap(raw['best']),
+    granted: normalizeFlagMap(raw['granted']),
+    bonusDays: normalizeFlagMap(raw['bonusDays']),
+    workoutDays: [...new Set(days)].sort(),
+    streak: {
+      tier: Math.max(0, numOr(streakRaw['tier'], 0)),
+      weekStart: typeof streakRaw['weekStart'] === 'string' ? streakRaw['weekStart'] : null,
+      daysThisWeek: Math.max(0, numOr(streakRaw['daysThisWeek'], 0)),
+      needed: Math.max(1, numOr(streakRaw['needed'], base.streak.needed)),
+    },
+  };
+}
+
 function normalizeUi(raw: unknown, now: Date = new Date()): UiState {
   if (!isRecord(raw)) return emptyUi(now);
   const view = raw['view'];
@@ -130,7 +218,8 @@ function normalizeUi(raw: unknown, now: Date = new Date()): UiState {
   if (isRecord(openRaw)) {
     for (const k of Object.keys(openRaw)) open[k] = openRaw[k] === true;
   }
-  const v: ViewKey = isDayKey(view) || view === 'H' ? (view as ViewKey) : defaultDay(now);
+  const v: ViewKey =
+    isDayKey(view) || view === 'H' || view === 'CH' ? (view as ViewKey) : defaultDay(now);
   return { view: v, open };
 }
 
@@ -149,7 +238,11 @@ const STATE_MIGRATIONS: ReadonlyArray<(blob: Record<string, unknown>) => Record<
     meta: blob['meta'] ?? null,
     schemaVersion: 1,
   }),
-  // 1 -> 2: (future) add your step here and bump CURRENT_STATE_VERSION.
+  // 1 -> 2: the `game` slot is typed from Phase 1 on. A v1 blob can only ever
+  // have carried `null` there (Phase 0 never wrote game state), so anything
+  // else is dropped and `ensureGameState` rebuilds it from the event log.
+  (blob) => ({ ...blob, game: normalizeGame(blob['game']), schemaVersion: 2 }),
+  // 2 -> 3: (future) add your step here and bump CURRENT_STATE_VERSION.
 ];
 
 function readVersion(blob: Record<string, unknown>): number {
@@ -190,7 +283,7 @@ export function migrateState(raw: unknown, now: number = Date.now()): AppState {
     schemaVersion: CURRENT_STATE_VERSION,
     sessions: normalizeSessions(blob['sessions']),
     ui: normalizeUi(blob['ui'], new Date(now)),
-    game: isRecord(blob['game']) ? (blob['game'] as AppState['game']) : null,
+    game: normalizeGame(blob['game']),
     meta: {
       legacyImported: metaRaw['legacyImported'] === true,
       createdAt,
@@ -255,8 +348,7 @@ export function migrateEventLog(raw: unknown): EventLog {
 
 /** Deterministic ts for an imported historical session: that date at 00:00 UTC. */
 function tsForDate(date: string): number {
-  const t = Date.parse(`${date}T00:00:00.000Z`);
-  return Number.isNaN(t) ? 0 : t;
+  return isoToTs(date);
 }
 
 export interface LegacyImportResult {
@@ -334,6 +426,78 @@ function safeParse(text: string): unknown {
   }
 }
 
+/* -------------------------------------------------- game state hydration */
+
+export interface EnsureGameResult {
+  state: AppState;
+  events: AppEvent[];
+  /** True when the game blob and/or the log had to be written back. */
+  changed: boolean;
+}
+
+function materialize(pending: readonly PendingEvent[]): AppEvent[] {
+  return pending.map((p) => makeEvent(p.type, p.payload, p.ts));
+}
+
+/**
+ * Guarantee `state.game` exists and matches the current version.
+ *
+ * This is the RETROACTIVE-XP entry point and it covers three cases at once:
+ *  1. a legacy `hyp3_data_v1` import that just happened (session_imported events);
+ *  2. a user who already imported under PHASE 0 (`meta.legacyImported === true`,
+ *     `game === null`) — their sessions are in state and, if the log somehow
+ *     lacks them, `session_imported` events are recovered from state first;
+ *  3. workouts logged live under Phase 0, which produced set events but no XP.
+ *
+ * All of it is expressed as EVENTS (`buildRetroactiveGrants`) appended to the
+ * log, so the rebuilt game state stays a pure function of the log forever after.
+ * Running it twice is a no-op: every grant is guarded per (date, exercise, set).
+ */
+export function ensureGameState(
+  state: AppState,
+  events: readonly AppEvent[],
+  now: number = Date.now(),
+): EnsureGameResult {
+  if (state.game && state.game.version === GAME_STATE_VERSION) {
+    return { state, events: [...events], changed: false };
+  }
+
+  const today = todayISO(new Date(now));
+  let log: AppEvent[] = [...events];
+
+  // (2) sessions that the log knows nothing about — recover them as events so
+  // the log alone can rebuild everything from here on.
+  const covered = new Set<string>();
+  for (const ev of log) {
+    const d = ev.payload['date'];
+    if (typeof d === 'string' && (ev.type === 'session_imported' || ev.type.startsWith('set_'))) {
+      covered.add(d);
+    }
+  }
+  const recovered = Object.keys(state.sessions)
+    .filter((d) => !covered.has(d))
+    .sort()
+    .map((date) => {
+      const s = state.sessions[date] as Session;
+      return makeEvent(
+        'session_imported',
+        { date, day: s.day, ex: s.ex, source: 'recovered', importedAt: now },
+        tsForDate(date),
+      );
+    });
+  if (recovered.length > 0) log = [...log, ...recovered];
+
+  const grants = materialize(buildRetroactiveGrants(state.sessions, log, today));
+  if (grants.length > 0) log = [...log, ...grants];
+
+  const game = rebuildGame(log, today);
+  return {
+    state: { ...state, game, meta: { ...state.meta, updatedAt: now } },
+    events: log,
+    changed: true,
+  };
+}
+
 /* ------------------------------------------------------------- bootstrap */
 
 export interface BootstrapResult {
@@ -372,6 +536,13 @@ export function bootstrap(storage: StorageLike, now: number = Date.now()): Boots
       state = { ...state, meta: { ...state.meta, legacyImported: true } };
     }
   }
+
+  // Phase 1: hydrate (and, on the first Phase 1 load, retroactively grant) the
+  // game layer. No-op once `state.game` is at the current version.
+  const ensured = ensureGameState(state, events, now);
+  state = ensured.state;
+  events = ensured.events;
+  dirty = dirty || ensured.changed;
 
   return { state, events, dirty };
 }
@@ -425,7 +596,9 @@ export function parseImport(raw: unknown, now: number = Date.now()): ParsedImpor
   if (raw['format'] === EXPORT_FORMAT || isRecord(raw['state'])) {
     const state = migrateState(raw['state'] ?? raw, now);
     const events = migrateEventLog(raw['events'] ?? []).events;
-    return { state, events, source: 'gym-rpg' };
+    // A file exported by Phase 0 carries no game state — grant it retroactively.
+    const ensured = ensureGameState(state, events, now);
+    return { state: ensured.state, events: ensured.events, source: 'gym-rpg' };
   }
 
   if (isRecord(raw['sessions'])) {
@@ -435,7 +608,8 @@ export function parseImport(raw: unknown, now: number = Date.now()): ParsedImpor
     const events = res.events.map((e) =>
       e.type === 'session_imported' ? { ...e, payload: { ...e.payload, source: 'json_import' } } : e,
     );
-    return { state: res.state, events, source: 'legacy' };
+    const ensured = ensureGameState(res.state, events, now);
+    return { state: ensured.state, events: ensured.events, source: 'legacy' };
   }
 
   return null;
@@ -446,10 +620,10 @@ export function parseImport(raw: unknown, now: number = Date.now()): ParsedImpor
 /**
  * Deterministically rebuild state from the append-only log.
  *
- * Phase 0 replays the workout/data events, which is enough to prove the log is
- * a faithful source of truth. Phase 1+ extends the switch below with
- * `xp_gained` / `level_up` / `battle_won` / … to rebuild `state.game`; the
- * `game` accumulator is already threaded through for that purpose.
+ * Sessions are folded from the workout/data events here; the whole game layer is
+ * folded by `rebuildGame()` (core/xp.ts) over the SAME log with the SAME reducer
+ * the live app uses — which is what makes replay provably equivalent to live
+ * state. Phase 2+ only has to extend the reducer, not this function.
  */
 export function rebuildFromEvents(events: readonly AppEvent[], now: number = Date.now()): AppState {
   const state = emptyState(now);
@@ -498,13 +672,14 @@ export function rebuildFromEvents(events: readonly AppEvent[], now: number = Dat
         if (isRecord(sessions)) state.sessions = normalizeSessions(sessions);
         break;
       }
-      // TODO(phase 1+): xp_gained / level_up / pr_achieved / streak_changed /
-      // battle_won / boss_defeated / item_equipped -> fold into `state.game`.
+      // xp_gained / energy_gained / pr_achieved / level_up / streak_changed are
+      // folded by `rebuildGame` below; battle events arrive in Phase 2.
       default:
         break;
     }
   }
 
+  state.game = rebuildGame(ordered, todayISO(new Date(now)));
   state.meta.updatedAt = ordered.length > 0 ? (ordered[ordered.length - 1]?.ts ?? now) : now;
   return state;
 }

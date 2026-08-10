@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { emptyGame } from '../src/core/xp.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { AppEvent, Session } from '../src/storage/DataStore.ts';
 import {
@@ -318,7 +319,13 @@ describe('JSON import — both formats', () => {
   it('accepts the new gym-rpg export blob, including the game slot', () => {
     const state = emptyState(500);
     state.sessions['2025-03-03'] = { day: 'A', ex: { a1: [{ w: '30', r: '12', done: true }] } };
-    state.game = { character: { level: 4 } };
+    // a fully-formed game blob round-trips byte for byte (no re-grant)
+    const game = emptyGame();
+    game.parts.chest.xp = 250;
+    game.energy = 70;
+    game.granted['2025-03-03|a1|0'] = true;
+    game.best['a1'] = 360;
+    state.game = game;
     const events: AppEvent[] = [{ id: 'e1', ts: 10, type: 'set_completed', payload: { date: '2025-03-03' } }];
     const blob = buildExport(state, events, 600);
 
@@ -329,7 +336,7 @@ describe('JSON import — both formats', () => {
     const parsed = parseImport(JSON.stringify(blob));
     expect(parsed?.source).toBe('gym-rpg');
     expect(parsed?.state.sessions).toEqual(state.sessions);
-    expect(parsed?.state.game).toEqual({ character: { level: 4 } });
+    expect(parsed?.state.game).toEqual(game);
     expect(parsed?.events).toHaveLength(1);
     expect(parsed?.events[0]?.type).toBe('set_completed');
   });
@@ -357,7 +364,11 @@ describe('JSON import — both formats', () => {
     const blob = buildExport(imported.state, imported.events, 43);
     const back = parseImport(JSON.parse(JSON.stringify(blob)) as unknown);
     expect(back?.state.sessions).toEqual(imported.state.sessions);
-    expect(back?.events.map((e) => e.id)).toEqual(imported.events.map((e) => e.id));
+    // every original event survives, in order; the import may APPEND the Phase 1
+    // retroactive XP grants for a file that predates the game layer.
+    const ids = back?.events.map((e) => e.id) ?? [];
+    expect(ids.slice(0, imported.events.length)).toEqual(imported.events.map((e) => e.id));
+    expect(back?.state.game?.totalXp ?? 0).toBeGreaterThan(0);
   });
 });
 

@@ -6,6 +6,7 @@
  * or disabled storage never breaks the workout in the middle of a set.
  */
 
+import { emptyGame } from '../core/xp.ts';
 import type {
   AppEvent,
   AppState,
@@ -110,6 +111,8 @@ export class LocalStore implements DataStore {
     this.state = emptyState(now);
     // Legacy data was already imported once; don't resurrect it after a wipe.
     this.state.meta.legacyImported = true;
+    // A wipe resets the character too — `data_cleared` replays to the same state.
+    this.state.game = emptyGame();
     this.events = [makeEvent('data_cleared', {}, now)];
     this.persistState();
     this.persistEvents();
