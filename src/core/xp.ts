@@ -36,6 +36,8 @@ import {
   type BodyPart,
   type DayKey,
   type Exercise,
+  type ExerciseResolver,
+  type ProgramMap,
 } from '../data/program.ts';
 import { BALANCE } from './balance.ts';
 import {
@@ -676,18 +678,33 @@ function doneSetsOf(arr: readonly (SetEntry | null)[] | undefined): number[] {
   return out;
 }
 
-function sessionComplete(session: Session): boolean {
-  const program = PROGRAM[session.day];
-  return program.exercises.every((ex) => doneSetsOf(session.ex[ex.id]).length >= ex.sets);
+function sessionComplete(session: Session, program: ProgramMap): boolean {
+  const day = program[session.day];
+  return day.exercises.every((ex) => doneSetsOf(session.ex[ex.id]).length >= ex.sets);
 }
 
 /** Program order first (stable + meaningful), then any unknown ids, sorted. */
-function exerciseOrder(session: Session): string[] {
-  const inProgram = PROGRAM[session.day].exercises.map((e) => e.id).filter((id) => session.ex[id]);
+function exerciseOrder(session: Session, program: ProgramMap): string[] {
+  const inProgram = program[session.day].exercises.map((e) => e.id).filter((id) => session.ex[id]);
   const rest = Object.keys(session.ex)
     .filter((id) => !inProgram.includes(id))
     .sort();
   return [...inProgram, ...rest];
+}
+
+/**
+ * How a retro pass sees the world. Both default to the BUILT-IN program, so a
+ * caller that knows nothing about plans behaves exactly as it did before.
+ */
+export interface RetroGrantOptions {
+  /**
+   * Exercise lookup. A plan-aware resolver (`makeResolver`) is what lets a set
+   * of a CUSTOM exercise pay XP into the right body parts — with the built-in
+   * `findExercise` the set would simply be skipped.
+   */
+  resolve?: ExerciseResolver;
+  /** Day layout, used for the ordering and the completion bonus. */
+  program?: ProgramMap;
 }
 
 /**
@@ -703,7 +720,10 @@ export function buildRetroactiveGrants(
   sessions: Readonly<Record<string, Session>>,
   existing: readonly AppEvent[],
   today: string,
+  options: RetroGrantOptions = {},
 ): PendingEvent[] {
+  const resolve = options.resolve ?? findExercise;
+  const program = options.program ?? PROGRAM;
   const scratch = rebuildGame(existing, today);
   const out: PendingEvent[] = [];
 
@@ -713,8 +733,8 @@ export function buildRetroactiveGrants(
     let offset = 0;
     const baseTs = isoToTs(date);
 
-    for (const exId of exerciseOrder(session)) {
-      const ex = findExercise(exId);
+    for (const exId of exerciseOrder(session, program)) {
+      const ex = resolve(exId);
       if (!ex) continue; // an exercise the program no longer has — no XP mapping
       for (const setIndex of doneSetsOf(session.ex[exId])) {
         const entry = session.ex[exId]?.[setIndex];
@@ -736,7 +756,7 @@ export function buildRetroactiveGrants(
       }
     }
 
-    if (sessionComplete(session)) {
+    if (sessionComplete(session, program)) {
       const bonus = buildWorkoutCompletionGrant(scratch, {
         date,
         day: session.day,

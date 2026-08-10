@@ -18,6 +18,7 @@
 
 import { BODY_PARTS, isDayKey, type BodyPart, type DayKey } from '../data/program.ts';
 import { EQUIPMENT_SLOTS, bossById, equipmentById } from '../data/gameContent.ts';
+import { makeResolver, normalizePlanDoc, planFromEvents, resolveProgram } from '../core/plan.ts';
 import { todayISO } from '../core/workout.ts';
 import {
   buildRetroactiveGrants,
@@ -64,8 +65,10 @@ export const LEGACY_UI_KEY = 'hyp3_ui_v1';
 /**
  * Bump when the shape of `AppState` changes, and add a step to STATE_MIGRATIONS.
  * v2 (Phase 1): the opaque `game` slot became a typed `GameState`.
+ * v3 (editable plans): `plan: PlanDoc | null` joined the state. The step is a
+ * pure addition — a v2 blob simply had no plan, i.e. the built-in program.
  */
-export const CURRENT_STATE_VERSION = 2;
+export const CURRENT_STATE_VERSION = 3;
 /**
  * Bump when the shape of `EventLog` changes.
  * v2 (merge-safe core): events may carry an optional `device` stamp and the log
@@ -114,6 +117,7 @@ export function emptyState(now: number = Date.now()): AppState {
     sessions: {},
     ui: emptyUi(new Date(now)),
     game: null,
+    plan: null,
     meta: { legacyImported: false, createdAt: now, updatedAt: now },
   };
 }
@@ -325,7 +329,12 @@ const STATE_MIGRATIONS: ReadonlyArray<(blob: Record<string, unknown>) => Record<
   // have carried `null` there (Phase 0 never wrote game state), so anything
   // else is dropped and `ensureGameState` rebuilds it from the event log.
   (blob) => ({ ...blob, game: normalizeGame(blob['game']), schemaVersion: 2 }),
-  // 2 -> 3: (future) add your step here and bump CURRENT_STATE_VERSION.
+  // 2 -> 3: editable plans. A v2 blob predates the plan editor, so it can only
+  // mean "the built-in program" — but the slot is routed through
+  // `normalizePlanDoc` anyway, so a blob that somehow carries one is validated
+  // rather than trusted.
+  (blob) => ({ ...blob, plan: normalizePlanDoc(blob['plan']), schemaVersion: 3 }),
+  // 3 -> 4: (future) add your step here and bump CURRENT_STATE_VERSION.
 ];
 
 function readVersion(blob: Record<string, unknown>): number {
@@ -367,6 +376,7 @@ export function migrateState(raw: unknown, now: number = Date.now()): AppState {
     sessions: normalizeSessions(blob['sessions']),
     ui: normalizeUi(blob['ui'], new Date(now)),
     game: normalizeGame(blob['game']),
+    plan: normalizePlanDoc(blob['plan']),
     meta: {
       legacyImported: metaRaw['legacyImported'] === true,
       createdAt,
@@ -576,12 +586,23 @@ export function ensureGameState(
     });
   if (recovered.length > 0) log = [...log, ...recovered];
 
-  const grants = materialize(buildRetroactiveGrants(state.sessions, log, today));
+  // The PLAN has to be folded BEFORE the grants are built: a set of a custom
+  // exercise can only be mapped to the right body parts by a resolver that
+  // knows that exercise, and the plan lives in the log exactly like everything
+  // else. The log is authoritative here, so the folded plan also replaces
+  // whatever the (stale) state blob claimed.
+  const plan = planFromEvents(log);
+  const grants = materialize(
+    buildRetroactiveGrants(state.sessions, log, today, {
+      resolve: makeResolver(plan),
+      program: resolveProgram(plan),
+    }),
+  );
   if (grants.length > 0) log = [...log, ...grants];
 
   const game = rebuildGame(log, today);
   return {
-    state: { ...state, game, meta: { ...state.meta, updatedAt: now } },
+    state: { ...state, game, plan, meta: { ...state.meta, updatedAt: now } },
     events: log,
     changed: true,
   };
@@ -784,6 +805,18 @@ export function rebuildFromEvents(events: readonly AppEvent[], now: number = Dat
       }
       case 'data_cleared':
         state.sessions = {};
+        // A wipe returns the app to the built-in program too, exactly like a
+        // fresh install: the plan is data, and this event erases data.
+        state.plan = null;
+        break;
+      /**
+       * The training plan is LAST-WRITER-WINS: the whole document travels in
+       * the payload, and because `ordered` is the `(ts, id)` total order, the
+       * last save in that order is simply the one still standing when the loop
+       * ends. Two devices holding the same events always agree on it.
+       */
+      case 'plan_updated':
+        state.plan = normalizePlanDoc(p['plan']);
         break;
       /**
        * A JSON import carries a snapshot of the sessions it brought in. Folding

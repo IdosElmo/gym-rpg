@@ -12,6 +12,7 @@
  */
 
 import type { EquipmentSlot } from '../data/gameContent.ts';
+import type { PlanDoc } from '../data/planTypes.ts';
 import type { BodyPart, DayKey } from '../data/program.ts';
 
 /* ------------------------------------------------------------------ state */
@@ -160,6 +161,16 @@ export interface AppState {
   sessions: Record<string, Session>;
   ui: UiState;
   game: GameState | null;
+  /**
+   * The user's edited training plan, or `null` for "the built-in program".
+   *
+   * Like `game`, this is a CACHE of the log: it is folded from `plan_updated`
+   * events (last one in the `(ts, id)` order wins) by `rebuildFromEvents`.
+   * `null` is not an error state — it is the normal state of anyone who never
+   * opened the plan editor, and `resolveProgram(null)` returns the built-in
+   * `PROGRAM` object itself, so nothing about the app changes until a save.
+   */
+  plan: PlanDoc | null;
   meta: AppMeta;
 }
 
@@ -357,21 +368,31 @@ export interface ItemEquippedPayload extends Record<string, unknown> {
   itemId: string | null;
 }
 
-/* ------------------------------------- Phase 4 plan / merge payloads (decl) */
+/* ------------------------------------------- Phase 4 plan / merge payloads */
 
 /**
- * A saved training plan — LWW by fold order (the last `plan_updated` in the
- * total order wins). DECLARED ONLY: nothing folds it yet, the plan model lands
- * in the next phase. `plan: null` means "the built-in program", so a client
- * that has never edited anything is byte-identical to today's app.
+ * A saved training plan — LWW by fold order: the LAST `plan_updated` in the
+ * total `(ts, id)` order wins, and `data_cleared` resets the plan to `null`.
+ * `plan: null` means "the built-in program", so a client that has never edited
+ * anything (or that reset) is byte-identical to the original app.
  *
- * `plan` is intentionally left untyped here: its shape (`PlanDoc`) belongs to
- * `data/planTypes.ts` and this module must not depend on it.
+ * The document is carried WHOLE on purpose: a merge then has nothing to
+ * reconcile field by field, and an old client that doesn't know the type simply
+ * ignores the event (both reducers `default: break`).
+ *
+ * `plan` is deliberately typed as a plain JSON record rather than as `PlanDoc`:
+ * this is the WIRE shape, and a payload that arrived from another device (or
+ * from a newer app version) is untrusted until `normalizePlanDoc` has seen it.
  */
 export interface PlanUpdatedPayload extends Record<string, unknown> {
   plan: Readonly<Record<string, unknown>> | null;
-  /** Bumped on every save — lets a merge break a ts tie meaningfully. */
-  revision?: number;
+  /**
+   * Bumped on every save (`max(local, incoming) + 1`). Bookkeeping only — the
+   * authoritative order is the log's, never this number.
+   */
+  revision: number;
+  /** ISO date of the save, like every other payload in the log. */
+  date: string;
 }
 
 /**

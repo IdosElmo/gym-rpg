@@ -64,7 +64,23 @@ export interface Day {
   readonly exercises: readonly Exercise[];
 }
 
-export const PROGRAM: Readonly<Record<DayKey, Day>> = {
+/**
+ * The three-day skeleton, resolved. `PROGRAM` is the built-in instance;
+ * `core/plan.ts` produces another one from a user's `PlanDoc`. Every consumer
+ * that used to reach for `PROGRAM` directly now takes one of these, defaulted
+ * to `PROGRAM` so nothing changes until a plan exists.
+ */
+export type ProgramMap = Readonly<Record<DayKey, Day>>;
+
+/**
+ * Exercise lookup by id — `findExercise` for the built-ins, or a plan-aware
+ * resolver (`makeResolver`) that also knows the user's custom exercises.
+ * History and the feed need it because they show exercises by id, long after
+ * the plan that contained them may have changed.
+ */
+export type ExerciseResolver = (exId: string) => Exercise | null;
+
+export const PROGRAM: ProgramMap = {
   A: {
     day: 'ראשון',
     label: 'אימון A',

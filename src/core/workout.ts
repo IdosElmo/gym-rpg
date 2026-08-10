@@ -9,7 +9,7 @@
  * `DataStore.update()` so persistence + notification happen exactly once.
  */
 
-import { PROGRAM, type DayKey } from '../data/program.ts';
+import { PROGRAM, type DayKey, type ProgramMap } from '../data/program.ts';
 import type { AppState, Session, SetEntry } from '../storage/DataStore.ts';
 
 export function todayISO(d: Date = new Date()): string {
@@ -100,13 +100,22 @@ export function prevPerf(state: AppState, exId: string, today: string = todayISO
   return null;
 }
 
-/** Latest date that looks like a log of `dayKey` (legacy `lastLoggedDate`). */
-export function lastLoggedDate(state: AppState, dayKey: DayKey): string | null {
+/**
+ * Latest date that looks like a log of `dayKey` (legacy `lastLoggedDate`).
+ *
+ * `program` defaults to the built-in one, so callers that predate editable
+ * plans behave identically; the app passes `resolveProgram(state.plan)`.
+ */
+export function lastLoggedDate(
+  state: AppState,
+  dayKey: DayKey,
+  program: ProgramMap = PROGRAM,
+): string | null {
   const dates = Object.keys(state.sessions).sort().reverse();
   for (const d of dates) {
     const s = state.sessions[d];
     if (!s) continue;
-    if (s.day === dayKey || PROGRAM[dayKey].exercises.some((e) => s.ex[e.id])) return d;
+    if (s.day === dayKey || program[dayKey].exercises.some((e) => s.ex[e.id])) return d;
   }
   return null;
 }
@@ -119,8 +128,13 @@ export function doneCount(state: AppState, exId: string, date: string = todayISO
 }
 
 /** True when every set of every exercise of the day is checked. */
-export function isWorkoutComplete(state: AppState, dayKey: DayKey, date: string = todayISO()): boolean {
-  return PROGRAM[dayKey].exercises.every((ex) => doneCount(state, ex.id, date) >= ex.sets);
+export function isWorkoutComplete(
+  state: AppState,
+  dayKey: DayKey,
+  date: string = todayISO(),
+  program: ProgramMap = PROGRAM,
+): boolean {
+  return program[dayKey].exercises.every((ex) => doneCount(state, ex.id, date) >= ex.sets);
 }
 
 /** Total number of checked sets in a session (used by Phase 1 for XP/energy). */
