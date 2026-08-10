@@ -36,3 +36,11 @@
 .feed-item.wave .fi-text{color:var(--muted)}
 .feed-item.streak{border-color:#F59E0B44}
 .feed-item.shop .fi-icon{filter:saturate(1.2)}
+
+/* ---------- Account / cloud sync card ---------- */
+/* Sits above the plan card: "who am I and is it backed up" belongs with the
+   other things you do to your DATA, not with the workout screens. Hidden
+   entirely (never rendered) when sync is unconfigured or on file://. */
+.account-card{margin-bottom:12px}
+.account-card .gc-sub.warn{color:var(--warn)}
+.account-card .action-btn{width:100%; margin-top:10px}

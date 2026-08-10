@@ -24,7 +24,7 @@ import type { RestTimer } from './timer.ts';
 import { renderBattle, stopBattle } from './battle.ts';
 import { renderCharacter } from './character.ts';
 import { must } from './dom.ts';
-import { renderHistory } from './history.ts';
+import { renderHistory, type HistoryDeps } from './history.ts';
 import { renderPlanEditor, resetPlanDraft } from './planEditor.ts';
 import { renderWorkout } from './workout.ts';
 import { fmtXp } from './xpfx.ts';
@@ -33,12 +33,24 @@ export interface App {
   render: () => void;
 }
 
+/**
+ * Optional composition-root hooks. They exist so `main.ts` can wire cloud sync
+ * without this module importing anything sync-related: the shell stays the
+ * offline shell it has always been, and everything cloudy arrives as data.
+ */
+export interface AppHooks {
+  /** The account card + the signed-in meanings of מחיקה / ייבוא. */
+  history?: Pick<HistoryDeps, 'account' | 'isSignedIn' | 'onLocalMerge'>;
+  /** Fired at the end of every full render (lets main.ts clear a deferred repaint). */
+  onRender?: () => void;
+}
+
 /** Views that are not the plan editor — where "close the editor" goes back to. */
 function isReturnable(v: ViewKey): boolean {
   return v !== 'PL';
 }
 
-export function createApp(store: DataStore, timer: RestTimer): App {
+export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = {}): App {
   const tabsEl = must('tabs');
   const headerEl = must('header');
   const mainEl = must('main');
@@ -165,7 +177,7 @@ export function createApp(store: DataStore, timer: RestTimer): App {
     renderHeader();
     const view = store.getState().ui.view;
     if (view === 'H') {
-      renderHistory(mainEl, { store, rerender: render, editPlan: () => setView('PL') });
+      renderHistory(mainEl, { store, rerender: render, editPlan: () => setView('PL'), ...hooks.history });
     } else if (view === 'PL') {
       renderPlanEditor(mainEl, { store, rerender: renderPlanScreen, close: () => setView(returnView) });
     } else if (view === 'CH') {
@@ -183,6 +195,9 @@ export function createApp(store: DataStore, timer: RestTimer): App {
     } catch {
       /* non-browser host */
     }
+    // Anything the screen was showing is now freshly derived from the store, so
+    // a repaint that sync deferred (see main.ts) has just been satisfied.
+    hooks.onRender?.();
   }
 
   return { render };

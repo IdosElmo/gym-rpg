@@ -11,7 +11,9 @@ import { DAY_ORDER, isDayKey } from '../data/program.ts';
 import { fmtDate, isSetFilled, todayISO } from '../core/workout.ts';
 import { isDefaultPlan, makeResolver, resolveProgram } from '../core/plan.ts';
 import type { DataStore } from '../storage/DataStore.ts';
+import { mergeImport } from '../storage/merge.ts';
 import { buildExport, parseImport } from '../storage/migrate.ts';
+import { bindAccountCard, renderAccountCard, type AccountDeps } from '../sync/account.ts';
 import { esc, must } from './dom.ts';
 import { renderFeed } from './feed.ts';
 import { toast } from './toast.ts';
@@ -21,6 +23,16 @@ export interface HistoryDeps {
   rerender: () => void;
   /** Open the plan editor (the second entry point after the workout header). */
   editPlan?: () => void;
+  /**
+   * The cloud account, when this build has one. Absent (or reporting
+   * `disabled`) means the offline app: no card, and the destructive
+   * single-device semantics for clear + import.
+   */
+  account?: AccountDeps;
+  /** True while a session is live — changes what מחיקה and ייבוא MEAN. */
+  isSignedIn?: () => boolean;
+  /** Called after an additive import, so the engine can upload what arrived. */
+  onLocalMerge?: () => void;
 }
 
 /**
@@ -59,6 +71,7 @@ export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
     <button class="action-btn" id="btnImport">⬆ ייבוא JSON</button>
     <button class="action-btn danger" id="btnClear">🗑 מחיקה</button>
   </div>
+  ${deps.account ? renderAccountCard(deps.account) : ''}
   ${planCard(state)}
   ${renderFeed(deps.store.getEvents(), 40, resolve)}
   <h2 class="hist-heading">אימונים מתועדים</h2>`;
@@ -97,9 +110,21 @@ export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
   bind(main, deps);
 }
 
+/**
+ * Deleting means something DIFFERENT once there is an account behind the app.
+ *
+ * Locally it wipes this device. Signed in, the `data_cleared` event syncs like
+ * every other event and every device folds it into a wipe — so the copy has to
+ * say that out loud before the user taps it.
+ */
+export const CLEAR_CONFIRM_LOCAL = 'למחוק את כל היסטוריית האימונים? פעולה זו אינה הפיכה.';
+export const CLEAR_CONFIRM_ACCOUNT =
+  'למחוק את כל הנתונים מהחשבון ומכל המכשירים? פעולה זו אינה הפיכה.';
+
 function bind(main: HTMLElement, deps: HistoryDeps): void {
   const { store, rerender } = deps;
   const fileInput = must('importFile') as HTMLInputElement;
+  if (deps.account) bindAccountCard(main, deps.account);
 
   main.querySelector<HTMLButtonElement>('#btnExport')?.addEventListener('click', () => {
     exportJSON(store);
@@ -114,7 +139,7 @@ function bind(main: HTMLElement, deps: HistoryDeps): void {
   });
 
   main.querySelector<HTMLButtonElement>('#btnClear')?.addEventListener('click', () => {
-    if (confirm('למחוק את כל היסטוריית האימונים? פעולה זו אינה הפיכה.')) {
+    if (confirm(deps.isSignedIn?.() ? CLEAR_CONFIRM_ACCOUNT : CLEAR_CONFIRM_LOCAL)) {
       store.clear();
       rerender();
       toast('כל הנתונים נמחקו');
@@ -134,8 +159,28 @@ function exportJSON(store: DataStore): void {
   toast('קובץ הגיבוי ירד למכשיר');
 }
 
-/** Wire the hidden <input type="file"> once, at boot. */
-export function initImportInput(store: DataStore, rerender: () => void): void {
+export interface ImportDeps {
+  /** True while a session is live — makes the import ADDITIVE instead of destructive. */
+  isSignedIn?: () => boolean;
+  /** Called after an additive import so the engine can upload what arrived. */
+  onLocalMerge?: () => void;
+}
+
+/**
+ * Wire the hidden <input type="file"> once, at boot.
+ *
+ * IMPORT MEANS TWO DIFFERENT THINGS, and which one is right depends entirely on
+ * whether there is an account:
+ *
+ *  - SIGNED OUT it is a RESTORE. The file replaces what is on the device
+ *    (`replaceAll`), because that is what restoring a backup means and there is
+ *    nowhere else the data could live.
+ *  - SIGNED IN it is a MERGE. The account already holds the union of every
+ *    device; replacing the local log would push that truncated log outward and
+ *    quietly delete history off the user's other phone. So the file's events are
+ *    unioned in (`mergeImport`) and a `data_merged` marker records it.
+ */
+export function initImportInput(store: DataStore, rerender: () => void, deps: ImportDeps = {}): void {
   const input = must('importFile') as HTMLInputElement;
   input.addEventListener('change', (e) => {
     const target = e.target as HTMLInputElement;
@@ -146,6 +191,13 @@ export function initImportInput(store: DataStore, rerender: () => void): void {
       const parsed = parseImport(typeof rd.result === 'string' ? rd.result : '');
       if (!parsed) {
         toast('קובץ לא תקין — הייבוא בוטל');
+        return;
+      }
+      if (deps.isSignedIn?.()) {
+        const res = mergeImport(store, parsed);
+        rerender();
+        deps.onLocalMerge?.();
+        toast(res.added > 0 ? `נוספו ${res.added} רשומות מהגיבוי ✓` : 'הגיבוי כבר קיים בחשבון');
         return;
       }
       store.replaceAll(parsed.state, parsed.events);
