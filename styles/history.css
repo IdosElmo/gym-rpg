@@ -1,0 +1,20 @@
+/* ---------- History ---------- */
+.hist-day{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); margin-bottom:12px; padding:12px 14px}
+.hist-day h3{margin:0 0 2px; font-size:15px}
+.hist-day .sub{font-size:12px; color:var(--muted); margin-bottom:8px}
+.hist-ex{font-size:13px; padding:5px 0; border-top:1px dashed var(--line)}
+.hist-ex b{font-weight:700}
+.hist-sets{color:var(--muted); direction:ltr; display:inline-block}
+.data-actions{display:flex; gap:10px; margin:6px 0 18px}
+.action-btn{
+  flex:1; background:var(--card); border:1px solid var(--line); color:var(--accent);
+  border-radius:12px; padding:11px; font-size:14px; font-weight:700;
+}
+.action-btn.danger{color:var(--danger)}
+.toast{
+  position:fixed; bottom:120px; right:50%; transform:translateX(50%);
+  background:var(--card-2); border:1px solid var(--accent); color:var(--text);
+  padding:9px 18px; border-radius:99px; font-size:13.5px; z-index:80;
+  opacity:0; transition:.25s; pointer-events:none;
+}
+.toast.show{opacity:1}

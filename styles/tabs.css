@@ -1,0 +1,14 @@
+nav.tabs{
+  display:flex; gap:8px; padding:12px 16px 4px; position:sticky; top:0; z-index:30;
+  background:linear-gradient(180deg,var(--bg) 75%,transparent);
+}
+.tab{
+  flex:1; border:1px solid var(--line); background:var(--card); color:var(--muted);
+  border-radius:12px; padding:9px 4px; text-align:center; transition:.15s;
+}
+.tab .d{display:block; font-weight:800; font-size:15px}
+.tab .w{display:block; font-size:11px; margin-top:1px}
+.tab.active{background:var(--accent); border-color:var(--accent); color:#fff}
+.tab.active .w{color:#DBEAFE}
+.tab.hist-tab{flex:.7}
+.tab.hist-tab.active{background:var(--card-2); border-color:var(--accent); color:var(--accent)}

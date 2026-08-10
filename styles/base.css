@@ -1,0 +1,31 @@
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+html,body{margin:0; padding:0}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Heebo","Noto Sans Hebrew",Arial,sans-serif;
+  font-size:16px; line-height:1.5;
+  padding-bottom:110px; /* room for floating timer */
+}
+button{font-family:inherit; cursor:pointer}
+input{font-family:inherit}
+
+/* ---------- Header ---------- */
+header{
+  padding:18px 16px 10px;
+  background:linear-gradient(180deg,#16203245,transparent);
+}
+.app-title{
+  display:flex; align-items:baseline; gap:8px; margin:0 0 2px;
+  font-size:20px; font-weight:800; letter-spacing:-.02em;
+}
+.app-title .en{font-size:11px; font-weight:600; color:var(--dim); letter-spacing:.14em; text-transform:uppercase}
+.day-meta{color:var(--muted); font-size:13.5px; margin:2px 0 0}
+.day-meta b{color:var(--text); font-weight:700}
+.last-log{font-size:12.5px; color:var(--dim); margin-top:2px}
+.last-log .val{color:var(--accent)}
+
+main{padding:10px 14px 0}
+footer{padding:20px 16px 30px; text-align:center; font-size:11.5px; color:var(--dim)}
+.empty{
+  text-align:center; color:var(--dim); padding:50px 20px; font-size:14px;
+}

@@ -1,0 +1,7 @@
+@media (min-width:640px){
+  main,nav.tabs,header{max-width:560px; margin-inline:auto}
+  #timerBar .t-inner{max-width:560px; margin-inline:auto}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none!important; animation:none!important}
+}

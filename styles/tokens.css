@@ -1,0 +1,7 @@
+/* Design tokens — unchanged from the original app. */
+:root{
+  --bg:#121824; --card:#1E2638; --card-2:#232E44; --line:#2C3A55;
+  --accent:#3B82F6; --ok:#10B981; --warn:#F59E0B; --danger:#EF4444;
+  --text:#E8EDF5; --muted:#8B96AB; --dim:#5D6B85;
+  --radius:14px;
+}
