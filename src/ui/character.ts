@@ -1,22 +1,43 @@
 /**
  * ui/character.ts — screen 2, "דמות".
  *
- * The SVG character, the headline level, the six body-part progress bars, the
- * streak tier, the battle-energy bank and the Phase 3 placeholders (equipment +
- * trophies). Read-only: it renders `state.game`, which only the XP engine writes.
+ * The SVG character (now wearing its equipment), the headline level, the six
+ * body-part progress bars, the streak tier, the battle-energy bank, the COIN
+ * SHOP and the world-boss trophy shelf.
+ *
+ * SHOP PLACEMENT (a Phase 3 decision): the shop lives here rather than in the
+ * קרב tab, because buying a piece of gear immediately changes the character
+ * drawing and the stat grid one card above it — cause and effect stay on the
+ * same screen. The קרב tab keeps only the coin counter and a pointer to here,
+ * so the arena stays a single-purpose screen you can use one-handed mid-workout.
+ *
+ * Everything the screen writes goes through `core/game.ts`, i.e. through events.
  */
 
 import { BODY_PARTS, BODY_PART_HE, type BodyPart } from '../data/program.ts';
-import { worldById } from '../data/gameContent.ts';
-import { gameOf } from '../core/game.ts';
-import { deriveStats, levelProgress } from '../core/xp.ts';
-import type { DataStore } from '../storage/DataStore.ts';
-import { characterSvg } from './characterSvg.ts';
+import {
+  EQUIPMENT_SLOTS,
+  SLOT_EMOJI,
+  SLOT_HE,
+  bonusHe,
+  bossById,
+  equipmentById,
+  equipmentForSlot,
+  worldById,
+  type EquipmentSlot,
+} from '../data/gameContent.ts';
+import { buyItem, equipItem, gameOf } from '../core/game.ts';
+import { levelProgress, statsOfGame } from '../core/xp.ts';
+import type { DataStore, GameState } from '../storage/DataStore.ts';
+import { characterSvg, trophyMedallion } from './characterSvg.ts';
 import { esc } from './dom.ts';
+import { toast } from './toast.ts';
 import { fmtXp } from './xpfx.ts';
 
 export interface CharacterDeps {
   store: DataStore;
+  /** Re-render the whole screen after a purchase/equip (stats + SVG change). */
+  rerender?: () => void;
 }
 
 /**
@@ -28,6 +49,9 @@ const pendingPulse = new Set<BodyPart>();
 export function queuePartPulse(part: BodyPart): void {
   pendingPulse.add(part);
 }
+
+/** Which slot's shop drawer is open. Survives re-renders within the session. */
+let openSlot: EquipmentSlot | null = null;
 
 const PART_ROLE_HE: Readonly<Record<BodyPart, string>> = {
   chest: 'כוח התקפה',
@@ -47,9 +71,94 @@ const PART_EMOJI: Readonly<Record<BodyPart, string>> = {
   core: '♻️',
 };
 
+/* ------------------------------------------------------------------ shop */
+
+function slotCard(game: GameState, slot: EquipmentSlot): string {
+  const wornId = game.equipment.equipped[slot];
+  const worn = wornId ? equipmentById(wornId) : undefined;
+  const open = openSlot === slot;
+  const items = equipmentForSlot(slot)
+    .map((item) => {
+      const owned = game.equipment.owned.includes(item.id);
+      const equipped = wornId === item.id;
+      const affordable = game.battle.coins >= item.cost;
+      const action = equipped
+        ? `<button class="eq-btn off" data-unequip="${slot}">הסר</button>`
+        : owned
+          ? `<button class="eq-btn on" data-equip="${item.id}">הצטייד</button>`
+          : `<button class="eq-btn buy" data-buy="${item.id}" ${affordable ? '' : 'disabled'}>
+               🪙 ${item.cost}
+             </button>`;
+      return `<li class="eq-item ${equipped ? 'equipped' : owned ? 'owned' : ''} ${affordable || owned ? '' : 'poor'}">
+        <span class="eq-art" aria-hidden="true">${item.icon}</span>
+        <span class="eq-body">
+          <b>${esc(item.he)} <span class="eq-tier">דרגה ${item.tier}</span></b>
+          <span class="eq-bonus">${esc(bonusHe(item.bonus))}</span>
+          <span class="eq-note">${esc(item.note)}</span>
+        </span>
+        ${action}
+      </li>`;
+    })
+    .join('');
+
+  return `<section class="eq-slot ${open ? 'open' : ''}">
+    <button class="eq-head" data-slot-toggle="${slot}" aria-expanded="${open}">
+      <span class="eq-slot-name">${SLOT_EMOJI[slot]} ${SLOT_HE[slot]}</span>
+      <span class="eq-worn">${worn ? esc(worn.he) : 'ריק'}</span>
+      <span class="eq-caret" aria-hidden="true">${open ? '▲' : '▼'}</span>
+    </button>
+    ${open ? `<ul class="eq-list">${items}</ul>` : ''}
+  </section>`;
+}
+
+function shopCard(game: GameState): string {
+  const worn = EQUIPMENT_SLOTS.filter((s) => game.equipment.equipped[s]).length;
+  return `
+  <section class="game-card" id="shopCard">
+    <h3 class="gc-title">חנות הציוד <span class="gc-sub">🪙 ${fmtXp(game.battle.coins)} · ${worn}/${EQUIPMENT_SLOTS.length} מצויד</span></h3>
+    <div class="eq-slots">${EQUIPMENT_SLOTS.map((s) => slotCard(game, s)).join('')}</div>
+    <p class="gc-note">מטבעות נצברים מגלים, ממיני־בוסים ובעיקר מבוסי עולם. הציוד מתווסף לסטטיסטיקות לפני בונוס הרצף — כך שגם הרצף מגביר אותו.</p>
+  </section>`;
+}
+
+/* -------------------------------------------------------------- trophies */
+
+function trophiesCard(game: GameState): string {
+  const ids = game.battle.bossesDefeated;
+  const medals = ids
+    .map((id) => {
+      const boss = bossById(id);
+      if (!boss) return '';
+      const world = worldById(boss.world);
+      return `<li class="trophy">
+        ${trophyMedallion(boss, world.he)}
+        <b>${esc(boss.he)}</b>
+        <span>${esc(world.he)}</span>
+      </li>`;
+    })
+    .join('');
+
+  return `
+  <section class="game-card">
+    <h3 class="gc-title">גביעים <span class="gc-sub">${ids.length} בוסי עולם · ${game.battle.miniBossesCleared} מיני־בוסים</span></h3>
+    ${
+      medals
+        ? `<ul class="trophy-shelf">${medals}</ul>`
+        : '<p class="gc-note">עדיין לא הפלתם בוס עולם. כל בוס שתפילו ישאיר כאן גביע קבוע — ומדליה על החזה של הדמות. 🏆</p>'
+    }
+    <div class="char-meta trophy-meta">
+      <div class="cm-item"><b>👑 ${game.battle.miniBossesCleared}</b><span>מיני־בוסים</span></div>
+      <div class="cm-item"><b>⚔️ ${game.battle.wavesCleared}</b><span>גלים</span></div>
+      <div class="cm-item"><b>🏛 ${ids.length}</b><span>בוסי עולם</span></div>
+    </div>
+  </section>`;
+}
+
+/* ------------------------------------------------------------------ view */
+
 export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
   const game = gameOf(deps.store);
-  const stats = deriveStats(game.parts, game.streak.tier);
+  const stats = statsOfGame(game);
   const pulse = [...pendingPulse];
   pendingPulse.clear();
 
@@ -72,11 +181,12 @@ export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
 
   const tier = game.streak.tier;
   const streakPct = Math.min(100, Math.round((game.streak.daysThisWeek / game.streak.needed) * 100));
+  const trophies = game.battle.bossesDefeated.length;
 
   main.innerHTML = `
   <section class="char-card">
     <div class="char-stage">
-      ${characterSvg(game.parts, { pulse })}
+      ${characterSvg(game.parts, { pulse, equipment: game.equipment, trophies })}
       <div class="char-level" aria-label="רמת דמות">
         <span class="cl-num">${game.level}</span><span class="cl-lbl">רמה</span>
       </div>
@@ -91,7 +201,7 @@ export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
   </section>
 
   <section class="game-card">
-    <h3 class="gc-title">כוח לחימה <span class="gc-sub">נגזר מרמות הגוף</span></h3>
+    <h3 class="gc-title">כוח לחימה <span class="gc-sub">רמות גוף + ציוד + רצף</span></h3>
     <div class="stat-grid">
       <div class="stat"><span class="s-k">התקפה</span><b>${stats.atk}</b></div>
       <div class="stat"><span class="s-k">הגנה</span><b>${stats.def}</b></div>
@@ -127,18 +237,63 @@ export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
     </div>
   </section>
 
-  <section class="game-card locked">
-    <h3 class="gc-title">ציוד <span class="gc-sub">בקרוב</span></h3>
-    <div class="slot-grid">
-      ${['כפפות', 'חגורה', 'נעליים', 'גלימה'].map((s) => `<div class="slot">${esc(s)}<span>ריק</span></div>`).join('')}
-    </div>
-    <p class="gc-note">
-      חנות הציוד תיפתח בעדכון הבא — המטבעות שאתם צוברים בקרב (🪙 ${fmtXp(game.battle.coins)}) כבר נשמרים.
-    </p>
-  </section>
+  ${shopCard(game)}
+  ${trophiesCard(game)}`;
 
-  <section class="game-card locked">
-    <h3 class="gc-title">גביעים <span class="gc-sub">בקרוב</span></h3>
-    <p class="gc-note">כל בוס שתפילו ישאיר גביע קבוע כאן. 🏆</p>
-  </section>`;
+  wireShop(main, deps);
+}
+
+/* ----------------------------------------------------------------- wiring */
+
+function wireShop(main: HTMLElement, deps: CharacterDeps): void {
+  const refresh = (): void => {
+    if (deps.rerender) deps.rerender();
+    else renderCharacter(main, deps);
+  };
+
+  main.querySelectorAll<HTMLButtonElement>('[data-slot-toggle]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const slot = btn.dataset['slotToggle'] as EquipmentSlot | undefined;
+      if (!slot) return;
+      openSlot = openSlot === slot ? null : slot;
+      refresh();
+    });
+  });
+
+  main.querySelectorAll<HTMLButtonElement>('[data-buy]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset['buy'];
+      if (!id) return;
+      const res = buyItem(deps.store, id);
+      if (!res.ok) {
+        toast(
+          res.error === 'insufficient_coins'
+            ? 'אין מספיק מטבעות — נצחו עוד גלים או בוס עולם. 🪙'
+            : 'לא ניתן לקנות את הפריט הזה.',
+        );
+        return;
+      }
+      toast(`${equipmentById(id)?.he ?? 'הפריט'} נרכש והוצמד! ✨`);
+      refresh();
+    });
+  });
+
+  main.querySelectorAll<HTMLButtonElement>('[data-equip]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset['equip'];
+      const def = id ? equipmentById(id) : undefined;
+      if (!def || !id) return;
+      equipItem(deps.store, def.slot, id);
+      refresh();
+    });
+  });
+
+  main.querySelectorAll<HTMLButtonElement>('[data-unequip]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const slot = btn.dataset['unequip'] as EquipmentSlot | undefined;
+      if (!slot) return;
+      equipItem(deps.store, slot, null);
+      refresh();
+    });
+  });
 }

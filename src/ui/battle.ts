@@ -22,9 +22,12 @@
 import { BALANCE } from '../core/balance.ts';
 import {
   advance,
+  bossSpec,
+  bossStanding,
   createBattle,
-  isWorldBossWave,
+  isEndgame,
   setEnergy,
+  setGate,
   superReady,
   tap,
   useSuper,
@@ -33,19 +36,25 @@ import {
   type CombatEvent,
   type CombatStats,
 } from '../core/combat.ts';
-import { gameOf, onWaveCleared } from '../core/game.ts';
-import { deriveStats } from '../core/xp.ts';
+import { gameOf, onBossDefeated, onWaveCleared } from '../core/game.ts';
+import { statsOfGame } from '../core/xp.ts';
 import { BODY_PART_HE, BODY_PARTS, type BodyPart } from '../data/program.ts';
 import { WORLD_COUNT, worldById, worldBossOf } from '../data/gameContent.ts';
 import type { DataStore, GameState } from '../storage/DataStore.ts';
 import { characterSvg } from './characterSvg.ts';
 import { esc } from './dom.ts';
+import { toast } from './toast.ts';
 import { fmtXp } from './xpfx.ts';
 
 export interface BattleDeps {
   store: DataStore;
   /** Re-render the shell (the header energy pill follows the battle). */
   refreshHeader: () => void;
+  /**
+   * Rebuild the whole arena. Called after a world boss falls, because the world,
+   * the enemy roster and the gate card all change at once.
+   */
+  remount?: () => void;
 }
 
 interface Runtime {
@@ -61,7 +70,7 @@ export function stopBattle(): void {
 }
 
 function statsOf(game: GameState): CombatStats {
-  const s = deriveStats(game.parts, game.streak.tier);
+  const s = statsOfGame(game);
   return {
     atk: s.atk,
     def: s.def,
@@ -95,15 +104,16 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
   const game = gameOf(store);
   const stats = statsOf(game);
   const world = worldById(game.battle.world);
-  const gated = isWorldBossWave(game.battle.wave);
-  const spec = gated ? null : waveSpec(game.battle.world, game.battle.wave);
+  const atBoss = bossStanding(game.battle.world, game.battle.wave, game.battle.bossesDefeated);
+  const spec = atBoss ? null : waveSpec(game.battle.world, game.battle.wave);
+  const champion = isEndgame(game.battle.bossesDefeated);
 
   main.innerHTML = `
   <section class="bt-card">
     <div class="bt-worldbar">
       <div class="bt-world">
-        <b>${esc(world.he)}</b>
-        <span>עולם ${world.id}/${WORLD_COUNT} · ${esc(world.tagline)}</span>
+        <b>${esc(world.he)}${champion ? ' 👑' : ''}</b>
+        <span>עולם ${world.id}/${WORLD_COUNT} · ${esc(champion ? 'מצב אלוף — הגלים ממשיכים בלי סוף' : world.tagline)}</span>
       </div>
       <div class="bt-wave"><b id="btWave">${game.battle.wave}</b><span>גל</span></div>
     </div>
@@ -148,7 +158,9 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
       <div class="cm-item"><b>🪙 <span id="btCoins">${fmtXp(game.battle.coins)}</span></b><span>מטבעות</span></div>
       <div class="cm-item"><b id="btCleared">${game.battle.wavesCleared}</b><span>גלים שנוצחו</span></div>
       <div class="cm-item"><b id="btMinis">${game.battle.miniBossesCleared}</b><span>מיני־בוסים</span></div>
+      <div class="cm-item"><b id="btBosses">${game.battle.bossesDefeated.length}</b><span>בוסי עולם</span></div>
     </div>
+    <p class="gc-note">המטבעות נקנים לציוד בלשונית 🦸 דמות — הציוד מתווסף לסטטיסטיקות ונראה על הדמות.</p>
   </section>
 
   <section class="game-card">
@@ -169,12 +181,34 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
   start(main, deps);
 }
 
-/** The world-boss gate card — Phase 3 fights it, Phase 2 explains it. */
+/**
+ * The world-boss card: the sprite, the body-part gate with met/unmet states and
+ * — once every requirement is met — the promise that the fight starts by itself.
+ *
+ * When the world's boss is already a trophy the card turns into the endgame
+ * banner instead (there is nothing left to gate in the last world).
+ */
 function gateCard(game: GameState): string {
   const boss = worldBossOf(game.battle.world);
   if (!boss) return '';
+  const done = game.battle.bossesDefeated.includes(boss.id);
+  if (done) {
+    return `
+    <section class="game-card bt-gate champion">
+      <h3 class="gc-title">👑 ${esc(boss.he)} הובס <span class="gc-sub">מצב אלוף</span></h3>
+      <div class="bt-gate-body">
+        <div class="bt-gate-sprite defeated">${boss.svg}</div>
+        <p class="gc-note">
+          העולם הזה כבר שלכם. הגלים ממשיכים להגיע ולהתחזק בלי גבול — כל גל נוסף הוא שיא אישי חדש,
+          והגביע מחכה לכם בלשונית 🦸 דמות.
+        </p>
+      </div>
+    </section>`;
+  }
+
   const gate = worldGate(game.battle.world, partLevels(game));
   const wavesLeft = Math.max(0, BALANCE.combat.wavesPerWorld - (game.battle.wave - 1));
+  const spec = bossSpec(game.battle.world);
   const reqs = gate.requirements
     .map(
       (r) => `<li class="${r.met ? 'met' : 'unmet'}">
@@ -183,6 +217,9 @@ function gateCard(game: GameState): string {
       </li>`,
     )
     .join('');
+  const missing = gate.requirements.filter((r) => !r.met);
+  const missingHe = missing.map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`).join(' · ');
+
   return `
   <section class="game-card bt-gate ${gate.locked ? 'locked' : 'open'}">
     <h3 class="gc-title">בוס העולם: ${esc(boss.he)} <span class="gc-sub">${wavesLeft > 0 ? `עוד ${wavesLeft} גלים` : 'מחכה לכם'}</span></h3>
@@ -192,8 +229,10 @@ function gateCard(game: GameState): string {
     </div>
     <p class="gc-note">${
       gate.locked
-        ? 'הבוס נעול — השלימו את דרישות האימון שמסומנות ב־✕ כדי לפתוח אותו.'
-        : 'כל הדרישות הושלמו! קרב הבוס ייפתח בעדכון הבא.'
+        ? `הבוס נעול. חסר לכם: <b>${esc(missingHe)}</b> — התאמנו על החלקים האלה וזה ייפתח מעצמו.`
+        : `כל הדרישות הושלמו! הקרב מתחיל לבד ברגע שתגיעו לגל ${BALANCE.combat.wavesPerWorld + 1}${
+            spec ? ` · עולה ${spec.energyCost} ⚡ · מזכה ב־${spec.coins} 🪙` : ''
+          }.`
     }</p>
   </section>`;
 }
@@ -224,7 +263,11 @@ function start(main: HTMLElement, deps: BattleDeps): void {
   const coinsEl = el('btCoins');
   const clearedEl = el('btCleared');
   const minisEl = el('btMinis');
+  const bossesEl = el('btBosses');
   if (!arena) return;
+
+  /** Is the CURRENT world's boss gate open for this character right now? */
+  const gateOpenFor = (g: GameState): boolean => !worldGate(g.battle.world, partLevels(g)).locked;
 
   const game0 = gameOf(store);
   let stats = statsOf(game0);
@@ -236,9 +279,22 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     wave: game0.battle.wave,
     energy: game0.energy,
     stats,
+    gateOpen: gateOpenFor(game0),
+    defeatedBosses: game0.battle.bossesDefeated,
   });
 
   const softMotion = reducedMotion();
+  /**
+   * Rebuild the arena AFTER the current frame: `consume()` runs inside the
+   * simulation loop, and tearing the DOM down from inside it would be re-entrant.
+   */
+  function queueRemount(): void {
+    if (!deps.remount) return;
+    setTimeout(() => {
+      if (!disposed) deps.remount?.();
+    }, 900);
+  }
+
   let raf = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let last = 0;
@@ -290,7 +346,9 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     if (!sprite || !foeName || !e) return;
     sprite.innerHTML = e.svg;
     sprite.classList.toggle('mini-boss', e.miniBoss);
-    foeName.textContent = e.miniBoss ? `👑 ${e.he}` : e.he;
+    sprite.classList.toggle('world-boss', e.worldBoss);
+    arena?.classList.toggle('boss-fight', e.worldBoss);
+    foeName.textContent = e.worldBoss ? `🏛 ${e.he}` : e.miniBoss ? `👑 ${e.he}` : e.he;
     paintEnemy();
   }
 
@@ -329,20 +387,31 @@ function start(main: HTMLElement, deps: BattleDeps): void {
         text = `😴 אין מספיק אנרגיה — הדמות נחה. לכו להתאמן! כל סט מסומן שווה ${BALANCE.energy.perSet} ⚡ וסיום אימון עוד ${BALANCE.energy.perWorkout} ⚡.`;
         cls = 'rest';
         break;
-      case 'gated':
-        text = '🏛 כל הגלים בעולם הזה נוצחו — בוס העולם ממתין (מגיע בעדכון הבא).';
+      case 'gated': {
+        const gate = worldGate(state.world, partLevels(gameOf(store)));
+        const missing = gate.requirements
+          .filter((r) => !r.met)
+          .map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`)
+          .join(' · ');
+        text = `🏛 בוס העולם חוסם את הדרך. חסר: ${missing || 'אימון'} — לכו להתאמן ותחזרו.`;
         cls = 'gate';
         break;
+      }
       case 'recovering':
         text = `💀 הופלתם בגל ${state.wave} — הדמות קמה ומנסה שוב.`;
         cls = 'down';
         break;
       default:
-        text =
-          state.streakDefeats >= BALANCE.combat.defeatsBeforeHint
-            ? '⚠️ האויב חזק מדי. לכו להתאמן כדי להעלות רמות — הסטטיסטיקות הן ההבדל.'
-            : 'הקישו על האויב כדי לתקוף ולטעון את מד מהלך העל.';
-        cls = state.streakDefeats >= BALANCE.combat.defeatsBeforeHint ? 'warn' : '';
+        if (state.enemy?.worldBoss) {
+          text = `🏛 קרב בוס! ${state.enemy.he} — הקישו בלי הפסקה ושחררו כל מהלך על.`;
+          cls = 'boss';
+        } else {
+          text =
+            state.streakDefeats >= BALANCE.combat.defeatsBeforeHint
+              ? '⚠️ האויב חזק מדי. לכו להתאמן כדי להעלות רמות — הסטטיסטיקות הן ההבדל.'
+              : 'הקישו על האויב כדי לתקוף ולטעון את מד מהלך העל.';
+          cls = state.streakDefeats >= BALANCE.combat.defeatsBeforeHint ? 'warn' : '';
+        }
     }
     statusEl.textContent = text;
     statusEl.className = `bt-status ${cls}`;
@@ -353,6 +422,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     if (coinsEl) coinsEl.textContent = fmtXp(g.battle.coins);
     if (clearedEl) clearedEl.textContent = String(g.battle.wavesCleared);
     if (minisEl) minisEl.textContent = String(g.battle.miniBossesCleared);
+    if (bossesEl) bossesEl.textContent = String(g.battle.bossesDefeated.length);
   }
 
   /* --------------------------------------------------------------- events */
@@ -362,6 +432,11 @@ function start(main: HTMLElement, deps: BattleDeps): void {
       switch (ev.kind) {
         case 'spawn':
           spawnSprite();
+          break;
+        case 'boss_spawn':
+          spawnSprite();
+          shake(true);
+          toast(`🏛 בוס העולם ${ev.spec.boss.he} הופיע!`);
           break;
         case 'hit':
           paintEnemy();
@@ -390,6 +465,27 @@ function start(main: HTMLElement, deps: BattleDeps): void {
           float(`+${ev.result.coins} 🪙`, 'coin', 'enemy');
           break;
         }
+        case 'boss_defeated': {
+          // The one persisted boss fact: trophy + purse + world unlock.
+          onBossDefeated(store, ev.result);
+          const g = gameOf(store);
+          setEnergy(state, g.energy);
+          setGate(state, gateOpenFor(g), g.battle.bossesDefeated);
+          paintTotals();
+          deps.refreshHeader();
+          shake(true);
+          float(`+${ev.result.coins} 🪙`, 'coin', 'enemy');
+          arena?.classList.remove('boss-fight');
+          sprite?.classList.remove('world-boss');
+          toast(
+            ev.result.endgame
+              ? '👑 זאוס הובס! נפתח מצב אלוף — הגלים ממשיכים בלי סוף.'
+              : `🏛 בוס העולם הובס! עולם ${ev.result.nextWorld} נפתח.`,
+          );
+          // The whole screen changes (new world, new gate card) — remount it.
+          queueRemount();
+          break;
+        }
         case 'defeat':
           paintHero();
           shake(true);
@@ -412,8 +508,12 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     const dt = last === 0 ? 0 : now - last;
     last = now;
     // Level-ups can happen while the tab is open (another device, an import) —
-    // re-derive the stats every frame; it is a handful of multiplications.
-    stats = statsOf(gameOf(store));
+    // re-derive the stats every frame; it is a handful of multiplications. The
+    // boss gate rides along, so hitting the required level while the arena is on
+    // screen releases a `gated` battle straight into the boss fight.
+    const g = gameOf(store);
+    stats = statsOf(g);
+    if (state.status === 'gated') setGate(state, gateOpenFor(g), g.battle.bossesDefeated);
     consume(advance(state, dt, stats));
     schedule();
   }

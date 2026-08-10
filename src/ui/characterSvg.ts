@@ -14,17 +14,24 @@
  * Growth is clamped at `BALANCE.character.visualMaxLevel`, so a very high level
  * stays a charming cartoon rather than a blob.
  *
- * LAYERS (draw order) — Phase 3 hangs equipment off the marked anchors:
- *   shadow · legs · lats · torso · pecs · abs · arms · deltoids · head ·
- *   [equipment slots: shoes / belt / gloves / cape] · trophies
- * Every body group carries `data-part`, which is all the level-up pulse and any
- * future part-targeted effect needs.
+ * LAYERS (draw order) — equipment hangs off the anchors in `characterAnchors`:
+ *   shadow · [cape] · legs · lats · torso · pecs · abs · arms · deltoids ·
+ *   head · [shoes · belt · gloves] · trophy medals
+ * The cape is the one piece drawn BEFORE the body (it hangs behind it); every
+ * other slot is worn on top. Every body group carries `data-part`, which is all
+ * the level-up pulse and any part-targeted effect needs.
  */
 
 import { BALANCE } from '../core/balance.ts';
 import { clamp } from '../core/xp.ts';
+import {
+  equipmentById,
+  type BossDef,
+  type EquipmentDef,
+  type EquipmentSlot,
+} from '../data/gameContent.ts';
 import { BODY_PARTS, type BodyPart } from '../data/program.ts';
-import type { PartsProgress } from '../storage/DataStore.ts';
+import type { EquipmentState, PartsProgress } from '../storage/DataStore.ts';
 
 /* ------------------------------------------------------------- geometry */
 
@@ -126,6 +133,155 @@ export function characterAnchors(geo: CharacterGeometry): CharacterAnchors {
   };
 }
 
+/* ------------------------------------------------------------ equipment */
+
+/**
+ * Equipment layers.
+ *
+ * The shapes are built from the SAME anchors the body uses, so a piece of gear
+ * always fits the character it is worn by: a wider back widens the cape, thicker
+ * legs widen the shoes, a tighter core narrows the belt. Only the two colours
+ * and the tier come from the item definition — the geometry is the character's.
+ *
+ * READABILITY AT TWO SCALES: the character SVG is drawn at ~220px on the דמות
+ * screen and at ~90px inside the battle arena, so every piece uses one bold
+ * silhouette plus at most one accent detail. Nothing here relies on a stroke
+ * thinner than 2 user units (≈0.9px at arena scale).
+ */
+
+function capeLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: EquipmentDef): string {
+  const { x, y } = a.cape;
+  const top = a.cape.halfWidth;
+  if (item.tier === 1) {
+    // A towel, not a cape: slung over one shoulder.
+    const sx = x + top * 0.35;
+    return `<path d="M ${n(sx - 13)} ${n(y - 4)} h 26 l -3 ${n(46)} l -7 -6 -6 6 -7 -6 Z"
+      fill="${item.color}" stroke="${item.accent}" stroke-width="2.5" stroke-linejoin="round"/>`;
+  }
+  const half = top + (item.tier === 3 ? 12 : 6);
+  const hem = KNEE_Y - (item.tier === 3 ? 6 : 24);
+  const collar = `<path d="M ${n(x - top - 2)} ${n(y)} Q ${n(x)} ${n(y - 13)} ${n(x + top + 2)} ${n(y)}
+    Q ${n(x)} ${n(y + 8)} ${n(x - top - 2)} ${n(y)} Z" fill="${item.accent}"/>`;
+  return `<path d="M ${n(x - top)} ${n(y)}
+      C ${n(x - half - 6)} ${n(y + 60)} ${n(x - half)} ${n(hem - 30)} ${n(x - half)} ${n(hem)}
+      l ${n(half * 0.5)} -9 l ${n(half * 0.5)} 9 l ${n(half * 0.5)} -9 l ${n(half * 0.5)} 9
+      C ${n(x + half)} ${n(hem - 30)} ${n(x + half + 6)} ${n(y + 60)} ${n(x + top)} ${n(y)} Z"
+      fill="${item.color}" stroke="${item.accent}" stroke-width="2.5" stroke-linejoin="round"/>${collar}`;
+}
+
+function beltLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: EquipmentDef): string {
+  const { x, y, halfWidth } = a.belt;
+  const h = 8 + item.tier * 2;
+  const strap = `<rect x="${n(x - halfWidth)}" y="${n(y - h / 2)}" width="${n(halfWidth * 2)}" height="${n(h)}"
+    rx="${n(h / 2.6)}" fill="${item.color}" stroke="${item.accent}" stroke-width="2"/>`;
+  if (item.tier === 1) {
+    return `${strap}<rect x="${n(x - 6)}" y="${n(y - h / 2 - 2)}" width="12" height="${n(h + 4)}" rx="3" fill="${item.accent}"/>`;
+  }
+  if (item.tier === 2) {
+    return `${strap}<rect x="${n(x - 8)}" y="${n(y - h / 2 - 3)}" width="16" height="${n(h + 6)}" rx="4"
+      fill="${item.accent}"/><circle cx="${n(x)}" cy="${n(y)}" r="3" fill="${item.color}"/>`;
+  }
+  // Tier 3: a title belt — the buckle is the whole point.
+  return `${strap}<path d="M ${n(x)} ${n(y - 13)} l 12 7 v 12 l -12 7 -12 -7 v -12 Z"
+    fill="${item.accent}" stroke="${item.color}" stroke-width="2"/>
+    <circle cx="${n(x)}" cy="${n(y)}" r="4.5" fill="${item.color}"/>`;
+}
+
+function glovesLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: EquipmentDef): string {
+  return a.gloves
+    .map((g) => {
+      const r = Math.max(6.5, g.r + 1.5 + item.tier * 0.7);
+      const cuff = `<rect x="${n(g.x - r * 0.95)}" y="${n(g.y - r - 7)}" width="${n(r * 1.9)}" height="8" rx="3"
+        fill="${item.accent}"/>`;
+      const mitt = `<circle cx="${n(g.x)}" cy="${n(g.y)}" r="${n(r)}" fill="${item.color}"
+        stroke="${item.accent}" stroke-width="2"/>`;
+      const detail =
+        item.tier === 3
+          ? `<path d="M ${n(g.x)} ${n(g.y - 3.5)} l 2.6 5.4 -5.2 0 Z" fill="${item.accent}"/>`
+          : item.tier === 2
+            ? `<circle cx="${n(g.x)}" cy="${n(g.y)}" r="2.4" fill="${item.accent}"/>`
+            : '';
+      return `${cuff}${mitt}${detail}`;
+    })
+    .join('');
+}
+
+function shoesLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: EquipmentDef): string {
+  return a.shoes
+    .map((s, i) => {
+      const side = i === 0 ? -1 : 1;
+      const w = s.halfWidth + 2 + item.tier;
+      const toe = side * (w * 0.9);
+      const body = `<path d="M ${n(s.x - w)} ${n(s.y - 8)} h ${n(w * 2)} q ${n(toe)} 3 ${n(toe)} 9
+        h ${n(-w * 2 - Math.abs(toe))} Z" fill="${item.color}" stroke="${item.accent}" stroke-width="2"
+        stroke-linejoin="round"/>`;
+      const sole = `<rect x="${n(Math.min(s.x - w, s.x - w + toe))}" y="${n(s.y + 1)}"
+        width="${n(w * 2 + Math.abs(toe))}" height="4" rx="2" fill="${item.accent}"/>`;
+      const wing =
+        item.tier === 3
+          ? `<path d="M ${n(s.x - side * w * 0.6)} ${n(s.y - 9)} q ${n(-side * 9)} -8 ${n(-side * 2)} -10
+             q 1 7 ${n(side * 8)} 8 Z" fill="${item.accent}"/>`
+          : '';
+      return `${body}${sole}${wing}`;
+    })
+    .join('');
+}
+
+const SLOT_DRAW: Readonly<
+  Record<EquipmentSlot, (geo: CharacterGeometry, a: CharacterAnchors, item: EquipmentDef) => string>
+> = {
+  cape: capeLayer,
+  belt: beltLayer,
+  gloves: glovesLayer,
+  shoes: shoesLayer,
+};
+
+/** Markup for one slot's group contents ('' when the slot is empty). */
+export function equipmentLayer(
+  slot: EquipmentSlot,
+  geo: CharacterGeometry,
+  equipped: Partial<Record<EquipmentSlot, string>>,
+): string {
+  const id = equipped[slot];
+  if (!id) return '';
+  const item = equipmentById(id);
+  if (!item || item.slot !== slot) return '';
+  return SLOT_DRAW[slot](geo, characterAnchors(geo), item);
+}
+
+/* -------------------------------------------------------------- trophies */
+
+/**
+ * The medal ribbons pinned to the character's chest — one per world boss,
+ * gold and tiny, in the order the bosses fell.
+ */
+function trophyPins(geo: CharacterGeometry, count: number): string {
+  if (count <= 0) return '';
+  const startX = CX - geo.chestHalf * 0.62;
+  return Array.from({ length: Math.min(count, 6) }, (_, i) => {
+    const x = startX + i * 10;
+    const y = SHOULDER_Y + 12;
+    return `<g class="ch-medal"><rect x="${n(x - 2.5)}" y="${n(y - 5)}" width="5" height="5" fill="#B91C1C"/>
+      <circle cx="${n(x)}" cy="${n(y + 2.5)}" r="4" fill="#FBBF24" stroke="#B45309" stroke-width="1.2"/></g>`;
+  }).join('');
+}
+
+/**
+ * A standalone trophy medallion for the character screen's shelf.
+ * Self-contained SVG so it can be dropped anywhere in the page.
+ */
+export function trophyMedallion(boss: BossDef, worldHe: string): string {
+  return `<svg class="tr-svg" viewBox="0 0 72 84" xmlns="http://www.w3.org/2000/svg" role="img"
+    aria-label="גביע: ${boss.he}, ${worldHe}">
+    <path d="M22 4 h28 l-8 22 h-12 Z" fill="#B91C1C"/>
+    <path d="M14 4 h16 l-6 20 h-14 Z" fill="#7F1D1D"/>
+    <circle cx="36" cy="52" r="26" fill="#FBBF24" stroke="#B45309" stroke-width="3"/>
+    <circle cx="36" cy="52" r="19" fill="#F59E0B"/>
+    <path d="M36 38 l4.6 9.6 10.4 1.4 -7.6 7.4 1.9 10.6 -9.3 -5.1 -9.3 5.1 1.9 -10.6 -7.6 -7.4 10.4 -1.4 Z"
+      fill="#FDE68A"/>
+  </svg>`;
+}
+
 /* -------------------------------------------------------------- drawing */
 
 /** Round to 1 decimal — keeps the markup small and the tests readable. */
@@ -206,6 +362,10 @@ export interface CharacterSvgOptions {
   pulse?: readonly BodyPart[];
   /** Accessible label; a sensible Hebrew default is used when omitted. */
   label?: string;
+  /** Owned/equipped shop items — only `equipped` is drawn. */
+  equipment?: EquipmentState;
+  /** How many world-boss medals to pin on the chest. */
+  trophies?: number;
 }
 
 /**
@@ -218,6 +378,8 @@ export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {
   const cls = (part: BodyPart): string => `ch-part${pulse.has(part) ? ' pulse' : ''}`;
   const label = opts.label ?? 'הדמות שלך';
   const pecOffset = geo.chestHalf * 0.44;
+  const equipped = opts.equipment?.equipped ?? {};
+  const layer = (slot: EquipmentSlot): string => equipmentLayer(slot, geo, equipped);
 
   return `<svg class="ch-svg" viewBox="0 0 200 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${label}">
   <defs>
@@ -227,6 +389,10 @@ export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {
     </linearGradient>
   </defs>
   <ellipse class="ch-shadow" cx="100" cy="306" rx="${n(geo.hipHalf + 16)}" ry="7"/>
+
+  <!-- The cape hangs BEHIND the body, so it is the only equipment layer drawn
+       before the character rather than after it. -->
+  <g class="ch-equip" data-slot="cape">${layer('cape')}</g>
 
   <g class="${cls('legs')}" data-part="legs">${legGroup(geo, -1)}${legGroup(geo, 1)}</g>
 
@@ -261,12 +427,11 @@ export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {
     <path class="ch-mouth" d="M 93 49 Q 100 54 107 49" fill="none" stroke-linecap="round"/>
   </g>
 
-  <!-- Phase 3 equipment layers render into these groups (see characterAnchors). -->
-  <g class="ch-equip" data-slot="cape"></g>
-  <g class="ch-equip" data-slot="belt"></g>
-  <g class="ch-equip" data-slot="gloves"></g>
-  <g class="ch-equip" data-slot="shoes"></g>
-  <g class="ch-trophies"></g>
+  <!-- Equipment layers worn ON TOP of the body (see characterAnchors). -->
+  <g class="ch-equip" data-slot="shoes">${layer('shoes')}</g>
+  <g class="ch-equip" data-slot="belt">${layer('belt')}</g>
+  <g class="ch-equip" data-slot="gloves">${layer('gloves')}</g>
+  <g class="ch-trophies">${trophyPins(geo, opts.trophies ?? 0)}</g>
 </svg>`;
 }
 

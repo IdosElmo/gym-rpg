@@ -124,10 +124,12 @@ describe('דמות screen', () => {
     for (const he of Object.values(BODY_PART_HE)) {
       expect(document.querySelector('#main .parts')?.textContent).toContain(he);
     }
-    // headline level + streak + the Phase 3 placeholders
+    // headline level + streak + the Phase 3 cards (shop + trophies), now real
     expect(document.querySelector('#main .char-level .cl-num')?.textContent).toBe('1');
     expect(document.querySelector('#main .streak-tier b')?.textContent).toBe('0');
-    expect(document.querySelectorAll('#main .game-card.locked')).toHaveLength(2);
+    expect(document.querySelectorAll('#main .game-card.locked')).toHaveLength(0);
+    expect(document.getElementById('shopCard')).not.toBeNull();
+    expect(document.querySelectorAll('#main .eq-slot')).toHaveLength(4);
     expect(document.getElementById('header')?.textContent).toContain('הדמות שלי');
   });
 

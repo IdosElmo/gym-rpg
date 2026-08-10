@@ -11,7 +11,14 @@
  */
 
 import { BODY_PART_HE, findExercise, type BodyPart } from '../data/program.ts';
-import { worldById } from '../data/gameContent.ts';
+import {
+  EQUIPMENT_SLOTS,
+  SLOT_HE,
+  bossById,
+  equipmentById,
+  worldById,
+  type EquipmentSlot,
+} from '../data/gameContent.ts';
 import { tsToIso } from '../core/xp.ts';
 import { fmtDate } from '../core/workout.ts';
 import type { AppEvent } from '../storage/DataStore.ts';
@@ -37,6 +44,10 @@ function num(v: unknown): number {
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v : '';
+}
+
+function isSlot(v: string): v is EquipmentSlot {
+  return (EQUIPMENT_SLOTS as readonly string[]).includes(v);
 }
 
 /** Open run of ordinary waves, waiting to be flushed into one line. */
@@ -144,15 +155,47 @@ export function buildFeed(events: readonly AppEvent[], limit = 40): FeedItem[] {
         });
         break;
       }
-      case 'boss_defeated':
+      case 'boss_defeated': {
+        const boss = bossById(str(p['bossId']));
+        const world = worldById(Math.max(1, num(p['world'])));
+        const name = boss ? boss.he : str(p['bossId']);
         items.push({
           ts: ev.ts,
           date,
-          icon: '🏛',
+          icon: p['endgame'] === true ? '👑' : '🏛',
           cls: 'boss',
-          text: `בוס העולם ${esc(str(p['bossId']))} הובס!`,
+          text:
+            p['endgame'] === true
+              ? `${esc(name)} הובס — מצב אלוף נפתח! +${num(p['coins'])} 🪙`
+              : `בוס העולם ${esc(name)} (${esc(world.he)}) הובס! עולם ${num(p['nextWorld'])} נפתח · +${num(p['coins'])} 🪙`,
         });
         break;
+      }
+      case 'coins_spent': {
+        const item = equipmentById(str(p['itemId']));
+        items.push({
+          ts: ev.ts,
+          date,
+          icon: '🛒',
+          cls: 'shop',
+          text: `${esc(item ? item.he : str(p['itemId']))} נרכש בחנות · −${num(p['cost'])} 🪙`,
+        });
+        break;
+      }
+      case 'item_equipped': {
+        const id = str(p['itemId']);
+        const item = id ? equipmentById(id) : undefined;
+        const slot = str(p['slot']);
+        const slotHe = isSlot(slot) ? SLOT_HE[slot] : slot;
+        items.push({
+          ts: ev.ts,
+          date,
+          icon: '🎽',
+          cls: 'shop',
+          text: item ? `${esc(item.he)} הוצמד (${esc(slotHe)})` : `${esc(slotHe)} הוסרה`,
+        });
+        break;
+      }
       default:
         break;
     }

@@ -99,6 +99,18 @@ export function createApp(store: DataStore, timer: RestTimer): App {
     ${energyPill()}`;
   }
 
+  /** Rebuild the arena in place (a world boss fell — the whole world changed). */
+  function renderBattleScreen(): void {
+    if (store.getState().ui.view !== 'BT') return;
+    renderHeader();
+    renderBattle(mainEl, { store, refreshHeader: renderHeader, remount: renderBattleScreen });
+  }
+
+  function renderCharacterScreen(): void {
+    renderHeader();
+    renderCharacter(mainEl, { store, rerender: renderCharacterScreen });
+  }
+
   function render(): void {
     // Battles run ONLY while the קרב tab is on screen — every render tears the
     // previous loop down before the new screen is mounted.
@@ -109,9 +121,12 @@ export function createApp(store: DataStore, timer: RestTimer): App {
     if (view === 'H') {
       renderHistory(mainEl, { store, rerender: render });
     } else if (view === 'CH') {
-      renderCharacter(mainEl, { store });
+      // A shop purchase re-renders the דמות screen in place (header + main, no
+      // scroll reset) so the character, the stat grid and the purse update
+      // without throwing the player back to the top of the page.
+      renderCharacter(mainEl, { store, rerender: renderCharacterScreen });
     } else if (view === 'BT') {
-      renderBattle(mainEl, { store, refreshHeader: renderHeader });
+      renderBattle(mainEl, { store, refreshHeader: renderHeader, remount: renderBattleScreen });
     } else {
       renderWorkout(mainEl, view, { store, timer, refreshHeader: renderHeader });
     }

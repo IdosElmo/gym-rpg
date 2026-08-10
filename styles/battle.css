@@ -144,3 +144,19 @@
 .tab.battle-tab{flex:.7}
 .tab.battle-tab.active{background:var(--card-2); border-color:var(--warn); color:var(--warn)}
 .tab.battle-tab .w{font-size:10px}
+
+/* ---------- world-boss fight ---------- */
+.bt-sprite.enemy.world-boss .en-svg{
+  width:min(42vw,150px); filter:drop-shadow(0 0 14px #EF444488);
+}
+.bt-arena.boss-fight{
+  border-color:#EF444466;
+  box-shadow:inset 0 0 44px #EF444422;
+}
+.bt-arena.boss-fight::after{background:linear-gradient(90deg,transparent,var(--danger),transparent); opacity:.7}
+.bt-status.boss{color:#FCA5A5; font-weight:800}
+
+.bt-gate.open{border-color:#10B98155}
+.bt-gate.champion{border-color:#FBBF2455; background:linear-gradient(180deg,#F59E0B12,transparent)}
+.bt-gate.champion .bt-gate-body{align-items:flex-start}
+.bt-gate-sprite.defeated{filter:grayscale(.55) brightness(.85); opacity:.8}
