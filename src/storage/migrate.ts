@@ -21,6 +21,7 @@ import { EQUIPMENT_SLOTS, bossById, equipmentById } from '../data/gameContent.ts
 import { todayISO } from '../core/workout.ts';
 import {
   buildRetroactiveGrants,
+  compareEvents,
   emptyBattle,
   emptyEquipment,
   emptyGame,
@@ -49,6 +50,14 @@ import {
 
 export const STATE_KEY = 'gymrpg_state_v1';
 export const EVENTS_KEY = 'gymrpg_events_v1';
+/**
+ * Per-INSTALL device id (a uuid), in its own tiny key rather than inside the
+ * state or the event envelope on purpose: it must survive a `clear()`, a JSON
+ * import and a `replaceAll` — all of which overwrite the other two blobs — and
+ * it must never travel with an export (importing a backup on a second device
+ * must not make it claim the first device's identity).
+ */
+export const DEVICE_KEY = 'gymrpg_device_v1';
 export const LEGACY_KEY = 'hyp3_data_v1';
 export const LEGACY_UI_KEY = 'hyp3_ui_v1';
 
@@ -57,8 +66,14 @@ export const LEGACY_UI_KEY = 'hyp3_ui_v1';
  * v2 (Phase 1): the opaque `game` slot became a typed `GameState`.
  */
 export const CURRENT_STATE_VERSION = 2;
-/** Bump when the shape of `EventLog` changes. */
-export const CURRENT_EVENTLOG_VERSION = 1;
+/**
+ * Bump when the shape of `EventLog` changes.
+ * v2 (merge-safe core): events may carry an optional `device` stamp and the log
+ * is folded in a `(ts, id)` total order. Both are additive, so the 1 -> 2 step
+ * is an identity — it exists so a v1 log is re-persisted as v2 and future steps
+ * have a version to hang off.
+ */
+export const CURRENT_EVENTLOG_VERSION = 2;
 
 export const EXPORT_FORMAT = 'gym-rpg-export';
 
@@ -107,8 +122,18 @@ export function emptyEventLog(): EventLog {
   return { schemaVersion: CURRENT_EVENTLOG_VERSION, events: [] };
 }
 
-export function makeEvent(type: EventType, payload: Record<string, unknown> = {}, ts: number = Date.now()): AppEvent {
-  return { id: uuid(), ts, type, payload };
+/**
+ * Build one event. `device` is omitted entirely when unknown (never written as
+ * `undefined`), so the JSON of an unstamped event is byte-identical to what
+ * earlier versions produced.
+ */
+export function makeEvent(
+  type: EventType,
+  payload: Record<string, unknown> = {},
+  ts: number = Date.now(),
+  device?: string,
+): AppEvent {
+  return device ? { id: uuid(), ts, type, payload, device } : { id: uuid(), ts, type, payload };
 }
 
 /* -------------------------------------------------- shape normalisation */
@@ -228,9 +253,11 @@ function normalizeEquipment(raw: unknown): EquipmentState {
  * the event log, which is always authoritative.
  *
  * v1 -> v2 (Phase 2) added `battle`; v2 -> v3 (Phase 3) added
- * `battle.bossesDefeated` and `equipment`. An older blob is therefore rejected
- * here and rebuilt from the log, which is lossless because every fact is an
- * event. That rebuild IS the sanctioned migration path for the game blob.
+ * `battle.bossesDefeated` and `equipment`; v3 -> v4 added the merge-idempotency
+ * ledgers `energyGranted` + `prKeys`, which cannot be inferred from an old blob
+ * (it only knows the totals, not which grants produced them). An older blob is
+ * therefore rejected here and rebuilt from the log, which is lossless because
+ * every fact is an event. That rebuild IS the sanctioned migration path.
  */
 export function normalizeGame(raw: unknown): GameState | null {
   if (!isRecord(raw)) return null;
@@ -252,6 +279,8 @@ export function normalizeGame(raw: unknown): GameState | null {
     best: normalizeNumberMap(raw['best']),
     granted: normalizeFlagMap(raw['granted']),
     bonusDays: normalizeFlagMap(raw['bonusDays']),
+    energyGranted: normalizeFlagMap(raw['energyGranted']),
+    prKeys: normalizeFlagMap(raw['prKeys']),
     workoutDays: [...new Set(days)].sort(),
     streak: {
       tier: Math.max(0, numOr(streakRaw['tier'], 0)),
@@ -355,6 +384,9 @@ export function migrateState(raw: unknown, now: number = Date.now()): AppState {
 const EVENTLOG_MIGRATIONS: ReadonlyArray<(blob: Record<string, unknown>) => Record<string, unknown>> = [
   // 0 -> 1: adopt the {schemaVersion, events} envelope.
   (blob) => ({ events: blob['events'] ?? [], schemaVersion: 1 }),
+  // 1 -> 2: `device` + the (ts, id) total order. Purely additive — an existing
+  // event needs no rewriting, it simply has no device stamp.
+  (blob) => ({ ...blob, schemaVersion: 2 }),
 ];
 
 export function normalizeEvent(raw: unknown): AppEvent | null {
@@ -364,7 +396,10 @@ export function normalizeEvent(raw: unknown): AppEvent | null {
   const ts = typeof raw['ts'] === 'number' && Number.isFinite(raw['ts']) ? raw['ts'] : 0;
   const id = typeof raw['id'] === 'string' && raw['id'] ? raw['id'] : uuid();
   const payload = isRecord(raw['payload']) ? raw['payload'] : {};
-  return { id, ts, type: type as EventType, payload };
+  const device = raw['device'];
+  return typeof device === 'string' && device
+    ? { id, ts, type: type as EventType, payload, device }
+    : { id, ts, type: type as EventType, payload };
 }
 
 export function migrateEventLog(raw: unknown): EventLog {
@@ -552,6 +587,32 @@ export function ensureGameState(
   };
 }
 
+/* --------------------------------------------------------------- device id */
+
+/**
+ * Read this install's device id, minting + persisting one on first use.
+ *
+ * It identifies the INSTALL, never the user: it is not part of the state, not
+ * part of an export, and survives `clear()`. Its only jobs are stamping
+ * `AppEvent.device` and telling `LocalStore` which events are its own for the
+ * monotonic-clock clamp.
+ */
+export function ensureDeviceId(storage: StorageLike): string {
+  try {
+    const existing = storage.getItem(DEVICE_KEY);
+    if (typeof existing === 'string' && existing.length > 0) return existing;
+  } catch {
+    /* storage unavailable — fall through to an in-memory id for this session */
+  }
+  const id = uuid();
+  try {
+    storage.setItem(DEVICE_KEY, id);
+  } catch {
+    /* ignore */
+  }
+  return id;
+}
+
 /* ------------------------------------------------------------- bootstrap */
 
 export interface BootstrapResult {
@@ -678,10 +739,13 @@ export function parseImport(raw: unknown, now: number = Date.now()): ParsedImpor
  * folded by `rebuildGame()` (core/xp.ts) over the SAME log with the SAME reducer
  * the live app uses — which is what makes replay provably equivalent to live
  * state. Phase 2+ only has to extend the reducer, not this function.
+ *
+ * The order is `(ts, id)` (see `compareEvents`), i.e. a function of the event
+ * SET alone: merging two devices' logs in either direction folds identically.
  */
 export function rebuildFromEvents(events: readonly AppEvent[], now: number = Date.now()): AppState {
   const state = emptyState(now);
-  const ordered = [...events].sort((a, b) => a.ts - b.ts);
+  const ordered = [...events].sort(compareEvents);
 
   for (const ev of ordered) {
     const p = ev.payload;
@@ -721,9 +785,21 @@ export function rebuildFromEvents(events: readonly AppEvent[], now: number = Dat
       case 'data_cleared':
         state.sessions = {};
         break;
+      /**
+       * A JSON import carries a snapshot of the sessions it brought in. Folding
+       * it MERGES per date, first-wins, instead of replacing the map: on a
+       * single device the already-folded dates are a subset of the snapshot, so
+       * the outcome is unchanged — but in a merged multi-device log an import on
+       * device A can no longer erase a workout device B logged before it.
+       */
       case 'data_imported': {
         const sessions = p['sessions'];
-        if (isRecord(sessions)) state.sessions = normalizeSessions(sessions);
+        if (!isRecord(sessions)) break;
+        const incoming = normalizeSessions(sessions);
+        for (const date of Object.keys(incoming)) {
+          const session = incoming[date];
+          if (session && !state.sessions[date]) state.sessions[date] = session;
+        }
         break;
       }
       // xp_gained / energy_gained / pr_achieved / level_up / streak_changed are

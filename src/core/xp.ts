@@ -281,6 +281,8 @@ export function emptyGame(): GameState {
     best: {},
     granted: {},
     bonusDays: {},
+    energyGranted: {},
+    prKeys: {},
     workoutDays: [],
     streak: { tier: 0, weekStart: null, daysThisWeek: 0, needed: BALANCE.streak.daysPerWeek },
     battle: emptyBattle(),
@@ -303,6 +305,11 @@ export function grantKey(date: string, exId: string, setIndex: number): string {
   return `${date}|${exId}|${setIndex}`;
 }
 
+/** Idempotency key of the energy paid for the completion bonus of a date. */
+export function bonusEnergyKey(date: string): string {
+  return `bonus|${date}`;
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
@@ -322,29 +329,49 @@ function isEquipmentSlot(v: string): v is EquipmentSlot {
  * `pr_achieved` (a counter) and `data_cleared` (a reset). `level_up` and
  * `streak_changed` are informational — levels and tiers are DERIVED, so folding
  * them would be double bookkeeping; they exist for the history feed and the UI.
+ *
+ * IDEMPOTENCY (merge safety)
+ * --------------------------
+ * The reducer is idempotent per SEMANTIC key, not per event id. Two devices that
+ * imported the same legacy file each generated their own retro grants: identical
+ * meaning, different uuids. Folding the union of both logs must pay exactly
+ * once, so every paying branch checks its ledger BEFORE it adds anything:
+ *   `xp_gained` set   -> game.granted[date|exId|setIndex]
+ *   `xp_gained` bonus -> game.bonusDays[date]
+ *   `pr_achieved`     -> game.prKeys[date|exId|setIndex]
+ *   `energy_gained`   -> game.energyGranted[payload.key]
+ * An `energy_gained` without a `key` predates v4 and is applied unguarded — old
+ * single-device logs replay exactly as they always did.
  */
 export function applyGameEvent(game: GameState, type: EventType, payload: Record<string, unknown>): void {
   switch (type) {
     case 'xp_gained': {
-      const parts = payload['parts'];
-      if (isRecord(parts)) {
-        for (const key of Object.keys(parts)) {
-          if (!isBodyPart(key)) continue;
-          const amount = toNumber(parts[key]);
-          if (amount <= 0) continue;
-          game.parts[key].xp = round2(game.parts[key].xp + amount);
-          game.totalXp = round2(game.totalXp + amount);
-        }
-      }
       const date = typeof payload['date'] === 'string' ? payload['date'] : '';
       const exId = typeof payload['exId'] === 'string' ? payload['exId'] : '';
       const setIndex = typeof payload['setIndex'] === 'number' ? payload['setIndex'] : -1;
-      if (date && exId && setIndex >= 0) game.granted[grantKey(date, exId, setIndex)] = true;
+      const key = date && exId && setIndex >= 0 ? grantKey(date, exId, setIndex) : '';
+      const bonus = payload['source'] === 'workout_complete';
+
+      // Already paid for this slot / this date: a duplicate from another device.
+      if (key && game.granted[key]) break;
+      if (bonus && date && game.bonusDays[date]) break;
+
+      const parts = payload['parts'];
+      if (isRecord(parts)) {
+        for (const part of Object.keys(parts)) {
+          if (!isBodyPart(part)) continue;
+          const amount = toNumber(parts[part]);
+          if (amount <= 0) continue;
+          game.parts[part].xp = round2(game.parts[part].xp + amount);
+          game.totalXp = round2(game.totalXp + amount);
+        }
+      }
+      if (key) game.granted[key] = true;
 
       const volume = toNumber(payload['volume']);
       if (exId && volume > 0) game.best[exId] = Math.max(game.best[exId] ?? 0, volume);
 
-      if (payload['source'] === 'workout_complete' && date) game.bonusDays[date] = true;
+      if (bonus && date) game.bonusDays[date] = true;
       if (payload['retro'] !== true && date && !game.workoutDays.includes(date)) {
         game.workoutDays.push(date);
         game.workoutDays.sort();
@@ -352,6 +379,11 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
       break;
     }
     case 'energy_gained': {
+      const key = typeof payload['key'] === 'string' ? payload['key'] : '';
+      if (key) {
+        if (game.energyGranted[key]) break;
+        game.energyGranted[key] = true;
+      }
       const amount = toNumber(payload['amount']);
       if (amount > 0) {
         game.energy = round2(game.energy + amount);
@@ -359,9 +391,18 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
       }
       break;
     }
-    case 'pr_achieved':
+    case 'pr_achieved': {
+      const date = typeof payload['date'] === 'string' ? payload['date'] : '';
+      const exId = typeof payload['exId'] === 'string' ? payload['exId'] : '';
+      const setIndex = typeof payload['setIndex'] === 'number' ? payload['setIndex'] : -1;
+      if (date && exId && setIndex >= 0) {
+        const key = grantKey(date, exId, setIndex);
+        if (game.prKeys[key]) break;
+        game.prKeys[key] = true;
+      }
       game.prCount += 1;
       break;
+    }
     /**
      * One cleared wave: charge the energy, pay the coins, move the marker.
      * The wave/world in the payload is authoritative (the log is the source of
@@ -442,10 +483,22 @@ export function finalizeGame(game: GameState, today: string): void {
   game.streak = computeStreak(game.workoutDays, today);
 }
 
+/**
+ * THE total order of the event log: `ts` ascending, ties broken by `id`.
+ *
+ * The id tie-break is what makes the order a property of the event SET rather
+ * than of the insertion order, so two devices that hold the same events fold
+ * them identically no matter how or when each of them received them.
+ */
+export function compareEvents(a: AppEvent, b: AppEvent): number {
+  if (a.ts !== b.ts) return a.ts - b.ts;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
 /** Deterministically rebuild the whole game layer from the event log. */
 export function rebuildGame(events: readonly AppEvent[], today: string): GameState {
   const game = emptyGame();
-  const ordered = [...events].sort((a, b) => (a.ts === b.ts ? 0 : a.ts - b.ts));
+  const ordered = [...events].sort(compareEvents);
   for (const ev of ordered) applyGameEvent(game, ev.type, ev.payload);
   finalizeGame(game, today);
   return game;
@@ -545,7 +598,13 @@ export function buildSetGrant(game: GameState, a: SetGrantArgs): PendingEvent[] 
   if (!a.retro) {
     events.push({
       type: 'energy_gained',
-      payload: { date: a.date, amount: BALANCE.energy.perSet, source: 'set', retro: false },
+      payload: {
+        date: a.date,
+        amount: BALANCE.energy.perSet,
+        source: 'set',
+        retro: false,
+        key: grantKey(a.date, a.ex.id, a.setIndex),
+      },
       ts: a.ts + 2,
     });
   }
@@ -587,7 +646,13 @@ export function buildWorkoutCompletionGrant(game: GameState, a: WorkoutGrantArgs
   if (!a.retro) {
     events.push({
       type: 'energy_gained',
-      payload: { date: a.date, amount: BALANCE.energy.perWorkout, source: 'workout_complete', retro: false },
+      payload: {
+        date: a.date,
+        amount: BALANCE.energy.perWorkout,
+        source: 'workout_complete',
+        retro: false,
+        key: bonusEnergyKey(a.date),
+      },
       ts: a.ts + 1,
     });
   }

@@ -34,7 +34,7 @@ import {
   xpForSet,
 } from '../src/core/xp.ts';
 import { PROGRAM, findExercise, type Exercise } from '../src/data/program.ts';
-import type { AppEvent, Session } from '../src/storage/DataStore.ts';
+import type { AppEvent, EventType, Session } from '../src/storage/DataStore.ts';
 
 function ex(id: string): Exercise {
   const found = findExercise(id);
@@ -289,8 +289,11 @@ describe('game reducer', () => {
     applyGameEvent(game, 'level_up', { part: 'chest', from: 1, to: 2 });
     applyGameEvent(game, 'streak_changed', { from: 0, to: 1 });
     applyGameEvent(game, 'boss_defeated', { boss: 'x' });
-    expect(game.totalXp).toBe(0);
-    expect(game.parts.chest.level).toBe(1);
+    // declared-but-unfolded types + a type from a build we have never seen
+    applyGameEvent(game, 'plan_updated', { plan: { days: {} } });
+    applyGameEvent(game, 'data_merged', { source: 'sync', added: 2 });
+    applyGameEvent(game, 'from_the_future' as EventType, { anything: true });
+    expect(game).toEqual(emptyGame());
   });
 
   it('resets everything on data_cleared', () => {
@@ -298,6 +301,118 @@ describe('game reducer', () => {
     applyGameEvent(game, 'energy_gained', { amount: 100 });
     applyGameEvent(game, 'data_cleared', {});
     expect(game).toEqual(emptyGame());
+  });
+});
+
+/* ------------------------------------------------ reducer idempotency (v4) */
+
+describe('reducer idempotency — the merge guards', () => {
+  const setXp = {
+    date: '2025-05-04',
+    exId: 'a1',
+    setIndex: 0,
+    source: 'set',
+    parts: { chest: 8, arms: 2 },
+    total: 10,
+    volume: 400,
+    retro: false,
+  };
+
+  it('carries the ledgers in the state and reports version 4', () => {
+    const game = emptyGame();
+    expect(game.version).toBe(4);
+    expect(game.energyGranted).toEqual({});
+    expect(game.prKeys).toEqual({});
+  });
+
+  it('pays a set only once, however many duplicates arrive', () => {
+    const game = emptyGame();
+    applyGameEvent(game, 'xp_gained', setXp);
+    // the SAME grant from another device: different event id, same meaning
+    applyGameEvent(game, 'xp_gained', { ...setXp });
+    applyGameEvent(game, 'xp_gained', { ...setXp, retro: true });
+
+    expect(game.totalXp).toBe(10);
+    expect(game.parts.chest.xp).toBe(8);
+    expect(game.granted['2025-05-04|a1|0']).toBe(true);
+    expect(game.workoutDays).toEqual(['2025-05-04']);
+  });
+
+  it('does not let a duplicate raise `best` or the workout-completion bonus', () => {
+    const game = emptyGame();
+    applyGameEvent(game, 'xp_gained', setXp);
+    // a duplicate that claims a bigger volume must not move `best` either —
+    // the slot is paid, the whole event is skipped.
+    applyGameEvent(game, 'xp_gained', { ...setXp, volume: 9_999 });
+    expect(game.best['a1']).toBe(400);
+
+    const bonus = { date: '2025-05-04', source: 'workout_complete', parts: { core: 5 }, total: 5, retro: false };
+    applyGameEvent(game, 'xp_gained', bonus);
+    applyGameEvent(game, 'xp_gained', { ...bonus });
+    expect(game.parts.core.xp).toBe(5);
+    expect(game.bonusDays['2025-05-04']).toBe(true);
+  });
+
+  it('pays keyed energy once and unkeyed (pre-v4) energy every time', () => {
+    const game = emptyGame();
+    applyGameEvent(game, 'energy_gained', { date: '2025-05-04', amount: 2, source: 'set', key: '2025-05-04|a1|0' });
+    applyGameEvent(game, 'energy_gained', { date: '2025-05-04', amount: 2, source: 'set', key: '2025-05-04|a1|0' });
+    expect(game.energy).toBe(2);
+    expect(game.energyEarned).toBe(2);
+    expect(game.energyGranted['2025-05-04|a1|0']).toBe(true);
+
+    // a different slot still pays
+    applyGameEvent(game, 'energy_gained', { date: '2025-05-04', amount: 2, source: 'set', key: '2025-05-04|a1|1' });
+    expect(game.energy).toBe(4);
+
+    // BACK-COMPAT: an event from a log written before the key existed has no
+    // ledger entry to check, so it applies exactly like it always did.
+    applyGameEvent(game, 'energy_gained', { date: '2025-05-04', amount: 5, source: 'set' });
+    applyGameEvent(game, 'energy_gained', { date: '2025-05-04', amount: 5, source: 'set' });
+    expect(game.energy).toBe(14);
+    expect(game.energyGranted).toEqual({ '2025-05-04|a1|0': true, '2025-05-04|a1|1': true });
+  });
+
+  it('counts a PR once per (date, exercise, set)', () => {
+    const game = emptyGame();
+    const pr = { date: '2025-05-04', exId: 'a1', setIndex: 1, volume: 450, previousBest: 400, retro: false };
+    applyGameEvent(game, 'pr_achieved', pr);
+    applyGameEvent(game, 'pr_achieved', { ...pr });
+    expect(game.prCount).toBe(1);
+    expect(game.prKeys['2025-05-04|a1|1']).toBe(true);
+
+    applyGameEvent(game, 'pr_achieved', { ...pr, setIndex: 2 });
+    expect(game.prCount).toBe(2);
+    // a payload without the key fields cannot be guarded — it still counts
+    applyGameEvent(game, 'pr_achieved', { volume: 1 });
+    expect(game.prCount).toBe(3);
+  });
+
+  it('clears the ledgers on data_cleared, so a wiped device can be re-paid', () => {
+    const game = emptyGame();
+    applyGameEvent(game, 'xp_gained', setXp);
+    applyGameEvent(game, 'energy_gained', { date: '2025-05-04', amount: 2, source: 'set', key: '2025-05-04|a1|0' });
+    applyGameEvent(game, 'data_cleared', {});
+    expect(game).toEqual(emptyGame());
+  });
+
+  it('builders stamp the energy key the reducer guards on', () => {
+    const game = emptyGame();
+    const grant = buildSetGrant(game, {
+      date: '2025-05-04',
+      day: 'A',
+      ex: ex('a1'),
+      setIndex: 0,
+      w: '40',
+      r: '10',
+      retro: false,
+      ts: 1_000,
+    });
+    const energy = grant.find((e) => e.type === 'energy_gained');
+    expect(energy?.payload['key']).toBe('2025-05-04|a1|0');
+
+    const bonus = buildWorkoutCompletionGrant(game, { date: '2025-05-04', day: 'A', retro: false, ts: 1 });
+    expect(bonus.find((e) => e.type === 'energy_gained')?.payload['key']).toBe('bonus|2025-05-04');
   });
 
   it('derives levels + headline level in finalizeGame', () => {

@@ -43,11 +43,14 @@ export interface UiState {
 /* -------------------------------------------------------------- game state */
 
 /**
- * Version of the `GameState` blob. Bump it when the shape below changes and add
- * a step to `GAME_MIGRATIONS` in `storage/migrate.ts` — an unrecognised version
- * is simply rebuilt from the event log, which is always the source of truth.
+ * Version of the `GameState` blob. Bump it when the shape below changes — an
+ * unrecognised version is rejected by `normalizeGame` and simply REBUILT from
+ * the event log, which is always the source of truth. That rebuild is the
+ * sanctioned migration path for this blob (see `ensureGameState`).
+ *
+ * v4 (merge-safe core) added the idempotency ledgers `energyGranted` + `prKeys`.
  */
-export const GAME_STATE_VERSION = 3;
+export const GAME_STATE_VERSION = 4;
 
 /** XP pool of one body part. `level` is DERIVED from `xp` (see core/xp.ts). */
 export interface PartProgress {
@@ -124,6 +127,16 @@ export interface GameState {
   granted: Record<string, true>;
   /** Dates that already received the workout-completion bonus. */
   bonusDays: Record<string, true>;
+  /**
+   * Keys of every `energy_gained` event that was already paid (`key` field of
+   * the payload: the grant key for a set, `bonus|<date>` for a completion).
+   * Merging two devices' logs can produce semantically duplicate grants with
+   * DIFFERENT event ids; this ledger is what stops them paying twice.
+   * Events WITHOUT a `key` (logs written before v4) apply unguarded.
+   */
+  energyGranted: Record<string, true>;
+  /** "date|exId|setIndex" of every `pr_achieved` already counted (same reason). */
+  prKeys: Record<string, true>;
   /** Distinct dates of LIVE (non-retroactive) training — the streak source. */
   workoutDays: string[];
   streak: StreakState;
@@ -177,7 +190,11 @@ export type EventType =
   // Phase 3 — world bosses and the coin shop
   | 'boss_defeated'
   | 'coins_spent'
-  | 'item_equipped';
+  | 'item_equipped'
+  // Phase 4 — editable plans and multi-device merges (declared here so an older
+  // build can already round-trip them; both reducers ignore what they don't know)
+  | 'plan_updated'
+  | 'data_merged';
 
 export interface AppEvent {
   readonly id: string;
@@ -185,6 +202,13 @@ export interface AppEvent {
   readonly ts: number;
   readonly type: EventType;
   readonly payload: Readonly<Record<string, unknown>>;
+  /**
+   * Id of the install that created the event (`LocalStore` stamps it). Optional:
+   * events written before the device id existed simply have none. It is never
+   * used for ordering — the total order is `(ts, id)` — only for bookkeeping
+   * (e.g. "which of my own events may I clamp a clock against").
+   */
+  readonly device?: string;
 }
 
 export interface EventLog {
@@ -240,6 +264,12 @@ export interface EnergyGainedPayload extends Record<string, unknown> {
   amount: number;
   source: XpSource;
   retro: boolean;
+  /**
+   * Idempotency key: `date|exId|setIndex` for a set, `bonus|<date>` for the
+   * workout-completion bonus. Optional ONLY for backward compatibility with
+   * logs written before v4 — every new event carries one.
+   */
+  key?: string;
 }
 
 export interface PrAchievedPayload extends Record<string, unknown> {
@@ -327,6 +357,36 @@ export interface ItemEquippedPayload extends Record<string, unknown> {
   itemId: string | null;
 }
 
+/* ------------------------------------- Phase 4 plan / merge payloads (decl) */
+
+/**
+ * A saved training plan — LWW by fold order (the last `plan_updated` in the
+ * total order wins). DECLARED ONLY: nothing folds it yet, the plan model lands
+ * in the next phase. `plan: null` means "the built-in program", so a client
+ * that has never edited anything is byte-identical to today's app.
+ *
+ * `plan` is intentionally left untyped here: its shape (`PlanDoc`) belongs to
+ * `data/planTypes.ts` and this module must not depend on it.
+ */
+export interface PlanUpdatedPayload extends Record<string, unknown> {
+  plan: Readonly<Record<string, unknown>> | null;
+  /** Bumped on every save — lets a merge break a ts tie meaningfully. */
+  revision?: number;
+}
+
+/**
+ * A bookkeeping marker written when a foreign event set was folded into this
+ * device's log (cloud pull, or an additive JSON import). DECLARED ONLY: it
+ * changes no state, it exists so the history feed can explain a jump in XP.
+ */
+export interface DataMergedPayload extends Record<string, unknown> {
+  source: 'sync' | 'json_import';
+  /** How many events the merge actually added (already deduped by id). */
+  added: number;
+  /** Device the events came from, when they all share one. */
+  from?: string;
+}
+
 /* ------------------------------------------------------------------ store */
 
 export type Unsubscribe = () => void;
@@ -340,6 +400,13 @@ export interface DataStore {
   update(mutate: (draft: AppState) => void): AppState;
   /** Subscribe to state changes; returns an unsubscribe function. */
   subscribe(listener: (state: AppState) => void): Unsubscribe;
+  /**
+   * Subscribe to every event the store APPENDS (including the synthetic
+   * `data_cleared` of `clear()`). This is the sync engine's tap into the write
+   * path — it never fires for events that arrived from elsewhere via
+   * `replaceAll`, so a merged-in event can't be pushed back as if it were local.
+   */
+  subscribeEvents(listener: (ev: AppEvent) => void): Unsubscribe;
   /** Append one event to the log. Returns the stored event (id + ts filled). */
   append(type: EventType, payload?: Record<string, unknown>): AppEvent;
   /** The whole append-only log, oldest first. */

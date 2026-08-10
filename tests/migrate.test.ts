@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import { emptyGame } from '../src/core/xp.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
-import type { AppEvent, Session } from '../src/storage/DataStore.ts';
+import type { AppEvent, EventType, Session } from '../src/storage/DataStore.ts';
 import {
+  CURRENT_EVENTLOG_VERSION,
   CURRENT_STATE_VERSION,
+  DEVICE_KEY,
   EVENTS_KEY,
   EXPORT_FORMAT,
   LEGACY_KEY,
@@ -108,7 +110,7 @@ describe('version routing', () => {
   it('routes the event log through its own version chain', () => {
     const bare = [{ id: 'x', ts: 5, type: 'set_logged', payload: { a: 1 } }];
     const log = migrateEventLog(bare);
-    expect(log.schemaVersion).toBe(1);
+    expect(log.schemaVersion).toBe(CURRENT_EVENTLOG_VERSION);
     expect(log.events).toHaveLength(1);
     expect(log.events[0]?.type).toBe('set_logged');
 
@@ -117,6 +119,36 @@ describe('version routing', () => {
 
     expect(migrateEventLog('garbage').events).toEqual([]);
     expect(migrateEventLog(null).events).toEqual([]);
+  });
+
+  it('upgrades a v1 event log to v2 without touching a single event', () => {
+    expect(CURRENT_EVENTLOG_VERSION).toBe(2);
+    const events = [
+      { id: 'a', ts: 5, type: 'set_logged', payload: { n: 1 } },
+      { id: 'b', ts: 6, type: 'set_completed', payload: { n: 2 } },
+    ];
+    const upgraded = migrateEventLog({ schemaVersion: 1, events });
+    expect(upgraded.schemaVersion).toBe(2);
+    // 1 -> 2 is an identity step: `device` is additive, nothing is rewritten
+    expect(upgraded.events).toEqual(events.map((e) => ({ ...e, type: e.type })));
+    // ...and a v1 event simply has no device stamp
+    expect(upgraded.events.every((e) => e.device === undefined)).toBe(true);
+  });
+
+  it('preserves the device stamp through normalisation (and drops a bogus one)', () => {
+    const log = migrateEventLog({
+      schemaVersion: 2,
+      events: [
+        { id: 'a', ts: 1, type: 'set_logged', payload: {}, device: 'dev-1' },
+        { id: 'b', ts: 2, type: 'set_logged', payload: {}, device: 42 },
+        { id: 'c', ts: 3, type: 'set_logged', payload: {}, device: '' },
+      ],
+    });
+    expect(log.events[0]?.device).toBe('dev-1');
+    expect(log.events[1]?.device).toBeUndefined();
+    expect(log.events[2]?.device).toBeUndefined();
+    // an unstamped event must not serialise a `device: undefined` key
+    expect(Object.keys(log.events[1] ?? {}).includes('device')).toBe(false);
   });
 
   it('drops malformed events but keeps the good ones', () => {
@@ -253,8 +285,69 @@ describe('append-only event log', () => {
     expect(a.ts).toBeGreaterThan(0);
 
     const persisted = migrateEventLog(storage.getItem(EVENTS_KEY));
-    expect(persisted.schemaVersion).toBe(1);
+    expect(persisted.schemaVersion).toBe(CURRENT_EVENTLOG_VERSION);
     expect(persisted.events.map((e) => e.type)).toEqual(['set_logged', 'set_completed']);
+  });
+
+  it('stamps a stable per-install device id and never repeats a timestamp', () => {
+    const storage = fakeStorage();
+    const store = new LocalStore(storage, 100);
+    const a = store.append('set_logged', { n: 1 });
+    const b = store.append('set_logged', { n: 2 });
+
+    const device = storage.getItem(DEVICE_KEY);
+    expect(device).toBeTruthy();
+    expect(a.device).toBe(device);
+    expect(b.device).toBe(device);
+    // strictly increasing: the (ts, id) order must never have to break a tie
+    // between two events of the SAME device, whose insertion order is real.
+    expect(b.ts).toBeGreaterThan(a.ts);
+
+    // the id survives a reopen — and a wipe
+    const reopened = new LocalStore(storage, 200);
+    expect(reopened.append('set_logged', {}).device).toBe(device);
+    reopened.clear();
+    expect(storage.getItem(DEVICE_KEY)).toBe(device);
+    expect(reopened.getEvents()[0]?.device).toBe(device);
+  });
+
+  it('clamps the timestamp when the clock jumps backwards', () => {
+    const store = new LocalStore(fakeStorage(), 100);
+    const real = Date.now;
+    try {
+      Date.now = () => 5_000_000;
+      const first = store.append('set_logged', { n: 1 });
+      // the user "fixes" their timezone: the clock loses an hour
+      Date.now = () => 5_000_000 - 3_600_000;
+      const second = store.append('set_logged', { n: 2 });
+      expect(first.ts).toBe(5_000_000);
+      expect(second.ts).toBe(5_000_001);
+    } finally {
+      Date.now = real;
+    }
+  });
+
+  it('notifies subscribeEvents on every append and on the clear() marker', () => {
+    const store = new LocalStore(fakeStorage(), 100);
+    const seen: string[] = [];
+    const off = store.subscribeEvents((ev) => void seen.push(ev.type));
+
+    const appended = store.append('set_logged', { n: 1 });
+    expect(seen).toEqual(['set_logged']);
+    // the listener receives the STORED event, ids and all
+    let last: AppEvent | null = null;
+    const off2 = store.subscribeEvents((ev) => void (last = ev));
+    const second = store.append('set_completed', { n: 2 });
+    expect(last).toEqual(second);
+    expect(appended.id).not.toBe(second.id);
+    off2();
+
+    store.clear();
+    expect(seen).toEqual(['set_logged', 'set_completed', 'data_cleared']);
+
+    off();
+    store.append('set_logged', { n: 3 });
+    expect(seen).toHaveLength(3);
   });
 
   it('is append-only: earlier events are never rewritten', () => {
@@ -411,13 +504,82 @@ describe('rebuildFromEvents', () => {
     expect(rebuildFromEvents(events).sessions).toEqual({});
   });
 
+  it('breaks ts ties by id, so the order is a property of the event SET', () => {
+    // three events in the SAME millisecond — exactly what two devices produce
+    // when they both fold the same imported day. Only the id can order them.
+    const same = (id: string, w: string): AppEvent => ({
+      id,
+      ts: 1_000,
+      type: 'set_logged',
+      payload: { date: '2025-08-01', day: 'A', exId: 'a1', setIndex: 0, w, r: '10' },
+    });
+    const events = [same('c', '30'), same('a', '10'), same('b', '20')];
+
+    // id order is a|b|c, so the LAST write is 'c' -> w: '30', whatever the
+    // insertion order was.
+    for (const perm of [events, [...events].reverse(), [events[1]!, events[0]!, events[2]!]]) {
+      const s = rebuildFromEvents(perm);
+      expect(s.sessions['2025-08-01']?.ex['a1']?.[0]?.w).toBe('30');
+    }
+  });
+
+  it('merges data_imported per date instead of replacing the map', () => {
+    // device B logged a workout; a JSON import (from device A) lands after it.
+    // The import may only ADD dates — it can never erase what is already there.
+    const events: AppEvent[] = [
+      {
+        id: 'own',
+        ts: 10,
+        type: 'set_completed',
+        payload: { date: '2025-09-02', day: 'B', exId: 'b1', setIndex: 0, w: '80', r: '5' },
+      },
+      {
+        id: 'imp',
+        ts: 20,
+        type: 'data_imported',
+        payload: {
+          source: 'gym-rpg',
+          sessions: {
+            '2025-09-01': { day: 'A', ex: { a1: [{ w: '40', r: '10', done: true }] } },
+            // the same date as the live workout, with different content
+            '2025-09-02': { day: 'C', ex: { c2: [{ w: '1', r: '1', done: true }] } },
+          },
+        },
+      },
+    ];
+
+    const s = rebuildFromEvents(events);
+    expect(Object.keys(s.sessions).sort()).toEqual(['2025-09-01', '2025-09-02']);
+    // first-wins: the already-folded date keeps its own content
+    expect(s.sessions['2025-09-02']?.day).toBe('B');
+    expect(s.sessions['2025-09-02']?.ex['b1']?.[0]?.w).toBe('80');
+    expect(s.sessions['2025-09-01']?.ex['a1']?.[0]).toEqual({ w: '40', r: '10', done: true });
+  });
+
+  it('still replays a single-device import exactly (the snapshot is a superset)', () => {
+    // On one device the folded dates are always a subset of the snapshot the
+    // import carried, so first-wins merging is indistinguishable from replacing.
+    const imported = importLegacy(emptyState(0), LEGACY_BLOB, null, 1000);
+    const events: AppEvent[] = [
+      ...imported.events,
+      { id: 'zz', ts: 2_000_000, type: 'data_imported', payload: { source: 'gym-rpg', sessions: imported.state.sessions } },
+    ];
+    expect(rebuildFromEvents(events).sessions).toEqual(imported.state.sessions);
+  });
+
   it('ignores unknown / future event types', () => {
     const events: AppEvent[] = [
       { id: 'a', ts: 1, type: 'set_completed', payload: { date: '2025-07-01', day: 'A', exId: 'a1', setIndex: 0, w: '1', r: '1' } },
       { id: 'b', ts: 2, type: 'boss_defeated', payload: { boss: 'x' } },
       { id: 'c', ts: 3, type: 'level_up', payload: { part: 'chest' } },
+      // declared-but-not-yet-folded types: a build that predates them must be
+      // able to replay a log that contains them without losing anything.
+      { id: 'd', ts: 4, type: 'plan_updated', payload: { plan: { days: {} } } },
+      { id: 'e', ts: 5, type: 'data_merged', payload: { source: 'sync', added: 3 } },
+      { id: 'f', ts: 6, type: 'totally_unknown' as EventType, payload: {} },
     ];
     const s = rebuildFromEvents(events);
     expect(Object.keys(s.sessions)).toEqual(['2025-07-01']);
+    expect(s.game).toEqual(rebuildFromEvents(events.slice(0, 1)).game);
   });
 });

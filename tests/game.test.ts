@@ -85,6 +85,42 @@ describe('live XP grants through the store', () => {
     expect(types).toEqual(['xp_gained', 'energy_gained']);
   });
 
+  it('writes the v4 game blob, with an idempotency key on every energy grant', () => {
+    const store = new LocalStore(fakeStorage());
+    onSetCompleted(store, { date: TODAY, day: 'A', ex: ex('a1'), setIndex: 0, w: '40', r: '10' });
+    onWorkoutFinished(store, { date: TODAY, day: 'A' });
+
+    const game = gameOf(store);
+    expect(game.version).toBe(4);
+    expect(game.energyGranted).toEqual({ [`${TODAY}|a1|0`]: true, [`bonus|${TODAY}`]: true });
+    expect(game.prKeys).toEqual({});
+
+    const keys = store
+      .getEvents()
+      .filter((e) => e.type === 'energy_gained')
+      .map((e) => e.payload['key']);
+    expect(keys).toEqual([`${TODAY}|a1|0`, `bonus|${TODAY}`]);
+  });
+
+  it('folds a log that contains every event TWICE to the same state', () => {
+    // exactly the shape of a union merge: the same grants, twice over. (Real
+    // duplicates carry different ids, so `id` dedupe cannot save us — the
+    // reducer has to be idempotent on its own.)
+    const store = new LocalStore(fakeStorage());
+    onSetCompleted(store, { date: TODAY, day: 'A', ex: ex('a1'), setIndex: 0, w: '40', r: '10' });
+    onSetCompleted(store, { date: TODAY, day: 'A', ex: ex('a1'), setIndex: 1, w: '45', r: '10' }); // PR
+    onWorkoutFinished(store, { date: TODAY, day: 'A' });
+
+    const log = store.getEvents();
+    const doubled: AppEvent[] = [...log, ...log.map((e) => ({ ...e, id: `dup-${e.id}` }))];
+    const once = rebuildFromEvents(log);
+    const twice = rebuildFromEvents(doubled);
+
+    expect(twice.game).toEqual(once.game);
+    expect(twice.game?.prCount).toBe(1);
+    expect(twice.game?.energy).toBe(once.game?.energy);
+  });
+
   it('cannot be farmed by unchecking and re-checking a set', () => {
     const store = new LocalStore(fakeStorage());
     const args = { date: TODAY, day: 'A' as const, ex: ex('a1'), setIndex: 0, w: '40', r: '10' };
