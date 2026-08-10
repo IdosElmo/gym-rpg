@@ -6,9 +6,10 @@ import { describe, expect, it } from 'vitest';
 
 import { BALANCE } from '../src/core/balance.ts';
 import { advance, createBattle, type CombatStats, type WaveResult } from '../src/core/combat.ts';
-import { gameOf, onSetCompleted, onWaveCleared } from '../src/core/game.ts';
+import { buyItem, equipItem, gameOf, onSetCompleted, onWaveCleared } from '../src/core/game.ts';
 import { deriveStats, emptyGame } from '../src/core/xp.ts';
 import { BODY_PARTS, findExercise, type Exercise } from '../src/data/program.ts';
+import { WORLD_BOSSES } from '../src/data/gameContent.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
 import { buildFeed } from '../src/ui/feed.ts';
@@ -117,6 +118,70 @@ describe('history feed', () => {
     for (let i = 1; i < feed.length; i += 1) {
       expect(feed[i - 1]!.ts).toBeGreaterThanOrEqual(feed[i]!.ts);
     }
+  });
+
+  it('tells the story of a world boss, including the world it unlocked', () => {
+    const store = trainedStore();
+    store.append('boss_defeated', {
+      date: '2025-05-04',
+      world: 1,
+      wave: 51,
+      bossId: 'boss_w1',
+      coins: 400,
+      energySpent: 30,
+      seed: 1,
+      durationMs: 30_000,
+      nextWorld: 2,
+      nextWave: 1,
+      endgame: false,
+    });
+    const line = buildFeed(store.getEvents()).find((i) => i.cls === 'boss');
+    expect(line?.icon).toBe('🏛');
+    expect(line?.text).toContain(WORLD_BOSSES[0]?.he ?? '');
+    expect(line?.text).toContain('חדר כושר נטוש');
+    expect(line?.text).toContain('עולם 2');
+    expect(line?.text).toContain('400');
+  });
+
+  it('crowns the endgame when the final boss falls', () => {
+    const store = trainedStore();
+    store.append('boss_defeated', {
+      date: '2025-05-04',
+      world: 4,
+      wave: 51,
+      bossId: 'boss_w4',
+      coins: 1965,
+      energySpent: 30,
+      seed: 1,
+      durationMs: 60_000,
+      nextWorld: 4,
+      nextWave: 51,
+      endgame: true,
+    });
+    const line = buildFeed(store.getEvents()).find((i) => i.cls === 'boss');
+    expect(line?.icon).toBe('👑');
+    expect(line?.text).toContain('מצב אלוף');
+  });
+
+  it('records shop purchases and equipment changes', () => {
+    const store = trainedStore();
+    onWaveCleared(store, {
+      world: 1,
+      wave: 1,
+      miniBoss: false,
+      enemyId: 'w1_rat',
+      coins: 2000,
+      energySpent: 0,
+      seed: 1,
+      durationMs: 100,
+    });
+    buyItem(store, 'gloves_1');
+    equipItem(store, 'gloves', null);
+
+    const shop = buildFeed(store.getEvents()).filter((i) => i.cls === 'shop');
+    expect(shop.some((i) => i.text.includes('נרכש'))).toBe(true);
+    expect(shop.some((i) => i.text.includes('כפפות'))).toBe(true);
+    expect(shop.some((i) => i.text.includes('הוסרה'))).toBe(true);
   });
 
   it('escapes nothing dangerous into the markup', () => {

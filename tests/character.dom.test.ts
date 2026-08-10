@@ -12,6 +12,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { gameOf } from '../src/core/game.ts';
 import { emptyGame } from '../src/core/xp.ts';
 import { BODY_PART_HE, PROGRAM } from '../src/data/program.ts';
+import {
+  EQUIPMENT_SLOTS,
+  SLOT_HE,
+  WORLDS,
+  WORLD_BOSSES,
+  equipmentById,
+} from '../src/data/gameContent.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
 import { createApp } from '../src/ui/app.ts';
@@ -193,5 +200,85 @@ describe('workout screen XP feedback', () => {
 
     expect(document.querySelectorAll('.xp-fly')).toHaveLength(0);
     expect(gameOf(store).totalXp).toBe(xp);
+  });
+});
+
+/* ------------------------------------------------------- shop & trophies */
+
+describe('the coin shop on the דמות screen', () => {
+  /** A character screen with `coins` in the purse. */
+  function shopStore(coins: number, bosses: string[] = []): LocalStore {
+    const store = new LocalStore(fakeStorage());
+    store.update((d) => {
+      const g = emptyGame();
+      g.battle.coins = coins;
+      g.battle.bossesDefeated = [...bosses];
+      g.battle.miniBossesCleared = 4;
+      d.game = g;
+      d.ui.view = 'CH';
+    });
+    return store;
+  }
+
+  function openSlot(slot: string): void {
+    document
+      .querySelector<HTMLButtonElement>(`[data-slot-toggle="${slot}"]`)!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  }
+
+  it('shows one collapsible card per slot, with ≥40px controls', () => {
+    mount(shopStore(0));
+    const heads = [...document.querySelectorAll<HTMLElement>('.eq-head')];
+    expect(heads).toHaveLength(EQUIPMENT_SLOTS.length);
+    for (const slot of EQUIPMENT_SLOTS) {
+      expect(document.querySelector(`[data-slot-toggle="${slot}"]`)?.textContent).toContain(SLOT_HE[slot]);
+    }
+    // the drawer starts closed; opening it lists the slot's items
+    expect(document.querySelectorAll('.eq-item')).toHaveLength(0);
+    openSlot('gloves');
+    expect(document.querySelectorAll('.eq-item').length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('buys an item, equips it, and shows it on the character SVG', () => {
+    const item = equipmentById('belt_1');
+    if (!item) throw new Error('missing belt_1');
+    const store = shopStore(item.cost);
+    mount(store);
+    openSlot('belt');
+
+    expect(document.querySelector('[data-slot="belt"]')?.innerHTML).toBe('');
+    document
+      .querySelector<HTMLButtonElement>('[data-buy="belt_1"]')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(gameOf(store).equipment.equipped['belt']).toBe('belt_1');
+    expect(gameOf(store).battle.coins).toBe(0);
+    // the SVG layer is now populated, at both scales the same builder is used
+    expect(document.querySelector('[data-slot="belt"]')?.innerHTML).not.toBe('');
+    expect(document.querySelector('[data-unequip="belt"]')).not.toBeNull();
+  });
+
+  it('disables what the player cannot afford and refuses the purchase', () => {
+    const store = shopStore(0);
+    mount(store);
+    openSlot('cape');
+    const btn = document.querySelector<HTMLButtonElement>('[data-buy="cape_1"]');
+    expect(btn?.disabled).toBe(true);
+    btn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(gameOf(store).equipment.owned).toEqual([]);
+    expect(store.getEvents().some((e) => e.type === 'coins_spent')).toBe(false);
+  });
+
+  it('shows the trophy shelf with Hebrew boss and world names', () => {
+    mount(shopStore(0, ['boss_w1', 'boss_w2']));
+    const shelf = document.querySelector('.trophy-shelf');
+    expect(shelf).not.toBeNull();
+    expect(document.querySelectorAll('.trophy')).toHaveLength(2);
+    expect(shelf?.textContent).toContain(WORLD_BOSSES[0]?.he ?? '');
+    expect(shelf?.textContent).toContain(WORLDS[1]?.he ?? '');
+    expect(document.querySelectorAll('.trophy .tr-svg')).toHaveLength(2);
+    // the mini-boss count rides along, and medals appear on the character
+    expect(document.querySelector('.game-card:last-of-type')?.textContent).toContain('4');
+    expect(document.querySelectorAll('#main .ch-trophies .ch-medal')).toHaveLength(2);
   });
 });
