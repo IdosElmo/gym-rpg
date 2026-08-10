@@ -2,8 +2,9 @@
  * ui/feed.ts — the game-event feed of screen 4 (היסטוריה).
  *
  * Pure(ish) projection of the append-only log into compact Hebrew lines:
- * level-ups, personal records, finished workouts, streak changes and battle
- * progress. Nothing here reads state — the log is the story.
+ * level-ups, personal records, finished workouts, streak changes, battle
+ * progress and imported backups. Nothing here reads state — the log is the
+ * story.
  *
  * Runs of ordinary cleared waves are COLLAPSED into one line ("גלים 5–24"),
  * because a real player clears ~20 waves per workout and the feed has to stay
@@ -188,6 +189,28 @@ export function buildFeed(
           icon: '🛒',
           cls: 'shop',
           text: `${esc(item ? item.he : str(p['itemId']))} נרכש בחנות · −${num(p['cost'])} 🪙`,
+        });
+        break;
+      }
+      /**
+       * A JSON backup was folded into this log (`storage/merge.ts`). It changes
+       * no state at all — it is here purely so a sudden jump in XP has a line
+       * that explains it.
+       *
+       * Only `json_import` gets a line, and that is the only source that exists
+       * in practice: the sync engine deliberately appends NOTHING when it merges
+       * a cloud pull (a marker per pull would ping-pong between devices for
+       * ever). A marker with any other source is folded and left unrendered
+       * rather than described as a file that was never imported.
+       */
+      case 'data_merged': {
+        if (p['source'] !== 'json_import') break;
+        items.push({
+          ts: ev.ts,
+          date,
+          icon: '⬆',
+          cls: 'import',
+          text: `יובאו נתונים מקובץ (${num(p['added'])} אירועים)`,
         });
         break;
       }

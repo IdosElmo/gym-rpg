@@ -184,6 +184,21 @@ describe('history feed', () => {
     expect(shop.some((i) => i.text.includes('הוסרה'))).toBe(true);
   });
 
+  it('explains an additive JSON import — and stays quiet about cloud merges', () => {
+    const store = new LocalStore(fakeStorage());
+    store.append('data_merged', { source: 'json_import', added: 42 });
+    const line = buildFeed(store.getEvents()).find((i) => i.cls === 'import');
+    expect(line?.icon).toBe('⬆');
+    expect(line?.text).toBe('יובאו נתונים מקובץ (42 אירועים)');
+
+    // The engine never writes one of these for a pull (it would ping-pong
+    // between devices); if a marker with another source ever shows up it is
+    // folded as the no-op it is, without inventing a file that never existed.
+    const quiet = new LocalStore(fakeStorage());
+    quiet.append('data_merged', { source: 'sync', added: 7 });
+    expect(buildFeed(quiet.getEvents())).toHaveLength(0);
+  });
+
   it('escapes nothing dangerous into the markup', () => {
     const store = new LocalStore(fakeStorage());
     store.append('boss_defeated', { bossId: '<img src=x onerror=alert(1)>', date: '2025-05-04' });
