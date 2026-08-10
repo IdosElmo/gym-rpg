@@ -7,9 +7,14 @@
  * previous-performance hints, the rest hint, and the green `done-all` state.
  *
  * All writes go through the `DataStore` — this module never touches storage.
+ *
+ * Phase 1 adds the game feedback: an XP fly-up per body part when a set is
+ * checked, a PR / level-up toast, and the workout-completion bonus. XP itself is
+ * granted by `core/game.ts`, which is also the only place that guards against
+ * farming XP by unchecking and re-checking a set.
  */
 
-import { PROGRAM, equipHe, type DayKey, type Exercise } from '../data/program.ts';
+import { BODY_PART_HE, PROGRAM, equipHe, type DayKey, type Exercise } from '../data/program.ts';
 import {
   doneCount,
   getSetData,
@@ -17,9 +22,13 @@ import {
   prevPerf,
   todayISO,
 } from '../core/workout.ts';
+import { onSetCompleted, onWorkoutFinished, type GrantResult } from '../core/game.ts';
 import type { DataStore } from '../storage/DataStore.ts';
 import type { RestTimer } from './timer.ts';
+import { queuePartPulse } from './character.ts';
 import { esc } from './dom.ts';
+import { toast } from './toast.ts';
+import { flyXp, fmtXp } from './xpfx.ts';
 
 export interface WorkoutDeps {
   store: DataStore;
@@ -184,22 +193,49 @@ function bind(main: HTMLElement, view: DayKey, deps: WorkoutDeps, today: string)
 
       if (nowDone) {
         timer.start(ex.rest, `${ex.he} · סט ${i + 1} הושלם`);
-        maybeFinishWorkout(store, view, today);
+        const grant = onSetCompleted(store, { date: today, day: view, ex, setIndex: i, w, r });
+        celebrateSet(btn, ex, grant);
+        maybeFinishWorkout(store, view, today, btn);
       }
       refreshHeader();
     });
   });
 }
 
+/** Fly-ups for the XP split + one combined toast for PR / level-ups. */
+function celebrateSet(anchor: Element, ex: Exercise, grant: GrantResult): void {
+  if (grant.xp <= 0) return; // already granted (re-check) — never pay twice
+  flyXp(
+    anchor,
+    grant.parts.map((p) => `+${fmtXp(p.amount)} XP ${BODY_PART_HE[p.part]}!`),
+  );
+
+  const notes: string[] = [];
+  if (grant.pr) notes.push(`🏆 שיא חדש ב${ex.he} · XP כפול!`);
+  for (const lu of grant.levelUps) {
+    notes.push(`🎉 ${BODY_PART_HE[lu.part]} עלה לרמה ${lu.to}!`);
+    queuePartPulse(lu.part);
+  }
+  if (notes.length > 0) toast(notes.join(' · '));
+}
+
 /**
  * The legacy app had no explicit "finish workout" action, so we derive it:
  * the first moment every set of every exercise of the day is checked, we emit a
- * single `workout_finished` event (Phase 1 hangs the completion XP/energy bonus
- * off it). Guarded so it can only fire once per date.
+ * single `workout_finished` event and grant the completion bonus (flat XP to
+ * every body part + bonus battle energy). Guarded twice — by the event log here
+ * and by `game.bonusDays` inside the engine — so it can only pay once per date.
  */
-function maybeFinishWorkout(store: DataStore, view: DayKey, date: string): void {
+function maybeFinishWorkout(store: DataStore, view: DayKey, date: string, anchor: Element): void {
   if (!isWorkoutComplete(store.getState(), view, date)) return;
   const already = store.getEvents().some((e) => e.type === 'workout_finished' && e.payload['date'] === date);
   if (already) return;
   store.append('workout_finished', { date, day: view });
+
+  const grant = onWorkoutFinished(store, { date, day: view });
+  if (grant.xp <= 0) return;
+  const perPart = grant.parts[0]?.amount ?? 0;
+  flyXp(anchor, [`אימון הושלם! +${fmtXp(perPart)} XP לכל הגוף`]);
+  toast(`💪 אימון הושלם! +${fmtXp(perPart)} XP לכל חלקי הגוף · +${fmtXp(grant.energy)} ⚡ אנרגיית קרב`);
+  for (const lu of grant.levelUps) queuePartPulse(lu.part);
 }

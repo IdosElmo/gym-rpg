@@ -10,6 +10,7 @@ import '../styles/index.css';
 
 import { LocalStore } from './storage/LocalStore.ts';
 import type { DataStore } from './storage/DataStore.ts';
+import { refreshStreak } from './core/game.ts';
 import { createApp } from './ui/app.ts';
 import { initImportInput } from './ui/history.ts';
 import { createRestTimer } from './ui/timer.ts';
@@ -20,6 +21,9 @@ function boot(): void {
   const store: DataStore = new LocalStore();
 
   initToast(must('toast'));
+  // Weeks close by the passing of time, not by a user action: re-evaluate the
+  // streak once per boot so a missed week is reflected before anything renders.
+  refreshStreak(store);
   const timer = createRestTimer();
   const app = createApp(store, timer);
   initImportInput(store, () => app.render());

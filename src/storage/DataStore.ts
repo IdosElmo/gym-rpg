@@ -31,7 +31,8 @@ export interface Session {
   ex: Record<string, (SetEntry | null)[]>;
 }
 
-export type ViewKey = DayKey | 'H';
+/** `A|B|C` = workout days, `CH` = דמות (character), `H` = היסטוריה. */
+export type ViewKey = DayKey | 'CH' | 'H';
 
 export interface UiState {
   view: ViewKey;

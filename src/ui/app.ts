@@ -1,17 +1,21 @@
 /**
  * ui/app.ts — the app shell: tabs, header and screen switching.
  *
- * Phase 1+ adds the דמות / קרב tabs here; the tab list is already data-driven
- * so a new screen only needs an entry plus a render function.
+ * Tab order follows the brief: the three workout days, דמות, היסטוריה
+ * (Phase 2 inserts קרב before היסטוריה). The tab list is data-driven, so a new
+ * screen only needs an entry plus a render function.
  */
 
 import { DAY_NAMES, DAY_ORDER, PROGRAM, isDayKey } from '../data/program.ts';
 import { fmtDate, lastLoggedDate } from '../core/workout.ts';
+import { gameOf } from '../core/game.ts';
 import type { DataStore, ViewKey } from '../storage/DataStore.ts';
 import type { RestTimer } from './timer.ts';
+import { renderCharacter } from './character.ts';
 import { must } from './dom.ts';
 import { renderHistory } from './history.ts';
 import { renderWorkout } from './workout.ts';
+import { fmtXp } from './xpfx.ts';
 
 export interface App {
   render: () => void;
@@ -38,15 +42,26 @@ export function createApp(store: DataStore, timer: RestTimer): App {
       <span class="d">${DAY_NAMES[k]}</span><span class="w">${PROGRAM[k].label}</span>
     </button>`,
       ).join('') +
+      `<button class="tab char-tab ${view === 'CH' ? 'active' : ''}" data-view="CH">
+      <span class="d">🦸</span><span class="w">דמות</span>
+    </button>` +
       `<button class="tab hist-tab ${view === 'H' ? 'active' : ''}" data-view="H">
       <span class="d">🗓</span><span class="w">היסטוריה</span>
     </button>`;
     tabsEl.querySelectorAll<HTMLButtonElement>('.tab').forEach((b) => {
       b.addEventListener('click', () => {
         const v = b.dataset['view'];
-        if (v === 'H' || isDayKey(v)) setView(v);
+        if (v === 'H' || v === 'CH' || isDayKey(v)) setView(v);
       });
     });
+  }
+
+  /** Battle energy lives in the header corner on every screen — small and quiet. */
+  function energyPill(): string {
+    const game = gameOf(store);
+    return `<div class="energy-pill" title="אנרגיית קרב — נצברת מאימונים אמיתיים">
+      ⚡<span class="ep-num">${fmtXp(game.energy)}</span>
+    </div>`;
   }
 
   function renderHeader(): void {
@@ -54,7 +69,13 @@ export function createApp(store: DataStore, timer: RestTimer): App {
     const view = state.ui.view;
     if (view === 'H') {
       headerEl.innerHTML = `<h1 class="app-title">היסטוריית אימונים <span class="en">History</span></h1>
-      <p class="day-meta">כל הנתונים נשמרים במכשיר · ניתן לגבות ולשחזר כקובץ JSON</p>`;
+      <p class="day-meta">כל הנתונים נשמרים במכשיר · ניתן לגבות ולשחזר כקובץ JSON</p>${energyPill()}`;
+      return;
+    }
+    if (view === 'CH') {
+      const game = gameOf(store);
+      headerEl.innerHTML = `<h1 class="app-title">הדמות שלי <span class="en">Character</span></h1>
+      <p class="day-meta">רמה <b>${game.level}</b> · כל סט אמיתי מחזק חלק אחר בגוף</p>${energyPill()}`;
       return;
     }
     const p = PROGRAM[view];
@@ -62,7 +83,8 @@ export function createApp(store: DataStore, timer: RestTimer): App {
     headerEl.innerHTML = `
     <h1 class="app-title">יום ${p.day} · ${p.label} <span class="en">Hypertrophy</span></h1>
     <p class="day-meta"><b>${p.dur}</b> · ${p.focus}</p>
-    <p class="last-log">אימון אחרון שתועד: <span class="val">${last ? fmtDate(last) : '— עדיין לא תועד'}</span></p>`;
+    <p class="last-log">אימון אחרון שתועד: <span class="val">${last ? fmtDate(last) : '— עדיין לא תועד'}</span></p>
+    ${energyPill()}`;
   }
 
   function render(): void {
@@ -71,6 +93,8 @@ export function createApp(store: DataStore, timer: RestTimer): App {
     const view = store.getState().ui.view;
     if (view === 'H') {
       renderHistory(mainEl, { store, rerender: render });
+    } else if (view === 'CH') {
+      renderCharacter(mainEl, { store });
     } else {
       renderWorkout(mainEl, view, { store, timer, refreshHeader: renderHeader });
     }

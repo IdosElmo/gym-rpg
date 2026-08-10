@@ -52,14 +52,14 @@ function mount(store: LocalStore = new LocalStore(fakeStorage())): { store: Loca
 
 function currentDay(store: LocalStore) {
   const view = store.getState().ui.view;
-  if (view === 'H') throw new Error('unexpected default view');
+  if (view === 'H' || view === 'CH') throw new Error('unexpected default view');
   return view;
 }
 
 describe('workout screen', () => {
-  it('renders the 4 tabs and the day exercise cards', () => {
+  it('renders the 5 tabs (3 days + דמות + היסטוריה) and the day exercise cards', () => {
     const { store } = mount();
-    expect(document.querySelectorAll('#tabs .tab')).toHaveLength(4);
+    expect(document.querySelectorAll('#tabs .tab')).toHaveLength(5);
     const view = currentDay(store);
     expect(document.querySelectorAll('#main .ex-card')).toHaveLength(PROGRAM[view].exercises.length);
     expect(document.querySelector('.ex-title')?.textContent).toBe(PROGRAM[view].exercises[0]?.he);

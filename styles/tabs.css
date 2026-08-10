@@ -1,5 +1,5 @@
 nav.tabs{
-  display:flex; gap:8px; padding:12px 16px 4px; position:sticky; top:0; z-index:30;
+  display:flex; gap:6px; padding:12px 16px 4px; position:sticky; top:0; z-index:30;
   background:linear-gradient(180deg,var(--bg) 75%,transparent);
 }
 .tab{
