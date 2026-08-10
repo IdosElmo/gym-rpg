@@ -1,5 +1,6 @@
 /**
- * ui/history.ts — the history screen + JSON export / import / clear-all.
+ * ui/history.ts — the history screen: the game-event feed (see ui/feed.ts), the
+ * logged-workout history, and JSON export / import / clear-all.
  *
  * Export writes the NEW blob shape (state + event log + a `sessions` mirror for
  * backwards compatibility), which already carries the `game` slot that Phase 1+
@@ -11,6 +12,7 @@ import { fmtDate, isSetFilled, todayISO } from '../core/workout.ts';
 import type { DataStore } from '../storage/DataStore.ts';
 import { buildExport, parseImport } from '../storage/migrate.ts';
 import { esc, must } from './dom.ts';
+import { renderFeed } from './feed.ts';
 import { toast } from './toast.ts';
 
 export interface HistoryDeps {
@@ -27,7 +29,9 @@ export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
     <button class="action-btn" id="btnExport">⬇ ייצוא JSON</button>
     <button class="action-btn" id="btnImport">⬆ ייבוא JSON</button>
     <button class="action-btn danger" id="btnClear">🗑 מחיקה</button>
-  </div>`;
+  </div>
+  ${renderFeed(deps.store.getEvents())}
+  <h2 class="hist-heading">אימונים מתועדים</h2>`;
 
   const nonEmpty = dates.filter((d) => Object.keys(state.sessions[d]?.ex ?? {}).length > 0);
   if (nonEmpty.length === 0) {

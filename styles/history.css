@@ -18,3 +18,20 @@
   opacity:0; transition:.25s; pointer-events:none;
 }
 .toast.show{opacity:1}
+
+/* ---------- Game-event feed (יומן הרפתקה) ---------- */
+.hist-heading{margin:18px 0 10px; font-size:15px; font-weight:800}
+.feed{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px}
+.feed-item{
+  display:flex; align-items:baseline; gap:8px;
+  background:var(--card-2); border:1px solid var(--line); border-radius:11px;
+  padding:7px 10px; font-size:12.5px; line-height:1.45;
+}
+.fi-icon{flex:0 0 auto; font-size:14px}
+.fi-text{flex:1; min-width:0}
+.fi-date{flex:0 0 auto; font-size:10.5px; color:var(--dim); direction:ltr}
+.feed-item.level{border-color:#3B82F644}
+.feed-item.pr{border-color:#F59E0B44}
+.feed-item.boss{border-color:#A78BFA55}
+.feed-item.wave .fi-text{color:var(--muted)}
+.feed-item.streak{border-color:#F59E0B44}
