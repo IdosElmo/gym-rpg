@@ -11,6 +11,7 @@
  * Both blobs carry a `schemaVersion` and are read through `storage/migrate.ts`.
  */
 
+import type { EquipmentSlot } from '../data/gameContent.ts';
 import type { BodyPart, DayKey } from '../data/program.ts';
 
 /* ------------------------------------------------------------------ state */
@@ -46,7 +47,7 @@ export interface UiState {
  * a step to `GAME_MIGRATIONS` in `storage/migrate.ts` — an unrecognised version
  * is simply rebuilt from the event log, which is always the source of truth.
  */
-export const GAME_STATE_VERSION = 2;
+export const GAME_STATE_VERSION = 3;
 
 /** XP pool of one body part. `level` is DERIVED from `xp` (see core/xp.ts). */
 export interface PartProgress {
@@ -80,11 +81,25 @@ export interface BattleProgress {
   world: number;
   /** Next wave to fight inside that world (1-based). */
   wave: number;
-  /** Coins earned from waves — the Phase 3 shop spends them. */
+  /** Coins earned from waves and bosses — the shop spends them. */
   coins: number;
-  /** Lifetime counters, for the history feed and future trophies. */
+  /** Lifetime counters, for the history feed and the trophy shelf. */
   wavesCleared: number;
   miniBossesCleared: number;
+  /**
+   * Ids of the world bosses already defeated, in the order they fell. Each one
+   * is a permanent trophy on the character screen, and the LAST world's boss
+   * additionally switches world 4 into its endless "champion" mode.
+   */
+  bossesDefeated: string[];
+}
+
+/** Owned + equipped shop items. Both are folded from the event log. */
+export interface EquipmentState {
+  /** Every item id ever bought (purchases are permanent). */
+  owned: string[];
+  /** slot -> item id currently worn. A missing slot means "nothing worn". */
+  equipped: Partial<Record<EquipmentSlot, string>>;
 }
 
 /**
@@ -112,8 +127,10 @@ export interface GameState {
   /** Distinct dates of LIVE (non-retroactive) training — the streak source. */
   workoutDays: string[];
   streak: StreakState;
-  /** Phase 2 — battle progress (world / wave / coins). */
+  /** Phase 2 — battle progress (world / wave / coins / bosses). */
   battle: BattleProgress;
+  /** Phase 3 — the coin shop's owned + equipped items. */
+  equipment: EquipmentState;
 }
 
 export interface AppMeta {
@@ -157,8 +174,9 @@ export type EventType =
   | 'streak_changed'
   // Phase 2 — battle. ONE event per cleared wave; attack ticks are never events.
   | 'wave_cleared'
-  // Phase 3 — reserved
+  // Phase 3 — world bosses and the coin shop
   | 'boss_defeated'
+  | 'coins_spent'
   | 'item_equipped';
 
 export interface AppEvent {
@@ -269,6 +287,44 @@ export interface WaveClearedPayload extends Record<string, unknown> {
   /** Seed the cleared attempt ran with — makes the fight replayable. */
   seed: number;
   durationMs: number;
+}
+
+/* ------------------------------------------- Phase 3 boss / shop payloads */
+
+/**
+ * A world boss went down. Like `wave_cleared`, the payload is AUTHORITATIVE:
+ * `nextWorld`/`nextWave` say exactly where the player lands, so a replay never
+ * has to re-derive the unlock rule (and old logs keep replaying if it changes).
+ */
+export interface BossDefeatedPayload extends Record<string, unknown> {
+  date: string;
+  world: number;
+  wave: number;
+  bossId: string;
+  coins: number;
+  energySpent: number;
+  seed: number;
+  durationMs: number;
+  /** Where the battle continues: the next world at wave 1, or endless mode. */
+  nextWorld: number;
+  nextWave: number;
+  /** True when this was the LAST world's boss — world 4 turns endless. */
+  endgame: boolean;
+}
+
+/** A shop purchase. Coins leave the purse and the item joins `owned`. */
+export interface CoinsSpentPayload extends Record<string, unknown> {
+  date: string;
+  itemId: string;
+  slot: EquipmentSlot;
+  cost: number;
+}
+
+/** An item was put on (`itemId`) or taken off (`itemId: null`). */
+export interface ItemEquippedPayload extends Record<string, unknown> {
+  date: string;
+  slot: EquipmentSlot;
+  itemId: string | null;
 }
 
 /* ------------------------------------------------------------------ store */

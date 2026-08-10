@@ -8,11 +8,14 @@
  *
  * OFFLINE RULE: sprites are inline SVG strings — no files, no fetches, ever.
  *
- * PHASE 3 hooks (deliberately left thin):
- *   - `WORLD_BOSSES` has one stub boss per world with a body-part `requires`
- *     gate; `bossGateStatus()` already reports met/unmet per part so the gate
- *     card can be rendered. Phase 3 fleshes out stats, sprites and rewards.
- *   - `EQUIPMENT` is still empty — the shop is Phase 3.
+ * PHASE 3 lives here too:
+ *   - `WORLD_BOSSES` — one boss per world with its body-part `requires` gate;
+ *     `bossGateStatus()` reports met/unmet per part so the gate card can render
+ *     exactly what training is missing.
+ *   - `EQUIPMENT` — the coin shop's roster. An item carries its Hebrew name,
+ *     price, stat bonus, a shop icon and the two colours the character SVG uses
+ *     to draw it (the drawing itself lives in `ui/characterSvg.ts`, because it
+ *     depends on the character's level-driven geometry).
  */
 
 import type { BodyPart } from './program.ts';
@@ -416,12 +419,24 @@ export function enemyById(id: string): EnemyDef | undefined {
   return ENEMIES.find((e) => e.id === id) ?? WORLD_BOSSES.find((b) => b.id === id);
 }
 
-/* ---------------------------------------------------- world bosses (stub) */
+/* ---------------------------------------------------------- world bosses */
 
 /**
- * PHASE 3 STUB — one boss per world with its body-part gate. The gate numbers
- * are already meaningful (they rise with the world); the fights, rewards and
- * trophies are Phase 3's job.
+ * One boss per world, standing at the wave AFTER the world's last one.
+ *
+ * GATE TUNING (see README + `docs` in balance.ts). The numbers are derived from
+ * two independent pacing curves that were made to meet:
+ *   - COMBAT: with active tapping, wave 50 of world N is clearable at roughly
+ *     part level 3 / 5 / 7 / 9 (worlds 1–4);
+ *   - TRAINING: a consistent 3×/week trainee reaches part level 3 after ~4
+ *     workouts, 5 after ~9, 7 after ~19 and 8 after ~36.
+ * Each gate is therefore set at (or one notch above) the level the player needs
+ * anyway, and it always lands about one extra workout after they run out of
+ * waves — so the gate asks for training, never for grinding.
+ *
+ * `hpMult`/`atkMult` sit on top of the wave scaling: bosses are damage SPONGES
+ * with heavy but slow hits (`BALANCE.combat.boss.attackIntervalMs`), so the
+ * fight is long and tense rather than a one-shot wipe.
  */
 export const WORLD_BOSSES: readonly BossDef[] = [
   {
@@ -430,14 +445,22 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     en: 'Shadow Coach',
     world: 1,
     kind: 'boss',
-    requires: { chest: 5, legs: 4 },
-    hpMult: 6,
-    atkMult: 2,
+    requires: { chest: 3, arms: 3, legs: 3 },
+    hpMult: 5,
+    atkMult: 0.85,
     svg: sprite(`
-      <path d="M30 104 V50 a30 30 0 0 1 60 0 v54 Z" fill="#1F2937" stroke="#0B0F19" stroke-width="3"/>
-      <circle cx="60" cy="36" r="18" fill="#111827"/>
-      ${eyes(53, 67, 36, 4, '#EF4444')}
-      <path d="M26 60 l-14 10 M94 60 l14 10" stroke="#374151" stroke-width="7" stroke-linecap="round"/>`),
+      <path d="M18 108 q6 -34 20 -44 h44 q14 10 20 44 Z" fill="#1F2937" stroke="#0B0F19" stroke-width="3"/>
+      <path d="M32 64 q28 -16 56 0 l-6 -14 q-22 -12 -44 0 Z" fill="#111827"/>
+      <path d="M60 12 a26 26 0 0 1 26 30 q-26 12 -52 0 A26 26 0 0 1 60 12 Z" fill="#0B0F19"/>
+      <ellipse cx="60" cy="44" rx="17" ry="14" fill="#161E2E"/>
+      ${eyes(52, 68, 44, 4.5, '#EF4444')}
+      <circle cx="52" cy="44" r="8" fill="#EF4444" opacity=".18"/>
+      <circle cx="68" cy="44" r="8" fill="#EF4444" opacity=".18"/>
+      <path d="M46 84 h28 v18 h-28 Z" fill="#374151" stroke="#0B0F19" stroke-width="2"/>
+      <path d="M50 90 h20 M50 96 h14" stroke="#9CA3AF" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="86" cy="70" r="7" fill="#F59E0B"/>
+      <path d="M86 70 l14 -12" stroke="#9CA3AF" stroke-width="3" stroke-linecap="round"/>
+      <path d="M14 74 l-10 -8 M106 74 l10 -8" stroke="#374151" stroke-width="7" stroke-linecap="round"/>`),
   },
   {
     id: 'boss_w2',
@@ -445,14 +468,22 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     en: 'Street Overlord',
     world: 2,
     kind: 'boss',
-    requires: { back: 6, arms: 5 },
-    hpMult: 7,
-    atkMult: 2.2,
+    requires: { chest: 5, back: 5, arms: 5 },
+    hpMult: 5.5,
+    atkMult: 0.9,
     svg: sprite(`
-      <path d="M28 104 V54 a32 32 0 0 1 64 0 v50 Z" fill="#064E3B" stroke="#022C22" stroke-width="3"/>
-      <circle cx="60" cy="36" r="19" fill="#C79B75"/>
-      ${eyes(52, 68, 34, 4, '#10B981')}
-      <path d="M38 22 h44 v8 h-44 Z" fill="#0F766E"/>`),
+      <path d="M16 110 q4 -36 22 -46 h44 q18 10 22 46 Z" fill="#065F46" stroke="#022C22" stroke-width="3"/>
+      <path d="M38 64 h44 v12 h-44 Z" fill="#047857"/>
+      <circle cx="60" cy="38" r="20" fill="#C79B75"/>
+      <path d="M40 34 a20 20 0 0 1 40 0 l-4 -8 a20 20 0 0 0 -32 0 Z" fill="#7F1D1D"/>
+      <path d="M40 32 h40 v6 h-40 Z" fill="#DC2626"/>
+      ${eyes(52, 68, 40, 3.8, '#10B981')}
+      <path d="M50 50 q10 6 20 0" stroke="#7C2D12" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M46 66 q14 22 28 0" stroke="#FBBF24" stroke-width="4" fill="none"/>
+      <circle cx="60" cy="80" r="6" fill="#F59E0B" stroke="#B45309" stroke-width="2"/>
+      <path d="M14 78 q-6 12 2 22" stroke="#C79B75" stroke-width="11" fill="none" stroke-linecap="round"/>
+      <path d="M106 78 q6 12 -2 22" stroke="#C79B75" stroke-width="11" fill="none" stroke-linecap="round"/>
+      <rect x="96" y="92" width="14" height="20" rx="4" fill="#A78BFA" stroke="#5B21B6" stroke-width="2"/>`),
   },
   {
     id: 'boss_w3',
@@ -460,14 +491,21 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     en: 'Champion of Champions',
     world: 3,
     kind: 'boss',
-    requires: { shoulders: 7, core: 6 },
-    hpMult: 8,
-    atkMult: 2.4,
+    requires: { back: 7, core: 7, legs: 6, shoulders: 6 },
+    hpMult: 6,
+    atkMult: 1,
     svg: sprite(`
-      <path d="M26 104 V54 a34 34 0 0 1 68 0 v50 Z" fill="#7C2D12" stroke="#431407" stroke-width="3"/>
-      <circle cx="60" cy="34" r="20" fill="#F59E0B"/>
-      ${eyes(52, 68, 34, 4, '#1B2438')}
-      <path d="M60 6 v10 M40 12 l6 10 M80 12 l-6 10" stroke="#FBBF24" stroke-width="5" stroke-linecap="round"/>`),
+      <path d="M18 110 q4 -34 20 -44 h44 q16 10 20 44 Z" fill="#7C2D12" stroke="#431407" stroke-width="3"/>
+      <path d="M40 70 h40 v10 h-40 Z" fill="#B45309"/>
+      <path d="M44 84 h32 v8 h-32 Z" fill="#B45309" opacity=".7"/>
+      <circle cx="60" cy="36" r="19" fill="#C79B75"/>
+      ${eyes(52, 68, 36, 3.8, '#1B2438')}
+      <path d="M50 48 q10 7 20 0" stroke="#7C2D12" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M38 30 q22 -22 44 0 q-6 -22 -22 -22 q-16 0 -22 22 Z" fill="#16A34A"/>
+      <circle cx="38" cy="30" r="5" fill="#22C55E"/><circle cx="82" cy="30" r="5" fill="#22C55E"/>
+      <path d="M100 16 v76" stroke="#94A3B8" stroke-width="5" stroke-linecap="round"/>
+      <path d="M90 20 v-12 M100 16 v-14 M110 20 v-12" stroke="#E2E8F0" stroke-width="4" stroke-linecap="round"/>
+      <path d="M12 62 a20 20 0 0 0 0 40 Z" fill="#94A3B8" stroke="#475569" stroke-width="3"/>`),
   },
   {
     id: 'boss_w4',
@@ -476,15 +514,29 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     world: 4,
     kind: 'boss',
     requires: { chest: 8, back: 8, legs: 8, shoulders: 8, arms: 8, core: 8 },
-    hpMult: 10,
-    atkMult: 2.8,
+    hpMult: 7,
+    atkMult: 0.9,
     svg: sprite(`
-      <path d="M24 104 V54 a36 36 0 0 1 72 0 v50 Z" fill="#312E81" stroke="#1E1B4B" stroke-width="3"/>
-      <circle cx="60" cy="32" r="21" fill="#E9D5FF"/>
-      ${eyes(52, 68, 32, 4, '#312E81')}
-      <path d="M60 2 l-10 20 h12 l-8 18 22 -22 h-12 Z" fill="#F59E0B"/>`),
+      <ellipse cx="60" cy="106" rx="46" ry="12" fill="#DDD6FE" opacity=".35"/>
+      <path d="M16 106 q6 -40 22 -50 h44 q16 10 22 50 Z" fill="#EDE9FE" stroke="#A78BFA" stroke-width="3"/>
+      <path d="M38 56 l22 26 22 -26 -6 -8 h-32 Z" fill="#C4B5FD"/>
+      <circle cx="60" cy="34" r="20" fill="#F5D0B0"/>
+      ${eyes(52, 68, 32, 3.8, '#312E81')}
+      <path d="M40 42 q20 32 40 0 q-4 26 -20 26 -16 0 -20 -26 Z" fill="#F1F5F9"/>
+      <path d="M38 26 q22 -20 44 0 q-4 -20 -22 -20 -18 0 -22 20 Z" fill="#E2E8F0"/>
+      <path d="M36 22 q24 -14 48 0" stroke="#FBBF24" stroke-width="4" fill="none" stroke-linecap="round"/>
+      <path d="M104 30 l-16 26 h12 l-12 26 26 -32 h-12 Z" fill="#F59E0B" stroke="#B45309" stroke-width="2"/>
+      <path d="M12 66 q-8 14 4 24" stroke="#F5D0B0" stroke-width="11" fill="none" stroke-linecap="round"/>
+      <circle cx="16" cy="94" r="9" fill="#FDE68A" opacity=".9"/>`),
   },
 ] as const;
+
+/** Every boss id, oldest world first — the trophy shelf's order. */
+export const BOSS_IDS: readonly string[] = WORLD_BOSSES.map((b) => b.id);
+
+export function bossById(id: string): BossDef | undefined {
+  return WORLD_BOSSES.find((b) => b.id === id);
+}
 
 export function worldBossOf(world: number): BossDef | undefined {
   return WORLD_BOSSES.find((b) => b.world === world);
@@ -521,17 +573,290 @@ export function bossGateStatus(
   return { locked: requirements.some((r) => !r.met), requirements };
 }
 
-/* ------------------------------------------------------- equipment (P3) */
+/* ------------------------------------------------------------- equipment */
 
 export type EquipmentSlot = 'gloves' | 'belt' | 'shoes' | 'cape';
+
+export const EQUIPMENT_SLOTS: readonly EquipmentSlot[] = ['gloves', 'belt', 'shoes', 'cape'] as const;
+
+export const SLOT_HE: Readonly<Record<EquipmentSlot, string>> = {
+  gloves: 'כפפות',
+  belt: 'חגורה',
+  shoes: 'נעליים',
+  cape: 'גלימה',
+};
+
+export const SLOT_EMOJI: Readonly<Record<EquipmentSlot, string>> = {
+  gloves: '🥊',
+  belt: '🎗',
+  shoes: '👟',
+  cape: '🧣',
+};
+
+/**
+ * A flat stat bonus. Added to the level-derived stat BEFORE the streak buff, so
+ * gear and streak compound the way a player expects (see `deriveStats`).
+ * `attackIntervalMs` is negative for "faster".
+ */
+export interface EquipBonus {
+  readonly atk?: number;
+  readonly def?: number;
+  readonly hp?: number;
+  readonly attackIntervalMs?: number;
+  readonly critChance?: number;
+  readonly critMultiplier?: number;
+  readonly regen?: number;
+}
 
 export interface EquipmentDef {
   readonly id: string;
   readonly he: string;
+  readonly en: string;
   readonly slot: EquipmentSlot;
+  /** 1..3 — drives both the price band and how ornate the SVG layer is. */
+  readonly tier: 1 | 2 | 3;
+  /** Price in 🪙. */
   readonly cost: number;
-  readonly svg: string;
+  readonly bonus: EquipBonus;
+  /** Main + accent colour, used by `ui/characterSvg.ts` to draw the layer. */
+  readonly color: string;
+  readonly accent: string;
+  /** One-line Hebrew flavour for the shop card. */
+  readonly note: string;
+  /** 48×48 shop icon (inline SVG — offline rule). */
+  readonly icon: string;
 }
 
-/** TODO(phase 3): the coin shop. Coins are already earned + persisted. */
-export const EQUIPMENT: readonly EquipmentDef[] = [];
+/** Wrap an icon's markup in a small square SVG. */
+function icon(inner: string): string {
+  return `<svg class="eq-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">${inner}</svg>`;
+}
+
+/**
+ * The shop roster: four slots × three tiers.
+ *
+ * PRICE TUNING — world 1's fifty waves pay ≈1 800 🪙 and each world multiplies
+ * the payout by `BALANCE.combat.coins.worldMult`, on top of a large boss purse.
+ * So tier 1 is affordable in the first world, tier 2 around its boss, and tier 3
+ * during worlds 2–3. Each slot leans on a different stat family so that the four
+ * pieces together cover the whole stat sheet.
+ */
+export const EQUIPMENT: readonly EquipmentDef[] = [
+  /* --- gloves: attack & crit ------------------------------------------- */
+  {
+    id: 'gloves_1',
+    he: 'כפפות אימון',
+    en: 'Training Gloves',
+    slot: 'gloves',
+    tier: 1,
+    cost: 120,
+    bonus: { atk: 4 },
+    color: '#475569',
+    accent: '#94A3B8',
+    note: 'אחיזה יציבה, אגרוף כבד יותר.',
+    icon: icon(`<path d="M14 30 v-14 a4 4 0 0 1 8 0 v-4 a4 4 0 0 1 8 0 v4 a4 4 0 0 1 8 0 v16 a10 10 0 0 1 -10 10 h-8 a10 10 0 0 1 -10 -10 Z" fill="#475569" stroke="#94A3B8" stroke-width="2"/><path d="M14 26 h24" stroke="#94A3B8" stroke-width="2"/>`),
+  },
+  {
+    id: 'gloves_2',
+    he: 'כפפות עור',
+    en: 'Leather Gloves',
+    slot: 'gloves',
+    tier: 2,
+    cost: 520,
+    bonus: { atk: 11, critChance: 0.03 },
+    color: '#7C2D12',
+    accent: '#F59E0B',
+    note: 'עור אמיתי — ומכה שמרגישים.',
+    icon: icon(`<path d="M14 30 v-14 a4 4 0 0 1 8 0 v-4 a4 4 0 0 1 8 0 v4 a4 4 0 0 1 8 0 v16 a10 10 0 0 1 -10 10 h-8 a10 10 0 0 1 -10 -10 Z" fill="#7C2D12" stroke="#F59E0B" stroke-width="2"/><path d="M14 26 h24" stroke="#F59E0B" stroke-width="2"/><circle cx="26" cy="33" r="3" fill="#F59E0B"/>`),
+  },
+  {
+    id: 'gloves_3',
+    he: 'כפפות האלופים',
+    en: "Champions' Gloves",
+    slot: 'gloves',
+    tier: 3,
+    cost: 1900,
+    bonus: { atk: 26, critChance: 0.07, critMultiplier: 0.2 },
+    color: '#B91C1C',
+    accent: '#FDE68A',
+    note: 'זהב על העור. כל מכה היא הצהרה.',
+    icon: icon(`<path d="M14 30 v-14 a4 4 0 0 1 8 0 v-4 a4 4 0 0 1 8 0 v4 a4 4 0 0 1 8 0 v16 a10 10 0 0 1 -10 10 h-8 a10 10 0 0 1 -10 -10 Z" fill="#B91C1C" stroke="#FDE68A" stroke-width="2"/><path d="M14 26 h24" stroke="#FDE68A" stroke-width="2.5"/><path d="M26 29 l3 6 -6 0 Z" fill="#FDE68A"/>`),
+  },
+
+  /* --- belt: defence & HP ---------------------------------------------- */
+  {
+    id: 'belt_1',
+    he: 'חגורת בד',
+    en: 'Cloth Belt',
+    slot: 'belt',
+    tier: 1,
+    cost: 120,
+    bonus: { def: 4, hp: 15 },
+    color: '#3F3F46',
+    accent: '#A1A1AA',
+    note: 'פשוטה, אבל הליבה מודה לה.',
+    icon: icon(`<rect x="4" y="18" width="40" height="12" rx="3" fill="#3F3F46" stroke="#A1A1AA" stroke-width="2"/><rect x="18" y="14" width="12" height="20" rx="3" fill="#A1A1AA"/>`),
+  },
+  {
+    id: 'belt_2',
+    he: 'חגורת כוח',
+    en: 'Power Belt',
+    slot: 'belt',
+    tier: 2,
+    cost: 560,
+    bonus: { def: 11, hp: 45 },
+    color: '#1D4ED8',
+    accent: '#93C5FD',
+    note: 'עור עבה לסקוואט כבד.',
+    icon: icon(`<rect x="4" y="16" width="40" height="16" rx="4" fill="#1D4ED8" stroke="#93C5FD" stroke-width="2"/><rect x="17" y="12" width="14" height="24" rx="4" fill="#93C5FD"/><circle cx="24" cy="24" r="3" fill="#1D4ED8"/>`),
+  },
+  {
+    id: 'belt_3',
+    he: 'חגורת אלוף עולם',
+    en: 'World Champion Belt',
+    slot: 'belt',
+    tier: 3,
+    cost: 2000,
+    bonus: { def: 27, hp: 120 },
+    color: '#78350F',
+    accent: '#FBBF24',
+    note: 'האבזם לבדו שוקל יותר מהמתחרים.',
+    icon: icon(`<rect x="2" y="18" width="44" height="12" rx="3" fill="#78350F" stroke="#FBBF24" stroke-width="2"/><path d="M24 8 l14 8 v16 l-14 8 -14 -8 v-16 Z" fill="#FBBF24" stroke="#78350F" stroke-width="2"/><circle cx="24" cy="24" r="5" fill="#78350F"/>`),
+  },
+
+  /* --- shoes: attack speed & HP ---------------------------------------- */
+  {
+    id: 'shoes_1',
+    he: 'נעלי ריצה',
+    en: 'Running Shoes',
+    slot: 'shoes',
+    tier: 1,
+    cost: 140,
+    bonus: { attackIntervalMs: -70 },
+    color: '#0E7490',
+    accent: '#67E8F9',
+    note: 'קלות. אתם פשוט מהירים יותר.',
+    icon: icon(`<path d="M6 32 h20 l10 -10 q8 4 8 10 v4 h-38 Z" fill="#0E7490" stroke="#67E8F9" stroke-width="2"/><path d="M12 26 l6 6 M20 22 l6 6" stroke="#67E8F9" stroke-width="2" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'shoes_2',
+    he: 'נעלי הרמה',
+    en: 'Lifting Shoes',
+    slot: 'shoes',
+    tier: 2,
+    cost: 620,
+    bonus: { attackIntervalMs: -160, hp: 40 },
+    color: '#166534',
+    accent: '#86EFAC',
+    note: 'עקב קשיח — יציבות שמתורגמת לקצב.',
+    icon: icon(`<path d="M4 34 h22 l10 -12 q10 4 10 12 v4 h-42 Z" fill="#166534" stroke="#86EFAC" stroke-width="2"/><rect x="4" y="34" width="42" height="5" rx="2" fill="#86EFAC"/><path d="M14 28 l6 6 M22 24 l6 6" stroke="#86EFAC" stroke-width="2" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'shoes_3',
+    he: 'כנפי הרמס',
+    en: 'Hermes Wings',
+    slot: 'shoes',
+    tier: 3,
+    cost: 2200,
+    bonus: { attackIntervalMs: -300, hp: 90, regen: 2 },
+    color: '#7C3AED',
+    accent: '#FDE68A',
+    note: 'האולימפוס משאיל לכם קצת מהירות.',
+    icon: icon(`<path d="M6 34 h22 l10 -12 q10 4 10 12 v4 h-42 Z" fill="#7C3AED" stroke="#FDE68A" stroke-width="2"/><path d="M8 22 q-6 -8 2 -10 q2 8 10 8 Z" fill="#FDE68A"/><path d="M40 22 q6 -8 -2 -10 q-2 8 -10 8 Z" fill="#FDE68A"/>`),
+  },
+
+  /* --- cape: regen & all-round ----------------------------------------- */
+  {
+    id: 'cape_1',
+    he: 'מגבת אימון',
+    en: 'Gym Towel',
+    slot: 'cape',
+    tier: 1,
+    cost: 150,
+    bonus: { regen: 2 },
+    color: '#0F766E',
+    accent: '#5EEAD4',
+    note: 'לא גלימה. עדיין עוזרת להתאושש.',
+    icon: icon(`<path d="M12 8 h24 v26 l-6 -5 -6 5 -6 -5 -6 5 Z" fill="#0F766E" stroke="#5EEAD4" stroke-width="2"/><path d="M12 16 h24" stroke="#5EEAD4" stroke-width="2"/>`),
+  },
+  {
+    id: 'cape_2',
+    he: 'גלימת הרחוב',
+    en: 'Street Cape',
+    slot: 'cape',
+    tier: 2,
+    cost: 700,
+    bonus: { regen: 5, atk: 6, def: 4 },
+    color: '#9F1239',
+    accent: '#FDA4AF',
+    note: 'מתנפנפת גם כשאין רוח.',
+    icon: icon(`<path d="M10 8 q14 8 28 0 v22 q-6 10 -14 10 -8 0 -14 -10 Z" fill="#9F1239" stroke="#FDA4AF" stroke-width="2"/><path d="M24 12 v28" stroke="#FDA4AF" stroke-width="2"/>`),
+  },
+  {
+    id: 'cape_3',
+    he: 'גלימת האולימפוס',
+    en: 'Olympus Cloak',
+    slot: 'cape',
+    tier: 3,
+    cost: 2400,
+    bonus: { regen: 10, atk: 15, def: 15, hp: 60 },
+    color: '#4C1D95',
+    accent: '#FDE68A',
+    note: 'נטווית מעננים. הבוסים מזהים אותה.',
+    icon: icon(`<path d="M10 8 q14 8 28 0 v22 q-6 10 -14 10 -8 0 -14 -10 Z" fill="#4C1D95" stroke="#FDE68A" stroke-width="2"/><path d="M24 14 l3 7 7 1 -5 5 1 7 -6 -3 -6 3 1 -7 -5 -5 7 -1 Z" fill="#FDE68A"/>`),
+  },
+] as const;
+
+export function equipmentById(id: string): EquipmentDef | undefined {
+  return EQUIPMENT.find((e) => e.id === id);
+}
+
+export function equipmentForSlot(slot: EquipmentSlot): readonly EquipmentDef[] {
+  return EQUIPMENT.filter((e) => e.slot === slot);
+}
+
+/** Every bonus field, resolved — the shape `deriveStats` consumes. */
+export interface ResolvedBonus {
+  atk: number;
+  def: number;
+  hp: number;
+  attackIntervalMs: number;
+  critChance: number;
+  critMultiplier: number;
+  regen: number;
+}
+
+export function zeroBonus(): ResolvedBonus {
+  return { atk: 0, def: 0, hp: 0, attackIntervalMs: 0, critChance: 0, critMultiplier: 0, regen: 0 };
+}
+
+/** Sum the bonuses of a set of equipped item ids. Unknown ids are ignored. */
+export function sumEquipBonus(ids: Iterable<string>): ResolvedBonus {
+  const out = zeroBonus();
+  for (const id of ids) {
+    const def = equipmentById(id);
+    if (!def) continue;
+    const b = def.bonus;
+    out.atk += b.atk ?? 0;
+    out.def += b.def ?? 0;
+    out.hp += b.hp ?? 0;
+    out.attackIntervalMs += b.attackIntervalMs ?? 0;
+    out.critChance += b.critChance ?? 0;
+    out.critMultiplier += b.critMultiplier ?? 0;
+    out.regen += b.regen ?? 0;
+  }
+  return out;
+}
+
+/** Hebrew one-liner for an item's bonus, e.g. "+11 התקפה · +3% קריטי". */
+export function bonusHe(b: EquipBonus): string {
+  const parts: string[] = [];
+  if (b.atk) parts.push(`+${b.atk} התקפה`);
+  if (b.def) parts.push(`+${b.def} הגנה`);
+  if (b.hp) parts.push(`+${b.hp} חיים`);
+  if (b.attackIntervalMs) parts.push(`${b.attackIntervalMs < 0 ? '−' : '+'}${Math.abs(b.attackIntervalMs) / 1000}s מהירות`);
+  if (b.critChance) parts.push(`+${Math.round(b.critChance * 100)}% קריטי`);
+  if (b.critMultiplier) parts.push(`+${Math.round(b.critMultiplier * 100)}% נזק קריטי`);
+  if (b.regen) parts.push(`+${b.regen} התאוששות`);
+  return parts.join(' · ');
+}

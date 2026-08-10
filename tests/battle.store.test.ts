@@ -105,7 +105,14 @@ describe('wave_cleared events', () => {
     const store = trainedStore();
     const before = gameOf(store);
     const startEnergy = before.energy;
-    expect(before.battle).toEqual({ world: 1, wave: 1, coins: 0, wavesCleared: 0, miniBossesCleared: 0 });
+    expect(before.battle).toEqual({
+      world: 1,
+      wave: 1,
+      coins: 0,
+      wavesCleared: 0,
+      miniBossesCleared: 0,
+      bossesDefeated: [],
+    });
 
     const results = playBattle(store, 120_000);
     const game = gameOf(store);

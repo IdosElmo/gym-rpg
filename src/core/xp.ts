@@ -39,9 +39,18 @@ import {
 } from '../data/program.ts';
 import { BALANCE } from './balance.ts';
 import {
+  EQUIPMENT_SLOTS,
+  equipmentById,
+  sumEquipBonus,
+  zeroBonus,
+  type EquipmentSlot,
+  type ResolvedBonus,
+} from '../data/gameContent.ts';
+import {
   GAME_STATE_VERSION,
   type AppEvent,
   type BattleProgress,
+  type EquipmentState,
   type EventType,
   type GameState,
   type PartsProgress,
@@ -275,12 +284,18 @@ export function emptyGame(): GameState {
     workoutDays: [],
     streak: { tier: 0, weekStart: null, daysThisWeek: 0, needed: BALANCE.streak.daysPerWeek },
     battle: emptyBattle(),
+    equipment: emptyEquipment(),
   };
 }
 
-/** A fresh battle progress: world 1, wave 1, no coins. */
+/** A fresh battle progress: world 1, wave 1, no coins, no trophies. */
 export function emptyBattle(): BattleProgress {
-  return { world: 1, wave: 1, coins: 0, wavesCleared: 0, miniBossesCleared: 0 };
+  return { world: 1, wave: 1, coins: 0, wavesCleared: 0, miniBossesCleared: 0, bossesDefeated: [] };
+}
+
+/** A fresh wardrobe: nothing owned, nothing worn. */
+export function emptyEquipment(): EquipmentState {
+  return { owned: [], equipped: {} };
 }
 
 /** Key of one payout slot — the anti-farming guard. */
@@ -294,6 +309,10 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function isBodyPart(v: string): v is BodyPart {
   return (BODY_PARTS as readonly string[]).includes(v);
+}
+
+function isEquipmentSlot(v: string): v is EquipmentSlot {
+  return (EQUIPMENT_SLOTS as readonly string[]).includes(v);
 }
 
 /**
@@ -361,6 +380,46 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
       if (payload['miniBoss'] === true) b.miniBossesCleared += 1;
       b.world = world;
       b.wave = wave + 1;
+      break;
+    }
+    /**
+     * A world boss fell. Same contract as `wave_cleared`: the payload is
+     * authoritative, so `nextWorld`/`nextWave` decide where the player lands and
+     * an old log keeps replaying identically even if the unlock rule changes.
+     * The boss id is recorded once — it is the permanent trophy.
+     */
+    case 'boss_defeated': {
+      const b = game.battle;
+      const bossId = typeof payload['bossId'] === 'string' ? payload['bossId'] : '';
+      const spent = Math.max(0, toNumber(payload['energySpent']));
+      const coins = Math.max(0, toNumber(payload['coins']));
+
+      game.energy = round2(Math.max(0, game.energy - spent));
+      b.coins = round2(b.coins + coins);
+      if (bossId && !b.bossesDefeated.includes(bossId)) b.bossesDefeated.push(bossId);
+      b.world = Math.max(1, Math.floor(toNumber(payload['nextWorld']) || b.world));
+      b.wave = Math.max(1, Math.floor(toNumber(payload['nextWave']) || 1));
+      break;
+    }
+    /**
+     * A shop purchase. Coins are debited and the item joins `owned` forever —
+     * there is no sell-back, so replay is a pure accumulation.
+     */
+    case 'coins_spent': {
+      const b = game.battle;
+      const itemId = typeof payload['itemId'] === 'string' ? payload['itemId'] : '';
+      const cost = Math.max(0, toNumber(payload['cost']));
+      b.coins = round2(Math.max(0, b.coins - cost));
+      if (itemId && !game.equipment.owned.includes(itemId)) game.equipment.owned.push(itemId);
+      break;
+    }
+    /** Put an item on, or (with `itemId: null`) take the slot's item off. */
+    case 'item_equipped': {
+      const slot = typeof payload['slot'] === 'string' ? payload['slot'] : '';
+      if (!isEquipmentSlot(slot)) break;
+      const itemId = typeof payload['itemId'] === 'string' ? payload['itemId'] : null;
+      if (itemId === null) delete game.equipment.equipped[slot];
+      else game.equipment.equipped[slot] = itemId;
       break;
     }
     case 'data_cleared': {
@@ -647,20 +706,108 @@ export interface CharacterStats {
   buff: number;
 }
 
-export function deriveStats(parts: PartsProgress, streakTier: number): CharacterStats {
+/**
+ * The six part levels + the streak buff + (Phase 3) the equipped gear.
+ *
+ * ORDER MATTERS and is deliberate: the gear bonus is added to the level-derived
+ * value and the streak buff multiplies the SUM, so a perfect week makes your
+ * equipment better too. Equipment can never carry the character on its own —
+ * the level term is always the dominant one.
+ */
+export function deriveStats(
+  parts: PartsProgress,
+  streakTier: number,
+  bonus: ResolvedBonus = zeroBonus(),
+): CharacterStats {
   const s = BALANCE.stats;
   const buff = streakMultiplier(streakTier);
   const lv = (p: BodyPart): number => Math.max(0, parts[p].level - 1);
   return {
-    atk: round2((s.atkBase + s.atkPerLevel * lv('chest')) * buff),
-    def: round2((s.defBase + s.defPerLevel * lv('back')) * buff),
-    maxHp: Math.round((s.hpBase + s.hpPerLevel * lv('legs')) * buff),
+    atk: round2((s.atkBase + s.atkPerLevel * lv('chest') + bonus.atk) * buff),
+    def: round2((s.defBase + s.defPerLevel * lv('back') + bonus.def) * buff),
+    maxHp: Math.round((s.hpBase + s.hpPerLevel * lv('legs') + bonus.hp) * buff),
     attackIntervalMs: Math.round(
-      Math.max(s.attackIntervalMinMs, s.attackIntervalBaseMs - s.attackIntervalPerLevelMs * lv('shoulders') * buff),
+      Math.max(
+        s.attackIntervalMinMs,
+        s.attackIntervalBaseMs + bonus.attackIntervalMs - s.attackIntervalPerLevelMs * lv('shoulders') * buff,
+      ),
     ),
-    critChance: round2(Math.min(s.critChanceMax, (s.critChanceBase + s.critChancePerLevel * lv('arms')) * buff)),
-    critMultiplier: round2((s.critMultiplierBase + s.critMultiplierPerLevel * lv('arms')) * buff),
-    regen: round2((s.regenBase + s.regenPerLevel * lv('core')) * buff),
+    critChance: round2(
+      Math.min(s.critChanceMax, (s.critChanceBase + s.critChancePerLevel * lv('arms') + bonus.critChance) * buff),
+    ),
+    critMultiplier: round2((s.critMultiplierBase + s.critMultiplierPerLevel * lv('arms') + bonus.critMultiplier) * buff),
+    regen: round2((s.regenBase + s.regenPerLevel * lv('core') + bonus.regen) * buff),
     buff: round2(buff),
   };
+}
+
+/** The item ids actually worn right now (a slot may be empty). */
+export function equippedIds(game: GameState): string[] {
+  const out: string[] = [];
+  for (const slot of EQUIPMENT_SLOTS) {
+    const id = game.equipment.equipped[slot];
+    if (id && equipmentById(id)) out.push(id);
+  }
+  return out;
+}
+
+/** The summed bonus of everything currently worn. */
+export function equippedBonus(game: GameState): ResolvedBonus {
+  return sumEquipBonus(equippedIds(game));
+}
+
+/** THE stat function the UI and the battle engine both call. */
+export function statsOfGame(game: GameState): CharacterStats {
+  return deriveStats(game.parts, game.streak.tier, equippedBonus(game));
+}
+
+/* ------------------------------------------------------------- shop rules */
+
+/** Why a purchase was refused — the UI turns this into Hebrew. */
+export type PurchaseError = 'unknown_item' | 'already_owned' | 'insufficient_coins';
+
+export interface PurchasePlan {
+  ok: boolean;
+  error?: PurchaseError;
+  events: PendingEvent[];
+}
+
+/**
+ * Plan a shop purchase. PURE: it decides, it does not spend. The coin check
+ * lives here (not in the UI) so a replay of the log can never produce a negative
+ * purse and a crafted click cannot buy something the player cannot afford.
+ */
+export function buildPurchase(game: GameState, itemId: string, date: string, ts: number): PurchasePlan {
+  const def = equipmentById(itemId);
+  if (!def) return { ok: false, error: 'unknown_item', events: [] };
+  if (game.equipment.owned.includes(itemId)) return { ok: false, error: 'already_owned', events: [] };
+  if (game.battle.coins < def.cost) return { ok: false, error: 'insufficient_coins', events: [] };
+  return {
+    ok: true,
+    events: [
+      { type: 'coins_spent', payload: { date, itemId, slot: def.slot, cost: def.cost }, ts },
+      // Buying always equips: one tap, one obvious result.
+      { type: 'item_equipped', payload: { date, slot: def.slot, itemId }, ts: ts + 1 },
+    ],
+  };
+}
+
+/**
+ * Plan an equip (`itemId`) or unequip (`null`). Only OWNED items can be worn,
+ * and re-equipping what is already on is a no-op (no event, no log noise).
+ */
+export function buildEquip(
+  game: GameState,
+  slot: EquipmentSlot,
+  itemId: string | null,
+  date: string,
+  ts: number,
+): PendingEvent[] {
+  if (itemId !== null) {
+    const def = equipmentById(itemId);
+    if (!def || def.slot !== slot || !game.equipment.owned.includes(itemId)) return [];
+  }
+  const current = game.equipment.equipped[slot] ?? null;
+  if (current === itemId) return [];
+  return [{ type: 'item_equipped', payload: { date, slot, itemId }, ts }];
 }

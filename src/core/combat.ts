@@ -34,9 +34,11 @@
 
 import { BALANCE } from './balance.ts';
 import {
+  WORLD_COUNT,
   enemyForWave,
   worldBossOf,
   bossGateStatus,
+  type BossDef,
   type EnemyDef,
   type GateStatus,
 } from '../data/gameContent.ts';
@@ -117,11 +119,87 @@ export function isMiniBossWave(wave: number): boolean {
 }
 
 /**
- * True once a world's waves are exhausted — the world-boss gate.
- * PHASE 3 owns the fight; Phase 2 only stops here and explains why.
+ * True once a world's waves are exhausted — this is where the world boss waits.
+ * Whether the fight actually STARTS additionally depends on the body-part gate
+ * (`worldGate`) and on whether that boss has already fallen (see `bossStanding`).
  */
 export function isWorldBossWave(wave: number): boolean {
   return wave > BALANCE.combat.wavesPerWorld;
+}
+
+/**
+ * Is a world boss still standing at this wave?
+ *
+ * False either because the world still has ordinary waves left, or because the
+ * boss is already a trophy — which only ever happens in the LAST world, where
+ * `boss_defeated` keeps the player in place instead of promoting them. That is
+ * the endless "champion" endgame: waves keep counting past 50 and keep scaling.
+ */
+export function bossStanding(world: number, wave: number, defeated: readonly string[]): boolean {
+  if (!isWorldBossWave(wave)) return false;
+  const boss = worldBossOf(world);
+  return boss !== undefined && !defeated.includes(boss.id);
+}
+
+/** True once the final world's boss is down — world 4 becomes endless. */
+export function isEndgame(defeated: readonly string[]): boolean {
+  const last = worldBossOf(WORLD_COUNT);
+  return last !== undefined && defeated.includes(last.id);
+}
+
+export interface BossSpec {
+  world: number;
+  wave: number;
+  boss: BossDef;
+  hp: number;
+  atk: number;
+  attackIntervalMs: number;
+  coins: number;
+  energyCost: number;
+  /** Where the player lands after the kill (next world, or endless mode). */
+  nextWorld: number;
+  nextWave: number;
+  /** True when this is the last world's boss. */
+  endgame: boolean;
+}
+
+/**
+ * Everything about a world-boss fight, derived from the world alone.
+ *
+ * The boss stands on the wave-scaling curve at `wavesPerWorld + 1` and then
+ * multiplies it by its own `hpMult`/`atkMult`, so it is always meaningfully
+ * bigger than the wave-50 enemy the player just beat.
+ */
+export function bossSpec(world: number): BossSpec | null {
+  const boss = worldBossOf(world);
+  if (!boss) return null;
+  const c = BALANCE.combat;
+  const e = c.enemy;
+  const wave = c.wavesPerWorld + 1;
+  const worldStep = Math.max(0, world - 1);
+  const waveStep = wave - 1;
+
+  const hp =
+    e.hpBase * Math.pow(e.hpGrowth, waveStep) * Math.pow(e.worldHpMult, worldStep) * (boss.hpMult ?? 1);
+  const atk =
+    e.atkBase * Math.pow(e.atkGrowth, waveStep) * Math.pow(e.worldAtkMult, worldStep) * (boss.atkMult ?? 1);
+  const endgame = world >= WORLD_COUNT;
+
+  return {
+    world,
+    wave,
+    boss,
+    hp: Math.max(1, Math.round(hp)),
+    atk: Math.max(1, Math.round(atk * 10) / 10),
+    attackIntervalMs: c.boss.attackIntervalMs,
+    coins: Math.round(c.boss.coinsBase * Math.pow(c.boss.coinsWorldMult, worldStep)),
+    energyCost: c.boss.energyCost,
+    // Beating the last boss does NOT reset progress: the player stays in world 4
+    // and the waves simply keep going (and keep scaling) from here.
+    nextWorld: endgame ? world : world + 1,
+    nextWave: endgame ? wave : 1,
+    endgame,
+  };
 }
 
 export interface WaveSpec {
@@ -192,6 +270,8 @@ export interface EnemyState {
   atk: number;
   attackIntervalMs: number;
   miniBoss: boolean;
+  /** True while the world boss itself is on screen. */
+  worldBoss: boolean;
   svg: string;
 }
 
@@ -204,7 +284,7 @@ export type BattleStatus =
   | 'recovering'
   /** out of energy — go train */
   | 'resting'
-  /** world cleared, the world boss is Phase 3 */
+  /** the world boss is here but its body-part requirements are not met */
   | 'gated';
 
 export interface BattleState {
@@ -215,6 +295,14 @@ export interface BattleState {
   wave: number;
   /** Attempt number of the CURRENT wave (grows on every knock-out). */
   attempt: number;
+  /**
+   * Whether the current world's boss gate is OPEN (all body-part requirements
+   * met). The UI keeps this in sync with the character's levels — a level-up
+   * mid-session unlocks the boss without a reload.
+   */
+  gateOpen: boolean;
+  /** Ids of bosses already defeated — drives the endless endgame. */
+  defeatedBosses: readonly string[];
   energy: number;
   playerHp: number;
   maxHp: number;
@@ -253,12 +341,28 @@ export interface WaveResult {
   durationMs: number;
 }
 
+/** The persistent record of a world boss going down (the `boss_defeated` payload). */
+export interface BossResult {
+  world: number;
+  wave: number;
+  bossId: string;
+  coins: number;
+  energySpent: number;
+  seed: number;
+  durationMs: number;
+  nextWorld: number;
+  nextWave: number;
+  endgame: boolean;
+}
+
 export type CombatEvent =
   | { kind: 'spawn'; enemy: EnemyState; spec: WaveSpec }
+  | { kind: 'boss_spawn'; enemy: EnemyState; spec: BossSpec }
   | { kind: 'hit'; source: 'auto' | 'tap' | 'super'; amount: number; crit: boolean; enemyHp: number }
   | { kind: 'enemy_hit'; amount: number; playerHp: number }
   | { kind: 'regen'; amount: number; playerHp: number }
   | { kind: 'wave_cleared'; result: WaveResult }
+  | { kind: 'boss_defeated'; result: BossResult }
   | { kind: 'defeat'; wave: number; streakDefeats: number }
   | { kind: 'super_ready' }
   | { kind: 'resting' }
@@ -270,6 +374,10 @@ export interface CreateBattleArgs {
   wave: number;
   energy: number;
   stats: CombatStats;
+  /** Body-part gate of the current world's boss — defaults to closed. */
+  gateOpen?: boolean;
+  /** Bosses already defeated (from `game.battle.bossesDefeated`). */
+  defeatedBosses?: readonly string[];
 }
 
 export function createBattle(a: CreateBattleArgs): BattleState {
@@ -281,6 +389,8 @@ export function createBattle(a: CreateBattleArgs): BattleState {
     world,
     wave,
     attempt: 0,
+    gateOpen: a.gateOpen === true,
+    defeatedBosses: [...(a.defeatedBosses ?? [])],
     energy: Math.max(0, a.energy),
     playerHp: a.stats.maxHp,
     maxHp: a.stats.maxHp,
@@ -324,16 +434,67 @@ export function setEnergy(state: BattleState, energy: number): void {
   }
 }
 
+/**
+ * Keep the boss gate in sync with the character's levels while the tab is open.
+ * Opening the gate immediately releases a `gated` battle into the boss fight —
+ * levelling up on the workout screen unlocks the boss without a reload.
+ */
+export function setGate(state: BattleState, gateOpen: boolean, defeated?: readonly string[]): void {
+  state.gateOpen = gateOpen;
+  if (defeated) state.defeatedBosses = [...defeated];
+  if (state.status === 'gated' && (gateOpen || !bossStanding(state.world, state.wave, state.defeatedBosses))) {
+    state.status = 'idle';
+    state.spawnCd = 0;
+  }
+}
+
 /* ------------------------------------------------------------- the engine */
 
+/** Shared tail of both spawns: arm the timers and start the fight. */
+function beginFight(state: BattleState, enemy: EnemyState): void {
+  state.enemy = enemy;
+  state.status = 'fighting';
+  state.rng = makeRng(waveSeed(state.seed, state.world, state.wave, state.attempt));
+  state.enemyCd = enemy.attackIntervalMs;
+  state.regenCd = BALANCE.combat.regenIntervalMs;
+  state.waveElapsedMs = 0;
+}
+
 function spawn(state: BattleState, out: CombatEvent[]): void {
-  if (isWorldBossWave(state.wave)) {
-    if (state.status !== 'gated') {
-      state.status = 'gated';
-      out.push({ kind: 'gated', world: state.world });
+  // The world boss stands where the ordinary waves end — unless it has already
+  // fallen, in which case (last world only) the waves simply keep coming.
+  if (bossStanding(state.world, state.wave, state.defeatedBosses)) {
+    if (!state.gateOpen) {
+      if (state.status !== 'gated') {
+        state.status = 'gated';
+        out.push({ kind: 'gated', world: state.world });
+      }
+      return;
     }
+    const spec = bossSpec(state.world);
+    if (!spec) return;
+    if (state.energy < spec.energyCost) {
+      if (state.status !== 'resting') {
+        state.status = 'resting';
+        out.push({ kind: 'resting' });
+      }
+      return;
+    }
+    beginFight(state, {
+      id: spec.boss.id,
+      he: spec.boss.he,
+      hp: spec.hp,
+      maxHp: spec.hp,
+      atk: spec.atk,
+      attackIntervalMs: spec.attackIntervalMs,
+      miniBoss: false,
+      worldBoss: true,
+      svg: spec.boss.svg,
+    });
+    out.push({ kind: 'boss_spawn', enemy: state.enemy as EnemyState, spec });
     return;
   }
+
   if (state.energy < BALANCE.combat.energyPerWave) {
     if (state.status !== 'resting') {
       state.status = 'resting';
@@ -343,8 +504,7 @@ function spawn(state: BattleState, out: CombatEvent[]): void {
   }
 
   const spec = waveSpec(state.world, state.wave);
-  state.rng = makeRng(waveSeed(state.seed, state.world, state.wave, state.attempt));
-  state.enemy = {
+  beginFight(state, {
     id: spec.enemy.id,
     he: spec.enemy.he,
     hp: spec.hp,
@@ -352,13 +512,10 @@ function spawn(state: BattleState, out: CombatEvent[]): void {
     atk: spec.atk,
     attackIntervalMs: spec.attackIntervalMs,
     miniBoss: spec.miniBoss,
+    worldBoss: false,
     svg: spec.enemy.svg,
-  };
-  state.status = 'fighting';
-  state.enemyCd = spec.attackIntervalMs;
-  state.regenCd = BALANCE.combat.regenIntervalMs;
-  state.waveElapsedMs = 0;
-  out.push({ kind: 'spawn', enemy: state.enemy, spec });
+  });
+  out.push({ kind: 'spawn', enemy: state.enemy as EnemyState, spec });
 }
 
 function damageEnemy(
@@ -373,7 +530,48 @@ function damageEnemy(
   const dealt = Math.max(1, Math.round(amount * 10) / 10);
   enemy.hp = Math.max(0, Math.round((enemy.hp - dealt) * 10) / 10);
   out.push({ kind: 'hit', source, amount: dealt, crit, enemyHp: enemy.hp });
-  if (enemy.hp <= 0) clearWave(state, out);
+  if (enemy.hp <= 0) {
+    if (enemy.worldBoss) killBoss(state, out);
+    else clearWave(state, out);
+  }
+}
+
+/**
+ * The world boss went down: pay the purse, charge the (bigger) energy cost and
+ * move the player on. In the last world "moving on" means STAYING — the wave
+ * counter just keeps climbing, which is the endless champion endgame.
+ */
+function killBoss(state: BattleState, out: CombatEvent[]): void {
+  const c = BALANCE.combat;
+  const spec = bossSpec(state.world);
+  if (!spec) return;
+  const result: BossResult = {
+    world: state.world,
+    wave: state.wave,
+    bossId: spec.boss.id,
+    coins: spec.coins,
+    energySpent: Math.min(state.energy, spec.energyCost),
+    seed: waveSeed(state.seed, state.world, state.wave, state.attempt),
+    durationMs: Math.round(state.waveElapsedMs),
+    nextWorld: spec.nextWorld,
+    nextWave: spec.nextWave,
+    endgame: spec.endgame,
+  };
+
+  state.energy = Math.max(0, Math.round((state.energy - result.energySpent) * 100) / 100);
+  state.coinsEarned += result.coins;
+  state.streakDefeats = 0;
+  state.enemy = null;
+  state.attempt = 0;
+  state.defeatedBosses = [...state.defeatedBosses, spec.boss.id];
+  state.world = result.nextWorld;
+  state.wave = result.nextWave;
+  // A new world's gate is a different gate — the UI re-opens it if it is met.
+  state.gateOpen = false;
+  state.playerHp = state.maxHp;
+  state.status = 'idle';
+  state.spawnCd = c.spawnDelayMs * 3;
+  out.push({ kind: 'boss_defeated', result });
 }
 
 function clearWave(state: BattleState, out: CombatEvent[]): void {
@@ -567,6 +765,7 @@ export interface SimulationSummary {
   cleared: boolean;
   events: CombatEvent[];
   results: WaveResult[];
+  bosses: BossResult[];
   elapsedMs: number;
   defeats: number;
   playerHp: number;
@@ -587,21 +786,24 @@ export function simulate(
   const stepMs = opts.stepMs ?? BALANCE.combat.tickMs;
   const events: CombatEvent[] = [];
   const results: WaveResult[] = [];
+  const bosses: BossResult[] = [];
   let elapsed = 0;
 
-  while (elapsed < maxMs && results.length < waves) {
+  while (elapsed < maxMs && results.length + bosses.length < waves) {
     for (const ev of advance(state, stepMs, stats)) {
       events.push(ev);
       if (ev.kind === 'wave_cleared') results.push(ev.result);
+      else if (ev.kind === 'boss_defeated') bosses.push(ev.result);
     }
     elapsed += stepMs;
     if (state.status === 'resting' || state.status === 'gated') break;
   }
 
   return {
-    cleared: results.length >= waves,
+    cleared: results.length + bosses.length >= waves,
     events,
     results,
+    bosses,
     elapsedMs: elapsed,
     defeats: state.defeats,
     playerHp: state.playerHp,

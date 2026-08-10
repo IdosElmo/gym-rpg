@@ -17,10 +17,12 @@
  */
 
 import { BODY_PARTS, isDayKey, type BodyPart, type DayKey } from '../data/program.ts';
+import { EQUIPMENT_SLOTS, bossById, equipmentById } from '../data/gameContent.ts';
 import { todayISO } from '../core/workout.ts';
 import {
   buildRetroactiveGrants,
   emptyBattle,
+  emptyEquipment,
   emptyGame,
   isoToTs,
   rebuildGame,
@@ -32,6 +34,7 @@ import {
   type AppEvent,
   type AppState,
   type BattleProgress,
+  type EquipmentState,
   type EventLog,
   type EventType,
   type GameState,
@@ -177,17 +180,46 @@ function normalizeParts(raw: unknown): PartsProgress {
   return parts;
 }
 
-/** Phase 2 battle progress. Anything odd falls back to "world 1, wave 1". */
+/** Phase 2/3 battle progress. Anything odd falls back to "world 1, wave 1". */
 function normalizeBattle(raw: unknown): BattleProgress {
   const b = emptyBattle();
   if (!isRecord(raw)) return b;
+  const bosses = Array.isArray(raw['bossesDefeated'])
+    ? raw['bossesDefeated'].filter((id): id is string => typeof id === 'string' && bossById(id) !== undefined)
+    : [];
   return {
     world: Math.max(1, Math.floor(numOr(raw['world'], b.world))),
     wave: Math.max(1, Math.floor(numOr(raw['wave'], b.wave))),
     coins: Math.max(0, numOr(raw['coins'], 0)),
     wavesCleared: Math.max(0, Math.floor(numOr(raw['wavesCleared'], 0))),
     miniBossesCleared: Math.max(0, Math.floor(numOr(raw['miniBossesCleared'], 0))),
+    bossesDefeated: [...new Set(bosses)],
   };
+}
+
+/**
+ * Phase 3 wardrobe. Unknown item ids are dropped (the roster is code, the save
+ * is data — a removed item must not resurrect as a phantom bonus), and a slot
+ * can only hold an item that is both known and owned.
+ */
+function normalizeEquipment(raw: unknown): EquipmentState {
+  const out = emptyEquipment();
+  if (!isRecord(raw)) return out;
+  const owned = Array.isArray(raw['owned'])
+    ? raw['owned'].filter((id): id is string => typeof id === 'string' && equipmentById(id) !== undefined)
+    : [];
+  out.owned = [...new Set(owned)];
+
+  const eq = raw['equipped'];
+  if (isRecord(eq)) {
+    for (const slot of EQUIPMENT_SLOTS) {
+      const id = eq[slot];
+      if (typeof id !== 'string') continue;
+      const def = equipmentById(id);
+      if (def && def.slot === slot && out.owned.includes(id)) out.equipped[slot] = id;
+    }
+  }
+  return out;
 }
 
 /**
@@ -195,8 +227,10 @@ function normalizeBattle(raw: unknown): BattleProgress {
  * a version we don't know — the caller (`ensureGameState`) then rebuilds it from
  * the event log, which is always authoritative.
  *
- * v1 -> v2 (Phase 2) added `battle`; a v1 blob is therefore rejected here and
- * rebuilt from the log, which is lossless because every fact is an event.
+ * v1 -> v2 (Phase 2) added `battle`; v2 -> v3 (Phase 3) added
+ * `battle.bossesDefeated` and `equipment`. An older blob is therefore rejected
+ * here and rebuilt from the log, which is lossless because every fact is an
+ * event. That rebuild IS the sanctioned migration path for the game blob.
  */
 export function normalizeGame(raw: unknown): GameState | null {
   if (!isRecord(raw)) return null;
@@ -226,6 +260,7 @@ export function normalizeGame(raw: unknown): GameState | null {
       needed: Math.max(1, numOr(streakRaw['needed'], base.streak.needed)),
     },
     battle: normalizeBattle(raw['battle']),
+    equipment: normalizeEquipment(raw['equipment']),
   };
 }
 

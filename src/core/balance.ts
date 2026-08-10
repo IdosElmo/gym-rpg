@@ -8,7 +8,17 @@
  * PACING (the numbers below are chosen for this, keep it true when retuning):
  *   one full workout ≈ 207 ⚡ (≈16 sets × 10 + 50 completion) and a wave costs
  *   10 ⚡ → ≈20 waves per workout, inside the brief's 15–25 target.
- *   50 waves per world → a world is ≈2.5 workouts ≈ one training week.
+ *   50 waves per world → a world is ≈2.5 workouts of ENERGY.
+ *
+ * PHASE 3 retune — `enemy.worldHpMult` / `worldAtkMult`.
+ *   Phase 2 shipped 4× / 2.2× per world. Simulated against the real engine that
+ *   made world 3 unreachable below part level 12 and world 4 unreachable at any
+ *   level a real trainee could reach, which would have made the world bosses
+ *   decorative. They are now 1.6× / 1.25×, which puts "wave 50 of world N is
+ *   clearable" at part level ≈3 / 5 / 7 / 9 with active tapping (≈6 / 8 / 10 /
+ *   12 fully idle) — i.e. exactly the levels a 3×/week trainee reaches after
+ *   ≈4 / 9 / 19 / 36 workouts. Training, not grinding, is the pacer; the boss
+ *   gates in `data/gameContent.ts` are set to those same levels.
  */
 
 export const BALANCE = {
@@ -93,13 +103,28 @@ export const BALANCE = {
       hpBase: 32, hpGrowth: 1.045,
       atkBase: 6, atkGrowth: 1.03,
       /**
-       * A new world RESETS the difficulty to roughly its predecessor's midpoint
-       * (4× the first wave, against 8.6× at the last one) — entering a world is
-       * a reward, and the ramp inside it is what sends you back to the gym.
+       * A new world RESETS the difficulty far below its predecessor's last wave
+       * (1.6× the first wave, against 9× at the last one) — entering a world is
+       * a reward, and the 9× ramp inside it is what sends you back to the gym.
+       * See the PHASE 3 retune note at the top of this file.
        */
-      worldHpMult: 4, worldAtkMult: 2.2,
+      worldHpMult: 1.6, worldAtkMult: 1.25,
       attackIntervalMs: 1800,
       miniBossHpMult: 2.2, miniBossAtkMult: 1.25, miniBossAttackIntervalMs: 1500,
+    },
+    /**
+     * World bosses. These sit on top of the wave scaling at wave
+     * `wavesPerWorld + 1`, multiplied by the boss's own `hpMult`/`atkMult` from
+     * `data/gameContent.ts`. A boss is a SPONGE with heavy, slow hits: the fight
+     * lasts ≈40–90 s of active play for a character that just meets the gate.
+     */
+    boss: {
+      /** ⚡ charged when the boss falls (≈3 ordinary waves). */
+      energyCost: 30,
+      /** coins = coinsBase × coinsWorldMult^(world−1) — a real payday. */
+      coinsBase: 400, coinsWorldMult: 1.7,
+      /** Bosses swing slowly and hard. */
+      attackIntervalMs: 2400,
     },
     coins: {
       /** coins = (base + perWave × (wave−1)) × worldMult^(world−1) × bossMult. */

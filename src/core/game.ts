@@ -9,24 +9,29 @@
  * That ordering is what keeps "live state === rebuildFromEvents(log)" true.
  */
 
+import type { EquipmentSlot } from '../data/gameContent.ts';
 import type { BodyPart, DayKey, Exercise } from '../data/program.ts';
 import type {
   AppEvent,
   BattleProgress,
+  BossDefeatedPayload,
   DataStore,
   GameState,
   WaveClearedPayload,
 } from '../storage/DataStore.ts';
-import type { WaveResult } from './combat.ts';
+import type { BossResult, WaveResult } from './combat.ts';
 import { todayISO } from './workout.ts';
 import {
   applyGameEvent,
+  buildEquip,
+  buildPurchase,
   buildSetGrant,
   buildWorkoutCompletionGrant,
   computeStreak,
   emptyGame,
   finalizeGame,
   type PendingEvent,
+  type PurchaseError,
 } from './xp.ts';
 
 /** The game state of a store, never null (an absent blob reads as a fresh one). */
@@ -156,6 +161,68 @@ export function onWaveCleared(store: DataStore, r: WaveResult, now: Date = new D
   };
   commit(store, [{ type: 'wave_cleared', payload, ts: now.getTime() }], now);
   return gameOf(store).battle;
+}
+
+/**
+ * Persist a world-boss kill: the trophy, the purse, the energy and the unlock.
+ *
+ * Exactly one `boss_defeated` event per boss. The payload carries the landing
+ * spot (`nextWorld`/`nextWave`), so replay reproduces the unlock without having
+ * to know today's unlock rule.
+ */
+export function onBossDefeated(store: DataStore, r: BossResult, now: Date = new Date()): BattleProgress {
+  const payload: BossDefeatedPayload = {
+    date: todayISO(now),
+    world: r.world,
+    wave: r.wave,
+    bossId: r.bossId,
+    coins: r.coins,
+    energySpent: r.energySpent,
+    seed: r.seed,
+    durationMs: r.durationMs,
+    nextWorld: r.nextWorld,
+    nextWave: r.nextWave,
+    endgame: r.endgame,
+  };
+  commit(store, [{ type: 'boss_defeated', payload, ts: now.getTime() }], now);
+  return gameOf(store).battle;
+}
+
+/* ------------------------------------------------------------------ shop */
+
+export interface PurchaseResult {
+  ok: boolean;
+  error?: PurchaseError;
+}
+
+/**
+ * Buy a shop item with battle coins (and put it on immediately).
+ *
+ * The affordability check lives in `core/xp.ts` and runs BEFORE anything is
+ * appended, so a refused purchase leaves no trace in the log at all.
+ */
+export function buyItem(store: DataStore, itemId: string, now: Date = new Date()): PurchaseResult {
+  const plan = buildPurchase(gameOf(store), itemId, todayISO(now), now.getTime());
+  if (!plan.ok) {
+    const out: PurchaseResult = { ok: false };
+    if (plan.error) out.error = plan.error;
+    return out;
+  }
+  commit(store, plan.events, now);
+  return { ok: true };
+}
+
+/** Wear an owned item, or pass `null` to take the slot's item off. */
+export function equipItem(
+  store: DataStore,
+  slot: EquipmentSlot,
+  itemId: string | null,
+  now: Date = new Date(),
+): boolean {
+  const pending = buildEquip(gameOf(store), slot, itemId, todayISO(now), now.getTime());
+  if (pending.length === 0) return false;
+  commit(store, pending, now);
+  return true;
 }
 
 export interface StreakRefresh {
