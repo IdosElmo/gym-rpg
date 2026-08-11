@@ -52,9 +52,34 @@ function withoutAdded(v: unknown): unknown {
   ) as unknown;
 }
 
+/**
+ * Exercises deliberately ADDED to the built-in program after the port
+ * (chest/abs additions to days B and C). They must only ever be APPENDED —
+ * the legacy exercises stay verbatim, in their original order, ahead of them.
+ */
+const POST_LEGACY_IDS = new Set(['b6', 'c6']);
+
 describe('program data', () => {
-  it('matches the legacy PROGRAM byte-for-byte (minus the added bodyPart fields)', () => {
-    expect(withoutAdded(PROGRAM)).toEqual(legacyProgram());
+  it('matches the legacy PROGRAM byte-for-byte (minus added fields and appended exercises)', () => {
+    const stripped = withoutAdded(PROGRAM) as Record<string, { exercises: { id: string }[] }>;
+    for (const day of Object.values(stripped)) {
+      day.exercises = day.exercises.filter((e) => !POST_LEGACY_IDS.has(e.id));
+    }
+    expect(stripped).toEqual(legacyProgram());
+  });
+
+  it('appends post-legacy exercises strictly at the END of their day', () => {
+    for (const d of DAY_ORDER) {
+      const ids = PROGRAM[d].exercises.map((e) => e.id);
+      const firstAdded = ids.findIndex((id) => POST_LEGACY_IDS.has(id));
+      if (firstAdded === -1) continue;
+      for (const id of ids.slice(firstAdded)) expect(POST_LEGACY_IDS.has(id)).toBe(true);
+    }
+  });
+
+  it('gives every day of the built-in program the same exercise count', () => {
+    const counts = DAY_ORDER.map((d) => PROGRAM[d].exercises.length);
+    expect(counts).toEqual([6, 6, 6]);
   });
 
   it('keeps the legacy day order, names and equipment labels', () => {
