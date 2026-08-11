@@ -17,6 +17,15 @@
  * Motion: damage numbers and the screen shake are CSS animations, and the global
  * `prefers-reduced-motion` rule disables them; the shake class is additionally
  * skipped when the media query matches, so nothing moves at all.
+ *
+ * THE FIGHT'S ANIMATIONS (`styles/anim.css`) hang off the SAME render path. The
+ * loop already receives every `hit` / `enemy_hit` / `wave_cleared` /
+ * `boss_defeated` the simulation produces, so `consume()` toggles a short-lived
+ * class on the hero or the enemy sprite and the CSS does the rest. No new event,
+ * no second clock, no change to `core/combat.ts`: an attack lunge fires per
+ * attack event, which means it automatically follows a Shoulders-driven attack
+ * interval as the player trains. Durations come from `ANIM` below, which derives
+ * them from `BALANCE` and publishes them to CSS as custom properties.
  */
 
 import { BALANCE } from '../core/balance.ts';
@@ -96,6 +105,44 @@ function reducedMotion(): boolean {
   }
 }
 
+/* ------------------------------------------------------------- animation */
+
+/**
+ * Durations of the arena's CSS animations, in ms.
+ *
+ * They are DERIVED from the tuning constants rather than typed twice, because
+ * two of them have to agree with the simulation or the screen lies:
+ *   - `die` must finish inside `spawnDelayMs`, or a corpse is still collapsing
+ *     while its successor spawns;
+ *   - `attack` must finish inside the fastest possible attack interval
+ *     (`attackIntervalMinMs`), or a fast character's lunges pile up and the hero
+ *     never returns to its resting pose.
+ * They are pushed to CSS as custom properties on the arena, so `styles/anim.css`
+ * reads the same numbers this file computed.
+ */
+const ANIM = {
+  attack: Math.min(240, BALANCE.stats.attackIntervalMinMs - 60),
+  hit: 220,
+  die: Math.min(360, BALANCE.combat.spawnDelayMs - 40),
+  /** The super already shakes the screen — the pose runs for the same beat. */
+  super: 480,
+  /** Must be over before `queueRemount` tears the arena down (900 ms). */
+  victory: 800,
+} as const;
+
+/**
+ * A per-sprite idle rhythm: enemies that bob in lockstep read as one object, so
+ * each sprite gets its own period. Derived from the enemy id (a tiny FNV hash),
+ * NOT from a random draw — the arena stays as reproducible as the fight in it.
+ */
+function bobDuration(enemyId: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < enemyId.length; i += 1) {
+    h = Math.imul(h ^ enemyId.charCodeAt(i), 16777619) >>> 0;
+  }
+  return 2200 + (h % 9) * 130;
+}
+
 /* ------------------------------------------------------------------ view */
 
 export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
@@ -122,7 +169,7 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
       <div class="bt-fx" id="btFx" aria-hidden="true"></div>
 
       <div class="bt-side bt-hero">
-        <div class="bt-sprite hero">${characterSvg(game.parts, {
+        <div class="bt-sprite hero" id="btHeroSprite">${characterSvg(game.parts, {
           label: 'הדמות שלך בקרב',
           // The arena fights with whoever the דמות screen selected.
           character: game.characters.selected,
@@ -253,6 +300,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
   const enemyBtn = el<HTMLButtonElement>('btEnemy');
   const superBtn = el<HTMLButtonElement>('btSuper');
   const sprite = el('btEnemySprite');
+  const heroSprite = el('btHeroSprite');
   const foeName = el('btFoeName');
   const foeHp = el('btFoeHp');
   const foeHpTxt = el('btFoeHpTxt');
@@ -288,6 +336,13 @@ function start(main: HTMLElement, deps: BattleDeps): void {
   });
 
   const softMotion = reducedMotion();
+  // Hand the CSS the same durations this file computed from BALANCE — one source
+  // of truth for anything that has to stay in step with the simulation.
+  arena.style.setProperty('--anim-atk', `${ANIM.attack}ms`);
+  arena.style.setProperty('--anim-hit', `${ANIM.hit}ms`);
+  arena.style.setProperty('--anim-die', `${ANIM.die}ms`);
+  arena.style.setProperty('--anim-super', `${ANIM.super}ms`);
+  arena.style.setProperty('--anim-victory', `${ANIM.victory}ms`);
   /**
    * Rebuild the arena AFTER the current frame: `consume()` runs inside the
    * simulation loop, and tearing the DOM down from inside it would be re-entrant.
@@ -333,6 +388,42 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     setTimeout(() => arena.classList.remove(cls), strong ? 480 : 220);
   }
 
+  /**
+   * Play one short-lived animation class on an element.
+   *
+   * Unlike `shake()` this is NOT skipped under `prefers-reduced-motion`: the
+   * class is a marker, and the global reduced-motion rule already switches the
+   * keyframes off (every arena animation rests at the identity transform, so a
+   * suppressed one leaves nothing displaced). Skipping the class here instead
+   * would mean two places to keep in sync — and the death marker also has to
+   * come off again either way.
+   *
+   * Re-triggering on a consecutive hit needs the class removed AND a reflow, or
+   * the browser sees no change and the animation never restarts.
+   */
+  const animTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  function anim(target: HTMLElement | null, cls: string, ms: number): void {
+    if (!target) return;
+    const key = `${target.id}:${cls}`;
+    const pending = animTimers.get(key);
+    if (pending) clearTimeout(pending);
+    target.classList.remove(cls);
+    void target.offsetWidth;
+    target.classList.add(cls);
+    animTimers.set(
+      key,
+      setTimeout(() => {
+        animTimers.delete(key);
+        target.classList.remove(cls);
+      }, ms),
+    );
+  }
+
+  function clearAnimTimers(): void {
+    for (const t of animTimers.values()) clearTimeout(t);
+    animTimers.clear();
+  }
+
   function paintEnemy(): void {
     const e = state.enemy;
     if (!sprite || !foeName || !foeHp || !foeHpTxt) return;
@@ -349,6 +440,10 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     const e = state.enemy;
     if (!sprite || !foeName || !e) return;
     sprite.innerHTML = e.svg;
+    // The previous occupant died on this node — clear its death marker, and give
+    // the newcomer its own idle rhythm.
+    sprite.classList.remove('anim-die', 'anim-hit', 'anim-attack');
+    sprite.style.setProperty('--en-bob', `${bobDuration(e.id)}ms`);
     sprite.classList.toggle('mini-boss', e.miniBoss);
     sprite.classList.toggle('world-boss', e.worldBoss);
     arena?.classList.toggle('boss-fight', e.worldBoss);
@@ -449,17 +544,27 @@ function start(main: HTMLElement, deps: BattleDeps): void {
             ev.source === 'super' ? 'super' : ev.crit ? 'crit' : 'dmg',
             'enemy',
           );
+          // The lunge is per ATTACK EVENT, which is what keeps it in step with a
+          // Shoulders-driven attack interval that changes as the player trains —
+          // there is no separate animation clock to drift.
+          if (ev.source !== 'super') anim(heroSprite, 'anim-attack', ANIM.attack);
+          anim(sprite, 'anim-hit', ANIM.hit);
           if (ev.source === 'super') shake(true);
           break;
         case 'enemy_hit':
           paintHero();
           float(`-${fmtXp(ev.amount)}`, 'foe', 'hero');
+          anim(sprite, 'anim-attack', ANIM.attack);
+          anim(heroSprite, 'anim-hurt', ANIM.hit);
           break;
         case 'regen':
           paintHero();
           if (ev.amount > 0) float(`+${fmtXp(ev.amount)}`, 'heal', 'hero');
           break;
         case 'wave_cleared': {
+          // The enemy is already gone from the state; the sprite plays out its
+          // collapse in the `spawnDelayMs` gap before the next one takes over.
+          anim(sprite, 'anim-die', ANIM.die);
           // THE persisted battle fact — one event per wave, nothing per tick.
           onWaveCleared(store, ev.result);
           // Re-sync from the store: it, not the battle, owns the energy.
@@ -470,6 +575,8 @@ function start(main: HTMLElement, deps: BattleDeps): void {
           break;
         }
         case 'boss_defeated': {
+          anim(sprite, 'anim-die', ANIM.die);
+          anim(heroSprite, 'anim-victory', ANIM.victory);
           // The one persisted boss fact: trophy + purse + world unlock.
           onBossDefeated(store, ev.result);
           const g = gameOf(store);
@@ -492,6 +599,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
         }
         case 'defeat':
           paintHero();
+          anim(heroSprite, 'anim-hurt', ANIM.hit);
           shake(true);
           break;
         case 'super_ready':
@@ -566,13 +674,18 @@ function start(main: HTMLElement, deps: BattleDeps): void {
 
   superBtn?.addEventListener('click', () => {
     stats = statsOf(gameOf(store));
-    consume(useSuper(state, stats).events);
+    const res = useSuper(state, stats);
+    // The wind-up pose goes on BEFORE the events are drawn, so the pop and the
+    // damage number land together rather than the hero reacting a beat late.
+    if (res.accepted) anim(heroSprite, 'anim-super', ANIM.super);
+    consume(res.events);
   });
 
   active = {
     stop: () => {
       disposed = true;
       pause();
+      clearAnimTimers();
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', pause);
     },

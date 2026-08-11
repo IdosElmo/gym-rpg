@@ -332,6 +332,14 @@ export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
   ${shopCard(game)}
   ${trophiesCard(game)}`;
 
+  // LEVEL-UP CELEBRATION, layer two. `characterSvg` already marked the grown
+  // groups with `.pulse` (they scale and glow in the accent colour); this adds a
+  // brief golden wash over the WHOLE drawing, as a CSS `drop-shadow` filter on
+  // the root svg. Deliberately not a palette change: `--ch-body` and friends are
+  // what a skin overrides, and touching them here would snap a robot or a ninja
+  // back to the default hero's blue for a second and a half.
+  if (pulse.length > 0) main.querySelector('.char-stage .ch-svg')?.classList.add('leveled');
+
   wireShop(main, deps);
   wireRoster(main, deps);
 }
