@@ -35,6 +35,7 @@ import {
   compareEvents,
   emptyBattle,
   emptyCharacters,
+  emptyDaily,
   emptyEquipment,
   emptyGame,
   isoToTs,
@@ -42,6 +43,7 @@ import {
   type PendingEvent,
 } from '../core/xp.ts';
 import { clampUpgradeLevel } from '../core/upgrades.ts';
+import { BALANCE } from '../core/balance.ts';
 import { uuid } from '../util/uuid.ts';
 import {
   GAME_STATE_VERSION,
@@ -49,6 +51,7 @@ import {
   type AppState,
   type BattleProgress,
   type CharactersState,
+  type DailyChallengeState,
   type EquipmentState,
   type EventLog,
   type EventType,
@@ -324,6 +327,36 @@ function normalizeCharacters(raw: unknown): CharactersState {
 }
 
 /**
+ * The daily-challenge ledger (v8).
+ *
+ * Only `runs` is read: everything else in `DailyChallengeState` is DERIVED and
+ * is recomputed by `finalizeGame` right after this, so a hand-edited blob cannot
+ * claim a best score or a streak its ledger does not support. Each entry is
+ * clamped to the shape the reducer writes; a key that is not a date is dropped,
+ * because the date IS the idempotency key and a junk key would sit in the ledger
+ * for ever, silently consuming an attempt that was never made.
+ */
+function normalizeDaily(raw: unknown): DailyChallengeState {
+  const out = emptyDaily();
+  if (!isRecord(raw)) return out;
+  const runs = raw['runs'];
+  if (!isRecord(runs)) return out;
+  const maxScore = BALANCE.daily.waves;
+  for (const date of Object.keys(runs).sort()) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const run = runs[date];
+    if (!isRecord(run)) continue;
+    out.runs[date] = {
+      score: Math.min(maxScore, Math.max(0, Math.floor(numOr(run['score'], 0)))),
+      tiebreak: Math.min(100, Math.max(0, numOr(run['tiebreak'], 0))),
+      coins: Math.max(0, numOr(run['coins'], 0)),
+      complete: run['complete'] === true,
+    };
+  }
+  return out;
+}
+
+/**
  * Validate a persisted `game` blob. Returns `null` for anything missing or from
  * a version we don't know — the caller (`ensureGameState`) then rebuilds it from
  * the event log, which is always authoritative.
@@ -338,7 +371,10 @@ function normalizeCharacters(raw: unknown): CharactersState {
  * carrying different ids, which is precisely the case a version number exists
  * for; v6 -> v7 (equipment upgrades) added `equipment.upgrades`, the per-item
  * +0…+3 level — a field a v6 blob simply does not have, and defaulting it to
- * `{}` would silently ERASE levels that are sitting in the log. An older blob is
+ * `{}` would silently ERASE levels that are sitting in the log; v7 -> v8 (the
+ * daily challenge) added `daily.runs`, the per-date ledger of attempts, where an
+ * empty default would be worse than wrong: it would say "you never played", and
+ * hand back an attempt the log already recorded as spent. An older blob is
  * therefore rejected here and rebuilt from the log, which is lossless because
  * every fact is an event. That rebuild IS the sanctioned migration path.
  */
@@ -374,6 +410,7 @@ export function normalizeGame(raw: unknown): GameState | null {
     battle: normalizeBattle(raw['battle']),
     equipment: normalizeEquipment(raw['equipment']),
     characters: normalizeCharacters(raw['characters']),
+    daily: normalizeDaily(raw['daily']),
   };
 }
 

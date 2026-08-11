@@ -37,6 +37,20 @@
  * exactly like a tap — so `wave_cleared` remains the only battle event and
  * there is nothing to migrate.
  *
+ * CHALLENGE RUNS (Phase 7)
+ * ------------------------
+ * The daily challenge fights inside THIS state machine, in a separate CONTEXT:
+ * `BattleState.challenge` holds the scripted gauntlet (`GauntletWave[]`, built
+ * by `core/daily.ts`) and switches exactly three rules — the waves come from the
+ * script, clearing one emits `challenge_wave` instead of `wave_cleared`, and a
+ * knock-out ENDS the run. Taps, the super move, the six skills, the stats, the
+ * fixed tick and the seeded RNG are all unchanged, which is why a challenge is
+ * as reproducible as a campaign wave and needs no second engine.
+ *
+ * The run writes NOTHING per wave: its coins live in `ChallengeRun.coins` until
+ * the run ends, and the single `daily_challenge` event carries the whole story.
+ * That is what makes "abandoning a run leaks no coins" structural.
+ *
  * ENERGY
  * ------
  * Energy is charged when a wave is CLEARED, never when it starts — so being
@@ -459,7 +473,89 @@ export type BattleStatus =
   /** out of energy — go train */
   | 'resting'
   /** the world boss is here but its body-part requirements are not met */
-  | 'gated';
+  | 'gated'
+  /** a CHALLENGE run is over (cleared, knocked out or forfeited) — nothing more happens */
+  | 'finished';
+
+/* ------------------------------------------------------------- gauntlets */
+
+/**
+ * ONE wave of a scripted gauntlet — a battle that is not world progress.
+ *
+ * A gauntlet wave carries its own numbers (hp/atk/interval/coins) instead of
+ * deriving them from `world`+`wave`, which is what makes a challenge run a pure
+ * function of its own script: the caller builds the list (see `core/daily.ts`),
+ * the state machine below only fights it. `world` is kept for the SPRITE and the
+ * backdrop — it says which world the enemy is visiting from, nothing more.
+ */
+export interface GauntletWave {
+  /** 1-based position in the gauntlet. */
+  index: number;
+  /** The world the enemy is drawn from (cosmetic: sprite + accent). */
+  world: number;
+  miniBoss: boolean;
+  enemyId: string;
+  he: string;
+  svg: string;
+  hp: number;
+  atk: number;
+  attackIntervalMs: number;
+  /** Coins this wave pays when it is cleared. */
+  coins: number;
+}
+
+/** How a challenge run ended. `running` means it has not. */
+export type ChallengeOutcome = 'running' | 'complete' | 'defeated' | 'forfeit';
+
+/**
+ * A challenge run — the SEPARATE battle context.
+ *
+ * When this is present the state machine changes three rules and nothing else:
+ *   1. waves come from `waves`, not from `waveSpec(world, wave)`;
+ *   2. clearing one emits `challenge_wave`, **never** `wave_cleared` — the whole
+ *      run is recorded by exactly ONE event, written when it ends;
+ *   3. a knock-out ENDS the run (no retry, no recovery) — the score is whatever
+ *      was cleared.
+ * Energy is not touched here at all: the entry fee is charged once, by the
+ * single event, which is also why no partial coins can ever leak.
+ */
+export interface ChallengeRun {
+  /** What kind of gauntlet this is (the ghost duel will add its own). */
+  kind: 'daily';
+  /** Calendar date of the challenge (YYYY-MM-DD) — its idempotency key. */
+  date: string;
+  /** Seed the gauntlet was generated from — recorded in the event. */
+  seed: number;
+  waves: readonly GauntletWave[];
+  /** 0-based index of the wave being fought (or about to spawn). */
+  index: number;
+  cleared: number;
+  coins: number;
+  /** ⚡ the attempt costs, carried here so the result can quote it. */
+  energyCost: number;
+  /** Coins added on top for clearing every wave. */
+  completionBonus: number;
+  healOnWaveClear: number;
+  spawnDelayMs: number;
+  outcome: ChallengeOutcome;
+}
+
+/** The persistent record of ONE challenge run — the `daily_challenge` payload. */
+export interface ChallengeResult {
+  date: string;
+  seed: number;
+  /** Waves fully cleared, 0…`waves.length`. This IS the score. */
+  wavesCleared: number;
+  score: number;
+  /** Tiebreak: remaining HP as a percentage (0 after a knock-out). */
+  tiebreak: number;
+  /** Wave coins + the completion bonus when every wave fell. */
+  coins: number;
+  energySpent: number;
+  complete: boolean;
+  outcome: Exclude<ChallengeOutcome, 'running'>;
+  durationMs: number;
+}
 
 export interface BattleState {
   /** Base seed of this battle session; per-wave seeds derive from it. */
@@ -488,6 +584,13 @@ export interface BattleState {
    * `BattleState`, so this shape is free to change without a migration.
    */
   skills: SkillRuntime;
+  /**
+   * The CHALLENGE context, or `null` for an ordinary campaign battle. Its
+   * presence is the one flag that switches the three rules documented on
+   * `ChallengeRun` — everything else (taps, super, skills, stats, the fixed
+   * tick, the seeded RNG) is byte-for-byte the same machine.
+   */
+  challenge: ChallengeRun | null;
   status: BattleStatus;
   /** Leftover time smaller than one tick, carried to the next `advance`. */
   acc: number;
@@ -537,6 +640,12 @@ export interface BossResult {
 export type CombatEvent =
   | { kind: 'spawn'; enemy: EnemyState; spec: WaveSpec }
   | { kind: 'boss_spawn'; enemy: EnemyState; spec: BossSpec }
+  /** A gauntlet wave came up (the challenge's own spawn). */
+  | { kind: 'challenge_spawn'; enemy: EnemyState; wave: GauntletWave; run: ChallengeRun }
+  /** A gauntlet wave fell. NOT `wave_cleared` — nothing is written per wave. */
+  | { kind: 'challenge_wave'; wave: GauntletWave; cleared: number; coins: number }
+  /** The run is over — this carries the ONE fact that gets persisted. */
+  | { kind: 'challenge_over'; result: ChallengeResult }
   | { kind: 'hit'; source: 'auto' | 'tap' | 'super' | 'skill'; amount: number; crit: boolean; enemyHp: number }
   | { kind: 'enemy_hit'; amount: number; playerHp: number }
   | { kind: 'regen'; amount: number; playerHp: number }
@@ -580,6 +689,7 @@ export function createBattle(a: CreateBattleArgs): BattleState {
     enemy: null,
     superMeter: 0,
     skills: emptySkillRuntime(),
+    challenge: null,
     status: 'idle',
     acc: 0,
     elapsedMs: 0,
@@ -594,6 +704,39 @@ export function createBattle(a: CreateBattleArgs): BattleState {
     streakDefeats: 0,
     waveElapsedMs: 0,
   };
+}
+
+export interface CreateChallengeArgs {
+  /** The gauntlet script — `dailyChallenge(date)` in `core/daily.ts` builds it. */
+  run: Omit<ChallengeRun, 'index' | 'cleared' | 'coins' | 'outcome'>;
+  stats: CombatStats;
+  /**
+   * The player's ⚡, for DISPLAY only: a challenge never spends energy per wave
+   * and never rests, so nothing in the run reads this.
+   */
+  energy?: number;
+}
+
+/**
+ * Start a CHALLENGE battle: the same state machine, a different context.
+ *
+ * The base seed is the challenge's own seed, so the whole run — every damage
+ * roll of every wave — is a deterministic function of the date, exactly like the
+ * roster it fights. No energy is passed in: the fee is charged once by the event
+ * this run eventually writes, never wave by wave.
+ */
+export function createChallengeBattle(a: CreateChallengeArgs): BattleState {
+  const first = a.run.waves[0];
+  const state = createBattle({
+    seed: a.run.seed,
+    world: first?.world ?? 1,
+    wave: 1,
+    // Energy is not a per-wave resource here; the entry fee is paid by the event.
+    energy: Math.max(0, a.energy ?? 0),
+    stats: a.stats,
+  });
+  state.challenge = { ...a.run, index: 0, cleared: 0, coins: 0, outcome: 'running' };
+  return state;
 }
 
 /**
@@ -644,7 +787,128 @@ function beginFight(state: BattleState, enemy: EnemyState): void {
   state.waveElapsedMs = 0;
 }
 
+/* ------------------------------------------------------- challenge waves */
+
+/**
+ * Spawn the next gauntlet wave, or end the run when the script is exhausted.
+ *
+ * The per-wave seed is `waveSeed(challengeSeed, world, index, attempt)` with
+ * `attempt` always 0 — there are no retries in a challenge — so wave N of a
+ * given date is the same fight on every device that plays it.
+ */
+function spawnChallenge(state: BattleState, run: ChallengeRun, out: CombatEvent[]): void {
+  const wave = run.waves[run.index];
+  if (!wave) {
+    finishChallenge(state, 'complete', out);
+    return;
+  }
+  state.world = wave.world;
+  state.wave = wave.index;
+  beginFight(state, {
+    id: wave.enemyId,
+    he: wave.he,
+    hp: wave.hp,
+    maxHp: wave.hp,
+    atk: wave.atk,
+    attackIntervalMs: wave.attackIntervalMs,
+    miniBoss: wave.miniBoss,
+    worldBoss: false,
+    svg: wave.svg,
+  });
+  out.push({ kind: 'challenge_spawn', enemy: state.enemy as EnemyState, wave, run });
+}
+
+/**
+ * One gauntlet wave fell: bank its coins IN MEMORY and move on.
+ *
+ * Nothing is persisted here — no `wave_cleared`, no energy, no coins in the
+ * purse. The run's whole payout rides on the single `daily_challenge` event
+ * written when it ends, which is what makes "leaving mid-run leaks no coins" a
+ * property of the design rather than of the UI.
+ */
+function clearChallengeWave(state: BattleState, run: ChallengeRun, out: CombatEvent[]): void {
+  const wave = run.waves[run.index] as GauntletWave;
+  run.cleared += 1;
+  run.coins += wave.coins;
+  run.index += 1;
+  state.wavesCleared += 1;
+  state.coinsEarned += wave.coins;
+  state.streakDefeats = 0;
+  state.enemy = null;
+  state.attempt = 0;
+  state.playerHp = Math.min(state.maxHp, state.playerHp + state.maxHp * run.healOnWaveClear);
+  out.push({ kind: 'challenge_wave', wave, cleared: run.cleared, coins: wave.coins });
+
+  if (run.index >= run.waves.length) {
+    finishChallenge(state, 'complete', out);
+    return;
+  }
+  state.status = 'idle';
+  state.spawnCd = run.spawnDelayMs;
+}
+
+/**
+ * End the run and emit the ONE record of it.
+ *
+ * Idempotent by construction: the first call parks the battle in `finished` and
+ * every later call is a no-op, so a forfeit that races the finale cannot produce
+ * two results (and therefore cannot pay twice).
+ */
+function finishChallenge(
+  state: BattleState,
+  outcome: Exclude<ChallengeOutcome, 'running'>,
+  out: CombatEvent[],
+): ChallengeResult | null {
+  const run = state.challenge;
+  if (!run || run.outcome !== 'running') return null;
+  run.outcome = outcome;
+  const complete = run.cleared >= run.waves.length;
+  const result: ChallengeResult = {
+    date: run.date,
+    seed: run.seed,
+    wavesCleared: run.cleared,
+    score: run.cleared,
+    // The tiebreak is the health the run ENDED on — 0 after a knock-out, which
+    // is exactly the honest reading of "how comfortably did you get here".
+    tiebreak: state.maxHp > 0 ? Math.round(Math.max(0, state.playerHp / state.maxHp) * 100) : 0,
+    coins: run.coins + (complete ? run.completionBonus : 0),
+    energySpent: run.energyCost,
+    complete,
+    outcome,
+    durationMs: Math.round(state.elapsedMs),
+  };
+  state.enemy = null;
+  state.status = 'finished';
+  state.spawnCd = 0;
+  out.push({ kind: 'challenge_over', result });
+  return result;
+}
+
+/**
+ * Give up the run that is on screen (the player left the arena).
+ *
+ * Returns the result to persist, or `null` when there is nothing to give up.
+ * The caller writes it exactly like a finished run — the attempt is spent and
+ * the waves that WERE cleared are paid; nothing else changes.
+ */
+export function forfeitChallenge(state: BattleState): ChallengeResult | null {
+  const out: CombatEvent[] = [];
+  return finishChallenge(state, 'forfeit', out);
+}
+
+/** The gauntlet wave on screen (or about to be), for the UI's counters. */
+export function challengeWave(state: BattleState): GauntletWave | null {
+  const run = state.challenge;
+  if (!run) return null;
+  return run.waves[Math.min(run.index, run.waves.length - 1)] ?? null;
+}
+
 function spawn(state: BattleState, out: CombatEvent[]): void {
+  const run = state.challenge;
+  if (run) {
+    spawnChallenge(state, run, out);
+    return;
+  }
   // The world boss stands where the ordinary waves end — unless it has already
   // fallen, in which case (last world only) the waves simply keep coming.
   if (bossStanding(state.world, state.wave, state.defeatedBosses)) {
@@ -759,6 +1023,11 @@ function killBoss(state: BattleState, out: CombatEvent[]): void {
 }
 
 function clearWave(state: BattleState, out: CombatEvent[]): void {
+  const run = state.challenge;
+  if (run) {
+    clearChallengeWave(state, run, out);
+    return;
+  }
   const c = BALANCE.combat;
   const spec = waveSpec(state.world, state.wave);
   const result: WaveResult = {
@@ -792,6 +1061,14 @@ function knockOut(state: BattleState, out: CombatEvent[]): void {
   state.enemy = null;
   state.playerHp = 0;
   state.superMeter = 0;
+  // In a CHALLENGE there is no getting back up: the run ends here and the score
+  // is whatever was already cleared.
+  if (state.challenge) {
+    clearSkillBuffs(state, out);
+    out.push({ kind: 'defeat', wave: state.wave, streakDefeats: state.streakDefeats });
+    finishChallenge(state, 'defeated', out);
+    return;
+  }
   // The buffs die with the attempt; the COOLDOWNS keep running, so being knocked
   // out is never a way to refresh a skill.
   clearSkillBuffs(state, out);
@@ -862,6 +1139,8 @@ function step(state: BattleState, dt: number, stats: CombatStats, out: CombatEve
   tickSkills(state, dt, out);
 
   if (state.status === 'gated') return;
+  // A finished challenge run is inert: the record is written, nothing may move.
+  if (state.status === 'finished') return;
 
   if (state.status === 'resting') {
     if (state.energy >= BALANCE.combat.energyPerWave) {
@@ -1131,6 +1410,9 @@ export interface SimulationSummary {
   events: CombatEvent[];
   results: WaveResult[];
   bosses: BossResult[];
+  /** Gauntlet waves cleared, and the run's record once it ended (challenge only). */
+  challengeWaves: number;
+  challenge: ChallengeResult | null;
   elapsedMs: number;
   defeats: number;
   playerHp: number;
@@ -1166,33 +1448,36 @@ export function simulate(
   const events: CombatEvent[] = [];
   const results: WaveResult[] = [];
   const bosses: BossResult[] = [];
+  let challengeWaves = 0;
+  let challenge: ChallengeResult | null = null;
   let elapsed = 0;
 
-  while (elapsed < maxMs && results.length + bosses.length < waves) {
+  const collect = (ev: CombatEvent): void => {
+    events.push(ev);
+    if (ev.kind === 'wave_cleared') results.push(ev.result);
+    else if (ev.kind === 'boss_defeated') bosses.push(ev.result);
+    else if (ev.kind === 'challenge_wave') challengeWaves += 1;
+    else if (ev.kind === 'challenge_over') challenge = ev.result;
+  };
+
+  while (elapsed < maxMs && results.length + bosses.length + challengeWaves < waves) {
     if (opts.pilot) {
       for (const id of pilotIds) {
-        const res = useSkill(state, id, stats, opts.pilot.levels);
-        for (const ev of res.events) {
-          events.push(ev);
-          if (ev.kind === 'wave_cleared') results.push(ev.result);
-          else if (ev.kind === 'boss_defeated') bosses.push(ev.result);
-        }
+        for (const ev of useSkill(state, id, stats, opts.pilot.levels).events) collect(ev);
       }
     }
-    for (const ev of advance(state, stepMs, stats)) {
-      events.push(ev);
-      if (ev.kind === 'wave_cleared') results.push(ev.result);
-      else if (ev.kind === 'boss_defeated') bosses.push(ev.result);
-    }
+    for (const ev of advance(state, stepMs, stats)) collect(ev);
     elapsed += stepMs;
-    if (state.status === 'resting' || state.status === 'gated') break;
+    if (state.status === 'resting' || state.status === 'gated' || state.status === 'finished') break;
   }
 
   return {
-    cleared: results.length + bosses.length >= waves,
+    cleared: results.length + bosses.length + challengeWaves >= waves,
     events,
     results,
     bosses,
+    challengeWaves,
+    challenge,
     elapsedMs: elapsed,
     defeats: state.defeats,
     playerHp: state.playerHp,

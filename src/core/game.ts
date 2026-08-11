@@ -15,11 +15,12 @@ import type {
   AppEvent,
   BattleProgress,
   BossDefeatedPayload,
+  DailyChallengeState,
   DataStore,
   GameState,
   WaveClearedPayload,
 } from '../storage/DataStore.ts';
-import type { BossResult, WaveResult } from './combat.ts';
+import type { BossResult, ChallengeResult, WaveResult } from './combat.ts';
 import { todayISO } from './workout.ts';
 import type { BodyGeometry } from '../data/characters.ts';
 import {
@@ -27,16 +28,19 @@ import {
   buildBodySelect,
   buildCharacterPurchase,
   buildCharacterSelect,
+  buildDailyChallenge,
   buildEquip,
   buildPurchase,
   buildSetGrant,
   buildUpgrade,
   buildWorkoutCompletionGrant,
   computeStreak,
+  dailyEntryStatus,
   emptyGame,
   finalizeGame,
   weeklyTargetsFromEvents,
   type CharacterPurchaseError,
+  type DailyEntryStatus,
   type PendingEvent,
   type PurchaseError,
   type UpgradeError,
@@ -202,6 +206,49 @@ export function onBossDefeated(store: DataStore, r: BossResult, now: Date = new 
   };
   commit(store, [{ type: 'boss_defeated', payload, ts: now.getTime() }], now);
   return gameOf(store).battle;
+}
+
+/* ------------------------------------------------------- daily challenge */
+
+export interface DailyChallengeSave {
+  ok: boolean;
+  /** Set when nothing was written: the date already had a counted attempt. */
+  duplicate: boolean;
+  /** The daily state after the write (or as it already was). */
+  daily: DailyChallengeState;
+}
+
+/**
+ * Persist ONE finished daily-challenge run — the only write the feature makes.
+ *
+ * Called for every ending: a full clear, a knock-out, and a forfeit when the
+ * player leaves the arena mid-run. All three are real attempts, and all three
+ * pay for exactly the waves that were cleared, so there is no path on which
+ * partial coins can leak or a fee can be charged twice: `buildDailyChallenge`
+ * returns nothing once the date has a record, and the reducer refuses again.
+ *
+ * The date in the payload is the CHALLENGE's date (the one the gauntlet was
+ * generated from), not "now" — a run started a minute before midnight belongs to
+ * the challenge it was actually playing.
+ */
+export function onDailyChallenge(
+  store: DataStore,
+  result: ChallengeResult,
+  now: Date = new Date(),
+): DailyChallengeSave {
+  const pending = buildDailyChallenge(gameOf(store), result, now.getTime());
+  if (pending.length === 0) return { ok: false, duplicate: true, daily: gameOf(store).daily };
+  commit(store, pending, now);
+  return { ok: true, duplicate: false, daily: gameOf(store).daily };
+}
+
+/**
+ * Can today's challenge be entered? A thin store-level wrapper over the pure
+ * rule in `core/xp.ts` — the UI asks this BEFORE it creates a run, so a refused
+ * attempt writes nothing at all.
+ */
+export function dailyStatus(store: DataStore, date: string): DailyEntryStatus {
+  return dailyEntryStatus(gameOf(store), date);
 }
 
 /* ------------------------------------------------------------------ shop */

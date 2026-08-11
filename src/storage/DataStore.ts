@@ -83,8 +83,12 @@ export interface UiState {
  * bought with coins. A v6 blob simply has no such field, and inventing `{}` for
  * it would silently ERASE upgrades that are sitting in the log; the blob is
  * therefore rejected and replayed, which restores every level exactly.
+ * v8 (the daily challenge) added `daily` — the per-date ledger of attempts. Same
+ * reasoning again: a v7 blob has no such field, and an empty ledger would mean
+ * "never attempted anything", which would hand back an attempt the log says was
+ * already spent. Rejected and replayed, which restores every run exactly.
  */
-export const GAME_STATE_VERSION = 7;
+export const GAME_STATE_VERSION = 8;
 
 /** XP pool of one body part. `level` is DERIVED from `xp` (see core/xp.ts). */
 export interface PartProgress {
@@ -133,6 +137,51 @@ export interface BattleProgress {
    * additionally switches world 4 into its endless "champion" mode.
    */
   bossesDefeated: string[];
+}
+
+/**
+ * The ONE counted attempt of one calendar date's daily challenge.
+ *
+ * `score` is the number of gauntlet waves fully cleared (0…10) and `tiebreak`
+ * the remaining HP percentage the run ended on — together they order two runs
+ * that cleared the same number of waves.
+ */
+export interface DailyRunRecord {
+  score: number;
+  tiebreak: number;
+  coins: number;
+  /** True when every wave of the gauntlet fell. */
+  complete: boolean;
+}
+
+/**
+ * Daily-challenge progress — the ledger and everything derived from it.
+ *
+ * `runs` is the ONLY folded field: date -> the one attempt that counted. It is
+ * keyed by the CHALLENGE DATE, which is exactly the semantic key the reducer is
+ * idempotent on, so two devices that both played (or both re-received) the same
+ * day's run converge on one record and one payout.
+ *
+ * Everything else below is DERIVED from `runs` in `finalizeGame`, the same way
+ * body-part levels are derived from XP: a derived field cannot disagree with the
+ * log after a merge, so the totals, the record and the streaks are exact by
+ * construction rather than by careful bookkeeping.
+ */
+export interface DailyChallengeState {
+  /** date (YYYY-MM-DD) -> the one attempt counted for that date. */
+  runs: Record<string, DailyRunRecord>;
+  /** Derived: how many dates were attempted at all. */
+  attempts: number;
+  /** Derived: how many of them cleared all ten waves. */
+  completed: number;
+  /** Derived: the best (score, tiebreak) ever, and the date that produced it. */
+  bestScore: number;
+  bestTiebreak: number;
+  bestDate: string | null;
+  /** Derived: consecutive days attempted, counted back from today. */
+  streak: number;
+  /** Derived: the longest such run ever. */
+  bestStreak: number;
 }
 
 /**
@@ -217,6 +266,8 @@ export interface GameState {
   equipment: EquipmentState;
   /** Phase 5 — the character roster: bought skins + the one being played. */
   characters: CharactersState;
+  /** Phase 7 — the daily challenge: one attempt per calendar date. */
+  daily: DailyChallengeState;
 }
 
 export interface AppMeta {
@@ -276,6 +327,8 @@ export type EventType =
   | 'item_equipped'
   // Phase 6 — per-item equipment upgrades bought with coins
   | 'item_upgraded'
+  // Phase 7 — the daily challenge. ONE event per run, idempotent per DATE.
+  | 'daily_challenge'
   // Phase 5 — the cosmetic character roster
   | 'character_purchased'
   | 'character_selected'
@@ -467,6 +520,54 @@ export interface ItemUpgradedPayload extends Record<string, unknown> {
   toLevel: number;
   /** Coins charged for THIS step (not the cumulative price of the level). */
   cost: number;
+}
+
+/* --------------------------------------------- Phase 7 daily challenge */
+
+/**
+ * ONE finished daily-challenge run — the only event the whole feature writes.
+ *
+ * AUTHORITATIVE, like `boss_defeated` and `item_upgraded`: the score, the purse
+ * and the fee are carried as DATA, so a replay never re-simulates the gauntlet
+ * and never re-derives today's reward table. An old log keeps folding to the
+ * same coins even after `BALANCE.daily` is retuned.
+ *
+ * IDEMPOTENT PER DATE — the rule the feature rests on. `date` is the semantic
+ * key (there is exactly one challenge per calendar date, and exactly one attempt
+ * at it), so the reducer applies the event only while `daily.runs[date]` is
+ * empty, and charges the fee / pays the coins only when it applies:
+ *
+ *   - a duplicate of a run already counted is a total no-op — no second fee, no
+ *     second payout;
+ *   - two devices that each played the same day's challenge offline write two
+ *     events with different uuids and the SAME `date`; folding the union in
+ *     EITHER order keeps the FIRST one in the log's `(ts, id)` order and pays
+ *     once. Both devices land on the same record because that order is a
+ *     property of the event set, not of who received what when;
+ *   - the run that "loses" is not lost data: it stays in the log for ever and is
+ *     simply not counted, exactly like a duplicate retro grant.
+ *
+ * `outcome` distinguishes a full clear from a knock-out and from a run the
+ * player walked out on. All three are real attempts and all three are recorded —
+ * what a forfeit does NOT do is pay for waves that were never cleared.
+ */
+export interface DailyChallengePayload extends Record<string, unknown> {
+  /** Calendar date of the challenge (YYYY-MM-DD) — the idempotency key. */
+  date: string;
+  /** Seed the gauntlet was generated from — makes the run reproducible. */
+  seed: number;
+  /** Waves fully cleared (0…10). `score` is the same number, named for the UI. */
+  wavesCleared: number;
+  score: number;
+  /** Tiebreak between equal scores: remaining HP %, 0 after a knock-out. */
+  tiebreak: number;
+  /** Coins earned: the cleared waves plus the completion bonus on a full clear. */
+  coins: number;
+  /** ⚡ charged for the ATTEMPT — once, never per wave. */
+  energySpent: number;
+  complete: boolean;
+  outcome: 'complete' | 'defeated' | 'forfeit';
+  durationMs: number;
 }
 
 /* ------------------------------------------------ Phase 5 roster payloads */

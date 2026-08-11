@@ -43,6 +43,8 @@ import {
 } from '../data/program.ts';
 import { weeklyTargetOfPlanPayload } from '../data/planTypes.ts';
 import { BALANCE } from './balance.ts';
+import { bestDailyStreak, dailyStreak } from './daily.ts';
+import type { ChallengeResult } from './combat.ts';
 import {
   EQUIPMENT_SLOTS,
   equipmentById,
@@ -77,6 +79,9 @@ import {
   type AppEvent,
   type BattleProgress,
   type CharactersState,
+  type DailyChallengePayload,
+  type DailyChallengeState,
+  type DailyRunRecord,
   type EquipmentState,
   type EventType,
   type GameState,
@@ -384,6 +389,21 @@ export function emptyGame(): GameState {
     battle: emptyBattle(),
     equipment: emptyEquipment(),
     characters: emptyCharacters(),
+    daily: emptyDaily(),
+  };
+}
+
+/** A fresh daily-challenge ledger: nothing attempted, so everything is zero. */
+export function emptyDaily(): DailyChallengeState {
+  return {
+    runs: {},
+    attempts: 0,
+    completed: 0,
+    bestScore: 0,
+    bestTiebreak: 0,
+    bestDate: null,
+    streak: 0,
+    bestStreak: 0,
   };
 }
 
@@ -628,6 +648,40 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
       game.equipment.upgrades[itemId] = toLevel;
       break;
     }
+    /**
+     * ONE daily-challenge run — the only event the feature writes.
+     *
+     * IDEMPOTENT PER DATE. There is exactly one challenge per calendar date and
+     * exactly one attempt at it, so the DATE is the semantic key: the event is
+     * applied only while `daily.runs[date]` is empty, and the fee is charged /
+     * the coins are paid only when it applies. A duplicate is a total no-op, and
+     * two devices that both played the same day offline converge on the run that
+     * comes FIRST in the log's `(ts, id)` order — an order that is a property of
+     * the event set, so both devices reach the same record and pay exactly once,
+     * whichever order the events arrived in.
+     *
+     * The payload is authoritative (coins and fee ride in it), so a retune of
+     * `BALANCE.daily` never rewrites history.
+     */
+    case 'daily_challenge': {
+      const date = typeof payload['date'] === 'string' ? payload['date'] : '';
+      if (!date) break;
+      const d = game.daily;
+      if (d.runs[date]) break;
+
+      const spent = Math.max(0, toNumber(payload['energySpent']));
+      const coins = Math.max(0, toNumber(payload['coins']));
+      const score = Math.max(0, Math.floor(toNumber(payload['score'] ?? payload['wavesCleared'])));
+      game.energy = round2(Math.max(0, game.energy - spent));
+      game.battle.coins = round2(game.battle.coins + coins);
+      d.runs[date] = {
+        score,
+        tiebreak: Math.max(0, toNumber(payload['tiebreak'])),
+        coins,
+        complete: payload['complete'] === true,
+      };
+      break;
+    }
     /** Put an item on, or (with `itemId: null`) take the slot's item off. */
     case 'item_equipped': {
       const slot = typeof payload['slot'] === 'string' ? payload['slot'] : '';
@@ -706,6 +760,44 @@ export function finalizeGame(game: GameState, today: string, targets: WeeklyTarg
   }
   game.level = characterLevel(game.parts);
   game.streak = computeStreak(game.workoutDays, today, targets);
+  finalizeDaily(game.daily, today);
+}
+
+/**
+ * Recompute every daily-challenge total from the per-date ledger.
+ *
+ * DERIVED, not folded — for the same reason levels are: a field computed from
+ * the ledger cannot disagree with the log after a merge, whereas a counter
+ * incremented per event would have to be defended against every duplicate. The
+ * ledger itself is the only thing the reducer touches, and it is a map keyed by
+ * date, which unions exactly.
+ */
+export function finalizeDaily(daily: DailyChallengeState, today: string): void {
+  const dates = Object.keys(daily.runs).sort();
+  let completed = 0;
+  let bestScore = 0;
+  let bestTiebreak = 0;
+  let bestDate: string | null = null;
+
+  for (const date of dates) {
+    const run = daily.runs[date] as DailyRunRecord;
+    if (run.complete) completed += 1;
+    // Ties on the score are broken by the health the run ended on; a tie on both
+    // keeps the EARLIER date, so the record has one unambiguous owner.
+    if (run.score > bestScore || (run.score === bestScore && run.tiebreak > bestTiebreak)) {
+      bestScore = run.score;
+      bestTiebreak = run.tiebreak;
+      bestDate = date;
+    }
+  }
+
+  daily.attempts = dates.length;
+  daily.completed = completed;
+  daily.bestScore = bestScore;
+  daily.bestTiebreak = bestTiebreak;
+  daily.bestDate = bestDate;
+  daily.streak = dailyStreak(dates, today);
+  daily.bestStreak = bestDailyStreak(dates);
 }
 
 /**
@@ -1165,6 +1257,63 @@ export function buildUpgrade(game: GameState, itemId: string, date: string, ts: 
       { type: 'item_upgraded', payload: { date, itemId, slot: def.slot, toLevel, cost }, ts },
     ],
   };
+}
+
+/* ------------------------------------------------- daily challenge rules */
+
+/** Why today's challenge cannot be entered — the UI turns this into Hebrew. */
+export type DailyEntryError = 'already_played' | 'insufficient_energy';
+
+export interface DailyEntryStatus {
+  ok: boolean;
+  error?: DailyEntryError;
+  /** ⚡ the attempt costs. */
+  energyCost: number;
+  /** The run already counted for that date, or `null` when it is still open. */
+  record: DailyRunRecord | null;
+}
+
+/**
+ * May this save start `date`'s challenge? PURE — it decides, it does not spend.
+ *
+ * Both refusals are checked HERE, before a run is even created, so an attempt
+ * that cannot happen leaves no trace anywhere: no event, no fee, no coins. The
+ * "one attempt per date" half of the rule is enforced twice on purpose — here so
+ * the UI can explain it, and again in the reducer so a crafted or duplicated
+ * event can never buy a second run.
+ */
+export function dailyEntryStatus(game: GameState, date: string): DailyEntryStatus {
+  const energyCost = BALANCE.daily.entryEnergy;
+  const record = game.daily.runs[date] ?? null;
+  if (record) return { ok: false, error: 'already_played', energyCost, record };
+  if (game.energy < energyCost) return { ok: false, error: 'insufficient_energy', energyCost, record: null };
+  return { ok: true, energyCost, record: null };
+}
+
+/**
+ * The event for a run that just ended. Returns `[]` when that date already has
+ * a counted attempt, so a second write is impossible even if the UI asked for
+ * one (a forfeit racing the finale, a double tap, a replayed callback).
+ */
+export function buildDailyChallenge(
+  game: GameState,
+  result: ChallengeResult,
+  ts: number,
+): PendingEvent[] {
+  if (game.daily.runs[result.date]) return [];
+  const payload: DailyChallengePayload = {
+    date: result.date,
+    seed: result.seed,
+    wavesCleared: result.wavesCleared,
+    score: result.score,
+    tiebreak: result.tiebreak,
+    coins: result.coins,
+    energySpent: result.energySpent,
+    complete: result.complete,
+    outcome: result.outcome,
+    durationMs: result.durationMs,
+  };
+  return [{ type: 'daily_challenge', payload, ts }];
 }
 
 /* ---------------------------------------------------------- the roster */
