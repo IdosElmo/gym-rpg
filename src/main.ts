@@ -19,12 +19,15 @@ import '../styles/index.css';
 
 import { LocalStore } from './storage/LocalStore.ts';
 import type { DataStore } from './storage/DataStore.ts';
-import { refreshStreak } from './core/game.ts';
+import { gameOf, refreshStreak } from './core/game.ts';
+import { buildGhost, ghostHash } from './core/ghost.ts';
+import { defaultHandle } from './core/handle.ts';
 import { isSignedIn, refreshAccountCard, type AccountDeps } from './sync/account.ts';
 import { syncConfigured } from './sync/config.ts';
 import { SyncEngine, type SyncStatus } from './sync/engine.ts';
 import { createSupabaseSync } from './sync/supabaseBackend.ts';
 import { createApp, type App, type AppHooks } from './ui/app.ts';
+import type { GhostDuelDeps, GhostLookupRow } from './ui/ghost.ts';
 import { initImportInput } from './ui/settings.ts';
 import { createRestTimer } from './ui/timer.ts';
 import { initToast } from './ui/toast.ts';
@@ -91,6 +94,8 @@ function wireSync(store: DataStore): SyncWiring {
   let deferred = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
+  let userId: string | null = null;
+
   const engine = new SyncEngine({
     store,
     backend: supabase.backend,
@@ -101,11 +106,40 @@ function wireSync(store: DataStore): SyncWiring {
       refreshAccountCard(account);
     },
     onRemoteApplied: () => repaint(),
+    /**
+     * THE GHOST PUBLISHER. The engine owns "when" (after a successful cycle,
+     * only when the fingerprint moved); this owns "what" — a snapshot of the
+     * character as it is right now. It reads the game state and nothing else,
+     * and it never writes: a ghost is presence data beside the log, never in it.
+     */
+    ghost: {
+      snapshot: (handle: string) => {
+        const payload = buildGhost(gameOf(store), handle);
+        return { payload: payload as unknown as Record<string, unknown>, hash: ghostHash(payload) };
+      },
+      defaultHandle: (id: string) => defaultHandle(email, id),
+    },
   });
+
+  /**
+   * What the arena needs to run a duel. Every call is a thin pass-through: the
+   * engine owns the device-local bookkeeping (my name, who I fought lately) and
+   * the backend owns the lookup, so this object holds no state of its own.
+   */
+  const ghost: GhostDuelDeps = {
+    signedIn: () => isSignedIn(status),
+    myHandle: () => engine.getGhostHandle() || (userId ? defaultHandle(email, userId) : ''),
+    recent: () => engine.getRecentOpponents(),
+    remember: (handle: string) => engine.rememberOpponent(handle),
+    fetch: (handle: string): Promise<GhostLookupRow | null> => supabase.backend.fetchGhost(handle),
+  };
 
   const account: AccountDeps = {
     getStatus: () => status,
     getEmail: () => email,
+    getHandle: () => ghost.myHandle(),
+    setHandle: (handle: string) => engine.setGhostHandle(handle),
+    refresh: () => refreshAccountCard(account),
     signIn: () => void supabase.auth.signInWithGoogle().catch(() => undefined),
     signOut: () => {
       void supabase.auth.signOut().catch(() => undefined);
@@ -149,6 +183,7 @@ function wireSync(store: DataStore): SyncWiring {
           void engine.sync();
         },
       },
+      ghost,
       onRender: () => {
         deferred = false;
       },
@@ -158,6 +193,7 @@ function wireSync(store: DataStore): SyncWiring {
       engine.start();
       supabase.auth.onChange((user) => {
         email = user?.email ?? null;
+        userId = user?.id ?? null;
         if (user) void engine.onSignedIn(user.id);
         else engine.stop();
         if (!refreshAccountCard(account)) app?.render();
@@ -166,6 +202,7 @@ function wireSync(store: DataStore): SyncWiring {
       void supabase.auth.getUser().then((user) => {
         if (!user) return;
         email = user.email;
+        userId = user.id;
         void engine.onSignedIn(user.id);
       });
     },

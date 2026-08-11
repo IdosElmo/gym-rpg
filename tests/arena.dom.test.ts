@@ -349,7 +349,11 @@ describe('world progress strip', () => {
     // challenge card slots in between them, and is just as compact.
     const card = document.querySelector('.bt-card');
     const kids = [...(card?.children ?? [])].map((c) => c.className.split(' ')[0]);
-    expect(kids.slice(0, 4)).toEqual(['bt-worldbar', 'wp-strip', 'dc-slot', 'bt-arena']);
+    expect(kids.slice(0, 5)).toEqual(['bt-worldbar', 'wp-strip', 'dc-slot', 'gd-slot', 'bt-arena']);
     expect(document.querySelectorAll('#btWorlds').length).toBe(1);
+    // The ghost-duel slot costs nothing on an offline build: with no account
+    // behind the app it renders EMPTY, so it collapses to zero height and the
+    // arena is exactly where it always was.
+    expect(document.getElementById('btGhost')?.innerHTML).toBe('');
   });
 });

@@ -51,6 +51,7 @@ import { worldById } from '../data/gameContent.ts';
 import type { DataStore, ViewKey } from '../storage/DataStore.ts';
 import type { RestTimer } from './timer.ts';
 import { renderBattle, stopBattle } from './battle.ts';
+import type { GhostDuelDeps } from './ghost.ts';
 import { exitCharacterPreview, renderCharacter } from './character.ts';
 import { esc, must } from './dom.ts';
 import { renderHistory } from './history.ts';
@@ -81,6 +82,11 @@ export interface App {
 export interface AppHooks {
   /** The account card + the signed-in meanings of מחיקה / ייבוא. */
   settings?: Pick<SettingsDeps, 'account' | 'isSignedIn' | 'onLocalMerge'>;
+  /**
+   * The ghost-duel plumbing for the קרב screen. Absent = the duel card is not
+   * rendered at all, which is the offline app's normal state.
+   */
+  ghost?: GhostDuelDeps;
   /** Fired at the end of every full render (lets main.ts clear a deferred repaint). */
   onRender?: () => void;
 }
@@ -331,7 +337,12 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
   function renderBattleScreen(): void {
     if (store.getState().ui.view !== 'BT') return;
     renderHeader();
-    renderBattle(mainEl, { store, refreshHeader: renderHeader, remount: renderBattleScreen });
+    renderBattle(mainEl, {
+      store,
+      refreshHeader: renderHeader,
+      remount: renderBattleScreen,
+      ...(hooks.ghost ? { ghost: hooks.ghost } : {}),
+    });
   }
 
   function renderCharacterScreen(): void {
@@ -369,7 +380,12 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       // without throwing the player back to the top of the page.
       renderCharacter(mainEl, { store, rerender: renderCharacterScreen });
     } else if (view === 'BT') {
-      renderBattle(mainEl, { store, refreshHeader: renderHeader, remount: renderBattleScreen });
+      renderBattle(mainEl, {
+        store,
+        refreshHeader: renderHeader,
+        remount: renderBattleScreen,
+        ...(hooks.ghost ? { ghost: hooks.ghost } : {}),
+      });
     } else {
       // The workout screen — and everything it writes — is keyed by the DAY.
       // The occurrence a tab stands for is a label, never data.
