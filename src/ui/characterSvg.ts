@@ -42,6 +42,7 @@
  */
 
 import { BALANCE } from '../core/balance.ts';
+import { clampUpgradeLevel } from '../core/upgrades.ts';
 import { clamp } from '../core/xp.ts';
 import {
   characterByAnyId,
@@ -58,7 +59,7 @@ import {
   type EquipmentSlot,
 } from '../data/gameContent.ts';
 import { BODY_PARTS, type BodyPart } from '../data/program.ts';
-import type { EquipmentState, PartsProgress } from '../storage/DataStore.ts';
+import type { PartsProgress } from '../storage/DataStore.ts';
 
 /* ------------------------------------------------------------- geometry */
 
@@ -362,17 +363,121 @@ const SLOT_DRAW: Readonly<
   shoes: shoesLayer,
 };
 
+/* ------------------------------------------------------- upgrade flair */
+
+/**
+ * WHERE an upgrade's flair sits on each slot: the points that read as "the
+ * item", at any body size.
+ *
+ * Derived from the same anchors the item itself is drawn from, so the flair
+ * follows the gear on every body × skin combination and at every level — there
+ * is no second set of coordinates to keep in sync, and nothing bespoke per item.
+ */
+function flairSpots(slot: EquipmentSlot, a: CharacterAnchors): Array<{ x: number; y: number; r: number }> {
+  switch (slot) {
+    case 'gloves':
+      return a.gloves.map((g) => ({ x: g.x, y: g.y, r: Math.max(7, g.r + 2) }));
+    case 'shoes':
+      return a.shoes.map((s) => ({ x: s.x, y: s.y - 3, r: Math.max(7, s.halfWidth + 2) }));
+    case 'belt':
+      return [{ x: a.belt.x, y: a.belt.y, r: 8 }];
+    case 'cape':
+      return [{ x: a.cape.x, y: a.cape.y + 5, r: 9 }];
+  }
+}
+
+/** A four-point sparkle centred on (x, y) — concave, so it reads as a glint. */
+function spark(x: number, y: number, r: number, fill: string): string {
+  return `<path class="ch-spark" d="M ${n(x)} ${n(y - r)} Q ${n(x)} ${n(y)} ${n(x + r)} ${n(y)}
+    Q ${n(x)} ${n(y)} ${n(x)} ${n(y + r)} Q ${n(x)} ${n(y)} ${n(x - r)} ${n(y)}
+    Q ${n(x)} ${n(y)} ${n(x)} ${n(y - r)} Z" fill="${fill}"/>`;
+}
+
+/** A five-point star badge — the +3 mark, pinned beside the item. */
+function starBadge(x: number, y: number, r: number, fill: string, stroke: string): string {
+  const pts = Array.from({ length: 10 }, (_, i) => {
+    const rad = i % 2 === 0 ? r : r * 0.44;
+    const a = (Math.PI / 5) * i - Math.PI / 2;
+    return `${n(x + Math.cos(a) * rad)} ${n(y + Math.sin(a) * rad)}`;
+  });
+  return `<g class="ch-up-badge"><circle cx="${n(x)}" cy="${n(y)}" r="${n(r * 1.15)}" fill="${stroke}" opacity="0.55"/>
+    <path d="M ${pts.join(' L ')} Z" fill="${fill}" stroke="${stroke}" stroke-width="1.4" stroke-linejoin="round"/></g>`;
+}
+
+/**
+ * The visual treatment of an upgrade — SYSTEMATIC, one rule for all 12 items:
+ *   +1  one glint on the item's primary point (subtle: nothing else changes);
+ *   +2  a glint on EVERY point of the item, plus a coloured glow (CSS filter,
+ *       driven by `--up-glow` so the glow is always the item's own accent);
+ *   +3  the same glints with a stronger glow, plus a small star badge pinned
+ *       just outside the item.
+ *
+ * Everything is placed from `flairSpots`, i.e. from the character's own anchors,
+ * so it fits every body × skin pair and every level without a special case. The
+ * badge is pushed OUTWARD from the centre line and stays inside the 200×320
+ * stage even on the widest possible body (swept in `tests/upgrades.dom.test.ts`).
+ */
+function upgradeFlair(slot: EquipmentSlot, a: CharacterAnchors, item: EquipmentDef, level: number): string {
+  const lv = clampUpgradeLevel(level);
+  if (lv < 1) return '';
+  const spots = flairSpots(slot, a);
+  if (spots.length === 0) return '';
+  // The "primary" point is the outermost one on the right — the side the badge
+  // is pinned to, so it never lands on top of the body.
+  const primary = spots.reduce((best, s) => (s.x >= best.x ? s : best), spots[0] as (typeof spots)[number]);
+  const lit = lv >= 2 ? spots : [primary];
+  const glints = lit
+    .map((s) => {
+      const side = s.x >= CX ? 1 : -1;
+      return spark(s.x + side * s.r * 0.72, s.y - s.r * 0.78, 3.4 + lv * 0.5, item.accent);
+    })
+    .join('');
+  const badge =
+    lv >= 3
+      ? starBadge(primary.x + primary.r + 4.5, primary.y - primary.r - 1, 5.4, item.accent, item.color)
+      : '';
+  return `${glints}${badge}`;
+}
+
 /** Markup for one slot's group contents ('' when the slot is empty). */
 export function equipmentLayer(
   slot: EquipmentSlot,
   geo: CharacterGeometry,
   equipped: Partial<Record<EquipmentSlot, string>>,
+  upgrades: Readonly<Record<string, number>> = {},
 ): string {
   const id = equipped[slot];
   if (!id) return '';
   const item = equipmentById(id);
   if (!item || item.slot !== slot) return '';
-  return SLOT_DRAW[slot](geo, characterAnchors(geo), item);
+  const anchors = characterAnchors(geo);
+  return SLOT_DRAW[slot](geo, anchors, item) + upgradeFlair(slot, anchors, item, upgrades[id] ?? 0);
+}
+
+/**
+ * One whole equipment `<g>`, upgrade flair included.
+ *
+ * A slot that is empty or at +0 renders EXACTLY the group it always did
+ * (`<g class="ch-equip" data-slot="…">`), so nothing about an un-upgraded
+ * character's markup changes. An upgraded one additionally carries
+ * `upgraded up-N`, `data-upgrade="N"` and the item's accent as `--up-glow`,
+ * which is all `styles/character.css` needs to paint the glow — the colour has
+ * to come from the item, and a filter has to come from CSS, so the custom
+ * property is the seam between them.
+ */
+export function equipmentGroup(
+  slot: EquipmentSlot,
+  geo: CharacterGeometry,
+  equipment: EquipmentView | undefined,
+): string {
+  const equipped = equipment?.equipped ?? {};
+  const upgrades = equipment?.upgrades ?? {};
+  const id = equipped[slot];
+  const item = id ? equipmentById(id) : undefined;
+  const lv = item && item.slot === slot ? clampUpgradeLevel(upgrades[item.id] ?? 0) : 0;
+  const attrs =
+    lv > 0 ? ` upgraded up-${lv}" data-slot="${slot}" data-upgrade="${lv}" style="--up-glow:${item?.accent ?? ''}"` : `" data-slot="${slot}"`;
+  return `<g class="ch-equip${attrs}>${equipmentLayer(slot, geo, equipped, upgrades)}</g>`;
 }
 
 /* -------------------------------------------------------------- trophies */
@@ -750,13 +855,25 @@ function headGroup(geo: CharacterGeometry, d: HairLayers): string {
   </g>`;
 }
 
+/**
+ * What the drawing needs to know about a wardrobe: what is WORN and at what
+ * upgrade level. `GameState['equipment']` satisfies it; so does a bare
+ * `{ equipped }` literal, which is what keeps the artwork sweeps terse.
+ */
+export interface EquipmentView {
+  owned?: readonly string[];
+  equipped: Partial<Record<EquipmentSlot, string>>;
+  /** item id -> +0…+3. Absent means "nothing is upgraded". */
+  upgrades?: Readonly<Record<string, number>>;
+}
+
 export interface CharacterSvgOptions {
   /** Parts to pulse right now (level-up celebration). */
   pulse?: readonly BodyPart[];
   /** Accessible label; a sensible Hebrew default is used when omitted. */
   label?: string;
-  /** Owned/equipped shop items — only `equipped` is drawn. */
-  equipment?: EquipmentState;
+  /** Owned/equipped/upgraded shop items — only what is WORN is drawn. */
+  equipment?: EquipmentView;
   /** How many world-boss medals to pin on the chest. */
   trophies?: number;
   /**
@@ -792,8 +909,7 @@ export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {
   const cls = (part: BodyPart): string => `ch-part${pulse.has(part) ? ' pulse' : ''}`;
   const label = opts.label ?? 'הדמות שלך';
   const pecOffset = geo.chestHalf * geo.pecSpread;
-  const equipped = opts.equipment?.equipped ?? {};
-  const layer = (slot: EquipmentSlot): string => equipmentLayer(slot, geo, equipped);
+  const group = (slot: EquipmentSlot): string => equipmentGroup(slot, geo, opts.equipment);
   const look = lookLayers(geo, char);
   // One gradient per character id: several characters share a page (the roster
   // strip draws them all), and two <defs> with the same id would make every
@@ -816,7 +932,7 @@ export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {
 
   <!-- The cape hangs BEHIND the body, so it is the only equipment layer drawn
        before the character rather than after it. -->
-  <g class="ch-equip" data-slot="cape">${layer('cape')}</g>
+  ${group('cape')}
 
   <!-- LONG HAIR, the part that falls past the shoulders: behind the torso (so
        the body reads first) but over the cape (hair rests on a cape). Empty for
@@ -852,9 +968,9 @@ export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {
   ${headGroup(geo, look)}
 
   <!-- Equipment layers worn ON TOP of the body (see characterAnchors). -->
-  <g class="ch-equip" data-slot="shoes">${layer('shoes')}</g>
-  <g class="ch-equip" data-slot="belt">${layer('belt')}</g>
-  <g class="ch-equip" data-slot="gloves">${layer('gloves')}</g>
+  ${group('shoes')}
+  ${group('belt')}
+  ${group('gloves')}
   <g class="ch-trophies">${trophyPins(geo, opts.trophies ?? 0)}</g>
 </svg>`;
 }

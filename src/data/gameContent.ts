@@ -1101,13 +1101,46 @@ export function zeroBonus(): ResolvedBonus {
   return { atk: 0, def: 0, hp: 0, attackIntervalMs: 0, critChance: 0, critMultiplier: 0, regen: 0 };
 }
 
-/** Sum the bonuses of a set of equipped item ids. Unknown ids are ignored. */
-export function sumEquipBonus(ids: Iterable<string>): ResolvedBonus {
+/**
+ * Round to 4 decimals — enough to keep float noise out of a scaled bonus, and
+ * fine enough not to distort the small ones: a crit chance is a fraction
+ * (`0.03`), so rounding to 2 decimals would turn a +2 upgrade of it into a +3.
+ */
+function r4(v: number): number {
+  return Math.round(v * 10_000) / 10_000;
+}
+
+/**
+ * Every present field of a bonus, multiplied by `mult`.
+ *
+ * This is the one shape an equipment UPGRADE takes: an upgraded item is its own
+ * bonus, scaled. Absent fields stay absent (a `+3` pair of shoes never sprouts a
+ * crit chance it never had), so an item's identity — which stats it is about —
+ * survives every upgrade level. The multiplier itself is balance, and comes from
+ * `BALANCE.upgrades` via `core/upgrades.ts`; this file stays content-only.
+ */
+export function scaleBonus(b: EquipBonus, mult: number): EquipBonus {
+  if (mult === 1) return b;
+  const out: { -readonly [K in keyof EquipBonus]: number } = {};
+  for (const key of Object.keys(b) as Array<keyof EquipBonus>) {
+    const v = b[key];
+    if (typeof v === 'number') out[key] = r4(v * mult);
+  }
+  return out;
+}
+
+/**
+ * Sum the bonuses of a set of equipped item ids. Unknown ids are ignored.
+ *
+ * `mult` is the UPGRADE multiplier of one item (default: everything at +0, i.e.
+ * exactly what this function always returned).
+ */
+export function sumEquipBonus(ids: Iterable<string>, mult: (itemId: string) => number = () => 1): ResolvedBonus {
   const out = zeroBonus();
   for (const id of ids) {
     const def = equipmentById(id);
     if (!def) continue;
-    const b = def.bonus;
+    const b = scaleBonus(def.bonus, mult(id));
     out.atk += b.atk ?? 0;
     out.def += b.def ?? 0;
     out.hp += b.hp ?? 0;

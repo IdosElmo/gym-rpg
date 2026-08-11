@@ -37,8 +37,25 @@ import {
   worldById,
   type EquipmentSlot,
 } from '../data/gameContent.ts';
-import { buyCharacter, buyItem, equipItem, gameOf, selectBody, selectCharacter } from '../core/game.ts';
+import {
+  buyCharacter,
+  buyItem,
+  equipItem,
+  gameOf,
+  selectBody,
+  selectCharacter,
+  upgradeItem,
+} from '../core/game.ts';
 import { levelProgress, ownsSkin, selectedBody, selectedCharacter, statsOfGame } from '../core/xp.ts';
+import {
+  MAX_UPGRADE_LEVEL,
+  nextUpgradeCost,
+  upgradeLabel,
+  upgradeLevelOf,
+  upgradeMultiplier,
+  upgradeStars,
+  upgradedBonus,
+} from '../core/upgrades.ts';
 import type { DataStore, GameState } from '../storage/DataStore.ts';
 import { characterSvg, trophyMedallion } from './characterSvg.ts';
 import { esc } from './dom.ts';
@@ -115,15 +132,38 @@ const PART_EMOJI: Readonly<Record<BodyPart, string>> = {
 
 /* ------------------------------------------------------------------ shop */
 
+/**
+ * The UPGRADE control of one owned item: a priced button, a shortfall hint, or
+ * the ⭐ מקסימלי mark at +3.
+ *
+ * The price comes from the same pure function the reducer's plan does
+ * (`nextUpgradeCost`), so what the button says is exactly what will be charged,
+ * and an unaffordable one says how many coins are MISSING rather than failing
+ * silently on tap — the same courtesy the character purchase sheet extends.
+ */
+function upgradeControl(game: GameState, itemId: string, level: number): string {
+  if (level >= MAX_UPGRADE_LEVEL) {
+    return `<span class="eq-max" data-maxed="${itemId}">⭐ מקסימלי</span>`;
+  }
+  const cost = nextUpgradeCost(itemId, level);
+  const missing = Math.max(0, cost - game.battle.coins);
+  return `<button class="eq-btn up" data-upgrade="${itemId}" ${missing > 0 ? 'disabled' : ''}
+    aria-label="שדרוג ל־${upgradeLabel(level + 1)}">
+    ${missing > 0 ? `חסרים 🪙 ${missing}` : `⬆ שדרוג · 🪙 ${cost}`}
+  </button>`;
+}
+
 function slotCard(game: GameState, slot: EquipmentSlot): string {
   const wornId = game.equipment.equipped[slot];
   const worn = wornId ? equipmentById(wornId) : undefined;
+  const wornLevel = wornId ? upgradeLevelOf(game.equipment, wornId) : 0;
   const open = openSlot === slot;
   const items = equipmentForSlot(slot)
     .map((item) => {
       const owned = game.equipment.owned.includes(item.id);
       const equipped = wornId === item.id;
       const affordable = game.battle.coins >= item.cost;
+      const level = upgradeLevelOf(game.equipment, item.id);
       const action = equipped
         ? `<button class="eq-btn off" data-unequip="${slot}">הסר</button>`
         : owned
@@ -131,14 +171,24 @@ function slotCard(game: GameState, slot: EquipmentSlot): string {
           : `<button class="eq-btn buy" data-buy="${item.id}" ${affordable ? '' : 'disabled'}>
                🪙 ${item.cost}
              </button>`;
-      return `<li class="eq-item ${equipped ? 'equipped' : owned ? 'owned' : ''} ${affordable || owned ? '' : 'poor'}">
+      // An owned item shows the level it is AT and what the next one costs; an
+      // unowned one shows nothing about upgrades at all — you upgrade gear you
+      // own, and a shop row that talked about both would just be noise.
+      const badge = owned
+        ? `<span class="eq-up up-${level}" data-level="${item.id}">${upgradeLabel(level)}${
+            level > 0 ? ` ${upgradeStars(level)}` : ''
+          }</span>`
+        : '';
+      return `<li class="eq-item ${equipped ? 'equipped' : owned ? 'owned' : ''} ${affordable || owned ? '' : 'poor'} ${
+        level > 0 ? `upgraded up-${level}` : ''
+      }" data-item="${item.id}">
         <span class="eq-art" aria-hidden="true">${item.icon}</span>
         <span class="eq-body">
-          <b>${esc(item.he)} <span class="eq-tier">דרגה ${item.tier}</span></b>
-          <span class="eq-bonus">${esc(bonusHe(item.bonus))}</span>
+          <b>${esc(item.he)} <span class="eq-tier">דרגה ${item.tier}</span> ${badge}</b>
+          <span class="eq-bonus">${esc(bonusHe(upgradedBonus(item, level)))}</span>
           <span class="eq-note">${esc(item.note)}</span>
         </span>
-        ${action}
+        <span class="eq-actions">${action}${owned ? upgradeControl(game, item.id, level) : ''}</span>
       </li>`;
     })
     .join('');
@@ -146,7 +196,7 @@ function slotCard(game: GameState, slot: EquipmentSlot): string {
   return `<section class="eq-slot ${open ? 'open' : ''}">
     <button class="eq-head" data-slot-toggle="${slot}" aria-expanded="${open}">
       <span class="eq-slot-name">${SLOT_EMOJI[slot]} ${SLOT_HE[slot]}</span>
-      <span class="eq-worn">${worn ? esc(worn.he) : 'ריק'}</span>
+      <span class="eq-worn">${worn ? `${esc(worn.he)}${wornLevel > 0 ? ` ${upgradeLabel(wornLevel)}` : ''}` : 'ריק'}</span>
       <span class="eq-caret" aria-hidden="true">${open ? '▲' : '▼'}</span>
     </button>
     ${open ? `<ul class="eq-list">${items}</ul>` : ''}
@@ -160,6 +210,7 @@ function shopCard(game: GameState): string {
     <h3 class="gc-title">חנות הציוד <span class="gc-sub">🪙 ${fmtXp(game.battle.coins)} · ${worn}/${EQUIPMENT_SLOTS.length} מצויד</span></h3>
     <div class="eq-slots">${EQUIPMENT_SLOTS.map((s) => slotCard(game, s)).join('')}</div>
     <p class="gc-note">מטבעות נצברים מגלים, ממיני־בוסים ובעיקר מבוסי עולם. הציוד מתווסף לסטטיסטיקות לפני בונוס הרצף — כך שגם הרצף מגביר אותו.</p>
+    <p class="gc-note dim">כל פריט שבבעלותכם ניתן לשדרוג עד <b>${upgradeLabel(MAX_UPGRADE_LEVEL)}</b>: כל דרגת שדרוג מכפילה את בונוס הפריט עצמו (עד ×${upgradeMultiplier(MAX_UPGRADE_LEVEL)}) ומוסיפה לו נצנוץ, זוהר וכוכב על הדמות.</p>
   </section>`;
 }
 
@@ -564,6 +615,29 @@ function wireShop(main: HTMLElement, deps: CharacterDeps): void {
         return;
       }
       toast(`${equipmentById(id)?.he ?? 'הפריט'} נרכש והוצמד! ✨`);
+      refresh();
+    });
+  });
+
+  // THE UPGRADE. One tap = one level, on an item you already own. The whole
+  // screen re-renders, which is the point: the +N badge, the item's bonus line,
+  // the stat grid one card above and the flair on the drawing all move together.
+  main.querySelectorAll<HTMLButtonElement>('[data-upgrade]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset['upgrade'];
+      if (!id) return;
+      const res = upgradeItem(deps.store, id);
+      if (!res.ok) {
+        toast(
+          res.error === 'insufficient_coins'
+            ? 'אין מספיק מטבעות לשדרוג — נצחו עוד גלים או בוס עולם. 🪙'
+            : res.error === 'max_level'
+              ? 'הפריט כבר בשדרוג המקסימלי. ⭐'
+              : 'לא ניתן לשדרג את הפריט הזה.',
+        );
+        return;
+      }
+      toast(`${equipmentById(id)?.he ?? 'הפריט'} שודרג ל־${upgradeLabel(res.toLevel)}! ⬆`);
       refresh();
     });
   });

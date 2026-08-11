@@ -18,8 +18,18 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { buyCharacter, onSetCompleted, onWaveCleared, onWorkoutFinished, selectBody } from '../src/core/game.ts';
+import {
+  buyCharacter,
+  buyItem,
+  onSetCompleted,
+  onWaveCleared,
+  onWorkoutFinished,
+  selectBody,
+  upgradeItem,
+} from '../src/core/game.ts';
 import { compareEvents } from '../src/core/xp.ts';
+import { upgradeStepCost } from '../src/core/upgrades.ts';
+import { equipmentById } from '../src/data/gameContent.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import { mergeIntoStore } from '../src/storage/merge.ts';
 import type { AppEvent, AppState } from '../src/storage/DataStore.ts';
@@ -286,6 +296,104 @@ describe('the roster converges through a real merge', () => {
     const forward = rebuildFromEvents(union, NOW);
     const backward = rebuildFromEvents([...union].reverse(), NOW);
     expect(JSON.stringify(forward.game)).toBe(JSON.stringify(backward.game));
+  });
+});
+
+/* ---------------------------------------------- equipment upgrades (+N) */
+
+/**
+ * THE CASE THIS FEATURE EXISTS TO SURVIVE: two devices, offline, both tap
+ * "⬆ שדרוג" on the same item.
+ *
+ * Neither device can see the other, so both write an `item_upgraded` with the
+ * SAME `toLevel: 1` and different uuids — id-dedupe cannot help. The rule is
+ * that the stored level is a HIGH-WATER MARK: the reducer applies an event only
+ * while the item is below its `toLevel`, and charges that event's `cost` only
+ * when it applies. So the union folds to +1, charged once, in either direction.
+ */
+describe('equipment upgrades converge through a real merge', () => {
+  /** A store with coins and `itemId` already bought, at a frozen instant. */
+  function armed(itemId: string, coins: number, at: number): LocalStore {
+    return withClock(at, () => {
+      const store = new LocalStore(fakeStorage());
+      onWaveCleared(
+        store,
+        { world: 1, wave: 1, miniBoss: false, enemyId: 'w1_rat', coins, energySpent: 0, seed: 1, durationMs: 10 },
+        new Date(at),
+      );
+      buyItem(store, itemId, new Date(at));
+      return store;
+    });
+  }
+
+  it('charges ONE concurrent +1 once, from either merge direction', () => {
+    const cost1 = upgradeStepCost(equipmentById('gloves_1')?.cost ?? 0, 1);
+    const a = armed('gloves_1', 3_000, NOW - 100_000);
+    const b = new LocalStore(fakeStorage());
+    b.replaceAll(JSON.parse(JSON.stringify(a.getState())) as AppState, a.getEvents());
+    const purse = a.getState().game?.battle.coins ?? 0;
+
+    // both devices upgrade the same item to +1, offline, at different instants
+    withClock(NOW, () => upgradeItem(a, 'gloves_1', new Date(NOW)));
+    withClock(NOW + 5_000, () => upgradeItem(b, 'gloves_1', new Date(NOW + 5_000)));
+
+    mergeIntoStore(a, b.getEvents(), NOW + 60_000);
+    mergeIntoStore(b, a.getEvents(), NOW + 60_000);
+
+    for (const store of [a, b]) {
+      expect(store.getState().game?.equipment.upgrades).toEqual({ gloves_1: 1 });
+      expect(store.getState().game?.battle.coins).toBe(purse - cost1); // once, not twice
+    }
+    expect(JSON.stringify(a.getState().game)).toBe(JSON.stringify(b.getState().game));
+    // both events really are in the log — nothing was dropped, only not applied
+    expect(a.getEvents().filter((e) => e.type === 'item_upgraded')).toHaveLength(2);
+  });
+
+  it('lands on the HIGHEST level and pays for each step exactly once', () => {
+    const belt = equipmentById('belt_1');
+    const step = (l: number): number => upgradeStepCost(belt?.cost ?? 0, l);
+    const a = armed('belt_1', 3_000, NOW - 100_000);
+    const b = new LocalStore(fakeStorage());
+    b.replaceAll(JSON.parse(JSON.stringify(a.getState())) as AppState, a.getEvents());
+    const purse = a.getState().game?.battle.coins ?? 0;
+
+    // A climbs to +2 while B, offline, buys its own +1
+    withClock(NOW, () => upgradeItem(a, 'belt_1', new Date(NOW)));
+    withClock(NOW + 1_000, () => upgradeItem(a, 'belt_1', new Date(NOW + 1_000)));
+    withClock(NOW + 2_000, () => upgradeItem(b, 'belt_1', new Date(NOW + 2_000)));
+
+    mergeIntoStore(a, b.getEvents(), NOW + 60_000);
+    mergeIntoStore(b, a.getEvents(), NOW + 60_000);
+
+    for (const store of [a, b]) {
+      expect(store.getState().game?.equipment.upgrades).toEqual({ belt_1: 2 });
+      expect(store.getState().game?.battle.coins).toBe(purse - step(1) - step(2));
+    }
+    expect(JSON.stringify(a.getState().game)).toBe(JSON.stringify(b.getState().game));
+
+    // and the merged log still folds identically from any arrival order
+    const merged = a.getEvents();
+    const reference = bytes(fold(merged));
+    for (const seed of [3, 17, 2024]) expect(bytes(fold(shuffle(merged, seed)))).toBe(reference);
+  });
+
+  it('keeps the two devices byte-identical when they upgrade DIFFERENT items', () => {
+    const a = armed('gloves_1', 4_000, NOW - 100_000);
+    const b = new LocalStore(fakeStorage());
+    b.replaceAll(JSON.parse(JSON.stringify(a.getState())) as AppState, a.getEvents());
+
+    withClock(NOW, () => {
+      buyItem(b, 'belt_1', new Date(NOW));
+      upgradeItem(b, 'belt_1', new Date(NOW));
+    });
+    withClock(NOW, () => upgradeItem(a, 'gloves_1', new Date(NOW)));
+
+    mergeIntoStore(a, b.getEvents(), NOW + 60_000);
+    mergeIntoStore(b, a.getEvents(), NOW + 60_000);
+
+    // Key ORDER converges too: both ledgers were built in the same fold order.
+    expect(JSON.stringify(a.getState().game?.equipment)).toBe(JSON.stringify(b.getState().game?.equipment));
+    expect(a.getState().game?.equipment.upgrades).toEqual({ gloves_1: 1, belt_1: 1 });
   });
 });
 

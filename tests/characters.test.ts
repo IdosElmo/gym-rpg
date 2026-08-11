@@ -672,10 +672,11 @@ describe('the adventure feed', () => {
 
 /* ------------------------------------------------------- the version bump */
 
-describe('the v6 game blob', () => {
-  it('reports version 6 and carries the roster', () => {
-    expect(GAME_STATE_VERSION).toBe(6);
-    expect(emptyGame().version).toBe(6);
+describe('the game blob version', () => {
+  it('carries the roster at the CURRENT version', () => {
+    // v6 introduced the roster; v7 (equipment upgrades) rides on the same blob.
+    expect(GAME_STATE_VERSION).toBe(7);
+    expect(emptyGame().version).toBe(7);
     expect(emptyGame().characters).toEqual({ owned: [], selected: 'hero_m' });
   });
 
@@ -722,7 +723,7 @@ describe('the v6 game blob', () => {
     const rebuilt = rebuildFromEvents(store.getEvents(), NOW);
     expect(rebuilt.game?.characters.selected).toBe(`${SKIN.id}_m`);
     expect(rebuilt.game?.characters.owned).toEqual([SKIN.id]);
-    expect(rebuilt.game?.version).toBe(6);
+    expect(rebuilt.game?.version).toBe(GAME_STATE_VERSION);
   });
 
   /**
@@ -748,7 +749,7 @@ describe('the v6 game blob', () => {
     expect(migrateState(JSON.parse(JSON.stringify(v5Blob)) as Record<string, unknown>, NOW).game).toBeNull();
 
     const rebuilt = rebuildFromEvents(events, NOW);
-    expect(rebuilt.game?.version).toBe(6);
+    expect(rebuilt.game?.version).toBe(GAME_STATE_VERSION);
     expect(rebuilt.game?.characters).toEqual({ owned: ['robot'], selected: 'robot_m' });
     expect(rebuilt.game?.battle.coins).toBe(1600);
     // the robot now exists on the female body too, at no extra cost

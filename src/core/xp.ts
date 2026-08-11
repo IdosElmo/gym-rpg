@@ -52,6 +52,13 @@ import {
   type ResolvedBonus,
 } from '../data/gameContent.ts';
 import {
+  MAX_UPGRADE_LEVEL,
+  clampUpgradeLevel,
+  upgradeLevelOf,
+  upgradeMultiplier,
+  upgradeStepCost,
+} from './upgrades.ts';
+import {
   CHARACTERS,
   DEFAULT_CHARACTER_ID,
   SKINS,
@@ -385,9 +392,9 @@ export function emptyBattle(): BattleProgress {
   return { world: 1, wave: 1, coins: 0, wavesCleared: 0, miniBossesCleared: 0, bossesDefeated: [] };
 }
 
-/** A fresh wardrobe: nothing owned, nothing worn. */
+/** A fresh wardrobe: nothing owned, nothing worn, nothing upgraded. */
 export function emptyEquipment(): EquipmentState {
-  return { owned: [], equipped: {} };
+  return { owned: [], equipped: {}, upgrades: {} };
 }
 
 /**
@@ -585,6 +592,40 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
       const cost = Math.max(0, toNumber(payload['cost']));
       b.coins = round2(Math.max(0, b.coins - cost));
       if (itemId && !game.equipment.owned.includes(itemId)) game.equipment.owned.push(itemId);
+      break;
+    }
+    /**
+     * ONE upgrade step on one item: `+N`, paid for once.
+     *
+     * CONVERGENCE — the rule this whole feature rests on. The level is a
+     * HIGH-WATER MARK and the event names the level it REACHES, so the reducer
+     * applies it only while the item is BELOW that level, and charges the
+     * event's own `cost` only when it applies. Three consequences, all tested:
+     *
+     *   - a duplicate of a step already taken is a no-op (no double charge),
+     *     which is the same "idempotent by semantic key" contract `coins_spent`
+     *     and `character_purchased` have — the key here is (itemId, toLevel);
+     *   - two devices that each bought "+1" offline write two events with
+     *     different uuids and the SAME `toLevel: 1`; folding the union in either
+     *     order lands on +1 and charges once;
+     *   - a device that reached +2 while the other reached +1 folds to +2 and
+     *     pays for each STEP exactly once — what one device would have paid.
+     *
+     * The price rides in the payload rather than being re-derived, exactly like
+     * `boss_defeated`'s landing spot: an old log keeps folding to the same purse
+     * even if `BALANCE.upgrades` is retuned later.
+     */
+    case 'item_upgraded': {
+      const itemId = typeof payload['itemId'] === 'string' ? payload['itemId'] : '';
+      // Only a REAL item can carry a level — a phantom id would otherwise sit in
+      // the ledger for ever and diverge from what `normalizeEquipment` keeps.
+      if (!itemId || !equipmentById(itemId)) break;
+      const toLevel = clampUpgradeLevel(toNumber(payload['toLevel']));
+      if (toLevel < 1) break;
+      if (upgradeLevelOf(game.equipment, itemId) >= toLevel) break;
+      const cost = Math.max(0, toNumber(payload['cost']));
+      game.battle.coins = round2(Math.max(0, game.battle.coins - cost));
+      game.equipment.upgrades[itemId] = toLevel;
       break;
     }
     /** Put an item on, or (with `itemId: null`) take the slot's item off. */
@@ -1034,9 +1075,16 @@ export function equippedIds(game: GameState): string[] {
   return out;
 }
 
-/** The summed bonus of everything currently worn. */
+/**
+ * The summed bonus of everything currently worn, AT ITS UPGRADE LEVEL.
+ *
+ * This is the single point the upgrade economy enters the stat sheet: every
+ * consumer (the דמות stat grid, the battle engine, the six body-part skills that
+ * scale off ATK/DEF) reads its numbers through here, so an upgrade is felt
+ * everywhere without a line of code in any of them.
+ */
 export function equippedBonus(game: GameState): ResolvedBonus {
-  return sumEquipBonus(equippedIds(game));
+  return sumEquipBonus(equippedIds(game), (id) => upgradeMultiplier(upgradeLevelOf(game.equipment, id)));
 }
 
 /** THE stat function the UI and the battle engine both call. */
@@ -1071,6 +1119,50 @@ export function buildPurchase(game: GameState, itemId: string, date: string, ts:
       { type: 'coins_spent', payload: { date, itemId, slot: def.slot, cost: def.cost }, ts },
       // Buying always equips: one tap, one obvious result.
       { type: 'item_equipped', payload: { date, slot: def.slot, itemId }, ts: ts + 1 },
+    ],
+  };
+}
+
+/* -------------------------------------------------------- upgrade rules */
+
+/** Why an upgrade was refused — the UI turns this into Hebrew. */
+export type UpgradeError = 'unknown_item' | 'not_owned' | 'max_level' | 'insufficient_coins';
+
+export interface UpgradePlan {
+  ok: boolean;
+  error?: UpgradeError;
+  /** The level this plan would reach (0 when it was refused). */
+  toLevel: number;
+  /** Price of that one step (0 when it was refused). */
+  cost: number;
+  events: PendingEvent[];
+}
+
+const REFUSED = (error: UpgradeError): UpgradePlan => ({ ok: false, error, toLevel: 0, cost: 0, events: [] });
+
+/**
+ * Plan ONE upgrade step. PURE: it decides, it does not spend.
+ *
+ * Same contract as `buildPurchase` — the affordability check lives HERE, before
+ * anything reaches the log, so a refused upgrade leaves no trace and a replay
+ * can never produce a negative purse. Only an OWNED item can be upgraded (the
+ * upgrade rides on a purchase, it is not a way to skip one), and only one step
+ * at a time: the log then reads as the ladder the player actually climbed.
+ */
+export function buildUpgrade(game: GameState, itemId: string, date: string, ts: number): UpgradePlan {
+  const def = equipmentById(itemId);
+  if (!def) return REFUSED('unknown_item');
+  if (!game.equipment.owned.includes(itemId)) return REFUSED('not_owned');
+  const toLevel = upgradeLevelOf(game.equipment, itemId) + 1;
+  if (toLevel > MAX_UPGRADE_LEVEL) return REFUSED('max_level');
+  const cost = upgradeStepCost(def.cost, toLevel);
+  if (game.battle.coins < cost) return REFUSED('insufficient_coins');
+  return {
+    ok: true,
+    toLevel,
+    cost,
+    events: [
+      { type: 'item_upgraded', payload: { date, itemId, slot: def.slot, toLevel, cost }, ts },
     ],
   };
 }

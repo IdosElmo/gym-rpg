@@ -21,6 +21,7 @@ import {
   worldById,
   type EquipmentSlot,
 } from '../data/gameContent.ts';
+import { upgradeLabel } from '../core/upgrades.ts';
 import { tsToIso } from '../core/xp.ts';
 import { fmtDate } from '../core/workout.ts';
 import type { AppEvent } from '../storage/DataStore.ts';
@@ -249,6 +250,23 @@ export function buildFeed(
           icon: '🎭',
           cls: 'shop',
           text: `דמות ${esc(skin ? skin.he : str(p['characterId']))} נרכשה · −${num(p['cost'])} 🪙`,
+        });
+        break;
+      }
+      /**
+       * An upgrade step. It gets its own line (unlike an equip/unequip, which
+       * is free and reversible) because it SPENT coins and permanently changed
+       * the character — the same bar `coins_spent` clears.
+       */
+      case 'item_upgraded': {
+        const item = equipmentById(str(p['itemId']));
+        const level = upgradeLabel(num(p['toLevel']));
+        items.push({
+          ts: ev.ts,
+          date,
+          icon: '⬆',
+          cls: 'shop',
+          text: `שודרג: ${esc(item ? item.he : str(p['itemId']))} ${level} · −${num(p['cost'])} 🪙`,
         });
         break;
       }

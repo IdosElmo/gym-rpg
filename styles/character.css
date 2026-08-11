@@ -173,6 +173,36 @@
 .eq-btn.off{border-color:var(--line); color:var(--muted)}
 .eq-btn:disabled{opacity:.45; cursor:default}
 
+/* ---------- equipment upgrades (+1 / +2 / +3) ---------- */
+/* The two actions of an owned row (wear · upgrade) stack, so both stay ≥40px
+   thumb targets on a phone instead of fighting for one row's width. */
+.eq-actions{flex:0 0 auto; display:flex; flex-direction:column; gap:5px; align-items:stretch}
+.eq-actions .eq-btn{width:100%}
+.eq-btn.up{border-color:#A78BFA66; color:#C4B5FD; direction:ltr; font-size:11.5px}
+.eq-max{
+  flex:0 0 auto; min-height:26px; display:flex; align-items:center; justify-content:center;
+  font-size:11px; font-weight:800; color:var(--warn); white-space:nowrap;
+}
+.eq-up{
+  display:inline-block; padding:0 5px; border-radius:6px; direction:ltr;
+  font-size:10.5px; font-weight:800; color:var(--dim);
+  background:var(--card-2); border:1px solid var(--line);
+}
+.eq-up.up-1{color:#93C5FD; border-color:#3B82F666}
+.eq-up.up-2{color:#C4B5FD; border-color:#A78BFA66}
+.eq-up.up-3{color:#FDE68A; border-color:#F59E0B88}
+.eq-item.upgraded{border-color:#A78BFA55}
+.eq-item.up-3{border-color:#F59E0B77}
+
+/* THE FLAIR ON THE DRAWING. The colour is the item's own accent, handed over as
+   `--up-glow` by `ui/characterSvg.ts` (a filter belongs in CSS, a palette
+   belongs to the item — the custom property is the seam). +1 is the bare glint
+   the SVG already drew; +2 adds a glow, +3 a stronger one under the star. */
+.ch-equip.up-2{filter:drop-shadow(0 0 2.5px var(--up-glow, #FDE68A))}
+.ch-equip.up-3{filter:drop-shadow(0 0 3px var(--up-glow, #FDE68A)) drop-shadow(0 0 7px var(--up-glow, #FDE68A))}
+.ch-spark{opacity:.95}
+.ch-up-badge{opacity:.98}
+
 /* ---------- character roster (דמויות) ---------- */
 /* THE BODY TOGGLE — two halves of one control, ≥44px tall so it is a thumb
    target mid-workout. It is a segmented switch rather than a card strip because
