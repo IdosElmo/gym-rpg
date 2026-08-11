@@ -33,7 +33,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BALANCE } from '../src/core/balance.ts';
 import { advance, createBattle, setEnergy, tap, type CombatStats } from '../src/core/combat.ts';
-import { gameOf, onSetCompleted, onWaveCleared, onWorkoutFinished } from '../src/core/game.ts';
+import { buyItem, gameOf, onSetCompleted, onWaveCleared, onWorkoutFinished, upgradeItem } from '../src/core/game.ts';
+import { upgradeStepCost } from '../src/core/upgrades.ts';
+import { equipmentById } from '../src/data/gameContent.ts';
 import { clonePlanDoc, defaultPlanDoc, planRows, resolveProgram, savePlan } from '../src/core/plan.ts';
 import { getSetData, todayISO } from '../src/core/workout.ts';
 import { compareEvents, computeStreak, statsOfGame, weeklyTargetsFromEvents } from '../src/core/xp.ts';
@@ -736,6 +738,95 @@ describe('two devices, one account', () => {
       // the workout logged on a day key the plan no longer defines is still there
       expect(dev.store.getState().sessions[today]?.day).toBe('d_bet');
     }
+
+    phone.engine.dispose();
+    tablet.engine.dispose();
+  }, 60_000);
+
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * THE CASE THE UPGRADE ECONOMY HAD TO BE DESIGNED AROUND: both devices are
+   * offline, both look at the same owned item, both tap "⬆ שדרוג".
+   *
+   * Two `item_upgraded` events with the same `toLevel` and different uuids reach
+   * the cloud; id-dedupe cannot collapse them. The high-water-mark rule
+   * (`GameState.equipment.upgrades`) is what makes the account converge on +1
+   * and charge for it exactly once — and, because gear feeds `deriveStats`, the
+   * two devices must also agree on the character's ATK afterwards.
+   */
+  it('converges on ONE level when both devices buy the same upgrade offline', async () => {
+    const backend = new MemoryBackend();
+    const phone = makeDevice('phone', backend);
+    const tablet = makeDevice('tablet', backend);
+    const today = todayISO(new Date(START));
+
+    await phone.engine.linkAccount(USER);
+    await tablet.engine.linkAccount(USER);
+    await quiesce(phone, tablet);
+
+    /* -- 1. the phone earns a purse and buys the gloves ------------------- */
+
+    onWaveCleared(
+      phone.store,
+      { world: 1, wave: 1, miniBoss: false, enemyId: 'w1_rat', coins: 3_000, energySpent: 0, seed: 7, durationMs: 900 },
+      new Date(Date.now()),
+    );
+    expect(buyItem(phone.store, 'gloves_1', new Date(Date.now())).ok).toBe(true);
+    await passTime(3_000, phone, tablet);
+    await quiesce(phone, tablet);
+    expectConverged(phone, tablet);
+
+    const purse = gameOf(phone.store).battle.coins;
+    const step = upgradeStepCost(equipmentById('gloves_1')?.cost ?? 0, 1);
+    const bare = statsOfGame(gameOf(phone.store)).atk;
+
+    /* -- 2. both go offline and both upgrade the SAME item ---------------- */
+
+    phone.online = false;
+    tablet.online = false;
+    expect(upgradeItem(phone.store, 'gloves_1', new Date(Date.now())).toLevel).toBe(1);
+    await passTime(1_000, phone, tablet);
+    expect(upgradeItem(tablet.store, 'gloves_1', new Date(Date.now())).toLevel).toBe(1);
+    await passTime(3_000, phone, tablet);
+
+    // each device, alone, believes it paid for the level — and it did
+    for (const dev of [phone, tablet]) {
+      expect(gameOf(dev.store).equipment.upgrades).toEqual({ gloves_1: 1 });
+      expect(gameOf(dev.store).battle.coins).toBe(purse - step);
+      expectReplayEquivalence(dev);
+    }
+
+    /* -- 3. back online: the union charges ONCE --------------------------- */
+
+    phone.online = true;
+    tablet.online = true;
+    await quiesce(phone, tablet);
+    expectConverged(phone, tablet);
+
+    expect(backend.eventsOf(USER).filter((e) => e.type === 'item_upgraded')).toHaveLength(2);
+    for (const dev of [phone, tablet]) {
+      const game = gameOf(dev.store);
+      expect(game.equipment.upgrades).toEqual({ gloves_1: 1 }); // not +2
+      expect(game.battle.coins).toBe(purse - step); // not 2 × step
+      expect(statsOfGame(game).atk).toBeGreaterThan(bare); // the gear got better
+    }
+    expect(statsOfGame(gameOf(phone.store))).toEqual(statsOfGame(gameOf(tablet.store)));
+
+    /* -- 4. the ladder still climbs, from either device ------------------- */
+
+    expect(upgradeItem(tablet.store, 'gloves_1', new Date(Date.now())).toLevel).toBe(2);
+    await passTime(3_000, phone, tablet);
+    await quiesce(tablet, phone);
+    expectConverged(phone, tablet);
+    for (const dev of [phone, tablet]) {
+      expect(gameOf(dev.store).equipment.upgrades).toEqual({ gloves_1: 2 });
+    }
+    // …and the adventure feed on the phone tells the story of both purchases
+    const upgrades = buildFeed(phone.store.getEvents(), 80).filter((i) => i.icon === '⬆');
+    expect(upgrades.length).toBeGreaterThanOrEqual(2);
+    expect(upgrades[0]?.text).toContain('+2');
+    expect(today.length).toBe(10);
 
     phone.engine.dispose();
     tablet.engine.dispose();

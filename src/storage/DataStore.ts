@@ -79,8 +79,12 @@ export interface UiState {
  * overlap enough to be confusable (`'robot'` was a v5 selection and is a v6
  * skin id), so the version is bumped rather than sniffed — an old blob is
  * rejected and rebuilt from the log, which is lossless.
+ * v7 (equipment upgrades) added `equipment.upgrades` — the per-item +0…+3 level
+ * bought with coins. A v6 blob simply has no such field, and inventing `{}` for
+ * it would silently ERASE upgrades that are sitting in the log; the blob is
+ * therefore rejected and replayed, which restores every level exactly.
  */
-export const GAME_STATE_VERSION = 6;
+export const GAME_STATE_VERSION = 7;
 
 /** XP pool of one body part. `level` is DERIVED from `xp` (see core/xp.ts). */
 export interface PartProgress {
@@ -153,12 +157,23 @@ export interface CharactersState {
   selected: string;
 }
 
-/** Owned + equipped shop items. Both are folded from the event log. */
+/** Owned + equipped + upgraded shop items. All folded from the event log. */
 export interface EquipmentState {
   /** Every item id ever bought (purchases are permanent). */
   owned: string[];
   /** slot -> item id currently worn. A missing slot means "nothing worn". */
   equipped: Partial<Record<EquipmentSlot, string>>;
+  /**
+   * item id -> upgrade level (1…`BALANCE.upgrades.maxLevel`). A missing entry
+   * means +0, so a wardrobe that never upgraded anything is `{}` — exactly what
+   * every save written before v7 effectively said.
+   *
+   * The level is a HIGH-WATER MARK, never a counter: `item_upgraded` carries the
+   * level it reaches (`toLevel`) and the reducer applies it only when the item
+   * is below it. That is what makes two devices that each bought "+1" while
+   * offline converge on +1 and charge for it exactly once (see `core/xp.ts`).
+   */
+  upgrades: Record<string, number>;
 }
 
 /**
@@ -259,6 +274,8 @@ export type EventType =
   | 'boss_defeated'
   | 'coins_spent'
   | 'item_equipped'
+  // Phase 6 — per-item equipment upgrades bought with coins
+  | 'item_upgraded'
   // Phase 5 — the cosmetic character roster
   | 'character_purchased'
   | 'character_selected'
@@ -426,6 +443,30 @@ export interface ItemEquippedPayload extends Record<string, unknown> {
   date: string;
   slot: EquipmentSlot;
   itemId: string | null;
+}
+
+/**
+ * ONE upgrade step on ONE owned item. The payload is AUTHORITATIVE in exactly
+ * the way `boss_defeated` is: it names the level this step REACHES and the price
+ * that was quoted for it, so a replay never has to re-derive today's cost curve
+ * and an old log keeps folding to the same purse if the curve is ever retuned.
+ *
+ * CONVERGENCE. The reducer applies the event only when
+ * `upgrades[itemId] < toLevel`, and charges `cost` only when it applies. So:
+ *   - a duplicate (or an out-of-order older step) is a no-op — no double charge;
+ *   - two devices that each bought "+1" offline both write `toLevel: 1`; folding
+ *     the union in EITHER order lands on +1 and pays once;
+ *   - a device that got to +2 while another got to +1 folds to +2 and pays for
+ *     both steps exactly once each — which is what one device would have paid.
+ */
+export interface ItemUpgradedPayload extends Record<string, unknown> {
+  date: string;
+  itemId: string;
+  slot: EquipmentSlot;
+  /** The level this step reaches: 1…`BALANCE.upgrades.maxLevel`. */
+  toLevel: number;
+  /** Coins charged for THIS step (not the cumulative price of the level). */
+  cost: number;
 }
 
 /* ------------------------------------------------ Phase 5 roster payloads */

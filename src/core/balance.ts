@@ -70,6 +70,37 @@ export const BALANCE = {
     visualMaxLevel: 15,
   },
 
+  /* ------------------------------------------------------------- upgrades */
+  /**
+   * EQUIPMENT UPGRADES — per-item levels (+1/+2/+3) bought with coins, on top
+   * of the three TIERS the shop already sells as separate items.
+   *
+   * Two curves, both expressed relative to the item itself, so one rule prices
+   * and powers all twelve pieces and a new item needs no new numbers:
+   *   cost  = `item.cost × costCurve[N]` spent in total to reach +N
+   *   bonus = `item.bonus × statCurve[N]` once it is there
+   *
+   * PACING. A full +3 costs 2× the item's price and pays 1.8× its bonus, so the
+   * two ways to spend a purse stay comparable per coin — buying the next TIER is
+   * one big jump (≈2.5–3× the bonus for ≈4× the price), upgrading is the same
+   * value in affordable steps, on gear you already own and already like. A +3
+   * tier‑1 piece therefore lands between tier 1 and tier 2 at a price between
+   * them too (`tests/upgrades.test.ts` pins that relationship), which keeps the
+   * early game moving without making the tier ladder pointless — and, because
+   * the curve is relative, a +3 tier‑3 piece is a genuine endgame coin sink.
+   */
+  upgrades: {
+    /** Highest upgrade level any item can reach. */
+    maxLevel: 3,
+    /**
+     * CUMULATIVE share of the item's base price to REACH +N (index = N), so one
+     * step costs `cost × (costCurve[N] − costCurve[N−1])` = 60% · 60% · 80%.
+     */
+    costCurve: [0, 0.6, 1.2, 2] as readonly number[],
+    /** Multiplier on the item's OWN bonus at +N (index = N). */
+    statCurve: [1, 1.25, 1.5, 1.8] as readonly number[],
+  },
+
   /* --------------------------------------------------------------- combat */
   combat: {
     /**

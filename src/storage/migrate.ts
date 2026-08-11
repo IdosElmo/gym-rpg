@@ -41,6 +41,7 @@ import {
   rebuildGame,
   type PendingEvent,
 } from '../core/xp.ts';
+import { clampUpgradeLevel } from '../core/upgrades.ts';
 import { uuid } from '../util/uuid.ts';
 import {
   GAME_STATE_VERSION,
@@ -277,6 +278,20 @@ function normalizeEquipment(raw: unknown): EquipmentState {
       if (def && def.slot === slot && out.owned.includes(id)) out.equipped[slot] = id;
     }
   }
+
+  // Upgrade levels (v7). Same rule again: a level on an id the roster no longer
+  // has is dropped, and anything outside 1…max is clamped — a hand-edited blob
+  // can neither invent a +9 nor keep paying a bonus for an item that is gone.
+  // Ownership is deliberately NOT required here: the reducer does not require it
+  // either, so the blob and a replay of the log always agree.
+  const up = raw['upgrades'];
+  if (isRecord(up)) {
+    for (const id of Object.keys(up).sort()) {
+      if (!equipmentById(id)) continue;
+      const level = clampUpgradeLevel(numOr(up[id], 0));
+      if (level > 0) out.upgrades[id] = level;
+    }
+  }
   return out;
 }
 
@@ -321,9 +336,11 @@ function normalizeCharacters(raw: unknown): CharactersState {
  * turned that roster into a body × skin matrix, where `characters.owned` means
  * SKINS and `characters.selected` means a combination — the same field names
  * carrying different ids, which is precisely the case a version number exists
- * for. An older blob is therefore rejected here and rebuilt from the log, which
- * is lossless because every fact is an event. That rebuild IS the sanctioned
- * migration path.
+ * for; v6 -> v7 (equipment upgrades) added `equipment.upgrades`, the per-item
+ * +0…+3 level — a field a v6 blob simply does not have, and defaulting it to
+ * `{}` would silently ERASE levels that are sitting in the log. An older blob is
+ * therefore rejected here and rebuilt from the log, which is lossless because
+ * every fact is an event. That rebuild IS the sanctioned migration path.
  */
 export function normalizeGame(raw: unknown): GameState | null {
   if (!isRecord(raw)) return null;

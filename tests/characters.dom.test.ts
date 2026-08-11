@@ -667,7 +667,7 @@ describe('the try-on preview', () => {
     store.update((d) => {
       if (!d.game) return;
       d.game.parts.chest.level = 11;
-      d.game.equipment = { owned: ['belt_1'], equipped: { belt: 'belt_1' } };
+      d.game.equipment = { owned: ['belt_1'], equipped: { belt: 'belt_1' }, upgrades: {} };
     });
     mount(store);
     click(document.querySelector(`.chr-card[data-skin="${SKIN.id}"]`));

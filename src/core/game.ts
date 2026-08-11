@@ -30,6 +30,7 @@ import {
   buildEquip,
   buildPurchase,
   buildSetGrant,
+  buildUpgrade,
   buildWorkoutCompletionGrant,
   computeStreak,
   emptyGame,
@@ -38,6 +39,7 @@ import {
   type CharacterPurchaseError,
   type PendingEvent,
   type PurchaseError,
+  type UpgradeError,
 } from './xp.ts';
 
 /** The game state of a store, never null (an absent blob reads as a fresh one). */
@@ -224,6 +226,34 @@ export function buyItem(store: DataStore, itemId: string, now: Date = new Date()
   }
   commit(store, plan.events, now);
   return { ok: true };
+}
+
+export interface UpgradeResult {
+  ok: boolean;
+  error?: UpgradeError;
+  /** The level reached (0 when refused) — the toast and the feed quote it. */
+  toLevel: number;
+  /** Coins charged for this step (0 when refused). */
+  cost: number;
+}
+
+/**
+ * Upgrade an OWNED item by one level (+1 → +2 → +3), paid in battle coins.
+ *
+ * Same shape as `buyItem`: `core/xp.ts` decides (ownership, the cap, the purse)
+ * BEFORE anything is appended, so a refused upgrade leaves no trace in the log.
+ * The stat grid follows for free — every stat reads `equippedBonus`, which reads
+ * the level this writes.
+ */
+export function upgradeItem(store: DataStore, itemId: string, now: Date = new Date()): UpgradeResult {
+  const plan = buildUpgrade(gameOf(store), itemId, todayISO(now), now.getTime());
+  if (!plan.ok) {
+    const out: UpgradeResult = { ok: false, toLevel: 0, cost: 0 };
+    if (plan.error) out.error = plan.error;
+    return out;
+  }
+  commit(store, plan.events, now);
+  return { ok: true, toLevel: plan.toLevel, cost: plan.cost };
 }
 
 /** Wear an owned item, or pass `null` to take the slot's item off. */
