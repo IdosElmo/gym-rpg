@@ -655,8 +655,10 @@ describe('status', () => {
 describe('syncConfigured', () => {
   const real = { url: 'https://demo.supabase.co', anonKey: 'anon-key' };
 
-  it('is off with the placeholder config that ships in the repo', () => {
-    expect(syncConfigured(SYNC_CONFIG, 'https:')).toBe(false);
+  it('is ON with the real project config that ships in the repo, off with missing fields', () => {
+    // The repo now ships a live Supabase project (see src/sync/config.ts) —
+    // the shipped config must enable sync when served over http(s).
+    expect(syncConfigured(SYNC_CONFIG, 'https:')).toBe(true);
     expect(syncConfigured({ url: real.url, anonKey: '' }, 'https:')).toBe(false);
     expect(syncConfigured({ url: '', anonKey: real.anonKey }, 'https:')).toBe(false);
   });
