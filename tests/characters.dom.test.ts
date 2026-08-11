@@ -350,8 +350,118 @@ describe('the דמויות strip', () => {
       expect(card.tagName).toBe('BUTTON');
     }
     click(document.querySelector(`.chr-card[data-character="${SKIN.id}"]`));
-    // the two sheet actions are real buttons with the shop's ≥40px sizing class
-    expect(document.querySelectorAll('#chrBuy .eq-btn')).toHaveLength(2);
+    // the three sheet actions (try on · buy · cancel) are real buttons with the
+    // shop's ≥40px sizing class
+    expect(document.querySelectorAll('#chrBuy .eq-btn')).toHaveLength(3);
+    expect(document.querySelector(`#chrBuy [data-preview-character="${SKIN.id}"]`)?.tagName).toBe('BUTTON');
+  });
+});
+
+/* --------------------------------------------------------- the try-on */
+
+describe('the try-on preview', () => {
+  it('wears a locked character on the big drawing without writing anything', () => {
+    const store = charStore(SKIN.cost);
+    mount(store);
+    const before = store.getEvents().length;
+
+    click(document.querySelector(`.chr-card[data-character="${SKIN.id}"]`));
+    click(document.querySelector(`[data-preview-character="${SKIN.id}"]`));
+
+    // the BIG character is the locked one…
+    const big = document.querySelector('.char-stage .ch-svg');
+    expect(big?.getAttribute('data-character')).toBe(SKIN.id);
+    expect(big?.getAttribute('aria-label')).toContain('תצוגה מקדימה');
+    // …clearly marked as a preview, with a way back
+    expect(document.querySelector('.char-stage')?.className).toContain('previewing');
+    expect(document.getElementById('chrPreview')?.textContent).toContain('לא נרכש');
+    expect(document.querySelector('.char-preview [data-exit-preview]')?.textContent).toContain('חזרה לדמות שלי');
+    expect(document.querySelector(`.chr-card[data-character="${SKIN.id}"]`)?.className).toContain('previewing');
+
+    // …and NOTHING was written: no event at all, no ownership, no selection
+    expect(store.getEvents()).toHaveLength(before);
+    expect(gameOf(store).characters).toEqual({ owned: [], selected: 'hero_m' });
+    expect(gameOf(store).battle.coins).toBe(SKIN.cost);
+  });
+
+  it('draws the preview with MY levels and MY equipment', () => {
+    const store = charStore(SKIN.cost);
+    store.update((d) => {
+      if (!d.game) return;
+      d.game.parts.chest.level = 11;
+      d.game.equipment = { owned: ['belt_1'], equipped: { belt: 'belt_1' } };
+    });
+    mount(store);
+    click(document.querySelector(`.chr-card[data-character="${SKIN.id}"]`));
+    click(document.querySelector(`[data-preview-character="${SKIN.id}"]`));
+
+    const big = document.querySelector('.char-stage .ch-svg');
+    // the belt is worn by the previewed body…
+    expect(big?.querySelector('[data-slot="belt"]')?.childElementCount ?? 0).toBeGreaterThan(0);
+    // …and the drawing is the player's own trained body, not a stock portrait
+    const host = document.createElement('div');
+    host.innerHTML = characterSvg(gameOf(store).parts, {
+      character: SKIN.id,
+      equipment: gameOf(store).equipment,
+      label: `תצוגה מקדימה: ${SKIN.he}`,
+    });
+    expect(big?.outerHTML).toBe(host.firstElementChild?.outerHTML);
+  });
+
+  it('goes back to my own character, and forgets the try-on on navigation', () => {
+    const store = charStore(SKIN.cost);
+    selectCharacter(store, 'hero_f');
+    const render = mount(store);
+
+    click(document.querySelector(`.chr-card[data-character="${SKIN.id}"]`));
+    click(document.querySelector(`[data-preview-character="${SKIN.id}"]`));
+    expect(document.querySelector('.char-stage .ch-svg')?.getAttribute('data-character')).toBe(SKIN.id);
+
+    click(document.querySelector('.char-preview [data-exit-preview]'));
+    expect(document.querySelector('.char-stage .ch-svg')?.getAttribute('data-character')).toBe('hero_f');
+    expect(document.querySelector('.char-stage')?.className).not.toContain('previewing');
+    expect(document.getElementById('chrBuy')).not.toBeNull(); // the sheet stays reachable
+
+    // preview again, then leave the screen: the try-on must not survive it
+    click(document.querySelector(`[data-preview-character="${SKIN.id}"]`));
+    expect(document.querySelector('.char-stage')?.className).toContain('previewing');
+    click(document.querySelector('.tab[data-view="BT"]'));
+    click(document.querySelector('.tab[data-view="CH"]'));
+    render();
+    expect(document.querySelector('.char-stage .ch-svg')?.getAttribute('data-character')).toBe('hero_f');
+    expect(document.querySelector('.char-stage')?.className).not.toContain('previewing');
+  });
+
+  it('never lets the arena fight as a previewed character', () => {
+    const store = charStore(SKIN.cost);
+    mount(store);
+    click(document.querySelector(`.chr-card[data-character="${SKIN.id}"]`));
+    click(document.querySelector(`[data-preview-character="${SKIN.id}"]`));
+    expect(document.querySelector('.char-stage .ch-svg')?.getAttribute('data-character')).toBe(SKIN.id);
+
+    // the arena reads the STORE, and the store never heard about the try-on
+    click(document.querySelector('.tab[data-view="BT"]'));
+    expect(document.querySelector('.bt-sprite.hero .ch-svg')?.getAttribute('data-character')).toBe('hero_m');
+    expect(store.getEvents().some((e) => e.type === 'character_purchased')).toBe(false);
+    expect(store.getEvents().some((e) => e.type === 'character_selected')).toBe(false);
+  });
+
+  it('buys the previewed character in one tap, straight from the preview', () => {
+    const store = charStore(SKIN.cost + 10);
+    mount(store);
+    click(document.querySelector(`.chr-card[data-character="${SKIN.id}"]`));
+    click(document.querySelector(`[data-preview-character="${SKIN.id}"]`));
+
+    // the sheet is still there under the preview — one tap buys
+    click(document.querySelector(`[data-buy-character="${SKIN.id}"]`));
+
+    expect(gameOf(store).characters.owned).toEqual([SKIN.id]);
+    expect(gameOf(store).characters.selected).toBe(SKIN.id);
+    expect(gameOf(store).battle.coins).toBe(10);
+    // the preview marking is gone: this is the real character now
+    expect(document.querySelector('.char-stage')?.className).not.toContain('previewing');
+    expect(document.getElementById('chrPreview')).toBeNull();
+    expect(document.querySelector('.char-stage .ch-svg')?.getAttribute('data-character')).toBe(SKIN.id);
   });
 });
 

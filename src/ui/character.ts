@@ -15,7 +15,7 @@
  */
 
 import { BODY_PARTS, BODY_PART_HE, type BodyPart } from '../data/program.ts';
-import { CHARACTERS, characterById } from '../data/characters.ts';
+import { CHARACTERS, characterById, type CharacterDef } from '../data/characters.ts';
 import {
   EQUIPMENT_SLOTS,
   SLOT_EMOJI,
@@ -60,9 +60,27 @@ let openSlot: EquipmentSlot | null = null;
  */
 let pendingCharacter: string | null = null;
 
-/** Test/boot helper: forget any open purchase sheet. */
+/**
+ * THE TRY-ON. The locked character the big drawing is temporarily wearing.
+ *
+ * Pure UI, in memory, exactly like `pendingCharacter`: previewing writes NO
+ * event, never touches `game.characters`, and is invisible to everything that
+ * reads the store — the arena keeps fighting as `game.characters.selected`
+ * (`ui/battle.ts` reads it directly), so a preview can never leak into a battle.
+ * It also dies on navigation: `ui/app.ts` calls `exitCharacterPreview()` on
+ * every render of another screen.
+ */
+let previewCharacter: string | null = null;
+
+/** Test/boot helper: forget any open purchase sheet (and any try-on). */
 export function resetCharacterSheet(): void {
   pendingCharacter = null;
+  previewCharacter = null;
+}
+
+/** Leave try-on mode — called whenever the דמות screen is left. */
+export function exitCharacterPreview(): void {
+  previewCharacter = null;
 }
 
 const PART_ROLE_HE: Readonly<Record<BodyPart, string>> = {
@@ -149,13 +167,17 @@ function rosterCard(game: GameState): string {
   const selected = game.characters.selected;
   const coins = game.battle.coins;
   const unlocked = CHARACTERS.filter((c) => ownsCharacter(game, c.id)).length;
+  const preview = previewDefOf(game);
 
   const cards = CHARACTERS.map((c) => {
     const owned = ownsCharacter(game, c.id);
     const isSelected = owned && c.id === selected;
     const affordable = coins >= c.cost;
-    const tag = isSelected ? '● נבחרה' : owned ? '✓ נפתחה' : `🪙 ${c.cost}`;
-    const state = isSelected ? 'selected' : owned ? 'owned' : affordable ? 'locked' : 'locked poor';
+    const previewing = preview?.id === c.id;
+    const tag = previewing ? '👁 בתצוגה' : isSelected ? '● נבחרה' : owned ? '✓ נפתחה' : `🪙 ${c.cost}`;
+    const state =
+      (isSelected ? 'selected' : owned ? 'owned' : affordable ? 'locked' : 'locked poor') +
+      (previewing ? ' previewing' : '');
     return `<li class="chr-item">
       <button class="chr-card ${state}" type="button" data-character="${c.id}"
         aria-pressed="${isSelected ? 'true' : 'false'}"
@@ -177,11 +199,29 @@ function rosterCard(game: GameState): string {
   </section>`;
 }
 
+/**
+ * The locked character being tried on right now, or `null`.
+ *
+ * Self-healing: a try-on of something that became owned (bought on this device
+ * or pulled in from another one) simply ends — you are looking at your own
+ * character again, and there is nothing to buy.
+ */
+function previewDefOf(game: GameState): CharacterDef | null {
+  if (!previewCharacter) return null;
+  const def = characterById(previewCharacter);
+  if (!def || ownsCharacter(game, def.id)) {
+    previewCharacter = null;
+    return null;
+  }
+  return def;
+}
+
 /** The confirmation sheet of a pending purchase ('' when nothing is pending). */
 function buySheet(game: GameState): string {
   if (!pendingCharacter) return '';
   const def = characterById(pendingCharacter);
   if (!def || ownsCharacter(game, def.id)) return '';
+  const previewing = previewDefOf(game)?.id === def.id;
   const coins = game.battle.coins;
   const missing = Math.max(0, def.cost - coins);
   const affordable = missing === 0;
@@ -192,6 +232,14 @@ function buySheet(game: GameState): string {
         <span>${esc(def.note)}</span>
       </div>
       <p class="chr-buy-price">מחיר: <b>🪙 ${def.cost}</b> · יש לכם: <b>🪙 ${fmtXp(coins)}</b></p>
+      <div class="chr-buy-try">
+        ${
+          previewing
+            ? '<button class="eq-btn on" data-exit-preview="1">↩ חזרה לדמות שלי</button>'
+            : `<button class="eq-btn" data-preview-character="${def.id}">👁 תצוגה מקדימה</button>`
+        }
+      </div>
+      <p class="gc-note dim">התצוגה המקדימה מלבישה את הדמות הזו על הרמות והציוד שלכם — בלי לרכוש ובלי לשנות דבר.</p>
       <div class="chr-buy-actions">
         <button class="eq-btn buy" data-buy-character="${def.id}" ${affordable ? '' : 'disabled'}>
           ${affordable ? `🪙 ${def.cost} · קנייה` : `חסרים 🪙 ${missing}`}
@@ -268,19 +316,34 @@ export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
   const streakPct = Math.min(100, Math.round((game.streak.daysThisWeek / game.streak.needed) * 100));
   const trophies = game.battle.bossesDefeated.length;
 
+  // THE TRY-ON: while a locked character is being previewed the big drawing —
+  // and ONLY the big drawing — wears it, with the player's real levels and
+  // equipment. Nothing is written; `game.characters.selected` is untouched, so
+  // the arena (and every other reader of the store) still sees the real choice.
+  const preview = previewDefOf(game);
+
   main.innerHTML = `
   <section class="char-card">
-    <div class="char-stage">
+    <div class="char-stage ${preview ? 'previewing' : ''}">
       ${characterSvg(game.parts, {
         pulse,
         equipment: game.equipment,
         trophies,
-        character: game.characters.selected,
+        character: preview ? preview.id : game.characters.selected,
+        ...(preview ? { label: `תצוגה מקדימה: ${preview.he}` } : {}),
       })}
       <div class="char-level" aria-label="רמת דמות">
         <span class="cl-num">${game.level}</span><span class="cl-lbl">רמה</span>
       </div>
-      ${tier > 0 ? `<div class="char-streak-chip">🔥 דרגה ${tier} · +${tier * 10}%</div>` : ''}
+      ${tier > 0 && !preview ? `<div class="char-streak-chip">🔥 דרגה ${tier} · +${tier * 10}%</div>` : ''}
+      ${
+        preview
+          ? `<div class="char-preview" id="chrPreview">
+              <span class="cp-chip">👁 תצוגה מקדימה — לא נרכש</span>
+              <button class="eq-btn on cp-back" type="button" data-exit-preview="1">↩ חזרה לדמות שלי</button>
+            </div>`
+          : ''
+      }
     </div>
     <div class="char-meta">
       <div class="cm-item"><b>${fmtXp(game.totalXp)}</b><span>סה״כ XP</span></div>
@@ -360,12 +423,35 @@ function wireRoster(main: HTMLElement, deps: CharacterDeps): void {
       if (ownsCharacter(game, id)) {
         // Owned: switch straight away — the big drawing above is the feedback.
         pendingCharacter = null;
+        previewCharacter = null; // an owned character is worn for real, not tried on
         if (selectCharacter(deps.store, id)) toast(`${characterById(id)?.he ?? 'הדמות'} נכנסה לזירה! ✨`);
         refresh();
         return;
       }
       // Locked: never buy on the first tap — open the confirmation sheet.
       pendingCharacter = id;
+      // Opening ANOTHER locked character's sheet ends the previous try-on, so
+      // the chip and the drawing can never disagree about who is on stage.
+      if (previewCharacter !== id) previewCharacter = null;
+      refresh();
+    });
+  });
+
+  // Try-on: pure view state — no event, no store write, no `selectCharacter`.
+  // The sheet stays open underneath, so buying from the preview is one tap.
+  main.querySelectorAll<HTMLButtonElement>('[data-preview-character]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset['previewCharacter'];
+      if (!id || ownsCharacter(gameOf(deps.store), id)) return;
+      previewCharacter = id;
+      pendingCharacter = id;
+      refresh();
+    });
+  });
+
+  main.querySelectorAll<HTMLButtonElement>('[data-exit-preview]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      previewCharacter = null;
       refresh();
     });
   });
@@ -384,6 +470,7 @@ function wireRoster(main: HTMLElement, deps: CharacterDeps): void {
         return;
       }
       pendingCharacter = null;
+      previewCharacter = null; // bought: the drawing is the real character now
       toast(`${characterById(id)?.he ?? 'הדמות'} נרכשה ונכנסה לזירה! 🎭`);
       refresh();
     });
@@ -392,6 +479,7 @@ function wireRoster(main: HTMLElement, deps: CharacterDeps): void {
   main.querySelectorAll<HTMLButtonElement>('[data-cancel-character]').forEach((btn) => {
     btn.addEventListener('click', () => {
       pendingCharacter = null;
+      previewCharacter = null;
       refresh();
     });
   });
