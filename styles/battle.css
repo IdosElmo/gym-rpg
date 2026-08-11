@@ -208,3 +208,67 @@
 .bt-gate.champion{border-color:#FBBF2455; background:linear-gradient(180deg,#F59E0B12,transparent)}
 .bt-gate.champion .bt-gate-body{align-items:flex-start}
 .bt-gate-sprite.defeated{filter:grayscale(.55) brightness(.85); opacity:.8}
+
+/* ---------- body-part skills (Phase 4) ----------
+   Six slots in body-part order, one row, directly above the super move. The
+   design rules they obey:
+     - a LOCKED slot is dimmed and dashed but still a full ≥44px button, because
+       tapping it has to be able to say "חזה רמה 5" in Hebrew;
+     - the cooldown is a RADIAL SWEEP drawn from `--cd` (0..1, written by
+       ui/battle.ts from the core's own cooldown fraction) — one number, no
+       second clock in the CSS;
+     - colours come from the tokens (`--warn` ready, `--ok` live), never from the
+       character palette, so a skin change cannot leak into the bar.          */
+.bt-skills{
+  display:grid; grid-template-columns:repeat(6,1fr); gap:5px; margin-top:10px;
+}
+.bt-skill{
+  position:relative; overflow:hidden; min-height:58px; padding:5px 2px 6px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
+  background:var(--card-2); border:1px solid var(--line); border-radius:12px;
+  color:var(--text); cursor:pointer;
+  transition:border-color .15s ease, background .15s ease, transform .08s ease;
+}
+.bt-skill:active{transform:scale(.95)}
+.sk-glyph{font-size:16px; line-height:1.15}
+.sk-name{
+  font-size:9.5px; font-weight:800; line-height:1.15; text-align:center;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%;
+}
+.sk-sub{
+  font-size:9px; font-weight:700; color:var(--dim); direction:rtl;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%;
+}
+/* the cooldown sweep: a dark wedge that unwinds as `--cd` falls to 0 */
+.sk-sweep{
+  position:absolute; inset:0; pointer-events:none; opacity:0; border-radius:inherit;
+  background:conic-gradient(#0B0F19CC calc(var(--cd,0) * 360deg), transparent 0);
+  transition:opacity .12s linear;
+}
+.bt-skill.cooling .sk-sweep{opacity:1}
+.bt-skill.cooling .sk-sub{color:var(--muted); direction:ltr}
+.bt-skill.ready{border-color:var(--warn); background:#F59E0B14}
+.bt-skill.ready .sk-sub{color:var(--warn)}
+.bt-skill.live{border-color:var(--ok); background:#10B98118}
+.bt-skill.live .sk-sub{color:var(--ok)}
+.bt-skill.locked{opacity:.6; border-style:dashed; background:var(--card)}
+.bt-skill.locked .sk-name{color:var(--muted)}
+.bt-skills-foot{margin:6px 0 0; text-align:center}
+
+/* ---------- live buff chips, over the hero ---------- */
+.bt-buffs{
+  display:flex; flex-wrap:wrap; gap:4px; justify-content:center;
+  min-height:17px; direction:ltr;
+}
+.bt-chip{
+  font-size:10px; font-weight:800; line-height:1.5; direction:ltr;
+  background:#0B0F19AA; border:1px solid var(--line); border-radius:99px; padding:0 6px;
+  color:var(--text);
+}
+.bt-chip.sk-guard{border-color:#60A5FA88}
+.bt-chip.sk-flurry{border-color:#A78BFA88}
+.bt-chip.sk-breath{border-color:#10B98188}
+.bt-chip.sk-quake{border-color:#F59E0B88}
+.bt-chip.sk-focus{border-color:#FBBF2488}
+
+.bt-float.skill{color:#FDE68A; font-size:12px; font-weight:900}

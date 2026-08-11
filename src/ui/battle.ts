@@ -37,18 +37,25 @@ import {
   isEndgame,
   setEnergy,
   setGate,
+  skillPower,
+  skillSummaryHe,
+  skillUnlockLevel,
+  skillUnlocked,
+  skillViews,
   superReady,
   tap,
+  useSkill,
   useSuper,
   waveSpec,
   worldGate,
   type CombatEvent,
   type CombatStats,
+  type SkillView,
 } from '../core/combat.ts';
 import { gameOf, onBossDefeated, onWaveCleared } from '../core/game.ts';
 import { statsOfGame } from '../core/xp.ts';
 import { BODY_PART_HE, BODY_PARTS, type BodyPart } from '../data/program.ts';
-import { WORLDS, WORLD_COUNT, worldById, worldBossOf } from '../data/gameContent.ts';
+import { SKILLS, WORLDS, WORLD_COUNT, worldById, worldBossOf, type SkillId } from '../data/gameContent.ts';
 import type { DataStore, GameState } from '../storage/DataStore.ts';
 import { characterSvg } from './characterSvg.ts';
 import { esc } from './dom.ts';
@@ -126,6 +133,8 @@ const ANIM = {
   die: Math.min(360, BALANCE.combat.spawnDelayMs - 40),
   /** The super already shakes the screen — the pose runs for the same beat. */
   super: 480,
+  /** A skill: the hero's pose, the trained part's flex and the screen flash. */
+  skill: 520,
   /** Must be over before `queueRemount` tears the arena down (900 ms). */
   victory: 800,
 } as const;
@@ -171,6 +180,7 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
       <div class="bt-fx" id="btFx" aria-hidden="true"></div>
 
       <div class="bt-side bt-hero">
+        <div class="bt-buffs" id="btBuffs" aria-live="off"></div>
         <div class="bt-sprite hero" id="btHeroSprite">${characterSvg(game.parts, {
           label: 'הדמות שלך בקרב',
           // The arena fights with whoever the דמות screen selected.
@@ -205,6 +215,8 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
       </div>
     </div>
 
+    ${skillBar(game)}
+
     <button class="bt-super-btn" id="btSuper" disabled>💥 שחרר מהלך על</button>
 
     <div class="bt-stats">
@@ -233,6 +245,41 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
 
   wireWorldStrip(main, store);
   start(main, deps);
+}
+
+/* ------------------------------------------------------------ skill bar */
+
+/**
+ * The six body-part skills as one row of slots, right above the super move.
+ *
+ * Order is the body-part order, so the bar reads like the character screen. A
+ * LOCKED slot is not hidden — it shows 🔒 and the exact training that opens it
+ * ("חזה רמה 5"), because "train this and you get that" is the whole point; and
+ * it is still a real button, so a tap can explain itself in Hebrew instead of
+ * doing nothing. Every slot is ≥44px in both directions.
+ *
+ * The lock state is DERIVED from the part levels on every paint — there is no
+ * unlock flag in the state, so levelling up mid-session opens the slot without
+ * a reload, exactly like the boss gate above it.
+ */
+function skillBar(game: GameState): string {
+  const levels = partLevels(game);
+  const need = skillUnlockLevel();
+  const slots = SKILLS.map((def) => {
+    const unlocked = skillUnlocked(def, levels);
+    const hint = `${BODY_PART_HE[def.part]} רמה ${need}`;
+    return `<button class="bt-skill ${unlocked ? 'ready' : 'locked'}" type="button" data-skill="${def.id}"
+      aria-label="${esc(unlocked ? `${def.he} — ${skillSummaryHe(def, skillPower(def, levels))}` : `${def.he} — נעול. ${hint}`)}">
+      <span class="sk-sweep" aria-hidden="true"></span>
+      <span class="sk-glyph" aria-hidden="true">${unlocked ? def.icon : '🔒'}</span>
+      <span class="sk-name">${esc(def.he)}</span>
+      <span class="sk-sub">${esc(unlocked ? 'מוכן' : hint)}</span>
+    </button>`;
+  }).join('');
+
+  return `
+    <div class="bt-skills" id="btSkills" role="group" aria-label="מיומנויות גוף">${slots}</div>
+    <p class="bm-foot bt-skills-foot">כל חלק גוף פותח מיומנות ברמה ${need} — והיא מתחזקת עם כל רמה נוספת.</p>`;
 }
 
 /* ------------------------------------------------------ world progress strip */
@@ -428,13 +475,22 @@ function start(main: HTMLElement, deps: BattleDeps): void {
   const clearedEl = el('btCleared');
   const minisEl = el('btMinis');
   const bossesEl = el('btBosses');
+  const buffsEl = el('btBuffs');
   if (!arena) return;
+
+  /** The six skill slots, by id — looked up once, repainted every frame. */
+  const skillBtns = new Map<SkillId, HTMLButtonElement>();
+  main.querySelectorAll<HTMLButtonElement>('.bt-skill[data-skill]').forEach((btn) => {
+    skillBtns.set(btn.dataset['skill'] as SkillId, btn);
+  });
 
   /** Is the CURRENT world's boss gate open for this character right now? */
   const gateOpenFor = (g: GameState): boolean => !worldGate(g.battle.world, partLevels(g)).locked;
 
   const game0 = gameOf(store);
   let stats = statsOf(game0);
+  /** Body-part levels — what unlocks and scales the skills. Refreshed per frame. */
+  let levels = partLevels(game0);
   const state = createBattle({
     // The seed is per SESSION: nothing in the persisted state depends on it, and
     // the seed each cleared wave actually ran with is recorded in its event.
@@ -454,6 +510,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
   arena.style.setProperty('--anim-hit', `${ANIM.hit}ms`);
   arena.style.setProperty('--anim-die', `${ANIM.die}ms`);
   arena.style.setProperty('--anim-super', `${ANIM.super}ms`);
+  arena.style.setProperty('--anim-skill', `${ANIM.skill}ms`);
   arena.style.setProperty('--anim-victory', `${ANIM.victory}ms`);
   /**
    * Rebuild the arena AFTER the current frame: `consume()` runs inside the
@@ -589,6 +646,74 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     if (waveEl) waveEl.textContent = String(state.wave);
   }
 
+  /**
+   * The skill bar, repainted from the CORE's view of the skills.
+   *
+   * Everything here is read from `skillViews()`: the lock state (derived from
+   * the part levels, so training opens a slot live), the cooldown as a 0..1
+   * fraction — handed to CSS as `--cd` and drawn as a radial sweep — and whether
+   * the skill's window is currently up.
+   */
+  function paintSkills(): void {
+    if (skillBtns.size === 0) return;
+    const views = skillViews(state, levels);
+    for (const v of views) {
+      const btn = skillBtns.get(v.def.id);
+      if (!btn) continue;
+      const fighting = state.status === 'fighting';
+      btn.classList.toggle('locked', !v.unlocked);
+      btn.classList.toggle('ready', v.ready && fighting);
+      btn.classList.toggle('cooling', v.unlocked && v.cooldownMs > 0);
+      btn.classList.toggle('live', v.activeMs > 0);
+      btn.style.setProperty('--cd', String(v.unlocked ? v.cooldownRatio : 0));
+
+      const glyph = btn.querySelector('.sk-glyph');
+      if (glyph) glyph.textContent = v.unlocked ? v.def.icon : '🔒';
+      const sub = btn.querySelector('.sk-sub');
+      const hint = `${BODY_PART_HE[v.def.part]} רמה ${v.need}`;
+      const subText = !v.unlocked
+        ? hint
+        : v.cooldownMs > 0
+          ? `${Math.ceil(v.cooldownMs / 1000)}s`
+          : 'מוכן';
+      if (sub && sub.textContent !== subText) sub.textContent = subText;
+      const label = v.unlocked
+        ? `${v.def.he} — ${skillSummaryHe(v.def, v.power)}`
+        : `${v.def.he} — נעול. ${hint}`;
+      if (btn.getAttribute('aria-label') !== label) btn.setAttribute('aria-label', label);
+    }
+    paintBuffs(views);
+  }
+
+  /**
+   * The live buffs as small chips over the hero — one per running window, with
+   * the seconds left. Rewritten only when the text actually changes, so the
+   * loop is not rebuilding DOM sixty times a second.
+   */
+  let buffSig = '';
+  function paintBuffs(views: readonly SkillView[]): void {
+    if (!buffsEl) return;
+    const live = views.filter((v) => v.activeMs > 0);
+    const sig = live.map((v) => `${v.def.id}:${Math.ceil(v.activeMs / 1000)}`).join('|');
+    if (sig === buffSig) return;
+    buffSig = sig;
+    buffsEl.innerHTML = live
+      .map(
+        (v) =>
+          `<span class="bt-chip sk-${v.def.id}" title="${esc(v.def.he)}">${v.def.icon}${
+            // מכה מדויקת waits for the next swing rather than for a clock.
+            v.def.id === 'focus' ? '' : ` ${Math.ceil(v.activeMs / 1000)}`
+          }</span>`,
+      )
+      .join('');
+  }
+
+  /** The screen's reaction to a skill: a tinted flash over the arena. */
+  function skillFlash(skillId: SkillId): void {
+    if (!fx) return;
+    anim(fx, `fx-${skillId}`, ANIM.skill);
+  }
+
   function paintStatus(): void {
     if (!statusEl) return;
     let text = '';
@@ -653,13 +778,16 @@ function start(main: HTMLElement, deps: BattleDeps): void {
           paintEnemy();
           float(
             `${ev.crit ? '💥' : ''}${fmtXp(ev.amount)}`,
-            ev.source === 'super' ? 'super' : ev.crit ? 'crit' : 'dmg',
+            ev.source === 'super' || ev.source === 'skill' ? 'super' : ev.crit ? 'crit' : 'dmg',
             'enemy',
           );
           // The lunge is per ATTACK EVENT, which is what keeps it in step with a
           // Shoulders-driven attack interval that changes as the player trains —
-          // there is no separate animation clock to drift.
-          if (ev.source !== 'super') anim(heroSprite, 'anim-attack', ANIM.attack);
+          // there is no separate animation clock to drift. A super or a skill
+          // brings its own pose, so it does not get the ordinary one.
+          if (ev.source !== 'super' && ev.source !== 'skill') {
+            anim(heroSprite, 'anim-attack', ANIM.attack);
+          }
           anim(sprite, 'anim-hit', ANIM.hit);
           if (ev.source === 'super') shake(true);
           break;
@@ -714,6 +842,20 @@ function start(main: HTMLElement, deps: BattleDeps): void {
           anim(heroSprite, 'anim-hurt', ANIM.hit);
           shake(true);
           break;
+        case 'skill_used': {
+          // The pose and the flash go on BEFORE the damage numbers are drawn, so
+          // the hit lands on top of the wind-up instead of a beat after it. The
+          // TRAINED PART flexes too — `sk-<part>` is what anim.css hangs that on.
+          anim(heroSprite, 'anim-skill', ANIM.skill);
+          anim(heroSprite, `sk-${ev.part}`, ANIM.skill);
+          skillFlash(ev.skillId);
+          // The two heavy blows shove the screen; the rest only tint it.
+          shake(ev.skillId === 'smash' || ev.skillId === 'quake');
+          const def = SKILLS.find((s) => s.id === ev.skillId);
+          if (def) float(`${def.icon} ${def.he}`, 'skill', 'hero');
+          break;
+        }
+        case 'skill_expired':
         case 'super_ready':
         case 'resting':
         case 'gated':
@@ -722,6 +864,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     }
     paintHero();
     paintMeters();
+    paintSkills();
     paintStatus();
   }
 
@@ -737,6 +880,9 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     // screen releases a `gated` battle straight into the boss fight.
     const g = gameOf(store);
     stats = statsOf(g);
+    // Same story for the skills: they unlock off the part levels, so a level-up
+    // while the arena is open lights the slot up without a reload.
+    levels = partLevels(g);
     if (state.status === 'gated') setGate(state, gateOpenFor(g), g.battle.bossesDefeated);
     consume(advance(state, dt, stats));
     schedule();
@@ -784,6 +930,37 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     consume(res.events);
   });
 
+  /**
+   * A skill slot. The CORE decides — this only explains the refusal in Hebrew,
+   * which is the whole reason a locked slot is a live button and not a disabled
+   * one: "🔒" alone teaches nothing, "חזה רמה 5" teaches exactly what to train.
+   */
+  for (const [id, btn] of skillBtns) {
+    btn.addEventListener('click', () => {
+      const g = gameOf(store);
+      stats = statsOf(g);
+      levels = partLevels(g);
+      const def = SKILLS.find((s) => s.id === id);
+      const res = useSkill(state, id, stats, levels);
+      if (res.accepted) {
+        consume(res.events);
+        return;
+      }
+      if (!def) return;
+      const view = skillViews(state, levels).find((v) => v.def.id === id);
+      if (res.reason === 'locked') {
+        toast(
+          `🔒 ${def.he} — נפתחת ב${BODY_PART_HE[def.part]} רמה ${skillUnlockLevel()} (כרגע ${view?.have ?? 1}). ${def.desc}`,
+        );
+      } else if (res.reason === 'cooldown') {
+        toast(`⏳ ${def.he} עוד ${Math.ceil((view?.cooldownMs ?? 0) / 1000)} שניות.`);
+      } else {
+        toast(`${def.icon} ${def.he} — אין אויב על המסך כרגע.`);
+      }
+      paintSkills();
+    });
+  }
+
   superBtn?.addEventListener('click', () => {
     stats = statsOf(gameOf(store));
     const res = useSuper(state, stats);
@@ -808,6 +985,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
   consume(advance(state, BALANCE.combat.tickMs, stats));
   paintHero();
   paintMeters();
+  paintSkills();
   paintStatus();
   resume();
 }
