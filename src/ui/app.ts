@@ -1,9 +1,11 @@
 /**
  * ui/app.ts — the app shell: tabs, header and screen switching.
  *
- * Tab order follows the brief: the three workout days, דמות, קרב, היסטוריה.
- * The tab list is data-driven, so a new screen only needs an entry plus a
- * render function.
+ * Tab order: the plan's workout days IN THE PLAN'S OWN ORDER, then דמות, קרב,
+ * היסטוריה. The day tabs are rendered from `resolveProgram(plan).days`, so a
+ * plan with two days shows two tabs and the built-in program still shows the
+ * familiar three. The tab list is data-driven, so a new screen only needs an
+ * entry plus a render function.
  *
  * PLAN EDITOR PLACEMENT (a Phase 4 decision): `'PL'` is a real view but NOT a
  * seventh tab. Six tabs already fill the width of a phone; a seventh would make
@@ -14,7 +16,7 @@
  * Leaving it restores the view you came from.
  */
 
-import { DAY_NAMES, DAY_ORDER, isDayKey } from '../data/program.ts';
+import { dayOf } from '../data/program.ts';
 import { fmtDate, lastLoggedDate } from '../core/workout.ts';
 import { isDefaultPlan, resolveProgram } from '../core/plan.ts';
 import { gameOf } from '../core/game.ts';
@@ -23,7 +25,7 @@ import type { DataStore, ViewKey } from '../storage/DataStore.ts';
 import type { RestTimer } from './timer.ts';
 import { renderBattle, stopBattle } from './battle.ts';
 import { renderCharacter } from './character.ts';
-import { must } from './dom.ts';
+import { esc, must } from './dom.ts';
 import { renderHistory, type HistoryDeps } from './history.ts';
 import { renderPlanEditor, resetPlanDraft } from './planEditor.ts';
 import { renderWorkout } from './workout.ts';
@@ -76,13 +78,19 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
   function renderTabs(): void {
     const view = store.getState().ui.view;
     const program = resolveProgram(store.getState().plan);
+    const dayKeys = new Set(program.days.map((d) => d.key));
+    // One tab per day the PLAN defines, in the plan's own order. For the
+    // built-in program that is A/B/C with their weekday names — byte-identical
+    // to the hard-wired list this used to be.
     tabsEl.innerHTML =
-      DAY_ORDER.map(
-        (k) => `
-    <button class="tab ${view === k ? 'active' : ''}" data-view="${k}">
-      <span class="d">${DAY_NAMES[k]}</span><span class="w">${program[k].label}</span>
+      program.days
+        .map(
+          (d) => `
+    <button class="tab ${view === d.key ? 'active' : ''}" data-view="${esc(d.key)}">
+      <span class="d">${esc(d.day.day)}</span><span class="w">${esc(d.label)}</span>
     </button>`,
-      ).join('') +
+        )
+        .join('') +
       `<button class="tab char-tab ${view === 'CH' ? 'active' : ''}" data-view="CH">
       <span class="d">🦸</span><span class="w">דמות</span>
     </button>` +
@@ -95,7 +103,8 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     tabsEl.querySelectorAll<HTMLButtonElement>('.tab').forEach((b) => {
       b.addEventListener('click', () => {
         const v = b.dataset['view'];
-        if (v === 'H' || v === 'CH' || v === 'BT' || isDayKey(v)) setView(v);
+        if (v === undefined) return;
+        if (v === 'H' || v === 'CH' || v === 'BT' || dayKeys.has(v)) setView(v);
       });
     });
   }
@@ -139,10 +148,17 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       <p class="day-meta">${world.he} · גל <b>${game.battle.wave}</b> · רמה <b>${game.level}</b></p>${energyPill()}`;
       return;
     }
-    const p = resolveProgram(state.plan)[view];
-    const last = lastLoggedDate(state, view, resolveProgram(state.plan));
+    const program = resolveProgram(state.plan);
+    // A day view whose key the plan no longer has (a day deleted on another
+    // device) must still render a header rather than throw.
+    const p = dayOf(program, view) ?? program.days[0]?.day ?? null;
+    if (!p) {
+      headerEl.innerHTML = `<h1 class="app-title">אימון <span class="en">Workout</span></h1>${energyPill()}`;
+      return;
+    }
+    const last = lastLoggedDate(state, view, program);
     headerEl.innerHTML = `
-    <h1 class="app-title">יום ${p.day} · ${p.label} <span class="en">Hypertrophy</span></h1>
+    <h1 class="app-title">יום ${esc(p.day)} · ${esc(p.label)} <span class="en">Hypertrophy</span></h1>
     <p class="day-meta"><b>${p.dur}</b> · ${p.focus}</p>
     <p class="last-log">אימון אחרון שתועד: <span class="val">${last ? fmtDate(last) : '— עדיין לא תועד'}</span></p>
     <button class="plan-edit-btn" id="btnEditPlan" aria-label="עריכת תוכנית האימונים">⚙️ עריכת תוכנית</button>

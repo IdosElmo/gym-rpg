@@ -7,7 +7,7 @@
  * fills. Import accepts BOTH the new blob and the legacy `{sessions:{…}}` file.
  */
 
-import { DAY_ORDER, isDayKey } from '../data/program.ts';
+import { dayOf } from '../data/program.ts';
 import { fmtDate, isSetFilled, todayISO } from '../core/workout.ts';
 import { isDefaultPlan, makeResolver, resolveProgram } from '../core/plan.ts';
 import type { DataStore } from '../storage/DataStore.ts';
@@ -45,7 +45,7 @@ export interface HistoryDeps {
 function planCard(state: ReturnType<DataStore['getState']>): string {
   const custom = !isDefaultPlan(state.plan);
   const program = resolveProgram(state.plan);
-  const counts = DAY_ORDER.map((k) => `${program[k].label}: ${program[k].exercises.length}`).join(' · ');
+  const counts = program.days.map((d) => `${d.label}: ${d.day.exercises.length}`).join(' · ');
   return `
   <section class="game-card plan-card">
     <h3 class="gc-title">תוכנית האימונים
@@ -84,7 +84,9 @@ export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
       .map((date) => {
         const s = state.sessions[date];
         if (!s) return '';
-        const p = isDayKey(s.day) ? program[s.day] : program.A;
+        // History is shown by DAY KEY, long after a plan may have dropped that
+        // day — so it falls back to the first day's copy rather than vanishing.
+        const p = dayOf(program, s.day) ?? program.days[0]?.day ?? null;
         const exHtml = Object.keys(s.ex)
           .map((exId) => {
             const exDef = resolve(exId);
@@ -97,9 +99,10 @@ export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
           })
           .join('');
         if (!exHtml) return '';
+        const title = p ? ` · ${esc(p.label)} (יום ${esc(p.day)})` : '';
         return `<div class="hist-day">
-        <h3>${fmtDate(date)} · ${esc(p.label)} (יום ${esc(p.day)})</h3>
-        <div class="sub">${esc(p.focus)}</div>
+        <h3>${fmtDate(date)}${title}</h3>
+        <div class="sub">${p ? esc(p.focus) : ''}</div>
         ${exHtml}
       </div>`;
       })

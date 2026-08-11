@@ -30,15 +30,18 @@
 
 import {
   BODY_PARTS,
-  PROGRAM,
+  BUILTIN_PROGRAM,
+  DEFAULT_WEEKLY_TARGET,
   bodyPartWeights,
+  dayOf,
   findExercise,
   type BodyPart,
   type DayKey,
   type Exercise,
   type ExerciseResolver,
-  type ProgramMap,
+  type ResolvedProgram,
 } from '../data/program.ts';
+import { weeklyTargetOfPlanPayload } from '../data/planTypes.ts';
 import { BALANCE } from './balance.ts';
 import {
   EQUIPMENT_SLOTS,
@@ -221,16 +224,85 @@ export function weekStartISO(date: string): string {
   return tsToIso(ts - dow * DAY_MS);
 }
 
+/* ------------------------------------------------- the weekly-target history */
+
+/**
+ * ONE point of the plan's weekly-target history: from `ts` on, a perfect week
+ * means `target` distinct training days.
+ */
+export interface WeeklyTargetPoint {
+  ts: number;
+  target: number;
+}
+
+/** The plan's weekly targets over time, ascending by `ts`. */
+export type WeeklyTargets = readonly WeeklyTargetPoint[];
+
+/**
+ * Fold the weekly target out of the event log.
+ *
+ * The plan is an event like everything else (`plan_updated` carries the whole
+ * document, `data_cleared` resets to the built-in program), so the target a
+ * given week has to be judged against is a function of the event SET alone —
+ * which is exactly what makes the streak survive a union merge: both devices
+ * hold the same plan events, so both judge every week identically.
+ *
+ * Only the target is read here, not the whole document: the XP engine has no
+ * business knowing what a plan looks like, and `weeklyTargetOfPlanPayload` (in
+ * data/planTypes.ts) applies the same fallbacks `normalizePlanDoc` does.
+ */
+export function weeklyTargetsFromEvents(events: readonly AppEvent[]): WeeklyTargets {
+  const out: WeeklyTargetPoint[] = [];
+  for (const ev of [...events].sort(compareEvents)) {
+    if (ev.type === 'plan_updated') {
+      out.push({ ts: ev.ts, target: weeklyTargetOfPlanPayload(ev.payload['plan']) });
+    } else if (ev.type === 'data_cleared') {
+      // A wipe puts the built-in program back — plan included.
+      out.push({ ts: ev.ts, target: DEFAULT_WEEKLY_TARGET });
+    }
+  }
+  return out;
+}
+
+/** The target in force at an instant: the last point at or before it. */
+export function weeklyTargetAt(targets: WeeklyTargets, ts: number): number {
+  let target = DEFAULT_WEEKLY_TARGET;
+  for (const point of targets) {
+    if (point.ts > ts) break;
+    target = point.target;
+  }
+  return target;
+}
+
+/**
+ * The target a CLOSED week is judged by: the plan in force when that week ended.
+ *
+ * Judging by the end of the week (rather than by its start) means the plan you
+ * were actually training under decides — switching to a 4-day plan on Wednesday
+ * asks four days of that same week, which is what the app just told the user.
+ */
+export function weeklyTargetForWeek(targets: WeeklyTargets, weekStart: string): number {
+  return weeklyTargetAt(targets, isoToTs(addDays(weekStart, 7)) - 1);
+}
+
 /**
  * Streak tier from the distinct LIVE workout days.
  *
  * Every calendar week that has already CLOSED (i.e. every week before the one
- * containing `today`), starting from the week of the first workout, is judged:
- * ≥3 distinct workout days → tier +1, otherwise tier −1 (floor 0). The week in
- * progress is never judged. Levels and XP are never touched by a tier drop.
+ * containing `today`), starting from the week of the first workout, is judged
+ * against THE PLAN THAT WAS ACTIVE THAT WEEK: enough distinct workout days →
+ * tier +1, otherwise tier −1 (floor 0). The week in progress is never judged.
+ * Levels and XP are never touched by a tier drop.
+ *
+ * With no `targets` (no plan in the log) the threshold is the built-in program's
+ * three days a week — i.e. exactly what this function always did.
  */
-export function computeStreak(days: readonly string[], today: string): StreakState {
-  const needed = BALANCE.streak.daysPerWeek;
+export function computeStreak(
+  days: readonly string[],
+  today: string,
+  targets: WeeklyTargets = [],
+): StreakState {
+  const needed = weeklyTargetAt(targets, Number.POSITIVE_INFINITY);
   const currentWeek = weekStartISO(today);
   const unique = [...new Set(days)].sort();
   const first = unique[0];
@@ -244,7 +316,7 @@ export function computeStreak(days: readonly string[], today: string): StreakSta
   for (let guard = 0; week < currentWeek && guard < 5200; guard += 1) {
     const end = addDays(week, 7);
     const count = unique.filter((d) => d >= week && d < end).length;
-    tier = count >= needed ? tier + 1 : Math.max(0, tier - 1);
+    tier = count >= weeklyTargetForWeek(targets, week) ? tier + 1 : Math.max(0, tier - 1);
     week = end;
   }
 
@@ -476,13 +548,19 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
   }
 }
 
-/** Recompute every derived field (levels, headline level, streak). */
-export function finalizeGame(game: GameState, today: string): void {
+/**
+ * Recompute every derived field (levels, headline level, streak).
+ *
+ * `targets` is the plan's weekly-target history (`weeklyTargetsFromEvents`).
+ * The live path and the replay path MUST pass the same one — that is the whole
+ * reason it is a parameter rather than something read from the state.
+ */
+export function finalizeGame(game: GameState, today: string, targets: WeeklyTargets = []): void {
   for (const part of BODY_PARTS) {
     game.parts[part].level = levelForXp(game.parts[part].xp);
   }
   game.level = characterLevel(game.parts);
-  game.streak = computeStreak(game.workoutDays, today);
+  game.streak = computeStreak(game.workoutDays, today, targets);
 }
 
 /**
@@ -497,12 +575,18 @@ export function compareEvents(a: AppEvent, b: AppEvent): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
-/** Deterministically rebuild the whole game layer from the event log. */
+/**
+ * Deterministically rebuild the whole game layer from the event log.
+ *
+ * The plan events are folded here TOO (as the weekly-target history), because
+ * the streak threshold of a past week is part of the game layer's answer and it
+ * must come from the same totally-ordered log the XP does.
+ */
 export function rebuildGame(events: readonly AppEvent[], today: string): GameState {
   const game = emptyGame();
   const ordered = [...events].sort(compareEvents);
   for (const ev of ordered) applyGameEvent(game, ev.type, ev.payload);
-  finalizeGame(game, today);
+  finalizeGame(game, today, weeklyTargetsFromEvents(ordered));
   return game;
 }
 
@@ -678,14 +762,24 @@ function doneSetsOf(arr: readonly (SetEntry | null)[] | undefined): number[] {
   return out;
 }
 
-function sessionComplete(session: Session, program: ProgramMap): boolean {
-  const day = program[session.day];
+/**
+ * True when every set of every exercise of the session's day is checked.
+ *
+ * A session whose day the program does not have (a plan day that was deleted, or
+ * one this build has never heard of) can never be "complete": there is no list
+ * of exercises to have finished, and paying a completion bonus for an empty list
+ * would be a bug, not a gift.
+ */
+function sessionComplete(session: Session, program: ResolvedProgram): boolean {
+  const day = dayOf(program, session.day);
+  if (!day) return false;
   return day.exercises.every((ex) => doneSetsOf(session.ex[ex.id]).length >= ex.sets);
 }
 
 /** Program order first (stable + meaningful), then any unknown ids, sorted. */
-function exerciseOrder(session: Session, program: ProgramMap): string[] {
-  const inProgram = program[session.day].exercises.map((e) => e.id).filter((id) => session.ex[id]);
+function exerciseOrder(session: Session, program: ResolvedProgram): string[] {
+  const day = dayOf(program, session.day);
+  const inProgram = (day?.exercises ?? []).map((e) => e.id).filter((id) => session.ex[id]);
   const rest = Object.keys(session.ex)
     .filter((id) => !inProgram.includes(id))
     .sort();
@@ -704,7 +798,7 @@ export interface RetroGrantOptions {
    */
   resolve?: ExerciseResolver;
   /** Day layout, used for the ordering and the completion bonus. */
-  program?: ProgramMap;
+  program?: ResolvedProgram;
 }
 
 /**
@@ -723,7 +817,7 @@ export function buildRetroactiveGrants(
   options: RetroGrantOptions = {},
 ): PendingEvent[] {
   const resolve = options.resolve ?? findExercise;
-  const program = options.program ?? PROGRAM;
+  const program = options.program ?? BUILTIN_PROGRAM;
   const scratch = rebuildGame(existing, today);
   const out: PendingEvent[] = [];
 

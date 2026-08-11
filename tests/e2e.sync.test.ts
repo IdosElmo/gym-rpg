@@ -34,10 +34,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BALANCE } from '../src/core/balance.ts';
 import { advance, createBattle, setEnergy, tap, type CombatStats } from '../src/core/combat.ts';
 import { gameOf, onSetCompleted, onWaveCleared, onWorkoutFinished } from '../src/core/game.ts';
-import { clonePlanDoc, defaultPlanDoc, resolveProgram, savePlan } from '../src/core/plan.ts';
+import { clonePlanDoc, defaultPlanDoc, planRows, resolveProgram, savePlan } from '../src/core/plan.ts';
 import { getSetData, todayISO } from '../src/core/workout.ts';
-import { compareEvents, computeStreak, statsOfGame } from '../src/core/xp.ts';
-import { PROGRAM, type DayKey } from '../src/data/program.ts';
+import { compareEvents, computeStreak, statsOfGame, weeklyTargetsFromEvents } from '../src/core/xp.ts';
+import { PROGRAM, dayOf, type BuiltInDayKey } from '../src/data/program.ts';
 import type { AppEvent, AppState, GameState } from '../src/storage/DataStore.ts';
 import type { PlanDoc } from '../src/data/planTypes.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
@@ -176,7 +176,7 @@ async function passTime(ms: number, ...devices: Device[]): Promise<void> {
 
 /* ------------------------------------------------------------- the player */
 
-function ex(day: DayKey, index: number) {
+function ex(day: BuiltInDayKey, index: number) {
   const exercise = PROGRAM[day].exercises[index];
   if (!exercise) throw new Error(`no exercise ${day}#${index}`);
   return exercise;
@@ -186,7 +186,7 @@ function ex(day: DayKey, index: number) {
  * Check one set, exactly the way `ui/workout.ts` does it: mirror the value into
  * the session, append the event, then grant XP + energy.
  */
-function checkSet(dev: Device, date: string, day: DayKey, index: number, i: number, w: string, r: string): void {
+function checkSet(dev: Device, date: string, day: BuiltInDayKey, index: number, i: number, w: string, r: string): void {
   const exercise = ex(day, index);
   dev.store.update((draft) => {
     const d = getSetData(draft, day, exercise.id, i, true, date);
@@ -200,7 +200,7 @@ function checkSet(dev: Device, date: string, day: DayKey, index: number, i: numb
 }
 
 /** The keystroke flood behind one weight field — four events, one real value. */
-function typeWeight(dev: Device, date: string, day: DayKey, index: number, i: number, keys: readonly string[]): void {
+function typeWeight(dev: Device, date: string, day: BuiltInDayKey, index: number, i: number, keys: readonly string[]): void {
   const exercise = ex(day, index);
   for (const w of keys) {
     dev.store.update((draft) => {
@@ -212,7 +212,7 @@ function typeWeight(dev: Device, date: string, day: DayKey, index: number, i: nu
 }
 
 /** A whole workout day, set by set, ending in the completion bonus. */
-function logWorkout(dev: Device, date: string, day: DayKey): void {
+function logWorkout(dev: Device, date: string, day: BuiltInDayKey): void {
   const exercises = PROGRAM[day].exercises;
   for (let e = 0; e < exercises.length; e += 1) {
     const exercise = exercises[e];
@@ -351,12 +351,24 @@ function expectInvariants(dev: Device): void {
   expect(new Set(Object.keys(game.energyGranted))).toEqual(energyKeys);
 }
 
-/** Live state === replay of this device's own log. The whole architecture. */
+/**
+ * Live state === replay of this device's own log. The whole architecture.
+ *
+ * The streak is checked separately because it is a function of TODAY as well as
+ * of the log — and, since the plan carries the weekly target, of the plan events
+ * in that same log (`weeklyTargetsFromEvents`).
+ */
 function expectReplayEquivalence(dev: Device): void {
   const live = dev.store.getState();
   const replayed = replayOf(dev);
   expect(accountState(replayed)).toEqual(accountState(live));
-  expect(replayed.game?.streak).toEqual(computeStreak(live.game?.workoutDays ?? [], todayISO()));
+  expect(replayed.game?.streak).toEqual(
+    computeStreak(
+      live.game?.workoutDays ?? [],
+      todayISO(),
+      weeklyTargetsFromEvents(dev.store.getEvents()),
+    ),
+  );
 }
 
 /** The point of the whole feature: two devices showing the same app. */
@@ -495,17 +507,17 @@ describe('two devices, one account', () => {
     /* -- 5. the plan is edited on the phone, then LATER on the tablet ------- */
 
     const phonePlan = clonePlanDoc(defaultPlanDoc());
-    const rowA = phonePlan.days.A.exercises[0];
+    const rowA = planRows(phonePlan, 'A')[0];
     if (!rowA) throw new Error('empty day A');
     rowA.sets = 5;
     expect(savePlan(phone.store, phonePlan, Date.now()).ok).toBe(true);
     await quiesce(phone, tablet);
     expectConverged(phone, tablet);
-    expect(resolveProgram(tablet.store.getState().plan).A.exercises[0]?.sets).toBe(5);
+    expect(dayOf(resolveProgram(tablet.store.getState().plan), 'A')?.exercises[0]?.sets).toBe(5);
 
     await passTime(120_000, phone, tablet); // an hour of the day goes by
     const tabletPlan: PlanDoc = clonePlanDoc(tablet.store.getState().plan ?? defaultPlanDoc());
-    const rowB = tabletPlan.days.A.exercises[0];
+    const rowB = planRows(tabletPlan, 'A')[0];
     if (!rowB) throw new Error('empty day A');
     rowB.sets = 2;
     rowB.rest = 45;
@@ -516,9 +528,9 @@ describe('two devices, one account', () => {
     // earlier document and had to be talked out of it.
     expectConverged(phone, tablet);
     for (const dev of [phone, tablet]) {
-      const day = resolveProgram(dev.store.getState().plan).A;
-      expect(day.exercises[0]?.sets).toBe(2);
-      expect(day.exercises[0]?.rest).toBe(45);
+      const day = dayOf(resolveProgram(dev.store.getState().plan), 'A');
+      expect(day?.exercises[0]?.sets).toBe(2);
+      expect(day?.exercises[0]?.rest).toBe(45);
     }
     expect(phone.store.getState().plan?.rev).toBe(tablet.store.getState().plan?.rev);
 
@@ -581,6 +593,149 @@ describe('two devices, one account', () => {
     // wipe. Convergence is a property of the state, never of the two logs.
     expect(tablet.store.getEvents().length).toBeGreaterThan(1);
     expectConverged(phone, tablet);
+
+    phone.engine.dispose();
+    tablet.engine.dispose();
+  }, 60_000);
+
+  /* ------------------------------------------------------------------ */
+
+  it('converges on a plan with its own days, trained on custom day keys', async () => {
+    // The motivating case of the variable-day feature, end to end: a 4-days-a-
+    // week A/B split — two workouts, four training days, keys the built-in
+    // program has never heard of — logged on one device and shown on the other.
+    const backend = new MemoryBackend();
+    const phone = makeDevice('phone', backend);
+    const tablet = makeDevice('tablet', backend);
+    const today = todayISO(new Date(START));
+
+    await phone.engine.linkAccount(USER);
+    await tablet.engine.linkAccount(USER);
+    await quiesce(phone, tablet);
+
+    /* -- 1. the phone saves the A/B plan ---------------------------------- */
+
+    const plan: PlanDoc = {
+      version: 2,
+      rev: 0,
+      days: [
+        { key: 'd_alef', label: "חלק א'", weekdays: [0, 3], exercises: [
+          { id: 'a1', sets: 3, reps: '8–10', rest: 90 },
+          { id: 'a2', sets: 3, reps: '8–10', rest: 90 },
+        ] },
+        { key: 'd_bet', label: "חלק ב'", weekdays: [2, 4], exercises: [
+          { id: 'b1', sets: 3, reps: '8–10', rest: 90 },
+        ] },
+      ],
+      weeklyTarget: 4,
+      customExercises: [],
+    };
+    expect(savePlan(phone.store, plan, Date.now()).ok).toBe(true);
+    await quiesce(phone, tablet);
+    expectConverged(phone, tablet);
+
+    // Both devices render TWO tabs, in the plan's order, with its labels.
+    for (const dev of [phone, tablet]) {
+      const program = resolveProgram(dev.store.getState().plan);
+      expect(program.days.map((d) => d.key)).toEqual(['d_alef', 'd_bet']);
+      expect(program.days.map((d) => d.label)).toEqual(["חלק א'", "חלק ב'"]);
+      expect(program.weeklyTarget).toBe(4);
+      // …and a perfect week now means four days, on both of them
+      expect(gameOf(dev.store).streak.needed).toBe(4);
+    }
+
+    /* -- 2. the phone trains "חלק א'" — a day key that is not A/B/C -------- */
+
+    const alef = dayOf(resolveProgram(phone.store.getState().plan), 'd_alef');
+    if (!alef) throw new Error('no day d_alef');
+    for (const exercise of alef.exercises) {
+      for (let i = 0; i < exercise.sets; i += 1) {
+        phone.store.update((draft) => {
+          const d = getSetData(draft, 'd_alef', exercise.id, i, true, today);
+          if (!d) return;
+          d.w = '40';
+          d.r = '10';
+          d.done = true;
+        });
+        phone.store.append('set_completed', {
+          date: today,
+          day: 'd_alef',
+          exId: exercise.id,
+          setIndex: i,
+          w: '40',
+          r: '10',
+        });
+        onSetCompleted(
+          phone.store,
+          { date: today, day: 'd_alef', ex: exercise, setIndex: i, w: '40', r: '10' },
+          new Date(Date.now()),
+        );
+      }
+    }
+    phone.store.append('workout_finished', { date: today, day: 'd_alef' });
+    onWorkoutFinished(phone.store, { date: today, day: 'd_alef' }, new Date(Date.now()));
+
+    const trained = gameOf(phone.store);
+    expect(trained.totalXp).toBeGreaterThan(0);
+    expect(trained.energy).toBeGreaterThan(0);
+    expect(phone.store.getState().sessions[today]?.day).toBe('d_alef');
+
+    /* -- 3. the tablet learns all of it, day key and all ------------------- */
+
+    await passTime(3_000, phone, tablet);
+    await quiesce(phone, tablet);
+    expectConverged(phone, tablet);
+
+    expect(gameOf(tablet.store).totalXp).toBe(trained.totalXp);
+    expect(gameOf(tablet.store).energy).toBe(trained.energy);
+    // The custom day key survived the whole round trip — it was never coerced.
+    expect(tablet.store.getState().sessions[today]?.day).toBe('d_alef');
+    expect(
+      tablet.store.getEvents().filter((e) => e.type === 'set_completed' && e.payload['day'] === 'd_alef').length,
+    ).toBeGreaterThan(0);
+    // The completion bonus was paid once, for a day the program only knows
+    // because the PLAN travelled with it.
+    expect(gameOf(tablet.store).bonusDays[today]).toBe(true);
+
+    /* -- 4. the tablet trains the OTHER day, and the phone catches up ------ */
+
+    const bet = dayOf(resolveProgram(tablet.store.getState().plan), 'd_bet');
+    if (!bet) throw new Error('no day d_bet');
+    const b1 = bet.exercises[0];
+    if (!b1) throw new Error('empty day');
+    tablet.store.update((draft) => {
+      const d = getSetData(draft, 'd_bet', b1.id, 0, true, today);
+      if (d) {
+        d.w = '60';
+        d.r = '8';
+        d.done = true;
+      }
+    });
+    tablet.store.append('set_completed', { date: today, day: 'd_bet', exId: b1.id, setIndex: 0, w: '60', r: '8' });
+    onSetCompleted(
+      tablet.store,
+      { date: today, day: 'd_bet', ex: b1, setIndex: 0, w: '60', r: '8' },
+      new Date(Date.now()),
+    );
+
+    await passTime(3_000, phone, tablet);
+    await quiesce(tablet, phone);
+    expectConverged(phone, tablet);
+    // Last write wins for the day label of a shared date, on both devices alike.
+    expect(phone.store.getState().sessions[today]?.ex[b1.id]?.[0]?.w).toBe('60');
+
+    /* -- 5. resetting the plan takes the target back to the built-in one --- */
+
+    savePlan(tablet.store, null, Date.now());
+    await quiesce(tablet, phone);
+    expectConverged(phone, tablet);
+    for (const dev of [phone, tablet]) {
+      expect(dev.store.getState().plan).toBeNull();
+      expect(resolveProgram(dev.store.getState().plan).days.map((d) => d.key)).toEqual(['A', 'B', 'C']);
+      expect(gameOf(dev.store).streak.needed).toBe(BALANCE.streak.daysPerWeek);
+      // the workout logged on a day key the plan no longer defines is still there
+      expect(dev.store.getState().sessions[today]?.day).toBe('d_bet');
+    }
 
     phone.engine.dispose();
     tablet.engine.dispose();

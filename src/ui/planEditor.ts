@@ -3,8 +3,8 @@
  *
  * SHAPE OF THE SCREEN
  * -------------------
- * Day sub-tabs (A/B/C) → a list of rows for the selected day → one bottom sheet
- * for adding an exercise. Every row is a card with the name on top and the three
+ * Day sub-tabs (one per day the PLAN defines) → a list of rows for the selected
+ * day → one bottom sheet for adding an exercise. Every row is a card with the name on top and the three
  * numbers (sets / reps / rest) below, because a phone in one hand cannot fit a
  * name AND three inputs on one line without shrinking the targets below the
  * thumb-friendly minimum.
@@ -26,15 +26,18 @@
 import {
   BODY_PARTS,
   BODY_PART_HE,
-  DAY_ORDER,
-  PROGRAM,
   equipHe,
-  isDayKey,
   type BodyPart,
   type DayKey,
   type EquipmentKey,
 } from '../data/program.ts';
-import { isCustomId, type CustomExercise, type PlanDoc, type PlanExercise } from '../data/planTypes.ts';
+import {
+  isCustomId,
+  type CustomExercise,
+  type PlanDay,
+  type PlanDoc,
+  type PlanExercise,
+} from '../data/planTypes.ts';
 import {
   EQUIPMENT_KEYS,
   NEW_ROW_DEFAULTS,
@@ -46,7 +49,9 @@ import {
   libraryExercises,
   makeResolver,
   newCustomId,
+  planDay,
   planIsDirty,
+  planRows,
   savePlan,
 } from '../core/plan.ts';
 import type { DataStore } from '../storage/DataStore.ts';
@@ -65,6 +70,11 @@ export interface PlanEditorDeps {
 
 /** The unsaved document. `null` = "not editing yet"; built on first render. */
 let draft: PlanDoc | null = null;
+/**
+ * Key of the day being edited. A plan defines its own days now, so this is a
+ * string, and every read of it goes through `activeDayOf` — the day it names
+ * may have been removed from the draft since it was set.
+ */
 let activeDay: DayKey = 'A';
 type Sheet = 'closed' | 'library' | 'new';
 let sheet: Sheet = 'closed';
@@ -80,6 +90,19 @@ export function resetPlanDraft(): void {
   sheet = 'closed';
 }
 
+/** The day currently being edited — the first one when `activeDay` is stale. */
+function activeDayOf(doc: PlanDoc): PlanDay {
+  const day = planDay(doc, activeDay) ?? doc.days[0];
+  if (!day) throw new Error('plan has no days');
+  activeDay = day.key;
+  return day;
+}
+
+/** Hebrew name of the day being edited (used in confirms and toasts). */
+function activeLabel(doc: PlanDoc): string {
+  return activeDayOf(doc).label;
+}
+
 /** The draft, created on demand from the saved plan (or the built-in program). */
 function ensureDraft(store: DataStore): PlanDoc {
   if (!draft) draft = clonePlanDoc(store.getState().plan ?? defaultPlanDoc());
@@ -87,22 +110,23 @@ function ensureDraft(store: DataStore): PlanDoc {
 }
 
 function rowsOf(doc: PlanDoc, day: DayKey): PlanExercise[] {
-  const d = doc.days[day];
-  if (!d) return [];
-  return d.exercises;
+  return planRows(doc, day);
 }
 
 /* ---------------------------------------------------------------- render */
 
 function dayTabs(doc: PlanDoc): string {
+  const active = activeDayOf(doc).key;
   return `<div class="pl-days" role="tablist" aria-label="ימי האימון">
-    ${DAY_ORDER.map((k) => {
-      const on = k === activeDay;
-      return `<button class="pl-day ${on ? 'active' : ''}" role="tab" aria-selected="${on}" data-day="${k}">
-        <span class="pl-day-name">${PROGRAM[k].label}</span>
-        <span class="pl-day-sub">${rowsOf(doc, k).length} תרגילים</span>
+    ${doc.days
+      .map((d) => {
+        const on = d.key === active;
+        return `<button class="pl-day ${on ? 'active' : ''}" role="tab" aria-selected="${on}" data-day="${esc(d.key)}">
+        <span class="pl-day-name">${esc(d.label)}</span>
+        <span class="pl-day-sub">${d.exercises.length} תרגילים</span>
       </button>`;
-    }).join('')}
+      })
+      .join('')}
   </div>`;
 }
 
@@ -152,7 +176,7 @@ function sheetHtml(doc: PlanDoc): string {
   return `<div class="pl-backdrop" id="plBackdrop"></div>
   <section class="pl-sheet" role="dialog" aria-modal="true" aria-label="הוספת תרגיל">
     <div class="pl-sheet-head">
-      <h3>${sheet === 'new' ? 'תרגיל חדש' : `הוספת תרגיל · ${esc(PROGRAM[activeDay].label)}`}</h3>
+      <h3>${sheet === 'new' ? 'תרגיל חדש' : `הוספת תרגיל · ${esc(activeLabel(doc))}`}</h3>
       <button class="pl-mini" id="plSheetClose" aria-label="סגירת החלון">✕</button>
     </div>
     ${body}
@@ -224,7 +248,7 @@ function newExerciseForm(): string {
 
 export function renderPlanEditor(main: HTMLElement, deps: PlanEditorDeps): void {
   const doc = ensureDraft(deps.store);
-  const rows = rowsOf(doc, activeDay);
+  const rows = activeDayOf(doc).exercises;
   const stored = deps.store.getState().plan;
   const dirty = planIsDirty(doc, stored);
 
@@ -260,7 +284,7 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
   main.querySelectorAll<HTMLButtonElement>('[data-day]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const d = btn.dataset['day'];
-      if (!isDayKey(d)) return;
+      if (!d || !planDay(doc, d)) return;
       activeDay = d;
       sheet = 'closed';
       refresh();
@@ -324,7 +348,7 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
         toast('חייב להישאר לפחות תרגיל אחד ביום. 🏋️');
         return;
       }
-      if (!confirm(`להסיר את ${def ? def.he : id} מ${PROGRAM[activeDay].label}?`)) return;
+      if (!confirm(`להסיר את ${def ? def.he : id} מ${activeLabel(doc)}?`)) return;
       const idx = rows.findIndex((r) => r.id === id);
       if (idx >= 0) rows.splice(idx, 1);
       refresh();
@@ -475,6 +499,6 @@ function submitNewExercise(main: HTMLElement, doc: PlanDoc, refresh: () => void)
   doc.customExercises.push(custom);
   addRow(doc, custom.id);
   sheet = 'closed';
-  toast(`${custom.he} נוסף ל${PROGRAM[activeDay].label} ✨`);
+  toast(`${custom.he} נוסף ל${activeLabel(doc)} ✨`);
   refresh();
 }

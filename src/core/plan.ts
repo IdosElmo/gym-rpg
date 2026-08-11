@@ -2,10 +2,19 @@
  * core/plan.ts — the headless plan model.
  *
  * THE contract of this module is one sentence: **`resolveProgram(null)` returns
- * the built-in `PROGRAM` object itself**. A user who never opened the plan
- * editor has `state.plan === null`, so every screen keeps reading the exact same
- * frozen program it read before this feature existed — no copy, no re-derivation,
- * no behavioural drift. Everything else here only matters once a plan is saved.
+ * the built-in program itself** (`BUILTIN_PROGRAM`, whose days are the `PROGRAM`
+ * objects themselves). A user who never opened the plan editor has
+ * `state.plan === null`, so every screen keeps reading the exact same frozen
+ * program it read before this feature existed — no copy, no re-derivation, no
+ * behavioural drift. Everything else here only matters once a plan is saved.
+ *
+ * DESIGN — a plan owns its days (document v2)
+ * -------------------------------------------
+ * `days` is an ORDERED ARRAY of 1–7 `PlanDay`s, each with a stable `key`, a
+ * Hebrew `label` and the `weekdays` it is trained on, plus a document-level
+ * `weeklyTarget`. That is what lets a 4-days-a-week A/B split exist: two days,
+ * four weekdays, target 4. A v1 document (the fixed A/B/C record) is migrated on
+ * READ by `normalizePlanDoc`, into exactly the days v1 used to render.
  *
  * DESIGN — the plan is an event, the state is a cache
  * ---------------------------------------------------
@@ -36,31 +45,45 @@
 import {
   BODY_PARTS,
   BODY_PART_HE,
+  BUILTIN_PROGRAM,
+  BUILTIN_WEEKDAYS,
   DAY_ORDER,
+  DEFAULT_WEEKLY_TARGET,
+  MAX_PLAN_DAYS,
+  MAX_WEEKLY_TARGET,
+  MIN_WEEKLY_TARGET,
   PROGRAM,
+  defaultDayOf,
   findExercise,
-  isDayKey,
+  isBuiltInDayKey,
+  isPlanDayKey,
+  weekdayCaption,
   type BodyPart,
   type BodyPartSplit,
+  type BuiltInDayKey,
   type Day,
   type DayKey,
   type EquipmentKey,
   type Exercise,
   type ExerciseResolver,
-  type ProgramMap,
+  type ProgramDay,
+  type ResolvedProgram,
 } from '../data/program.ts';
 import {
   CUSTOM_ID_PREFIX,
+  DAY_ID_PREFIX,
   PLAN_DOC_VERSION,
+  PLAN_DOC_VERSION_V1,
+  clampWeeklyTarget,
   type CustomExercise,
   type PlanDay,
   type PlanDoc,
   type PlanExercise,
 } from '../data/planTypes.ts';
 import { uuid } from '../util/uuid.ts';
-import { compareEvents } from './xp.ts';
+import { compareEvents, finalizeGame, weeklyTargetsFromEvents } from './xp.ts';
 import { todayISO } from './workout.ts';
-import type { AppEvent, DataStore, PlanUpdatedPayload } from '../storage/DataStore.ts';
+import type { AppEvent, AppState, DataStore, PlanUpdatedPayload } from '../storage/DataStore.ts';
 
 /* ----------------------------------------------------------------- limits */
 
@@ -73,6 +96,9 @@ export const PLAN_LIMITS = {
   maxExercisesPerDay: 20,
   maxNameLength: 60,
   maxRepsLength: 24,
+  /** A plan defines its own days — between one and one per weekday. */
+  minDays: 1,
+  maxDays: MAX_PLAN_DAYS,
 } as const;
 
 /** Defaults a freshly added row starts with. */
@@ -116,7 +142,48 @@ export function newCustomId(): string {
   return CUSTOM_ID_PREFIX + uuid().replace(/-/g, '').slice(0, 12);
 }
 
+/**
+ * A fresh key for a user-created workout day: `d_` + 8 hex chars of a uuid.
+ *
+ * Minted per DAY, never reused, and never one of the reserved view keys — two
+ * devices that both add a day therefore add two different days rather than
+ * silently merging them into one.
+ */
+export function newDayKey(): string {
+  return DAY_ID_PREFIX + uuid().replace(/-/g, '').slice(0, 8);
+}
+
 /* ------------------------------------------------------------- the default */
+
+/**
+ * THE constructor of a `PlanDay` — every one of them is built here.
+ *
+ * That is not tidiness: `planIsDirty` / `isDefaultPlan` compare documents by
+ * their JSON, and JSON preserves INSERTION ORDER. A day built with `weekdays`
+ * before `exercises` in one place and after it in another would serialise to two
+ * different strings for the same plan, and the editor would claim unsaved
+ * changes forever. One constructor, one key order.
+ */
+function makePlanDay(
+  key: DayKey,
+  label: string,
+  weekdays: readonly number[],
+  exercises: PlanExercise[],
+): PlanDay {
+  const out: PlanDay = { key, label, exercises };
+  if (weekdays.length > 0) out.weekdays = [...weekdays];
+  return out;
+}
+
+/** The rows of a built-in day, as a plan would store them. */
+function builtInRows(k: BuiltInDayKey): PlanExercise[] {
+  return PROGRAM[k].exercises.map((ex) => ({ id: ex.id, sets: ex.sets, reps: ex.reps, rest: ex.rest }));
+}
+
+/** The v2 `PlanDay` of a built-in day — the shape a v1 document migrates INTO. */
+function builtInPlanDay(k: BuiltInDayKey, exercises: PlanExercise[] = builtInRows(k)): PlanDay {
+  return makePlanDay(k, PROGRAM[k].label, BUILTIN_WEEKDAYS[k], exercises);
+}
 
 /**
  * The built-in program expressed AS a plan document — the starting point of
@@ -124,33 +191,39 @@ export function newCustomId(): string {
  * (see `resolveProgram`), so "open the editor and save without changing
  * anything" is a genuine no-op for every screen.
  */
-export function defaultPlanDoc(program: ProgramMap = PROGRAM): PlanDoc {
-  const days = {} as Record<DayKey, PlanDay>;
-  for (const k of DAY_ORDER) {
-    days[k] = {
-      exercises: program[k].exercises.map((ex) => ({
-        id: ex.id,
-        sets: ex.sets,
-        reps: ex.reps,
-        rest: ex.rest,
-      })),
-    };
-  }
-  return { version: PLAN_DOC_VERSION, rev: 0, days, customExercises: [] };
+export function defaultPlanDoc(): PlanDoc {
+  return {
+    version: PLAN_DOC_VERSION,
+    rev: 0,
+    days: DAY_ORDER.map((k) => builtInPlanDay(k)),
+    weeklyTarget: DEFAULT_WEEKLY_TARGET,
+    customExercises: [],
+  };
 }
 
 /** Deep copy — the editor mutates a draft that must not touch the saved doc. */
 export function clonePlanDoc(doc: PlanDoc): PlanDoc {
-  const days = {} as Record<DayKey, PlanDay>;
-  for (const k of DAY_ORDER) {
-    days[k] = { exercises: (doc.days[k]?.exercises ?? []).map((r) => ({ ...r })) };
-  }
   return {
     version: PLAN_DOC_VERSION,
     rev: doc.rev,
-    days,
+    days: doc.days.map((d) => cloneDay(d)),
+    weeklyTarget: doc.weeklyTarget,
     customExercises: doc.customExercises.map((c) => cloneCustom(c)),
   };
+}
+
+function cloneDay(d: PlanDay): PlanDay {
+  return makePlanDay(d.key, d.label, d.weekdays ?? [], d.exercises.map((r) => ({ ...r })));
+}
+
+/** One day of a document by key, or `null` — days are an ARRAY from v2 on. */
+export function planDay(doc: PlanDoc | null, key: DayKey): PlanDay | null {
+  return doc?.days.find((d) => d.key === key) ?? null;
+}
+
+/** Rows of one day of a document (empty when there is no such day). */
+export function planRows(doc: PlanDoc | null, key: DayKey): PlanExercise[] {
+  return planDay(doc, key)?.exercises ?? [];
 }
 
 function cloneCustom(c: CustomExercise): CustomExercise {
@@ -225,14 +298,78 @@ function normalizeRow(raw: unknown, known: (id: string) => Exercise | null): Pla
   };
 }
 
+/** The rows of one day, deduplicated, capped, and each one repaired or dropped. */
+function normalizeRows(raw: unknown, known: (id: string) => Exercise | null): PlanExercise[] {
+  const list = isRecord(raw) && Array.isArray(raw['exercises']) ? raw['exercises'] : [];
+  const rows: PlanExercise[] = [];
+  const seen = new Set<string>();
+  for (const r of list) {
+    if (rows.length >= PLAN_LIMITS.maxExercisesPerDay) break;
+    const row = normalizeRow(r, known);
+    if (!row || seen.has(row.id)) continue;
+    seen.add(row.id);
+    rows.push(row);
+  }
+  return rows;
+}
+
+/** Weekdays of a day: integers 0–6, deduplicated and ascending. */
+function normalizeWeekdays(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  const out = new Set<number>();
+  for (const v of raw) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+    const n = Math.trunc(v);
+    if (n >= 0 && n <= 6) out.add(n);
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
+/**
+ * Migrate the v1 `days` record (the fixed A/B/C skeleton) into the v2 array.
+ *
+ * The migrated plan is behaviourally IDENTICAL to what v1 rendered: the same
+ * three keys, the same labels, and the weekday ranges the app has always used to
+ * pick the default tab — so nobody's app moves under them on a Wednesday.
+ */
+function migrateV1Days(raw: unknown, known: (id: string) => Exercise | null): PlanDay[] {
+  const daysRaw = isRecord(raw) ? raw : {};
+  return DAY_ORDER.map((k) => {
+    const rows = normalizeRows(daysRaw[k], known);
+    // An empty / unusable day falls back to the built-in day, never to nothing.
+    return builtInPlanDay(k, rows.length > 0 ? rows : builtInRows(k));
+  });
+}
+
+/** One day of a v2 document, or `null` when it cannot be made sense of. */
+function normalizeV2Day(raw: unknown, known: (id: string) => Exercise | null): PlanDay | null {
+  if (!isRecord(raw)) return null;
+  const key = str(raw['key']).trim();
+  if (!isPlanDayKey(key)) return null;
+  const rows = normalizeRows(raw, known);
+  const exercises = rows.length > 0 ? rows : isBuiltInDayKey(key) ? builtInRows(key) : [];
+  // A day nothing can be rendered for is worse than no day at all.
+  if (exercises.length === 0) return null;
+  const fallbackLabel = isBuiltInDayKey(key) ? PROGRAM[key].label : key;
+  const label = str(raw['label']).trim().slice(0, PLAN_LIMITS.maxNameLength) || fallbackLabel;
+  return makePlanDay(key, label, normalizeWeekdays(raw['weekdays']), exercises);
+}
+
 /**
  * Route ANY persisted / received plan blob to a valid `PlanDoc`, or to `null`
  * (which every consumer reads as "the built-in program"). Never throws.
  *
+ * Accepts BOTH document versions: a v1 blob (from this device's storage, or from
+ * a `plan_updated` event an older client wrote) is migrated to v2 on the way in
+ * and is never written back in v1 form. A version we do not know is refused, so
+ * a document from a FUTURE build falls back to the built-in program rather than
+ * being silently mangled.
+ *
  * Repairs rather than rejects wherever it can: out-of-range numbers are clamped,
- * unknown body parts fall back, unresolvable rows are dropped. A day left empty
- * by that dropping falls back to the built-in day, so a corrupt blob can never
- * produce a workout screen with nothing on it.
+ * unknown body parts fall back, unresolvable rows are dropped, a day left empty
+ * by that dropping falls back to the built-in day (or, for a day the user
+ * invented, is removed). A document left with no days at all becomes the
+ * built-in three, so a corrupt blob can never produce an empty workout screen.
  */
 export function normalizePlanDoc(raw: unknown): PlanDoc | null {
   if (typeof raw === 'string') {
@@ -243,10 +380,9 @@ export function normalizePlanDoc(raw: unknown): PlanDoc | null {
     }
   }
   if (!isRecord(raw)) return null;
-  // A document from a FUTURE version is not ours to guess at — fall back to the
-  // built-in program rather than silently mangling it.
   const version = raw['version'];
-  if (version !== undefined && version !== PLAN_DOC_VERSION) return null;
+  const isV1 = version === undefined || version === PLAN_DOC_VERSION_V1;
+  if (!isV1 && version !== PLAN_DOC_VERSION) return null;
 
   const customs: CustomExercise[] = [];
   const seenCustom = new Set<string>();
@@ -260,33 +396,34 @@ export function normalizePlanDoc(raw: unknown): PlanDoc | null {
   const customById = new Map(customs.map((c) => [c.id, customToExercise(c)] as const));
   const known = (id: string): Exercise | null => findExercise(id) ?? customById.get(id) ?? null;
 
-  const fallback = defaultPlanDoc();
-  const daysRaw = isRecord(raw['days']) ? raw['days'] : {};
-  const days = {} as Record<DayKey, PlanDay>;
-  for (const k of DAY_ORDER) {
-    const dayRaw = daysRaw[k];
-    const list = isRecord(dayRaw) && Array.isArray(dayRaw['exercises']) ? dayRaw['exercises'] : [];
-    const rows: PlanExercise[] = [];
-    const seen = new Set<string>();
-    for (const r of list) {
-      if (rows.length >= PLAN_LIMITS.maxExercisesPerDay) break;
-      const row = normalizeRow(r, known);
-      if (!row || seen.has(row.id)) continue;
-      seen.add(row.id);
-      rows.push(row);
+  let days: PlanDay[];
+  if (isV1) {
+    days = migrateV1Days(raw['days'], known);
+  } else {
+    days = [];
+    const seenKey = new Set<string>();
+    const list = Array.isArray(raw['days']) ? raw['days'] : [];
+    for (const d of list) {
+      if (days.length >= PLAN_LIMITS.maxDays) break;
+      const day = normalizeV2Day(d, known);
+      if (!day || seenKey.has(day.key)) continue;
+      seenKey.add(day.key);
+      days.push(day);
     }
-    days[k] = { exercises: rows.length > 0 ? rows : (fallback.days[k]?.exercises ?? []) };
+    if (days.length === 0) days = defaultPlanDoc().days;
   }
 
   // Keep only the customs some day actually references, so a doc cannot grow
   // an unbounded graveyard of exercises the user deleted long ago.
   const referenced = new Set<string>();
-  for (const k of DAY_ORDER) for (const r of days[k].exercises) referenced.add(r.id);
+  for (const day of days) for (const r of day.exercises) referenced.add(r.id);
 
   return {
     version: PLAN_DOC_VERSION,
     rev: Math.max(0, clampInt(raw['rev'], 0, Number.MAX_SAFE_INTEGER, 0)),
     days,
+    // v1 knew nothing about a target: it always meant three days a week.
+    weeklyTarget: isV1 ? DEFAULT_WEEKLY_TARGET : clampWeeklyTarget(raw['weeklyTarget']),
     customExercises: customs.filter((c) => referenced.has(c.id)),
   };
 }
@@ -347,40 +484,64 @@ function sameAsBuiltIn(rows: readonly PlanExercise[], base: Day): boolean {
   });
 }
 
+/** True when a plan day is the built-in day, down to its name and weekdays. */
+function isUntouchedBuiltInDay(pd: PlanDay, base: Day): boolean {
+  if (pd.label !== base.label) return false;
+  const key = pd.key;
+  if (!isBuiltInDayKey(key)) return false;
+  const weekdays = pd.weekdays ?? [];
+  const builtIn = BUILTIN_WEEKDAYS[key];
+  if (weekdays.length !== builtIn.length || weekdays.some((w, i) => w !== builtIn[i])) return false;
+  return sameAsBuiltIn(pd.exercises, base);
+}
+
 /**
- * A plan document as the `ProgramMap` every screen renders.
+ * A plan document as the ordered `ResolvedProgram` every screen renders.
  *
- * `null` hands back `PROGRAM` ITSELF (same object reference) — the zero-change
- * guarantee. An unmodified day inside a real plan likewise hands back the
- * built-in `Day` object, so only genuinely edited days differ from today's app.
+ * `null` hands back `BUILTIN_PROGRAM` ITSELF (same object reference), whose days
+ * are the `PROGRAM` objects themselves — the zero-change guarantee. An
+ * unmodified day inside a real plan likewise hands back the built-in `Day`
+ * object, so only genuinely edited days differ from today's app.
  */
-export function resolveProgram(plan: PlanDoc | null, program: ProgramMap = PROGRAM): ProgramMap {
-  if (!plan) return program;
+export function resolveProgram(plan: PlanDoc | null): ResolvedProgram {
+  if (!plan) return BUILTIN_PROGRAM;
 
   const customById = new Map(plan.customExercises.map((c) => [c.id, customToExercise(c)] as const));
-  const days = {} as Record<DayKey, Day>;
-  for (const k of DAY_ORDER) {
-    const base = program[k];
-    const rows = plan.days[k]?.exercises ?? [];
-    if (sameAsBuiltIn(rows, base)) {
-      days[k] = base;
-      continue;
+  const days: ProgramDay[] = plan.days.map((pd) => {
+    const base = isBuiltInDayKey(pd.key) ? PROGRAM[pd.key] : null;
+    const weekdays = pd.weekdays ?? [];
+    if (base && isUntouchedBuiltInDay(pd, base)) {
+      return { key: pd.key, label: base.label, weekdays, day: base };
     }
     const exercises: Exercise[] = [];
-    for (const row of rows) {
+    for (const row of pd.exercises) {
       const def = findExercise(row.id) ?? customById.get(row.id) ?? null;
       if (!def) continue; // unknown id — skip, never render a blank card
       exercises.push({ ...def, sets: row.sets, reps: row.reps, rest: row.rest });
     }
-    days[k] = {
-      day: base.day,
-      label: base.label,
+    const label = pd.label || base?.label || pd.key;
+    const day: Day = {
+      day: weekdayCaption(weekdays, base?.day ?? label),
+      label,
       dur: estimateDuration(exercises),
-      focus: focusOf(exercises, base.focus),
+      focus: focusOf(exercises, base?.focus ?? label),
       exercises,
     };
-  }
-  return days;
+    return { key: pd.key, label, weekdays, day };
+  });
+
+  return { days, weeklyTarget: clampWeeklyTarget(plan.weeklyTarget) };
+}
+
+/**
+ * The day the app should open on for a plan: the day assigned to today's
+ * weekday, or the plan's FIRST day when nothing claims it.
+ *
+ * For `null` (the built-in program) this is exactly the legacy mapping:
+ * Sun/Mon → A, Tue/Wed → B, Thu–Sat → C.
+ */
+export function defaultDay(plan: PlanDoc | null, now: Date = new Date()): DayKey {
+  return defaultDayOf(resolveProgram(plan), now);
 }
 
 /**
@@ -412,9 +573,30 @@ export function validatePlanDoc(doc: PlanDoc): string[] {
     if (c.he.length > PLAN_LIMITS.maxNameLength) errors.push(`שם התרגיל ארוך מדי (עד ${PLAN_LIMITS.maxNameLength} תווים)`);
   }
 
-  for (const k of DAY_ORDER) {
-    const rows = doc.days[k]?.exercises ?? [];
-    const label = PROGRAM[k].label;
+  if (doc.days.length < PLAN_LIMITS.minDays) errors.push('התוכנית חייבת לכלול לפחות יום אימון אחד');
+  if (doc.days.length > PLAN_LIMITS.maxDays) errors.push(`עד ${PLAN_LIMITS.maxDays} ימי אימון בתוכנית`);
+  if (
+    !Number.isInteger(doc.weeklyTarget) ||
+    doc.weeklyTarget < MIN_WEEKLY_TARGET ||
+    doc.weeklyTarget > MAX_WEEKLY_TARGET
+  ) {
+    errors.push(`יעד האימונים השבועי חייב להיות בין ${MIN_WEEKLY_TARGET} ל־${MAX_WEEKLY_TARGET}`);
+  }
+
+  const seenKeys = new Set<string>();
+  for (const day of doc.days) {
+    const rows = day.exercises;
+    const label = day.label || day.key;
+    if (!isPlanDayKey(day.key)) errors.push(`${label}: מזהה יום לא תקין`);
+    else if (seenKeys.has(day.key)) errors.push(`${label}: מזהה היום מופיע פעמיים`);
+    seenKeys.add(day.key);
+    if (!day.label.trim()) errors.push('לכל יום אימון חייב להיות שם');
+    if (day.label.length > PLAN_LIMITS.maxNameLength) {
+      errors.push(`שם היום ארוך מדי (עד ${PLAN_LIMITS.maxNameLength} תווים)`);
+    }
+    for (const w of day.weekdays ?? []) {
+      if (!Number.isInteger(w) || w < 0 || w > 6) errors.push(`${label}: יום בשבוע לא תקין`);
+    }
     if (rows.length === 0) {
       errors.push(`${label}: יש להשאיר לפחות תרגיל אחד ביום`);
       continue;
@@ -452,6 +634,7 @@ export function planToRecord(doc: PlanDoc): Record<string, unknown> {
     version: doc.version,
     rev: doc.rev,
     days: doc.days,
+    weeklyTarget: doc.weeklyTarget,
     customExercises: doc.customExercises,
   };
 }
@@ -500,6 +683,10 @@ export type SavePlanResult = SavePlanOk | SavePlanFailed;
  * The event is appended BEFORE the state mirror, exactly like `core/game.ts`
  * does for XP, so "live state === rebuildFromEvents(log)" stays true even if the
  * process dies between the two writes.
+ *
+ * The streak is re-derived in the same update: a plan carries the WEEKLY TARGET,
+ * so saving one can change what a perfect week means from this moment on, and
+ * `rebuildFromEvents` of the very same log would say so immediately.
  */
 export function savePlan(store: DataStore, doc: PlanDoc | null, now: number = Date.now()): SavePlanResult {
   const current = store.getState().plan;
@@ -510,6 +697,7 @@ export function savePlan(store: DataStore, doc: PlanDoc | null, now: number = Da
     const event = store.append('plan_updated', payload);
     store.update((draft) => {
       draft.plan = null;
+      refinalize(draft, store, now);
     });
     return { ok: true, plan: null, event };
   }
@@ -525,8 +713,15 @@ export function savePlan(store: DataStore, doc: PlanDoc | null, now: number = Da
   const event = store.append('plan_updated', payload);
   store.update((draft) => {
     draft.plan = normalized;
+    refinalize(draft, store, now);
   });
   return { ok: true, plan: normalized, event };
+}
+
+/** Re-derive the streak against the plan history the log now holds. */
+function refinalize(draft: AppState, store: DataStore, now: number): void {
+  if (!draft.game) return;
+  finalizeGame(draft.game, todayISO(new Date(now)), weeklyTargetsFromEvents(store.getEvents()));
 }
 
 /** True when `doc` differs from what is currently stored (drives the save hint). */
@@ -553,5 +748,5 @@ export function libraryExercises(plan: PlanDoc | null): Exercise[] {
 
 /** Day key of a `PlanDoc`'s day, guarded for untrusted input. */
 export function planDayKey(v: unknown): DayKey | null {
-  return isDayKey(v) ? v : null;
+  return isPlanDayKey(v) ? v : null;
 }

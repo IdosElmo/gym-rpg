@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { PROGRAM } from '../src/data/program.ts';
+import { PROGRAM, isBuiltInDayKey, type BuiltInDayKey } from '../src/data/program.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import { createApp } from '../src/ui/app.ts';
 import { RestTimer } from '../src/ui/timer.ts';
@@ -50,11 +50,10 @@ function mount(store: LocalStore = new LocalStore(fakeStorage())): { store: Loca
   return { store, render: app.render };
 }
 
-function currentDay(store: LocalStore) {
+/** The day tab the app booted on — always one of the built-in three here. */
+function currentDay(store: LocalStore): BuiltInDayKey {
   const view = store.getState().ui.view;
-  if (view === 'H' || view === 'CH' || view === 'BT' || view === 'PL') {
-    throw new Error('unexpected default view');
-  }
+  if (!isBuiltInDayKey(view)) throw new Error(`unexpected default view: ${view}`);
   return view;
 }
 

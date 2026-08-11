@@ -15,8 +15,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { PROGRAM } from '../src/data/program.ts';
-import { isDefaultPlan, resolveProgram } from '../src/core/plan.ts';
+import { BUILTIN_PROGRAM, PROGRAM } from '../src/data/program.ts';
+import { isDefaultPlan, planRows, resolveProgram } from '../src/core/plan.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import { createApp } from '../src/ui/app.ts';
 import { RestTimer } from '../src/ui/timer.ts';
@@ -374,7 +374,7 @@ describe('saving and resetting', () => {
     click('#plSave');
 
     expect(planEvents(store)).toHaveLength(1);
-    expect(store.getState().plan?.days.A.exercises[0]?.sets).toBe(5);
+    expect(planRows(store.getState().plan, 'A')[0]?.sets).toBe(5);
     expect(document.getElementById('plHint')?.textContent).toContain('שמורה');
 
     // saving again with no further edits is still one event per press, no more
@@ -411,7 +411,7 @@ describe('saving and resetting', () => {
       new Event('submit', { bubbles: true, cancelable: true }),
     );
     click('#plSave');
-    const id = store.getState().plan?.days.A.exercises.at(-1)?.id ?? '';
+    const id = planRows(store.getState().plan, 'A').at(-1)?.id ?? '';
     click('#btnPlanBack');
 
     const card = document.getElementById(`card-${id}`);
@@ -438,7 +438,7 @@ describe('saving and resetting', () => {
       new Event('submit', { bubbles: true, cancelable: true }),
     );
     click('#plSave');
-    const id = store.getState().plan?.days.A.exercises.at(-1)?.id ?? '';
+    const id = planRows(store.getState().plan, 'A').at(-1)?.id ?? '';
     click('#btnPlanBack');
 
     click(`#main .chk[data-ex="${id}"][data-set="0"]`);
@@ -465,7 +465,7 @@ describe('saving and resetting', () => {
     window.confirm = () => true;
     click('#plReset');
     expect(store.getState().plan).toBeNull();
-    expect(resolveProgram(store.getState().plan)).toBe(PROGRAM);
+    expect(resolveProgram(store.getState().plan)).toBe(BUILTIN_PROGRAM);
     expect(rowIds()).toEqual(PROGRAM.A.exercises.map((e) => e.id));
     const last = planEvents(store).at(-1);
     expect(last?.payload['plan']).toBeNull();
@@ -522,7 +522,7 @@ describe('history with a custom plan', () => {
       new Event('submit', { bubbles: true, cancelable: true }),
     );
     click('#plSave');
-    const id = store.getState().plan?.days.A.exercises.at(-1)?.id ?? '';
+    const id = planRows(store.getState().plan, 'A').at(-1)?.id ?? '';
 
     store.update((d) => {
       d.sessions['2025-01-05'] = { day: 'A', ex: { [id]: [{ w: '0', r: '8', done: true }] } };

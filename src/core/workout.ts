@@ -9,7 +9,7 @@
  * `DataStore.update()` so persistence + notification happen exactly once.
  */
 
-import { PROGRAM, type DayKey, type ProgramMap } from '../data/program.ts';
+import { BUILTIN_PROGRAM, dayOf, type DayKey, type ResolvedProgram } from '../data/program.ts';
 import type { AppState, Session, SetEntry } from '../storage/DataStore.ts';
 
 export function todayISO(d: Date = new Date()): string {
@@ -109,13 +109,14 @@ export function prevPerf(state: AppState, exId: string, today: string = todayISO
 export function lastLoggedDate(
   state: AppState,
   dayKey: DayKey,
-  program: ProgramMap = PROGRAM,
+  program: ResolvedProgram = BUILTIN_PROGRAM,
 ): string | null {
+  const day = dayOf(program, dayKey);
   const dates = Object.keys(state.sessions).sort().reverse();
   for (const d of dates) {
     const s = state.sessions[d];
     if (!s) continue;
-    if (s.day === dayKey || program[dayKey].exercises.some((e) => s.ex[e.id])) return d;
+    if (s.day === dayKey || (day?.exercises ?? []).some((e) => s.ex[e.id])) return d;
   }
   return null;
 }
@@ -127,14 +128,21 @@ export function doneCount(state: AppState, exId: string, date: string = todayISO
   return arr.filter((s) => !!s && s.done).length;
 }
 
-/** True when every set of every exercise of the day is checked. */
+/**
+ * True when every set of every exercise of the day is checked.
+ *
+ * A day the program does not have is never complete: an empty exercise list
+ * would vacuously satisfy `every` and pay a completion bonus for nothing.
+ */
 export function isWorkoutComplete(
   state: AppState,
   dayKey: DayKey,
   date: string = todayISO(),
-  program: ProgramMap = PROGRAM,
+  program: ResolvedProgram = BUILTIN_PROGRAM,
 ): boolean {
-  return program[dayKey].exercises.every((ex) => doneCount(state, ex.id, date) >= ex.sets);
+  const day = dayOf(program, dayKey);
+  if (!day || day.exercises.length === 0) return false;
+  return day.exercises.every((ex) => doneCount(state, ex.id, date) >= ex.sets);
 }
 
 /** Total number of checked sets in a session (used by Phase 1 for XP/energy). */
