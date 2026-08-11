@@ -679,4 +679,44 @@ describe('unknown day keys are DATA, not errors', () => {
       expect(withView.ui.view).toBe(view);
     }
   });
+
+  it('accepts an occurrence view (`dayKey@weekday`) and refuses a bogus one', () => {
+    // A day trained on two weekdays shows two tabs, and the tab the app was left
+    // on is stored as `d_alef@3`. Both that shape and the bare key it replaced
+    // survive a reload; a weekday the day is NOT trained on cannot highlight a
+    // tab, so it falls back to the default tab for `now`.
+    const plan = {
+      version: 2,
+      rev: 1,
+      days: [
+        { key: 'd_alef', label: "חלק א'", weekdays: [0, 3], exercises: [{ id: 'a1', sets: 3, reps: '8', rest: 60 }] },
+        { key: 'd_bet', label: "חלק ב'", weekdays: [2, 4], exercises: [{ id: 'b1', sets: 3, reps: '8', rest: 60 }] },
+      ],
+      weeklyTarget: 4,
+      customExercises: [],
+    };
+    const viewOf = (view: unknown, now = Date.parse('2025-01-05T12:00:00Z')): string =>
+      migrateState(
+        {
+          schemaVersion: CURRENT_STATE_VERSION,
+          sessions: {},
+          ui: { view, open: {} },
+          plan,
+          meta: { legacyImported: true, createdAt: 1, updatedAt: 1 },
+        },
+        now,
+      ).ui.view;
+
+    expect(viewOf('d_alef@3')).toBe('d_alef@3');
+    expect(viewOf('d_bet@2')).toBe('d_bet@2');
+    expect(viewOf('d_alef')).toBe('d_alef'); // stored before schedule tabs existed
+    // 2025-01-05 is a Sunday, which חלק א׳ is trained on -> that occurrence
+    expect(viewOf('d_alef@6')).toBe('d_alef@0');
+    expect(viewOf('d_gone@0')).toBe('d_alef@0');
+    expect(viewOf('@0')).toBe('d_alef@0');
+    expect(viewOf(42)).toBe('d_alef@0');
+    // …and a fresh install opens on the occurrence scheduled for today
+    expect(viewOf(undefined, Date.parse('2025-01-08T12:00:00Z'))).toBe('d_alef@3'); // Wednesday
+    expect(viewOf(undefined, Date.parse('2025-01-09T12:00:00Z'))).toBe('d_bet@4'); // Thursday
+  });
 });

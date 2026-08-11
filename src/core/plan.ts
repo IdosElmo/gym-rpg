@@ -53,6 +53,7 @@ import {
   MAX_WEEKLY_TARGET,
   MIN_WEEKLY_TARGET,
   PROGRAM,
+  WEEKDAY_HE,
   builtInExercises,
   defaultDayOf,
   findExercise,
@@ -215,15 +216,27 @@ export function assignedWeekdays(days: readonly PlanDay[]): number[] {
   return [...out].sort((a, b) => a - b);
 }
 
+/** The only thing the routing-map test needs of a day: its key and weekdays. */
+interface WeekdayAssignment {
+  readonly key: DayKey;
+  readonly weekdays?: readonly number[];
+}
+
 /**
  * True for the A/B/C weekday map v1 shipped with — `[0,1] / [2,3] / [4,5,6]`.
  *
  * That map is a ROUTING map, not a schedule: it exists so that every weekday
  * opens SOME tab, which is why three workouts claim all seven days. Reading it
  * as a schedule would say "seven training days a week", which is exactly what
- * `DEFAULT_WEEKLY_TARGET` (three) has always denied. See `deriveWeeklyTarget`.
+ * `DEFAULT_WEEKLY_TARGET` (three) has always denied. See `deriveWeeklyTarget`
+ * and `scheduleTabs` — the two readers of the map, and the two places where
+ * treating routing as a schedule would visibly lie to the user (a weekly target
+ * of seven, and seven workout tabs for a three-day program).
+ *
+ * Takes anything with a key and weekdays, so a `PlanDay` (document side) and a
+ * `ProgramDay` (resolved side) are judged by the very same predicate.
  */
-function isBuiltInWeekdayMap(days: readonly PlanDay[]): boolean {
+export function isBuiltInWeekdayMap(days: readonly WeekdayAssignment[]): boolean {
   if (days.length !== DAY_ORDER.length) return false;
   return days.every((d, i) => {
     const k = DAY_ORDER[i];
@@ -603,6 +616,150 @@ export function resolveProgram(plan: PlanDoc | null): ResolvedProgram {
  */
 export function defaultDay(plan: PlanDoc | null, now: Date = new Date()): DayKey {
   return defaultDayOf(resolveProgram(plan), now);
+}
+
+/* ------------------------------------------------------- the schedule tabs */
+
+/**
+ * Separator between a day key and ONE occurrence of that day in the week.
+ *
+ * `d_alef@3` = "חלק א' as trained on Wednesday". It is not a new kind of day and
+ * it never reaches storage: `viewDayKey` strips it before anything touches a
+ * session, an event payload or the XP engine (see `ui/app.ts`, which is the only
+ * module that ever holds the composed form).
+ *
+ * `@` is deliberately outside `isPlanDayKey`'s alphabet, so a composed view id
+ * can never collide with a day key a plan minted.
+ */
+export const VIEW_OCCURRENCE_SEP = '@';
+
+/**
+ * ONE tab of the day area.
+ *
+ * A tab is an OCCURRENCE of a workout, not a workout: an A/B split trained on
+ * four weekdays shows four tabs over two days, because that is the week the user
+ * actually walks into the gym for, and a written schedule ("ראשון — חלק א'")
+ * should be readable straight off the tab bar.
+ */
+export interface ScheduleTab {
+  /** What `UiState.view` stores: `dayKey`, or `dayKey@weekday` when it expands. */
+  readonly viewId: string;
+  /** The day this tab trains — what sessions, events and XP are keyed by. */
+  readonly dayKey: DayKey;
+  /** The weekday of this occurrence, or `null` for an unscheduled/routing tab. */
+  readonly weekday: number | null;
+  /** Big line: the weekday name for an occurrence, the day's caption otherwise. */
+  readonly title: string;
+  /** Small line: the workout's own name. */
+  readonly subtitle: string;
+}
+
+/**
+ * THE ordered tab list of the day area — the single source of what the tab bar
+ * renders, what `UiState.view` may hold, and which tab today opens on.
+ *
+ * Two shapes, decided by the weekday assignment itself:
+ *
+ *   * a ROUTING map (the built-in `[0,1] / [2,3] / [4,5,6]`, which every
+ *     v1-migrated plan inherits) or a day with no weekdays at all -> ONE tab per
+ *     day, titled exactly as before. Expanding a routing map would turn the
+ *     three-day program into seven tabs, which is the same lie
+ *     `deriveWeeklyTarget` refuses to tell about the weekly target.
+ *   * a real SCHEDULE -> one tab per (weekday, day) pair, ascending by weekday,
+ *     titled with the weekday name. Days with no weekdays keep their single tab
+ *     and are appended, in the plan's own order, after the scheduled ones.
+ */
+export function scheduleTabs(program: ResolvedProgram): ScheduleTab[] {
+  const routing = isBuiltInWeekdayMap(program.days);
+  const scheduled: ScheduleTab[] = [];
+  const unscheduled: ScheduleTab[] = [];
+
+  for (const d of program.days) {
+    const weekdays = routing ? [] : d.weekdays;
+    if (weekdays.length === 0) {
+      // Exactly today's tab: the day's own caption over its label.
+      unscheduled.push({ viewId: d.key, dayKey: d.key, weekday: null, title: d.day.day, subtitle: d.label });
+      continue;
+    }
+    // A day trained once a week keeps its PLAIN key as the view id — there is
+    // only one occurrence of it, so there is nothing to disambiguate.
+    const expands = weekdays.length > 1;
+    for (const w of weekdays) {
+      scheduled.push({
+        viewId: expands ? `${d.key}${VIEW_OCCURRENCE_SEP}${w}` : d.key,
+        dayKey: d.key,
+        weekday: w,
+        title: WEEKDAY_HE[w] ?? d.day.day,
+        subtitle: d.label,
+      });
+    }
+  }
+
+  // Stable sort: two days claiming the same weekday (which the editor prevents,
+  // but a document from another device may still carry) stay in plan order.
+  scheduled.sort((a, b) => (a.weekday ?? 0) - (b.weekday ?? 0));
+  return [...scheduled, ...unscheduled];
+}
+
+/**
+ * The DAY KEY behind a view id — `d_alef@3` -> `d_alef`, `A` -> `A`.
+ *
+ * Everything below the UI (sessions, `set_*` payloads, XP grants, history) is
+ * keyed by the day, never by the occurrence: two tabs of the same workout are
+ * one workout logged on two dates. This is the one function that drops the
+ * occurrence, and it is called before any of that machinery is touched.
+ */
+export function viewDayKey(view: string): DayKey {
+  const i = view.indexOf(VIEW_OCCURRENCE_SEP);
+  return i < 0 ? view : view.slice(0, i);
+}
+
+/**
+ * The tab a stored view refers to, or `null` when nothing in the program does.
+ *
+ * Accepts both forms, which is what keeps every persisted view valid across this
+ * change: an exact tab id wins, and a bare day key (what every install stored
+ * before schedule-expanded tabs existed) resolves to that day's occurrence for
+ * TODAY, or to its first one.
+ */
+export function resolveTab(program: ResolvedProgram, view: string, now: Date = new Date()): ScheduleTab | null {
+  const tabs = scheduleTabs(program);
+  const exact = tabs.find((t) => t.viewId === view);
+  if (exact) return exact;
+  const key = viewDayKey(view);
+  const mine = tabs.filter((t) => t.dayKey === key);
+  if (mine.length === 0) return null;
+  return mine.find((t) => t.weekday === now.getDay()) ?? mine[0] ?? null;
+}
+
+/**
+ * True for a view a plan can still make sense of: an exact tab id, or the bare
+ * key of a day it defines. A weekday the day is NOT trained on (`d_alef@6`) is
+ * refused — it would highlight no tab — and falls back to the default.
+ */
+export function isTabView(program: ResolvedProgram, view: unknown): boolean {
+  if (typeof view !== 'string' || view === '') return false;
+  const tabs = scheduleTabs(program);
+  return tabs.some((t) => t.viewId === view || t.dayKey === view);
+}
+
+/**
+ * The tab the app opens on: the one scheduled for TODAY's weekday, else the tab
+ * of the day `defaultDayOf` picks (which is the legacy Sun/Mon -> A mapping for
+ * the built-in program, and the plan's first day when nothing claims today).
+ */
+export function defaultTab(program: ResolvedProgram, now: Date = new Date()): ScheduleTab | null {
+  const tabs = scheduleTabs(program);
+  const today = tabs.find((t) => t.weekday === now.getDay());
+  if (today) return today;
+  const key = defaultDayOf(program, now);
+  return tabs.find((t) => t.dayKey === key) ?? tabs[0] ?? null;
+}
+
+/** The view id the app boots on — `defaultTab` as `UiState.view` stores it. */
+export function defaultTabView(plan: PlanDoc | null, now: Date = new Date()): string {
+  const program = resolveProgram(plan);
+  return defaultTab(program, now)?.viewId ?? defaultDayOf(program, now);
 }
 
 /**
