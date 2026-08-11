@@ -61,6 +61,9 @@ interface WaveRun {
   coins: number;
 }
 
+/** Names the workout day of a `workout_finished` event ('' = leave it unnamed). */
+export type DayNamer = (dayKey: string) => string;
+
 /**
  * Build the feed, newest first. `limit` caps the number of LINES, not events.
  *
@@ -68,11 +71,16 @@ interface WaveRun {
  * plan-aware resolver so a PR on a CUSTOM exercise shows its name instead of
  * its raw `cx_…` id. An exercise that has since been deleted from the plan
  * still falls back to the id, exactly as a removed built-in always did.
+ *
+ * `dayName` names the workout day of a finished workout. It defaults to naming
+ * nothing at all: the feed is a projection of the LOG, and the log does not know
+ * which plan is active — only the screen does (`dayLabelOf`).
  */
 export function buildFeed(
   events: readonly AppEvent[],
   limit = 40,
   resolve: ExerciseResolver = findExercise,
+  dayName: DayNamer = () => '',
 ): FeedItem[] {
   const items: FeedItem[] = [];
   let run: WaveRun | null = null;
@@ -147,9 +155,21 @@ export function buildFeed(
         });
         break;
       }
-      case 'workout_finished':
-        items.push({ ts: ev.ts, date, icon: '💪', cls: 'workout', text: 'אימון הושלם במלואו' });
+      case 'workout_finished': {
+        // The event carries the DAY KEY it was logged under; naming it is the
+        // caller's job, because only a screen knows the active plan. A key the
+        // plan dropped resolves to a neutral name (or to nothing), never to a
+        // raw `d_…` string and never to another day's name.
+        const label = dayName(str(p['day']));
+        items.push({
+          ts: ev.ts,
+          date,
+          icon: '💪',
+          cls: 'workout',
+          text: label ? `אימון הושלם במלואו · ${esc(label)}` : 'אימון הושלם במלואו',
+        });
         break;
+      }
       case 'streak_changed': {
         const to = num(p['to']);
         const from = num(p['from']);
@@ -243,8 +263,9 @@ export function renderFeed(
   events: readonly AppEvent[],
   limit = 40,
   resolve: ExerciseResolver = findExercise,
+  dayName: DayNamer = () => '',
 ): string {
-  const items = buildFeed(events, limit, resolve);
+  const items = buildFeed(events, limit, resolve, dayName);
   if (items.length === 0) {
     return `<section class="game-card">
       <h3 class="gc-title">יומן הרפתקה <span class="gc-sub">אירועי המשחק</span></h3>

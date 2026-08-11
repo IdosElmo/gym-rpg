@@ -843,6 +843,72 @@ describe('history with a custom plan', () => {
     expect(document.querySelector('.plan-card .gc-sub')?.textContent).toContain('מותאמת');
   });
 
+  it('names a logged day through the ACTIVE plan, and degrades gracefully', () => {
+    const { store, render } = mount();
+    openEditor();
+    // rename day A, then log a session under it and under two dead keys
+    type('#plDayLabel', 'יום הרגליים');
+    click('#plSave');
+    store.update((d) => {
+      d.sessions['2025-01-05'] = { day: 'A', ex: { a1: [{ w: '40', r: '8', done: true }] } };
+      d.sessions['2025-01-06'] = { day: 'B', ex: { b1: [{ w: '50', r: '8', done: true }] } };
+      d.ui.view = 'H';
+    });
+    render();
+    const titles = [...document.querySelectorAll<HTMLElement>('.hist-day h3')].map((h) => h.textContent ?? '');
+    expect(titles.some((t) => t.includes('יום הרגליים'))).toBe(true);
+    expect(titles.some((t) => t.includes(PROGRAM.B.label))).toBe(true);
+  });
+
+  it('keeps naming a session whose day is no longer in the plan at all', () => {
+    const { store, render } = mount();
+    openEditor();
+    click('#plPresets');
+    click('[data-preset="ab4"]'); // brand-new d_ keys: A/B/C all disappear
+    click('#plSave');
+    store.update((d) => {
+      // a legacy A/B/C session, and one from a day invented on another device
+      d.sessions['2025-01-05'] = { day: 'A', ex: { a1: [{ w: '40', r: '8', done: true }] } };
+      d.sessions['2025-01-06'] = { day: 'd_gone', ex: { a1: [{ w: '42', r: '8', done: true }] } };
+      d.ui.view = 'H';
+    });
+    render();
+    const titles = [...document.querySelectorAll<HTMLElement>('.hist-day h3')].map((h) => h.textContent ?? '');
+    // the built-in label survives for A, and the unknown key gets a neutral name
+    expect(titles.some((t) => t.includes(PROGRAM.A.label))).toBe(true);
+    expect(titles.some((t) => t.includes('אימון') && !t.includes('d_gone'))).toBe(true);
+    expect(document.body.innerHTML).not.toContain('d_gone');
+    // no day copy is borrowed from another day: no weekday caption, no focus
+    expect(titles.every((t) => !t.includes('(יום'))).toBe(true);
+  });
+
+  it('names the finished workout in the adventure feed, on a custom day key', () => {
+    const { store, render } = mount();
+    openEditor();
+    click('#plPresets');
+    click('[data-preset="ab4"]');
+    click('#plSave');
+    click('#btnPlanBack');
+    const dayKey = store.getState().plan?.days[0]?.key ?? '';
+    click(`#tabs .tab[data-view="${dayKey}"]`);
+
+    // tick every set of every exercise of חלק א׳ -> workout_finished
+    const boxes = [...document.querySelectorAll<HTMLElement>('#main .chk')];
+    expect(boxes.length).toBeGreaterThan(0);
+    for (const b of boxes) b.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const finished = store.getEvents().filter((e) => e.type === 'workout_finished');
+    expect(finished).toHaveLength(1);
+    expect(finished[0]?.payload['day']).toBe(dayKey);
+
+    store.update((d) => {
+      d.ui.view = 'H';
+    });
+    render();
+    const line = [...document.querySelectorAll<HTMLElement>('.feed-item.workout .fi-text')].map((e) => e.textContent);
+    expect(line[0]).toContain('אימון הושלם במלואו');
+    expect(line[0]).toContain('חלק א׳');
+  });
+
   it('falls back to the raw id for an exercise deleted from the plan', () => {
     const { store, render } = mount();
     store.update((d) => {

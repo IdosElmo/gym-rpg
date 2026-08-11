@@ -7,7 +7,7 @@
  * fills. Import accepts BOTH the new blob and the legacy `{sessions:{…}}` file.
  */
 
-import { dayOf } from '../data/program.ts';
+import { dayLabelOf, dayOf } from '../data/program.ts';
 import { fmtDate, isSetFilled, todayISO } from '../core/workout.ts';
 import { isDefaultPlan, makeResolver, resolveProgram } from '../core/plan.ts';
 import type { DataStore } from '../storage/DataStore.ts';
@@ -73,7 +73,7 @@ export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
   </div>
   ${deps.account ? renderAccountCard(deps.account) : ''}
   ${planCard(state)}
-  ${renderFeed(deps.store.getEvents(), 40, resolve)}
+  ${renderFeed(deps.store.getEvents(), 40, resolve, (key) => dayLabelOf(program, key))}
   <h2 class="hist-heading">אימונים מתועדים</h2>`;
 
   const nonEmpty = dates.filter((d) => Object.keys(state.sessions[d]?.ex ?? {}).length > 0);
@@ -85,8 +85,12 @@ export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
         const s = state.sessions[date];
         if (!s) return '';
         // History is shown by DAY KEY, long after a plan may have dropped that
-        // day — so it falls back to the first day's copy rather than vanishing.
-        const p = dayOf(program, s.day) ?? program.days[0]?.day ?? null;
+        // day. `dayLabelOf` names it anyway (the plan's label, then the built-in
+        // one for a legacy A/B/C session, then a neutral "אימון"); the weekday
+        // caption and the focus line only exist while the day itself does, and
+        // are simply left out rather than borrowed from some other day.
+        const p = dayOf(program, s.day);
+        const label = dayLabelOf(program, s.day);
         const exHtml = Object.keys(s.ex)
           .map((exId) => {
             const exDef = resolve(exId);
@@ -99,7 +103,7 @@ export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
           })
           .join('');
         if (!exHtml) return '';
-        const title = p ? ` · ${esc(p.label)} (יום ${esc(p.day)})` : '';
+        const title = ` · ${esc(label)}${p ? ` (יום ${esc(p.day)})` : ''}`;
         return `<div class="hist-day">
         <h3>${fmtDate(date)}${title}</h3>
         <div class="sub">${p ? esc(p.focus) : ''}</div>
