@@ -73,8 +73,9 @@ export interface UiState {
  * sanctioned migration path for this blob (see `ensureGameState`).
  *
  * v4 (merge-safe core) added the idempotency ledgers `energyGranted` + `prKeys`.
+ * v5 (the character roster) added `characters`.
  */
-export const GAME_STATE_VERSION = 4;
+export const GAME_STATE_VERSION = 5;
 
 /** XP pool of one body part. `level` is DERIVED from `xp` (see core/xp.ts). */
 export interface PartProgress {
@@ -125,6 +126,24 @@ export interface BattleProgress {
   bossesDefeated: string[];
 }
 
+/**
+ * Which character the player is playing, and which SKINS they bought.
+ *
+ * `owned` holds purchased skins ONLY: the two free base bodies
+ * (`data/characters.ts`, `cost: 0`) are owned by definition and are never
+ * written to the log — representation is not a purchase, and nothing about
+ * choosing a body should depend on an event having survived a merge.
+ *
+ * `selected` is last-write-wins in the log's `(ts, id)` order, so two devices
+ * that both switched character converge on the same one.
+ */
+export interface CharactersState {
+  /** Ids of the skins bought so far (permanent, like equipment). */
+  owned: string[];
+  /** The character currently being played — a base body or an owned skin. */
+  selected: string;
+}
+
 /** Owned + equipped shop items. Both are folded from the event log. */
 export interface EquipmentState {
   /** Every item id ever bought (purchases are permanent). */
@@ -172,6 +191,8 @@ export interface GameState {
   battle: BattleProgress;
   /** Phase 3 — the coin shop's owned + equipped items. */
   equipment: EquipmentState;
+  /** Phase 5 — the character roster: bought skins + the one being played. */
+  characters: CharactersState;
 }
 
 export interface AppMeta {
@@ -229,6 +250,9 @@ export type EventType =
   | 'boss_defeated'
   | 'coins_spent'
   | 'item_equipped'
+  // Phase 5 — the cosmetic character roster
+  | 'character_purchased'
+  | 'character_selected'
   // Phase 4 — editable plans and multi-device merges (declared here so an older
   // build can already round-trip them; both reducers ignore what they don't know)
   | 'plan_updated'
@@ -393,6 +417,33 @@ export interface ItemEquippedPayload extends Record<string, unknown> {
   date: string;
   slot: EquipmentSlot;
   itemId: string | null;
+}
+
+/* ------------------------------------------------ Phase 5 roster payloads */
+
+/**
+ * A character skin was bought. Coins leave the purse and the id joins
+ * `characters.owned` — permanently, exactly like an equipment purchase.
+ *
+ * The reducer is idempotent by ID (not by event id): two devices that each
+ * bought the same skin offline produce two events with different uuids, and the
+ * union must charge exactly once. Only base bodies (`cost: 0`) never appear
+ * here — they are owned without ever being bought.
+ */
+export interface CharacterPurchasedPayload extends Record<string, unknown> {
+  date: string;
+  characterId: string;
+  cost: number;
+}
+
+/**
+ * The player switched character. Pure LWW in the log's `(ts, id)` order — the
+ * last one folded wins — and an id that is unknown or not owned is IGNORED, so
+ * a merge can never leave a device playing something it does not have.
+ */
+export interface CharacterSelectedPayload extends Record<string, unknown> {
+  date: string;
+  characterId: string;
 }
 
 /* ------------------------------------------- Phase 4 plan / merge payloads */

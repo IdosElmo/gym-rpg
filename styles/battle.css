@@ -22,6 +22,54 @@
 .bt-wave b{display:block; font-size:19px; font-weight:900; color:var(--accent); line-height:1.1}
 .bt-wave span{display:block; font-size:10px; color:var(--muted)}
 
+/* ---------- world progress strip ----------
+   Four nodes, one grid row, no scrolling: the whole run has to be readable at a
+   glance with the phone in one hand, so nothing here may grow taller than the
+   world bar it sits under. Touch targets are ≥44px, the same floor the rest of
+   the app uses. In RTL the grid puts world 1 on the right, so the path reads the
+   way Hebrew does.                                                          */
+.wp-strip{
+  position:relative; margin:0 0 8px; padding:0; list-style:none;
+  display:grid; grid-template-columns:repeat(4,1fr); gap:5px;
+}
+.wp-strip::before{ /* the path the nodes sit on */
+  content:''; position:absolute; inset-inline:16px; top:23px; height:2px;
+  background:var(--line); z-index:0;
+}
+.wp-node{position:relative; z-index:1; min-width:0}
+.wp-btn{
+  width:100%; min-height:56px; display:flex; flex-direction:column; align-items:center; gap:1px;
+  padding:5px 3px 6px; cursor:pointer; color:var(--text);
+  background:var(--card-2); border:1px solid var(--line); border-radius:11px;
+}
+.wp-glyph{
+  position:absolute; top:-3px; inset-inline-end:-2px; font-size:11px; line-height:1;
+  background:var(--card); border:1px solid var(--line); border-radius:99px; padding:2px 3px;
+}
+.wp-icon{font-size:15px; line-height:1.2}
+.wp-name{
+  font-size:10px; font-weight:800; line-height:1.15; text-align:center;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%;
+}
+.wp-meta{font-size:9.5px; font-weight:700; color:var(--dim); direction:rtl}
+.wp-bar{
+  display:block; width:82%; height:3px; margin-top:3px;
+  background:#0B0F1999; border-radius:99px; overflow:hidden;
+}
+.wp-bar span{display:block; height:100%; background:var(--w-accent,var(--accent)); border-radius:99px}
+
+.wp-node.locked .wp-btn{opacity:.55; border-style:dashed}
+.wp-node.done .wp-btn{border-color:#FBBF2455}
+.wp-node.done .wp-meta{color:var(--warn)}
+.wp-node.current .wp-btn{border-color:var(--accent); background:#3B82F61A}
+.wp-node.current .wp-meta{color:var(--accent)}
+.wp-node.current.gated .wp-btn{border-color:#A78BFA88}
+.wp-node.current.gated .wp-meta{color:#A78BFA}
+.wp-node.current.ready .wp-btn{border-color:var(--ok)}
+.wp-node.current.ready .wp-meta{color:var(--ok)}
+.wp-node.champion .wp-btn{border-color:#FBBF2488; background:#F59E0B14}
+.wp-node.champion .wp-meta{color:var(--warn)}
+
 /* ---------- arena ---------- */
 .bt-arena{
   position:relative; display:flex; align-items:flex-end; gap:6px;

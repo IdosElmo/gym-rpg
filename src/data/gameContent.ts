@@ -28,6 +28,8 @@ export interface WorldDef {
   readonly en: string;
   /** One-line Hebrew flavour, shown under the world name in the arena. */
   readonly tagline: string;
+  /** One emoji — the world's node on the arena's progress strip. */
+  readonly icon: string;
   /** Accent colour of the arena backdrop — extends, never replaces, the palette. */
   readonly accent: string;
   /** Two stops for the arena's radial background. */
@@ -41,6 +43,7 @@ export const WORLDS: readonly WorldDef[] = [
     he: 'חדר כושר נטוש',
     en: 'Abandoned Gym',
     tagline: 'ברזל חלוד, אבק ומכונות ששכחו מזמן',
+    icon: '🏚',
     accent: '#3B82F6',
     bg: ['#24304A', '#151E2E'],
   },
@@ -49,6 +52,7 @@ export const WORLDS: readonly WorldDef[] = [
     he: 'הרחוב',
     en: 'The Street',
     tagline: 'אספלט, ניאון וכלבים שלא אוהבים זרים',
+    icon: '🌆',
     accent: '#10B981',
     bg: ['#1E3A34', '#141E22'],
   },
@@ -57,6 +61,7 @@ export const WORLDS: readonly WorldDef[] = [
     he: 'הזירה',
     en: 'The Arena',
     tagline: 'חול, קהל צמא דם והרבה מאוד רעש',
+    icon: '🏟',
     accent: '#F59E0B',
     bg: ['#3A2C1B', '#1F1810'],
   },
@@ -65,6 +70,7 @@ export const WORLDS: readonly WorldDef[] = [
     he: 'הר האולימפוס',
     en: 'Mount Olympus',
     tagline: 'מעל העננים נלחמים רק אלה שהתאמנו באמת',
+    icon: '⛰',
     accent: '#A78BFA',
     bg: ['#312A55', '#191428'],
   },
@@ -112,6 +118,23 @@ export interface BossDef extends EnemyDef {
   readonly requires: Partial<Record<BodyPart, number>>;
 }
 
+/**
+ * FLAVOUR ARCHETYPES — the only two knobs a regular enemy has.
+ *
+ * `hpMult`/`atkMult` sit ON TOP of the wave scaling in `BALANCE.combat.enemy`,
+ * which stays authoritative: the curve decides how hard wave N is, an enemy only
+ * decides what KIND of hard. Three archetypes repeat in every world so the
+ * vocabulary is learnable — a player who met the nimble one in the gym knows
+ * what the alley cat will do:
+ *
+ *   זריז   (nimble)  — low HP, high ATK: dies fast, but stings while it lives.
+ *   עמיד   (tank)    — high HP, low ATK: a wall you have to chew through.
+ *   מוחץ   (bruiser) — a bit of both, the middle of the road.
+ *
+ * BALANCE INVARIANT (asserted in `tests/enemies.test.ts`): each world's six
+ * regulars average ≈1.0 on both multipliers, so the flavours cancel out over a
+ * cycle of six waves and the tuned wave curve — not the roster — sets the pace.
+ */
 /* --- world 1 — חדר כושר נטוש ------------------------------------------- */
 
 const W1: readonly EnemyDef[] = [
@@ -158,6 +181,57 @@ const W1: readonly EnemyDef[] = [
       <path d="M28 96 V52 a32 32 0 0 1 64 0 V96 l-11-10 -11 10 -11-10 -11 10 -10-10 Z" fill="#D6DEEA" opacity=".9"/>
       ${eyes(48, 74, 56, 5, '#2C3A55')}
       <ellipse cx="61" cy="72" rx="7" ry="5" fill="#2C3A55" opacity=".8"/>`),
+  },
+  {
+    id: 'w1_treadmill',
+    he: 'הליכון משתולל',
+    en: 'Runaway Treadmill',
+    world: 1,
+    kind: 'regular',
+    /* nimble */ hpMult: 0.8,
+    atkMult: 1.2,
+    svg: sprite(`
+      <path d="M8 100 h80 l14 -20 h-80 Z" fill="#4E5C78" stroke="#22304C" stroke-width="3"/>
+      <path d="M20 96 h62 l9 -13 h-62 Z" fill="#232D42"/>
+      <path d="M26 90 h50 M32 84 h46" stroke="#8FA1C4" stroke-width="2.5" stroke-linecap="round"/>
+      <rect x="88" y="40" width="9" height="42" rx="4" fill="#5C6C8C"/>
+      <rect x="64" y="12" width="48" height="30" rx="9" fill="#3B4E76" stroke="#22304C" stroke-width="3"/>
+      ${eyes(78, 98, 25, 4.5, '#67E8F9')}
+      <path d="M76 34 h24" stroke="#0B0F19" stroke-width="3.5" stroke-linecap="round"/>
+      <circle cx="18" cy="106" r="7" fill="#8B96AB"/><circle cx="94" cy="106" r="7" fill="#8B96AB"/>`),
+  },
+  {
+    id: 'w1_sandbag',
+    he: 'שק חול קרוע',
+    en: 'Torn Sandbag',
+    world: 1,
+    kind: 'regular',
+    /* tank */ hpMult: 1.35,
+    atkMult: 0.75,
+    svg: sprite(`
+      <path d="M60 4 v14" stroke="#8B96AB" stroke-width="4" stroke-linecap="round"/>
+      <rect x="46" y="16" width="28" height="10" rx="4" fill="#6B7689"/>
+      <rect x="34" y="26" width="52" height="80" rx="20" fill="#7C4A2A" stroke="#4A2A16" stroke-width="3"/>
+      <path d="M34 46 h52 M34 86 h52" stroke="#4A2A16" stroke-width="3"/>
+      ${eyes(50, 70, 62, 5, '#FDE68A')}
+      <path d="M50 78 q10 8 20 0" stroke="#FDE68A" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M86 58 l14 8 -12 4 10 8" stroke="#D6BFA0" stroke-width="3.5" fill="none"
+        stroke-linecap="round" stroke-linejoin="round"/>`),
+  },
+  {
+    id: 'w1_kettlebell',
+    he: 'קטלבל נוקם',
+    en: 'Vengeful Kettlebell',
+    world: 1,
+    kind: 'regular',
+    /* bruiser */ hpMult: 1.1,
+    atkMult: 1.05,
+    svg: sprite(`
+      <path d="M40 46 a20 20 0 0 1 40 0" stroke="#8B96AB" stroke-width="12" fill="none" stroke-linecap="round"/>
+      <circle cx="60" cy="76" r="32" fill="#2F3A52" stroke="#1B2438" stroke-width="3"/>
+      <path d="M32 60 h56" stroke="#4E5C78" stroke-width="7" stroke-linecap="round"/>
+      ${eyes(50, 70, 74, 5, '#F87171')}
+      <path d="M48 92 q12 -9 24 0" stroke="#F87171" stroke-width="3" fill="none" stroke-linecap="round"/>`),
   },
 ];
 
@@ -228,6 +302,66 @@ const W2: readonly EnemyDef[] = [
       ${eyes(53, 68, 38, 3, '#1B2438')}
       <path d="M74 62 l22 -10" stroke="#C79B75" stroke-width="8" stroke-linecap="round"/>`),
   },
+  {
+    id: 'w2_cat',
+    he: 'חתול סמטאות',
+    en: 'Alley Cat',
+    world: 2,
+    kind: 'regular',
+    /* nimble */ hpMult: 0.8,
+    atkMult: 1.2,
+    svg: sprite(`
+      <path d="M22 86 q-14 -6 -10 -22" stroke="#4B5563" stroke-width="6" fill="none" stroke-linecap="round"/>
+      <ellipse cx="56" cy="80" rx="32" ry="18" fill="#4B5563"/>
+      <rect x="36" y="92" width="8" height="16" rx="4" fill="#374151"/>
+      <rect x="68" y="92" width="8" height="16" rx="4" fill="#374151"/>
+      <circle cx="86" cy="54" r="19" fill="#586274"/>
+      <path d="M72 40 l-2 -18 15 9 Z" fill="#374151"/>
+      <path d="M100 40 l3 -18 -15 9 Z" fill="#374151"/>
+      ${eyes(80, 96, 52, 3.6, '#A7F3D0')}
+      <path d="M82 62 q6 6 12 0" stroke="#111827" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+      <path d="M102 58 h14 M102 66 h13" stroke="#E2E8F0" stroke-width="2.4" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w2_hydrant',
+    he: 'הידרנט מתפוצץ',
+    en: 'Bursting Hydrant',
+    world: 2,
+    kind: 'regular',
+    /* tank */ hpMult: 1.25,
+    atkMult: 0.8,
+    svg: sprite(`
+      <rect x="54" y="12" width="12" height="14" rx="5" fill="#7F1D1D"/>
+      <path d="M42 34 a18 18 0 0 1 36 0 Z" fill="#DC2626" stroke="#7F1D1D" stroke-width="3"/>
+      <path d="M40 34 h40 v56 a10 10 0 0 1 -10 10 h-20 a10 10 0 0 1 -10 -10 Z"
+        fill="#B91C1C" stroke="#7F1D1D" stroke-width="3"/>
+      <rect x="30" y="100" width="60" height="11" rx="5" fill="#7F1D1D"/>
+      <rect x="18" y="52" width="18" height="15" rx="6" fill="#7F1D1D"/>
+      <rect x="84" y="52" width="18" height="15" rx="6" fill="#7F1D1D"/>
+      ${eyes(50, 70, 56, 4.5, '#FDE68A')}
+      <path d="M50 74 h20" stroke="#FDE68A" stroke-width="3" stroke-linecap="round"/>
+      <path d="M104 44 q10 -10 8 -24 M110 60 q10 -6 8 -16" stroke="#93C5FD" stroke-width="4"
+        fill="none" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w2_bouncer',
+    he: 'סדרן מועדון',
+    en: 'Club Bouncer',
+    world: 2,
+    kind: 'regular',
+    /* bruiser */ hpMult: 1.0,
+    atkMult: 1.05,
+    svg: sprite(`
+      <circle cx="60" cy="30" r="17" fill="#8A6244"/>
+      <path d="M43 26 a17 17 0 0 1 34 0 Z" fill="#1B2438"/>
+      <rect x="45" y="25" width="30" height="9" rx="4" fill="#0B0F19"/>
+      ${eyes(53, 67, 29.5, 2.6, '#10B981')}
+      <path d="M52 42 q8 5 16 0" stroke="#4A2A16" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M30 56 h60 l6 50 h-72 Z" fill="#1F2937" stroke="#0B0F19" stroke-width="3"/>
+      <path d="M60 58 v46" stroke="#374151" stroke-width="3"/>
+      <rect x="24" y="70" width="72" height="13" rx="6" fill="#8A6244" stroke="#4A2A16" stroke-width="2"/>
+      <rect x="34" y="96" width="52" height="8" rx="4" fill="#DC2626"/>`),
+  },
 ];
 
 const W2_MINI: EnemyDef = {
@@ -293,6 +427,63 @@ const W3: readonly EnemyDef[] = [
       <path d="M42 48 h36 l6 52 h-48 Z" fill="#475569"/>
       <path d="M26 40 h34 v40 q0 14 -17 20 -17 -6 -17 -20 Z" fill="#64748B" stroke="#334155" stroke-width="3"/>
       <path d="M43 48 v40" stroke="#F59E0B" stroke-width="4"/>`),
+  },
+  {
+    id: 'w3_retiarius',
+    he: 'לוחם הרשת',
+    en: 'Retiarius',
+    world: 3,
+    kind: 'regular',
+    /* nimble */ hpMult: 0.8,
+    atkMult: 1.2,
+    svg: sprite(`
+      <path d="M14 44 q20 16 12 44 q-18 -12 -12 -44 Z" fill="#67E8F9" opacity=".3"
+        stroke="#67E8F9" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M18 54 q10 12 8 26 M26 48 q8 14 4 30" stroke="#67E8F9" stroke-width="2" fill="none"/>
+      <circle cx="52" cy="32" r="16" fill="#C79B75"/>
+      <path d="M36 30 a16 16 0 0 1 32 0 l-5 -7 h-22 Z" fill="#7C2D12"/>
+      ${eyes(46, 58, 32, 3, '#1B2438')}
+      <path d="M34 52 h36 l5 50 h-46 Z" fill="#0E7490" stroke="#155E75" stroke-width="3"/>
+      <path d="M84 22 v82" stroke="#94A3B8" stroke-width="5" stroke-linecap="round"/>
+      <path d="M74 26 v-14 M84 22 v-16 M94 26 v-14" stroke="#E2E8F0" stroke-width="4" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w3_bull',
+    he: 'שור הזירה',
+    en: 'Arena Bull',
+    world: 3,
+    kind: 'regular',
+    /* tank */ hpMult: 1.2,
+    atkMult: 0.8,
+    svg: sprite(`
+      <path d="M16 74 q-10 -8 -4 -18" stroke="#4A2E22" stroke-width="6" fill="none" stroke-linecap="round"/>
+      <ellipse cx="52" cy="82" rx="38" ry="22" fill="#4A2E22"/>
+      <rect x="28" y="98" width="11" height="16" rx="5" fill="#3A231A"/>
+      <rect x="64" y="98" width="11" height="16" rx="5" fill="#3A231A"/>
+      <circle cx="88" cy="52" r="24" fill="#5C3A2A"/>
+      <path d="M70 36 q-18 -12 -28 -2 q14 0 22 12 Z" fill="#E2E8F0"/>
+      <path d="M106 36 q14 -14 4 -22 q-2 12 -14 16 Z" fill="#E2E8F0"/>
+      ${eyes(80, 98, 48, 3.5, '#F87171')}
+      <ellipse cx="92" cy="66" rx="14" ry="9" fill="#7C4A38"/>
+      <circle cx="87" cy="66" r="2.6" fill="#1B2438"/><circle cx="97" cy="66" r="2.6" fill="#1B2438"/>`),
+  },
+  {
+    id: 'w3_archer',
+    he: 'קשתית הזירה',
+    en: 'Arena Archer',
+    world: 3,
+    kind: 'regular',
+    /* bruiser */ hpMult: 0.95,
+    atkMult: 1.1,
+    svg: sprite(`
+      <path d="M86 20 a42 42 0 0 1 0 80" stroke="#A16207" stroke-width="5" fill="none" stroke-linecap="round"/>
+      <path d="M86 20 V100" stroke="#E2E8F0" stroke-width="2"/>
+      <circle cx="50" cy="30" r="15" fill="#C79B75"/>
+      <path d="M35 28 a15 15 0 0 1 30 0 Z" fill="#4C1D95"/>
+      ${eyes(44, 56, 30, 3, '#1B2438')}
+      <path d="M34 48 h34 l6 54 h-46 Z" fill="#7C2D12" stroke="#4A1A08" stroke-width="3"/>
+      <path d="M52 60 h40" stroke="#94A3B8" stroke-width="3.5" stroke-linecap="round"/>
+      <path d="M98 60 l-10 -6 v12 Z" fill="#E2E8F0"/>`),
   },
 ];
 
@@ -364,6 +555,66 @@ const W4: readonly EnemyDef[] = [
       <rect x="16" y="66" width="16" height="34" rx="8" fill="#5E7A65"/>
       <rect x="88" y="66" width="16" height="34" rx="8" fill="#5E7A65"/>`),
   },
+  {
+    id: 'w4_siren',
+    he: 'סירנה',
+    en: 'Siren',
+    world: 4,
+    kind: 'regular',
+    /* nimble */ hpMult: 0.75,
+    atkMult: 1.1,
+    svg: sprite(`
+      <ellipse cx="60" cy="110" rx="34" ry="8" fill="#0EA5E9" opacity=".3"/>
+      <path d="M44 40 q16 -24 32 0 q8 26 -14 32 q-22 -6 -18 -32 Z" fill="#155E75"/>
+      <circle cx="60" cy="40" r="16" fill="#F5D0B0"/>
+      ${eyes(53, 67, 37, 3, '#0F172A')}
+      <ellipse cx="60" cy="47" rx="4" ry="5.5" fill="#0F172A"/>
+      <path d="M44 58 h32 l-4 30 h-24 Z" fill="#0E7490"/>
+      <path d="M48 86 q12 16 24 0 q5 20 -12 26 -17 -6 -12 -26 Z" fill="#0891B2" stroke="#155E75" stroke-width="2"/>
+      <path d="M38 112 q22 10 44 0 q-22 -14 -44 0 Z" fill="#22D3EE"/>
+      <path d="M92 32 q10 10 0 20 M102 24 q18 18 0 36" stroke="#67E8F9" stroke-width="3"
+        fill="none" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w4_hydra',
+    he: 'הידרה',
+    en: 'Hydra',
+    world: 4,
+    kind: 'regular',
+    /* tank */ hpMult: 1.15,
+    atkMult: 0.7,
+    svg: sprite(`
+      <ellipse cx="60" cy="98" rx="38" ry="18" fill="#166534"/>
+      <path d="M40 94 q-14 -30 -18 -46" stroke="#15803D" stroke-width="12" fill="none" stroke-linecap="round"/>
+      <path d="M60 92 v-52" stroke="#15803D" stroke-width="12" fill="none" stroke-linecap="round"/>
+      <path d="M80 94 q14 -30 18 -46" stroke="#15803D" stroke-width="12" fill="none" stroke-linecap="round"/>
+      <circle cx="22" cy="42" r="12" fill="#22C55E"/>
+      <circle cx="60" cy="32" r="14" fill="#22C55E"/>
+      <circle cx="98" cy="42" r="12" fill="#22C55E"/>
+      ${eyes(18, 27, 40, 2.6, '#0B0F19')}
+      ${eyes(55, 66, 30, 2.8, '#0B0F19')}
+      ${eyes(93, 102, 40, 2.6, '#0B0F19')}
+      <path d="M16 50 h12 M54 40 h13 M92 50 h12" stroke="#052E16" stroke-width="2.5" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w4_minotaur',
+    he: 'מינוטאורוס',
+    en: 'Minotaur',
+    world: 4,
+    kind: 'regular',
+    /* bruiser */ hpMult: 0.9,
+    atkMult: 1.15,
+    svg: sprite(`
+      <path d="M28 110 q4 -38 20 -48 h24 q16 10 20 48 Z" fill="#7C2D12" stroke="#431407" stroke-width="3"/>
+      <path d="M14 78 l-8 -12 M106 78 l8 -12" stroke="#5C3A2A" stroke-width="9" stroke-linecap="round"/>
+      <circle cx="60" cy="40" r="21" fill="#5C3A2A"/>
+      <path d="M40 32 q-18 -12 -28 0 q16 0 22 12 Z" fill="#E2E8F0"/>
+      <path d="M80 32 q18 -12 28 0 q-16 0 -22 12 Z" fill="#E2E8F0"/>
+      ${eyes(52, 68, 36, 3.6, '#F59E0B')}
+      <ellipse cx="60" cy="52" rx="12" ry="8" fill="#7C4A38"/>
+      <circle cx="55" cy="52" r="2.4" fill="#1B2438"/><circle cx="65" cy="52" r="2.4" fill="#1B2438"/>
+      <path d="M46 80 h28" stroke="#B45309" stroke-width="5" stroke-linecap="round"/>`),
+  },
 ];
 
 const W4_MINI: EnemyDef = {
@@ -407,6 +658,26 @@ export function miniBossOf(world: number): EnemyDef {
 /**
  * The enemy of a given wave — deterministic, so a wave always looks the same.
  * Mini-boss cadence itself lives in `core/combat.ts` (`isMiniBossWave`).
+ *
+ * ROSTER SIZE AND REPLAY. The pick is `roster[(wave − 1) mod roster.length]`, so
+ * GROWING a world's roster does change which sprite a future wave shows (waves
+ * 1–3 keep their old enemy; wave 4 used to wrap back to the first one and now
+ * meets the fourth). That is safe, and deliberately so:
+ *
+ *   - nothing in the persisted state is re-derived from this function. The
+ *     `wave_cleared` payload carries `enemyId`, `coins`, `energySpent`, `world`,
+ *     `wave` and `miniBoss` as DATA, and the reducer in `core/xp.ts` reads only
+ *     the last five. Wave fights are never re-simulated on replay, so
+ *     `rebuildFromEvents` on an old log is byte-identical before and after the
+ *     roster grew (asserted in `tests/enemies.test.ts`);
+ *   - `coins` never depended on the enemy in the first place (wave, world and
+ *     the mini-boss flag decide it), so even a hypothetical re-derivation of the
+ *     purse would be stable;
+ *   - `waveSeed()` mixes seed/world/wave/attempt only — never the roster — so a
+ *     recorded seed still reproduces the RNG stream it recorded.
+ * What DOES change is the live fight ahead of the player: from wave 4 on, a
+ * different sprite with a different flavour multiplier. That is content, not
+ * history.
  */
 export function enemyForWave(world: number, wave: number, miniBoss: boolean): EnemyDef {
   if (miniBoss) return miniBossOf(world);

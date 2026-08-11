@@ -15,6 +15,7 @@
  */
 
 import { BODY_PARTS, BODY_PART_HE, type BodyPart } from '../data/program.ts';
+import { CHARACTERS, characterById } from '../data/characters.ts';
 import {
   EQUIPMENT_SLOTS,
   SLOT_EMOJI,
@@ -26,8 +27,8 @@ import {
   worldById,
   type EquipmentSlot,
 } from '../data/gameContent.ts';
-import { buyItem, equipItem, gameOf } from '../core/game.ts';
-import { levelProgress, statsOfGame } from '../core/xp.ts';
+import { buyCharacter, buyItem, equipItem, gameOf, selectCharacter } from '../core/game.ts';
+import { levelProgress, ownsCharacter, statsOfGame } from '../core/xp.ts';
 import type { DataStore, GameState } from '../storage/DataStore.ts';
 import { characterSvg, trophyMedallion } from './characterSvg.ts';
 import { esc } from './dom.ts';
@@ -52,6 +53,17 @@ export function queuePartPulse(part: BodyPart): void {
 
 /** Which slot's shop drawer is open. Survives re-renders within the session. */
 let openSlot: EquipmentSlot | null = null;
+
+/**
+ * The character whose purchase sheet is open, if any. Like `openSlot` this is
+ * view state, not game state: nothing is written until the sheet is confirmed.
+ */
+let pendingCharacter: string | null = null;
+
+/** Test/boot helper: forget any open purchase sheet. */
+export function resetCharacterSheet(): void {
+  pendingCharacter = null;
+}
 
 const PART_ROLE_HE: Readonly<Record<BodyPart, string>> = {
   chest: 'כוח התקפה',
@@ -121,6 +133,79 @@ function shopCard(game: GameState): string {
   </section>`;
 }
 
+/* ------------------------------------------------------------- the roster */
+
+/**
+ * The "דמויות" strip: one card per roster entry, each drawn with the PLAYER'S
+ * OWN body-part levels, so a card is a real preview ("this is what my character
+ * looks like as a robot") rather than a stock portrait.
+ *
+ * Tapping an owned card switches character immediately (one tap, the big drawing
+ * above changes). Tapping a locked one opens a confirmation sheet — a skin costs
+ * real coins, so it never happens on a stray tap, and an unaffordable one says
+ * exactly how many coins are missing instead of failing silently.
+ */
+function rosterCard(game: GameState): string {
+  const selected = game.characters.selected;
+  const coins = game.battle.coins;
+  const unlocked = CHARACTERS.filter((c) => ownsCharacter(game, c.id)).length;
+
+  const cards = CHARACTERS.map((c) => {
+    const owned = ownsCharacter(game, c.id);
+    const isSelected = owned && c.id === selected;
+    const affordable = coins >= c.cost;
+    const tag = isSelected ? '● נבחרה' : owned ? '✓ נפתחה' : `🪙 ${c.cost}`;
+    const state = isSelected ? 'selected' : owned ? 'owned' : affordable ? 'locked' : 'locked poor';
+    return `<li class="chr-item">
+      <button class="chr-card ${state}" type="button" data-character="${c.id}"
+        aria-pressed="${isSelected ? 'true' : 'false'}"
+        aria-label="${esc(c.he)}${owned ? '' : ` · ${c.cost} מטבעות`}">
+        <span class="chr-art" aria-hidden="true">${characterSvg(game.parts, { character: c, label: c.he })}</span>
+        <b class="chr-name">${esc(c.he)}</b>
+        <span class="chr-tag">${tag}</span>
+      </button>
+    </li>`;
+  }).join('');
+
+  return `
+  <section class="game-card" id="charRoster">
+    <h3 class="gc-title">דמויות <span class="gc-sub">${unlocked}/${CHARACTERS.length} נפתחו · 🪙 ${fmtXp(coins)}</span></h3>
+    <ul class="chr-row">${cards}</ul>
+    ${buySheet(game)}
+    <p class="gc-note">שתי דמויות הבסיס פתוחות תמיד וללא עלות. שאר הדמויות הן <b>קוסמטיקה בלבד</b> —
+    הן לא משנות אף סטטיסטיקה, רק את המראה. כל דמות גדלה מאותן שש רמות גוף ולובשת את אותו ציוד.</p>
+  </section>`;
+}
+
+/** The confirmation sheet of a pending purchase ('' when nothing is pending). */
+function buySheet(game: GameState): string {
+  if (!pendingCharacter) return '';
+  const def = characterById(pendingCharacter);
+  if (!def || ownsCharacter(game, def.id)) return '';
+  const coins = game.battle.coins;
+  const missing = Math.max(0, def.cost - coins);
+  const affordable = missing === 0;
+  return `
+    <div class="chr-buy" id="chrBuy" role="group" aria-label="אישור רכישת דמות">
+      <div class="chr-buy-head">
+        <b>${esc(def.he)}</b>
+        <span>${esc(def.note)}</span>
+      </div>
+      <p class="chr-buy-price">מחיר: <b>🪙 ${def.cost}</b> · יש לכם: <b>🪙 ${fmtXp(coins)}</b></p>
+      <div class="chr-buy-actions">
+        <button class="eq-btn buy" data-buy-character="${def.id}" ${affordable ? '' : 'disabled'}>
+          ${affordable ? `🪙 ${def.cost} · קנייה` : `חסרים 🪙 ${missing}`}
+        </button>
+        <button class="eq-btn off" data-cancel-character="1">ביטול</button>
+      </div>
+      ${
+        affordable
+          ? '<p class="gc-note dim">הדמות תיפתח לתמיד ותיבחר מיד. אין לכך שום השפעה על הסטטיסטיקות.</p>'
+          : `<p class="gc-note dim">חסרים ${missing} 🪙 — נצחו עוד גלים או בוס עולם ותחזרו.</p>`
+      }
+    </div>`;
+}
+
 /* -------------------------------------------------------------- trophies */
 
 function trophiesCard(game: GameState): string {
@@ -186,7 +271,12 @@ export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
   main.innerHTML = `
   <section class="char-card">
     <div class="char-stage">
-      ${characterSvg(game.parts, { pulse, equipment: game.equipment, trophies })}
+      ${characterSvg(game.parts, {
+        pulse,
+        equipment: game.equipment,
+        trophies,
+        character: game.characters.selected,
+      })}
       <div class="char-level" aria-label="רמת דמות">
         <span class="cl-num">${game.level}</span><span class="cl-lbl">רמה</span>
       </div>
@@ -199,6 +289,8 @@ export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
       <div class="cm-item"><b>🏆 ${game.prCount}</b><span>שיאים אישיים</span></div>
     </div>
   </section>
+
+  ${rosterCard(game)}
 
   <section class="game-card">
     <h3 class="gc-title">כוח לחימה <span class="gc-sub">רמות גוף + ציוד + רצף</span></h3>
@@ -240,7 +332,69 @@ export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
   ${shopCard(game)}
   ${trophiesCard(game)}`;
 
+  // LEVEL-UP CELEBRATION, layer two. `characterSvg` already marked the grown
+  // groups with `.pulse` (they scale and glow in the accent colour); this adds a
+  // brief golden wash over the WHOLE drawing, as a CSS `drop-shadow` filter on
+  // the root svg. Deliberately not a palette change: `--ch-body` and friends are
+  // what a skin overrides, and touching them here would snap a robot or a ninja
+  // back to the default hero's blue for a second and a half.
+  if (pulse.length > 0) main.querySelector('.char-stage .ch-svg')?.classList.add('leveled');
+
   wireShop(main, deps);
+  wireRoster(main, deps);
+}
+
+/* ---------------------------------------------------------- roster wiring */
+
+function wireRoster(main: HTMLElement, deps: CharacterDeps): void {
+  const refresh = (): void => {
+    if (deps.rerender) deps.rerender();
+    else renderCharacter(main, deps);
+  };
+
+  main.querySelectorAll<HTMLButtonElement>('.chr-card[data-character]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset['character'];
+      if (!id) return;
+      const game = gameOf(deps.store);
+      if (ownsCharacter(game, id)) {
+        // Owned: switch straight away — the big drawing above is the feedback.
+        pendingCharacter = null;
+        if (selectCharacter(deps.store, id)) toast(`${characterById(id)?.he ?? 'הדמות'} נכנסה לזירה! ✨`);
+        refresh();
+        return;
+      }
+      // Locked: never buy on the first tap — open the confirmation sheet.
+      pendingCharacter = id;
+      refresh();
+    });
+  });
+
+  main.querySelectorAll<HTMLButtonElement>('[data-buy-character]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset['buyCharacter'];
+      if (!id) return;
+      const res = buyCharacter(deps.store, id);
+      if (!res.ok) {
+        toast(
+          res.error === 'insufficient_coins'
+            ? 'אין מספיק מטבעות — נצחו עוד גלים או בוס עולם. 🪙'
+            : 'לא ניתן לרכוש את הדמות הזו.',
+        );
+        return;
+      }
+      pendingCharacter = null;
+      toast(`${characterById(id)?.he ?? 'הדמות'} נרכשה ונכנסה לזירה! 🎭`);
+      refresh();
+    });
+  });
+
+  main.querySelectorAll<HTMLButtonElement>('[data-cancel-character]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      pendingCharacter = null;
+      refresh();
+    });
+  });
 }
 
 /* ----------------------------------------------------------------- wiring */

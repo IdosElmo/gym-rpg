@@ -17,6 +17,7 @@
  */
 
 import { BODY_PARTS, isDayKey, isReservedViewKey, type BodyPart, type DayKey } from '../data/program.ts';
+import { characterById, isBaseCharacter } from '../data/characters.ts';
 import { EQUIPMENT_SLOTS, bossById, equipmentById } from '../data/gameContent.ts';
 import {
   defaultDay,
@@ -33,6 +34,7 @@ import {
   buildRetroactiveGrants,
   compareEvents,
   emptyBattle,
+  emptyCharacters,
   emptyEquipment,
   emptyGame,
   isoToTs,
@@ -45,6 +47,7 @@ import {
   type AppEvent,
   type AppState,
   type BattleProgress,
+  type CharactersState,
   type EquipmentState,
   type EventLog,
   type EventType,
@@ -278,6 +281,29 @@ function normalizeEquipment(raw: unknown): EquipmentState {
 }
 
 /**
+ * Phase 5 roster. Same rule as the wardrobe: unknown ids are dropped (the roster
+ * is code, the save is data), a base body is never stored as "owned" because it
+ * always is, and a `selected` the save cannot actually play falls back to the
+ * default hero rather than rendering nothing.
+ */
+function normalizeCharacters(raw: unknown): CharactersState {
+  const out = emptyCharacters();
+  if (!isRecord(raw)) return out;
+  const owned = Array.isArray(raw['owned'])
+    ? raw['owned'].filter(
+        (id): id is string => typeof id === 'string' && characterById(id) !== undefined && !isBaseCharacter(id),
+      )
+    : [];
+  out.owned = [...new Set(owned)];
+
+  const selected = raw['selected'];
+  if (typeof selected === 'string' && (isBaseCharacter(selected) || out.owned.includes(selected))) {
+    out.selected = selected;
+  }
+  return out;
+}
+
+/**
  * Validate a persisted `game` blob. Returns `null` for anything missing or from
  * a version we don't know — the caller (`ensureGameState`) then rebuilds it from
  * the event log, which is always authoritative.
@@ -285,9 +311,10 @@ function normalizeEquipment(raw: unknown): EquipmentState {
  * v1 -> v2 (Phase 2) added `battle`; v2 -> v3 (Phase 3) added
  * `battle.bossesDefeated` and `equipment`; v3 -> v4 added the merge-idempotency
  * ledgers `energyGranted` + `prKeys`, which cannot be inferred from an old blob
- * (it only knows the totals, not which grants produced them). An older blob is
- * therefore rejected here and rebuilt from the log, which is lossless because
- * every fact is an event. That rebuild IS the sanctioned migration path.
+ * (it only knows the totals, not which grants produced them); v4 -> v5 added
+ * `characters` (the roster), which an old blob simply does not have. An older
+ * blob is therefore rejected here and rebuilt from the log, which is lossless
+ * because every fact is an event. That rebuild IS the sanctioned migration path.
  */
 export function normalizeGame(raw: unknown): GameState | null {
   if (!isRecord(raw)) return null;
@@ -320,6 +347,7 @@ export function normalizeGame(raw: unknown): GameState | null {
     },
     battle: normalizeBattle(raw['battle']),
     equipment: normalizeEquipment(raw['equipment']),
+    characters: normalizeCharacters(raw['characters']),
   };
 }
 

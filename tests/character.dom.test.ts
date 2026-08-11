@@ -22,6 +22,7 @@ import {
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
 import { createApp } from '../src/ui/app.ts';
+import { queuePartPulse } from '../src/ui/character.ts';
 import { characterGeometry, characterSvg, growth } from '../src/ui/characterSvg.ts';
 import { RestTimer } from '../src/ui/timer.ts';
 
@@ -284,5 +285,46 @@ describe('the coin shop on the דמות screen', () => {
     // the mini-boss count rides along, and medals appear on the character
     expect(document.querySelector('.game-card:last-of-type')?.textContent).toContain('4');
     expect(document.querySelectorAll('#main .ch-trophies .ch-medal')).toHaveLength(2);
+  });
+});
+
+/* --------------------------------------------------- level-up celebration */
+
+/**
+ * The level-up celebration is two layers: the per-part `.pulse` the SVG builder
+ * already emits, and a golden `drop-shadow` wash over the whole drawing that the
+ * screen adds when there is something to celebrate. It is a FILTER, never a
+ * palette change — `--ch-body` and friends are what a skin overrides, so writing
+ * to them here would snap a robot or a ninja back to the default hero's blue.
+ */
+describe('level-up glow', () => {
+  it('is absent on an ordinary visit to the דמות screen', () => {
+    const store = new LocalStore(fakeStorage());
+    store.update((d) => {
+      d.ui.view = 'CH';
+    });
+    mount(store);
+    expect(document.querySelector('.char-stage .ch-svg.leveled')).toBeNull();
+  });
+
+  it('layers a glow on the drawing when a part levelled up, once', () => {
+    const store = new LocalStore(fakeStorage());
+    store.update((d) => {
+      d.ui.view = 'CH';
+    });
+    const render = mount(store);
+
+    queuePartPulse('chest');
+    render();
+    const svg = document.querySelector('.char-stage .ch-svg');
+    expect(svg?.classList.contains('leveled')).toBe(true);
+    // the part pulse still does its own thing, in the accent colour
+    expect(document.querySelector('.char-stage [data-part="chest"]')?.classList).toContain('pulse');
+    // …and the character's own palette is untouched by the celebration
+    expect(svg?.getAttribute('style')).toContain('--ch-body:');
+
+    // A celebration is a one-off: the next render is calm again.
+    render();
+    expect(document.querySelector('.char-stage .ch-svg.leveled')).toBeNull();
   });
 });

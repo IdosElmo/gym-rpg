@@ -1,0 +1,176 @@
+/* ---------- Motion: the character, the enemies and the fight ----------
+   EVERYTHING here is CSS keyframes on SVG groups. The battle loop only toggles
+   short-lived classes (`.anim-attack`, `.anim-hit`, `.anim-die`, …) from the
+   render path it already had — no new events, no combat-logic change, and the
+   deterministic core never learns that any of this exists.
+
+   REDUCED MOTION is handled by ONE rule, the global
+   `@media (prefers-reduced-motion:reduce){*{animation:none!important}}` in
+   responsive.css. That is why every animation below starts AND ends at the
+   identity transform with full opacity: when the keyframes are switched off the
+   element simply sits in its resting pose, and the classes the loop toggles are
+   inert markers. Nothing here needs a second guard.
+
+   DURATIONS that must agree with the simulation are read from JS as custom
+   properties on the arena (`--anim-*`, set in ui/battle.ts from BALANCE), so a
+   retune of `spawnDelayMs` or the attack interval cannot leave a death
+   animation still playing while the next wave spawns.
+
+   TRANSFORM ORIGIN: an SVG group's default origin is the viewBox origin, not the
+   shape, so every animated group declares `transform-box:fill-box` plus an
+   explicit `transform-origin`. Without it a 3% scale reads as a jump across the
+   arena.                                                                    */
+
+/* ---------- idle: the character breathes ---------- */
+
+/* Only the two places the hero is the SUBJECT: the דמות stage and the arena.
+   The roster strip draws every character at once — six torsos breathing out of
+   phase is noise, so it stays still. */
+.char-stage .ch-svg .ch-torso-group,
+.bt-sprite.hero .ch-svg .ch-torso-group{
+  transform-box:fill-box; transform-origin:50% 100%;
+  animation:chBreath 4.2s ease-in-out infinite;
+}
+.char-stage .ch-svg [data-part="chest"],
+.bt-sprite.hero .ch-svg [data-part="chest"]{
+  animation:chBreathChest 4.2s ease-in-out infinite;
+}
+@keyframes chBreath{
+  0%,100%{transform:scaleY(1) translateY(0)}
+  50%{transform:scaleY(1.015) translateY(-1.5px)}
+}
+@keyframes chBreathChest{
+  0%,100%{transform:scale(1) translateY(0)}
+  50%{transform:scale(1.035) translateY(-1px)}
+}
+
+/* ---------- idle: the enemy hovers ----------
+   `--en-bob` is set per sprite in ui/battle.ts from a hash of the enemy id, so
+   a hydra and a kettlebell do not breathe in lockstep. */
+.bt-sprite.enemy .en-svg{
+  transform-box:fill-box; transform-origin:50% 100%;
+  animation:enBob var(--en-bob,2600ms) ease-in-out infinite;
+}
+@keyframes enBob{
+  0%,100%{transform:translateY(0) scaleY(1)}
+  50%{transform:translateY(-4px) scaleY(1.012)}
+}
+
+/* ---------- direction ----------
+   Transforms ignore `direction`, so "toward the enemy" has to be a number. The
+   app is RTL — the hero stands on the right, the enemy on the left — and the
+   LTR fallback keeps this honest if the shell is ever mirrored. */
+.bt-arena{--to-foe:-1; --to-hero:1}
+[dir="ltr"] .bt-arena{--to-foe:1; --to-hero:-1}
+
+/* ---------- the player attacks: lunge + recoil ---------- */
+.bt-sprite.hero.anim-attack .ch-svg{
+  animation:btLunge var(--anim-atk,240ms) cubic-bezier(.3,.8,.4,1);
+}
+@keyframes btLunge{
+  0%{transform:translateX(0) rotate(0)}
+  35%{transform:translateX(calc(var(--to-foe) * 13px)) rotate(calc(var(--to-foe) * -3deg))}
+  60%{transform:translateX(calc(var(--to-hero) * 4px)) rotate(0)}
+  100%{transform:translateX(0) rotate(0)}
+}
+
+/* ---------- the enemy is hit: knockback + flash ---------- */
+.bt-sprite.enemy.anim-hit .en-svg{
+  animation:btFoeHit var(--anim-hit,220ms) ease-out;
+}
+@keyframes btFoeHit{
+  0%{transform:translateX(0); filter:brightness(2.4) saturate(.25)}
+  40%{transform:translateX(calc(var(--to-foe) * 9px)) scale(.96); filter:brightness(1.5) saturate(.7)}
+  100%{transform:translateX(0) scale(1); filter:none}
+}
+
+/* ---------- the enemy attacks, the hero flinches ---------- */
+.bt-sprite.enemy.anim-attack .en-svg{
+  animation:btFoeLunge var(--anim-atk,240ms) cubic-bezier(.3,.8,.4,1);
+}
+@keyframes btFoeLunge{
+  0%,100%{transform:translateX(0)}
+  40%{transform:translateX(calc(var(--to-hero) * 11px))}
+}
+.bt-sprite.hero.anim-hurt .ch-svg{
+  animation:btHurt var(--anim-hit,220ms) ease-out;
+}
+@keyframes btHurt{
+  0%{transform:translateX(0) rotate(0); filter:brightness(1.9) saturate(.3)}
+  45%{transform:translateX(calc(var(--to-hero) * 8px)) rotate(calc(var(--to-hero) * 3deg)); filter:brightness(1.3)}
+  100%{transform:translateX(0) rotate(0); filter:none}
+}
+
+/* ---------- the enemy dies: a short collapse before the next wave ----------
+   `--anim-die` is clamped in JS to fit inside BALANCE.combat.spawnDelayMs, so
+   the corpse is always gone before the successor spawns. */
+.bt-sprite.enemy.anim-die .en-svg{
+  animation:btFoeDie var(--anim-die,360ms) ease-in forwards;
+}
+@keyframes btFoeDie{
+  0%{transform:translateY(0) scale(1) rotate(0); opacity:1; filter:brightness(2.2)}
+  35%{transform:translateY(-5px) scale(1.05) rotate(calc(var(--to-foe) * -6deg)); opacity:1}
+  100%{transform:translateY(16px) scale(.55) rotate(calc(var(--to-foe) * -22deg)); opacity:0; filter:brightness(.5)}
+}
+
+/* ---------- the super move: wind-up pose, then the pop ---------- */
+.bt-sprite.hero.anim-super .ch-svg{
+  animation:btSuper var(--anim-super,480ms) cubic-bezier(.2,.9,.3,1);
+}
+@keyframes btSuper{
+  0%{transform:scale(1) translateX(0); filter:none}
+  22%{transform:scale(.9) translateX(calc(var(--to-hero) * 9px)); filter:brightness(.85)}
+  48%{transform:scale(1.16) translateX(calc(var(--to-foe) * 12px));
+      filter:drop-shadow(0 0 16px #F472B6) brightness(1.35)}
+  100%{transform:scale(1) translateX(0); filter:none}
+}
+/* Both deltoid caps ride the wind-up, which is what makes it read as a pose. */
+.bt-sprite.hero.anim-super .ch-svg [data-part="shoulders"]{
+  transform-box:fill-box; transform-origin:50% 100%;
+  animation:btSuperDelt var(--anim-super,480ms) cubic-bezier(.2,.9,.3,1);
+}
+@keyframes btSuperDelt{
+  0%,100%{transform:scale(1)}
+  48%{transform:scale(1.18)}
+}
+
+/* ---------- the boss falls: a victory flex ---------- */
+.bt-sprite.hero.anim-victory .ch-svg{
+  animation:btVictory var(--anim-victory,800ms) cubic-bezier(.25,.9,.3,1);
+}
+@keyframes btVictory{
+  0%,100%{transform:translateY(0) scale(1); filter:none}
+  30%{transform:translateY(-8px) scale(1.07); filter:drop-shadow(0 0 14px #FBBF24)}
+  65%{transform:translateY(-2px) scale(1.03); filter:drop-shadow(0 0 9px #FBBF24)}
+}
+/* Arms up: the two arm strokes rotate outward from the shoulder line. */
+.bt-sprite.hero.anim-victory .ch-svg [data-part="arms"]{
+  transform-box:fill-box; transform-origin:50% 0;
+  animation:btFlex var(--anim-victory,800ms) cubic-bezier(.25,.9,.3,1);
+}
+@keyframes btFlex{
+  0%,100%{transform:scaleY(1) rotate(0)}
+  35%{transform:scaleY(.82) rotate(-4deg)}
+  70%{transform:scaleY(.88) rotate(3deg)}
+}
+.bt-sprite.hero.anim-victory .ch-svg [data-part="shoulders"]{
+  transform-box:fill-box; transform-origin:50% 100%;
+  animation:btVictoryDelt var(--anim-victory,800ms) ease-out;
+}
+@keyframes btVictoryDelt{
+  0%,100%{transform:scale(1)}
+  40%{transform:scale(1.22)}
+}
+
+/* ---------- level-up: a golden glow over the existing part pulse ----------
+   The pulse in character.css already scales the grown group; this only layers a
+   filter on the whole drawing, so no palette custom property is touched and a
+   skin cannot snap back to the default blue. */
+.char-stage .ch-svg.leveled{
+  animation:chLevelGlow 1.6s ease-out;
+}
+@keyframes chLevelGlow{
+  0%{filter:none}
+  25%{filter:drop-shadow(0 0 18px #FBBF24) drop-shadow(0 0 6px #FDE68A) brightness(1.12)}
+  100%{filter:none}
+}

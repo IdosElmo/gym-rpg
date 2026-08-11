@@ -38,7 +38,7 @@ import {
   xpForSet,
 } from '../src/core/xp.ts';
 import { PROGRAM, findExercise, type Exercise } from '../src/data/program.ts';
-import type { AppEvent, EventType, Session } from '../src/storage/DataStore.ts';
+import { GAME_STATE_VERSION, type AppEvent, type EventType, type Session } from '../src/storage/DataStore.ts';
 
 function ex(id: string): Exercise {
   const found = findExercise(id);
@@ -421,9 +421,9 @@ describe('reducer idempotency — the merge guards', () => {
     retro: false,
   };
 
-  it('carries the ledgers in the state and reports version 4', () => {
+  it('carries the ledgers in the state and reports the current version', () => {
     const game = emptyGame();
-    expect(game.version).toBe(4);
+    expect(game.version).toBe(GAME_STATE_VERSION);
     expect(game.energyGranted).toEqual({});
     expect(game.prKeys).toEqual({});
   });

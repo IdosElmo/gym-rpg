@@ -52,9 +52,18 @@ import {
   type ResolvedBonus,
 } from '../data/gameContent.ts';
 import {
+  CHARACTERS,
+  DEFAULT_CHARACTER_ID,
+  characterById,
+  defaultCharacter,
+  isBaseCharacter,
+  type CharacterDef,
+} from '../data/characters.ts';
+import {
   GAME_STATE_VERSION,
   type AppEvent,
   type BattleProgress,
+  type CharactersState,
   type EquipmentState,
   type EventType,
   type GameState,
@@ -361,6 +370,7 @@ export function emptyGame(): GameState {
     streak: { tier: 0, weekStart: null, daysThisWeek: 0, needed: BALANCE.streak.daysPerWeek },
     battle: emptyBattle(),
     equipment: emptyEquipment(),
+    characters: emptyCharacters(),
   };
 }
 
@@ -372,6 +382,27 @@ export function emptyBattle(): BattleProgress {
 /** A fresh wardrobe: nothing owned, nothing worn. */
 export function emptyEquipment(): EquipmentState {
   return { owned: [], equipped: {} };
+}
+
+/**
+ * A fresh roster: no skins bought, playing the default hero. The second base
+ * body is not listed because base bodies are never listed — `ownsCharacter`
+ * treats every `cost: 0` entry as owned.
+ */
+export function emptyCharacters(): CharactersState {
+  return { owned: [], selected: DEFAULT_CHARACTER_ID };
+}
+
+/** Can this save play that character? Base bodies: always. Skins: if bought. */
+export function ownsCharacter(game: GameState, id: string): boolean {
+  if (characterById(id) === undefined) return false;
+  return isBaseCharacter(id) || game.characters.owned.includes(id);
+}
+
+/** The character being played — the default whenever the stored id is unusable. */
+export function selectedCharacter(game: GameState): CharacterDef {
+  const id = game.characters.selected;
+  return (ownsCharacter(game, id) ? characterById(id) : undefined) ?? defaultCharacter();
 }
 
 /** Key of one payout slot — the anti-farming guard. */
@@ -535,6 +566,37 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
       const itemId = typeof payload['itemId'] === 'string' ? payload['itemId'] : null;
       if (itemId === null) delete game.equipment.equipped[slot];
       else game.equipment.equipped[slot] = itemId;
+      break;
+    }
+    /**
+     * A cosmetic skin was bought. Idempotent by CHARACTER ID, not by event id:
+     * the union of two devices' logs may hold two purchases of the same skin
+     * with different uuids, and the purse may only be charged once.
+     *
+     * A base body can never be purchased (`buildCharacterPurchase` refuses, and
+     * the reducer refuses too) — the free bodies are owned by definition, so a
+     * crafted event cannot make the player pay for one.
+     */
+    case 'character_purchased': {
+      const id = typeof payload['characterId'] === 'string' ? payload['characterId'] : '';
+      const def = id ? characterById(id) : undefined;
+      if (!def || def.cost <= 0) break;
+      if (game.characters.owned.includes(id)) break;
+      const cost = Math.max(0, toNumber(payload['cost']));
+      game.battle.coins = round2(Math.max(0, game.battle.coins - cost));
+      game.characters.owned.push(id);
+      break;
+    }
+    /**
+     * Switch character. Last one in the total `(ts, id)` order wins, which is
+     * what makes two devices converge. An unknown id, or a skin this save never
+     * bought, is IGNORED rather than stored — the drawing must always be
+     * something the player actually owns.
+     */
+    case 'character_selected': {
+      const id = typeof payload['characterId'] === 'string' ? payload['characterId'] : '';
+      if (!id || !ownsCharacter(game, id)) break;
+      game.characters.selected = id;
       break;
     }
     case 'data_cleared': {
@@ -969,6 +1031,66 @@ export function buildPurchase(game: GameState, itemId: string, date: string, ts:
       { type: 'item_equipped', payload: { date, slot: def.slot, itemId }, ts: ts + 1 },
     ],
   };
+}
+
+/* ---------------------------------------------------------- the roster */
+
+/** Why a character purchase was refused — the UI turns this into Hebrew. */
+export type CharacterPurchaseError = 'unknown_character' | 'already_owned' | 'insufficient_coins';
+
+export interface CharacterPurchasePlan {
+  ok: boolean;
+  error?: CharacterPurchaseError;
+  events: PendingEvent[];
+}
+
+/**
+ * Plan a skin purchase. PURE — it decides, it does not spend.
+ *
+ * The affordability check lives HERE, exactly like `buildPurchase`, so a refused
+ * purchase never reaches the log and a replay can never produce a negative
+ * purse. A free base body reports `already_owned`: there is nothing to buy.
+ *
+ * Buying also SELECTS, mirroring "buying a piece of gear puts it on": one tap,
+ * one obvious result.
+ */
+export function buildCharacterPurchase(
+  game: GameState,
+  characterId: string,
+  date: string,
+  ts: number,
+): CharacterPurchasePlan {
+  const def = characterById(characterId);
+  if (!def) return { ok: false, error: 'unknown_character', events: [] };
+  if (ownsCharacter(game, characterId)) return { ok: false, error: 'already_owned', events: [] };
+  if (game.battle.coins < def.cost) return { ok: false, error: 'insufficient_coins', events: [] };
+  return {
+    ok: true,
+    events: [
+      { type: 'character_purchased', payload: { date, characterId, cost: def.cost }, ts },
+      { type: 'character_selected', payload: { date, characterId }, ts: ts + 1 },
+    ],
+  };
+}
+
+/**
+ * Plan a character switch. Only an owned character can be selected, and
+ * re-selecting the current one is a no-op (no event, no log noise).
+ */
+export function buildCharacterSelect(
+  game: GameState,
+  characterId: string,
+  date: string,
+  ts: number,
+): PendingEvent[] {
+  if (!ownsCharacter(game, characterId)) return [];
+  if (game.characters.selected === characterId) return [];
+  return [{ type: 'character_selected', payload: { date, characterId }, ts }];
+}
+
+/** Every character the save can play right now, in roster order. */
+export function availableCharacters(game: GameState): readonly CharacterDef[] {
+  return CHARACTERS.filter((c) => ownsCharacter(game, c.id));
 }
 
 /**

@@ -12,6 +12,7 @@
  */
 
 import { BODY_PART_HE, findExercise, type BodyPart, type ExerciseResolver } from '../data/program.ts';
+import { characterById } from '../data/characters.ts';
 import {
   EQUIPMENT_SLOTS,
   SLOT_HE,
@@ -231,6 +232,22 @@ export function buildFeed(
           icon: '⬆',
           cls: 'import',
           text: `יובאו נתונים מקובץ (${num(p['added'])} אירועים)`,
+        });
+        break;
+      }
+      /**
+       * A cosmetic skin was bought. Only the PURCHASE gets a line: switching
+       * character is free and reversible, and a line per switch would bury the
+       * training story the feed exists to tell.
+       */
+      case 'character_purchased': {
+        const def = characterById(str(p['characterId']));
+        items.push({
+          ts: ev.ts,
+          date,
+          icon: '🎭',
+          cls: 'shop',
+          text: `דמות ${esc(def ? def.he : str(p['characterId']))} נרכשה · −${num(p['cost'])} 🪙`,
         });
         break;
       }

@@ -4,7 +4,7 @@
  * PURE string builder (no DOM), so the geometry is unit-testable: every
  * proportion is a clamped function of a body-part level.
  *
- *   chest     -> pec mass + upper-torso width
+ *   chest     -> pec/bust mass + upper-torso width
  *   back      -> lat flare, i.e. the whole upper silhouette gets wider
  *   shoulders -> shoulder span + deltoid caps
  *   arms      -> arm thickness + bicep bulge
@@ -14,9 +14,20 @@
  * Growth is clamped at `BALANCE.character.visualMaxLevel`, so a very high level
  * stays a charming cartoon rather than a blob.
  *
+ * THE ROSTER (`data/characters.ts`) rides on exactly two knobs:
+ *   - `geometry` picks the BODY the proportions above are drawn on (`male` —
+ *     the original hero — or `female`). Both bodies read the same six levels and
+ *     expose the same `characterAnchors`, so every equipment layer fits either
+ *     one without a second set of shapes;
+ *   - `palette` + `decor` recolour and redecorate that body. A skin never
+ *     touches a proportion, and no character touches a stat: the roster is
+ *     cosmetic, full stop.
+ * The default (`hero_m`) renders exactly what it always did — the palette below
+ * is the same one `styles/character.css` declares.
+ *
  * LAYERS (draw order) — equipment hangs off the anchors in `characterAnchors`:
  *   shadow · [cape] · legs · lats · torso · pecs · abs · arms · deltoids ·
- *   head · [shoes · belt · gloves] · trophy medals
+ *   head (hair/helmet/visor) · [shoes · belt · gloves] · trophy medals
  * The cape is the one piece drawn BEFORE the body (it hangs behind it); every
  * other slot is worn on top. Every body group carries `data-part`, which is all
  * the level-up pulse and any part-targeted effect needs.
@@ -24,6 +35,13 @@
 
 import { BALANCE } from '../core/balance.ts';
 import { clamp } from '../core/xp.ts';
+import {
+  characterById,
+  defaultCharacter,
+  type BodyGeometry,
+  type CharacterDecor,
+  type CharacterDef,
+} from '../data/characters.ts';
 import {
   equipmentById,
   type BossDef,
@@ -63,15 +81,107 @@ export interface CharacterGeometry {
   latFlare: number;
   pecRx: number;
   pecRy: number;
+  /** Vertical centre of the pec/bust pair (a female bust sits a little lower). */
+  pecY: number;
+  /** How far apart the pair sits, as a fraction of `chestHalf`. */
+  pecSpread: number;
   armW: number;
   bicepR: number;
   thighW: number;
   calfW: number;
+  /** Multiplier on how far the legs stand from the centre line. */
+  legSpread: number;
   absOpacity: number;
 }
 
-/** Turn the six part levels into the drawing's proportions. */
-export function characterGeometry(parts: PartsProgress): CharacterGeometry {
+/**
+ * ONE body's proportion table: every number the geometry above is built from.
+ *
+ * The `male` row IS the original hero, digit for digit — the variant table was
+ * introduced by extracting those constants, not by re-tuning them, so the
+ * default drawing is unchanged. `female` is a genuinely different silhouette
+ * (narrower shoulders, wider hips, a tighter waist, a rounder and slightly lower
+ * bust, lighter limbs) that reads from exactly the same six levels: training
+ * chest still grows the chest, training legs still thickens the thighs.
+ */
+interface BodySpec {
+  headR: number;
+  neck: readonly [base: number, perShoulders: number];
+  shoulder: readonly [base: number, perShoulders: number, perBack: number];
+  deltoid: readonly [base: number, perShoulders: number];
+  chest: readonly [base: number, perChest: number, perBack: number];
+  waist: readonly [base: number, perCore: number, perChest: number, perBack: number];
+  waistClamp: readonly [min: number, max: number];
+  hip: readonly [base: number, perLegs: number];
+  lat: readonly [base: number, perBack: number];
+  pecRx: readonly [base: number, perChest: number];
+  pecRy: readonly [base: number, perChest: number];
+  /** Pixels the bust sits below `CHEST_Y`, and its spread as a share of chestHalf. */
+  pecDrop: number;
+  pecSpread: number;
+  arm: readonly [base: number, perArms: number, perShoulders: number];
+  bicep: readonly [base: number, perArms: number];
+  thigh: readonly [base: number, perLegs: number];
+  calf: readonly [base: number, perLegs: number];
+  legSpread: number;
+  abs: readonly [base: number, perCore: number];
+}
+
+const BODIES: Readonly<Record<BodyGeometry, BodySpec>> = {
+  male: {
+    headR: 18,
+    neck: [8, 3],
+    shoulder: [30, 15, 7],
+    deltoid: [10, 7],
+    chest: [26, 13, 7],
+    waist: [25, 7, 3, 2],
+    waistClamp: [15, 34],
+    hip: [25, 4],
+    lat: [4, 16],
+    pecRx: [10, 6],
+    pecRy: [6, 3.5],
+    pecDrop: 0,
+    pecSpread: 0.44,
+    arm: [10, 9, 2],
+    bicep: [5, 4.5],
+    thigh: [16, 10],
+    calf: [11, 6],
+    legSpread: 1,
+    abs: [0.18, 0.62],
+  },
+  female: {
+    headR: 17,
+    neck: [6.5, 2.5],
+    shoulder: [26, 12, 6],
+    deltoid: [8.5, 6],
+    chest: [24, 11, 6],
+    waist: [21, 6, 2.5, 1.8],
+    waistClamp: [13, 30],
+    // Hips are WIDER than the shoulder base — that inversion is the silhouette.
+    hip: [30, 4.5],
+    lat: [3.5, 13],
+    pecRx: [8.5, 4.5],
+    pecRy: [7.5, 4],
+    pecDrop: 4,
+    pecSpread: 0.5,
+    arm: [8.5, 7.5, 1.8],
+    bicep: [4, 4],
+    thigh: [15, 9.5],
+    calf: [10, 5.5],
+    // Wider hips must not splay the legs — they stay under the body.
+    legSpread: 0.85,
+    abs: [0.16, 0.6],
+  },
+};
+
+/**
+ * Turn the six part levels into the drawing's proportions.
+ *
+ * `body` picks the silhouette (`'male'` — the default and the original — or
+ * `'female'`); every proportion still comes from the levels alone.
+ */
+export function characterGeometry(parts: PartsProgress, body: BodyGeometry = 'male'): CharacterGeometry {
+  const s = BODIES[body];
   const g: Record<BodyPart, number> = {
     chest: growth(parts.chest.level),
     back: growth(parts.back.level),
@@ -81,27 +191,34 @@ export function characterGeometry(parts: PartsProgress): CharacterGeometry {
     core: growth(parts.core.level),
   };
 
-  const shoulderHalf = 30 + 15 * g.shoulders + 7 * g.back;
-  const chestHalf = 26 + 13 * g.chest + 7 * g.back;
+  const shoulderHalf = s.shoulder[0] + s.shoulder[1] * g.shoulders + s.shoulder[2] * g.back;
+  const chestHalf = s.chest[0] + s.chest[1] * g.chest + s.chest[2] * g.back;
   // Core tightens the waist; chest/back mass pushes it back out a little.
-  const waistHalf = clamp(25 - 7 * g.core + 3 * g.chest + 2 * g.back, 15, 34);
+  const waistHalf = clamp(
+    s.waist[0] - s.waist[1] * g.core + s.waist[2] * g.chest + s.waist[3] * g.back,
+    s.waistClamp[0],
+    s.waistClamp[1],
+  );
 
   return {
-    headR: 18,
-    neckHalf: 8 + 3 * g.shoulders,
+    headR: s.headR,
+    neckHalf: s.neck[0] + s.neck[1] * g.shoulders,
     shoulderHalf,
-    deltoidR: 10 + 7 * g.shoulders,
+    deltoidR: s.deltoid[0] + s.deltoid[1] * g.shoulders,
     chestHalf,
     waistHalf,
-    hipHalf: 25 + 4 * g.legs,
-    latFlare: 4 + 16 * g.back,
-    pecRx: 10 + 6 * g.chest,
-    pecRy: 6 + 3.5 * g.chest,
-    armW: 10 + 9 * g.arms + 2 * g.shoulders,
-    bicepR: 5 + 4.5 * g.arms,
-    thighW: 16 + 10 * g.legs,
-    calfW: 11 + 6 * g.legs,
-    absOpacity: 0.18 + 0.62 * g.core,
+    hipHalf: s.hip[0] + s.hip[1] * g.legs,
+    latFlare: s.lat[0] + s.lat[1] * g.back,
+    pecRx: s.pecRx[0] + s.pecRx[1] * g.chest,
+    pecRy: s.pecRy[0] + s.pecRy[1] * g.chest,
+    pecY: CHEST_Y + s.pecDrop,
+    pecSpread: s.pecSpread,
+    armW: s.arm[0] + s.arm[1] * g.arms + s.arm[2] * g.shoulders,
+    bicepR: s.bicep[0] + s.bicep[1] * g.arms,
+    thighW: s.thigh[0] + s.thigh[1] * g.legs,
+    calfW: s.calf[0] + s.calf[1] * g.legs,
+    legSpread: s.legSpread,
+    absOpacity: s.abs[0] + s.abs[1] * g.core,
   };
 }
 
@@ -118,7 +235,7 @@ export interface CharacterAnchors {
 
 export function characterAnchors(geo: CharacterGeometry): CharacterAnchors {
   const armX = CX + geo.shoulderHalf - 2;
-  const legX = CX + geo.hipHalf * 0.55;
+  const legX = CX + geo.hipHalf * 0.55 * geo.legSpread;
   return {
     belt: { x: CX, y: HIP_Y - 8, halfWidth: geo.waistHalf + 2 },
     gloves: [
@@ -329,7 +446,7 @@ function armGroup(geo: CharacterGeometry, side: 1 | -1): string {
 }
 
 function legGroup(geo: CharacterGeometry, side: 1 | -1): string {
-  const x = (v: number): number => CX + side * v;
+  const x = (v: number): number => CX + side * v * geo.legSpread;
   const hipX = x(geo.hipHalf * 0.52);
   const kneeX = x(geo.hipHalf * 0.62);
   const ankleX = x(geo.hipHalf * 0.58);
@@ -357,6 +474,134 @@ function absGroup(geo: CharacterGeometry): string {
   return `<g class="ch-abs" opacity="${n(geo.absOpacity)}">${cells.join('')}</g>`;
 }
 
+/* ------------------------------------------------------------------ head */
+
+/**
+ * A skin's head decoration.
+ *
+ * Everything is expressed in units of the head radius, so the same shape reads
+ * correctly on either body and at either scale (220px on the דמות screen, 90px
+ * in the arena). `behind` is drawn before the head circle (hair, ponytails),
+ * `front` after it; a decoration may also hide the default eyes or mouth when it
+ * covers them (a visor, a ninja mask).
+ */
+interface DecorLayers {
+  behind: string;
+  front: string;
+  hideEyes?: boolean;
+  hideMouth?: boolean;
+}
+
+/** Long hair: a mass behind the head, a ponytail, and a fringe on top. */
+function hairLayers(cy: number, r: number, d: CharacterDecor): DecorLayers {
+  const behind =
+    `<ellipse cx="${n(CX)}" cy="${n(cy + r * 0.16)}" rx="${n(r + 3.5)}" ry="${n(r + 2)}" fill="${d.main}"/>` +
+    `<path d="M ${n(CX + r * 0.7)} ${n(cy + r * 0.2)} q ${n(r * 1.5)} ${n(r * 0.8)} ${n(r * 0.35)} ${n(r * 2.4)}
+       q ${n(-r * 0.55)} ${n(-r * 0.25)} ${n(-r * 0.95)} ${n(-r * 1.15)} Z" fill="${d.main}"/>`;
+  const front = `<path d="M ${n(CX - r)} ${n(cy - r * 0.1)} a ${n(r)} ${n(r)} 0 0 1 ${n(r * 2)} 0
+      q ${n(-r * 0.5)} ${n(-r * 0.45)} ${n(-r)} ${n(-r * 0.1)}
+      q ${n(-r * 0.5)} ${n(-r * 0.35)} ${n(-r)} ${n(r * 0.1)} Z" fill="${d.main}"/>`;
+  return { behind, front };
+}
+
+const DECOR_DRAW: Readonly<Record<CharacterDecor['kind'], (cy: number, r: number, d: CharacterDecor) => DecorLayers>> = {
+  none: () => ({ behind: '', front: '' }),
+
+  ponytail: (cy, r, d) => hairLayers(cy, r, d),
+
+  /** A visor band instead of a face, an antenna on top, a speaker-grille mouth. */
+  visor: (cy, r, d) => ({
+    behind: `<path d="M ${n(CX)} ${n(cy - r)} v ${n(-r * 0.55)}" stroke="${d.main}" stroke-width="3" stroke-linecap="round"/>
+      <circle cx="${n(CX)}" cy="${n(cy - r * 1.68)}" r="${n(r * 0.2)}" fill="${d.accent}"/>`,
+    front:
+      `<rect x="${n(CX - r * 0.95)}" y="${n(cy - r * 0.5)}" width="${n(r * 1.9)}" height="${n(r * 0.66)}"
+        rx="${n(r * 0.18)}" fill="${d.main}"/>` +
+      `<rect x="${n(CX - r * 0.74)}" y="${n(cy - r * 0.34)}" width="${n(r * 1.48)}" height="${n(r * 0.3)}"
+        rx="${n(r * 0.15)}" fill="${d.accent}"/>` +
+      `<path d="M ${n(CX - r * 0.42)} ${n(cy + r * 0.52)} h ${n(r * 0.84)}" stroke="${d.main}"
+        stroke-width="2.4" stroke-linecap="round"/>`,
+    hideEyes: true,
+    hideMouth: true,
+  }),
+
+  /** Crested helmet with a nose guard — the eyes stay visible under the brim. */
+  helmet: (cy, r, d) => ({
+    behind: '',
+    front:
+      `<path d="M ${n(CX - r - 1)} ${n(cy - r * 0.42)} a ${n(r + 1)} ${n(r + 1)} 0 0 1 ${n(r * 2 + 2)} 0
+        v ${n(r * 0.16)} h ${n(-r * 2 - 2)} Z" fill="${d.main}"/>` +
+      `<rect x="${n(CX - 1.8)}" y="${n(cy - r * 0.42)}" width="3.6" height="${n(r * 0.95)}" rx="1.6" fill="${d.main}"/>` +
+      `<path d="M ${n(CX - r * 0.55)} ${n(cy - r * 1.02)} q ${n(r * 0.55)} ${n(-r * 0.8)} ${n(r * 1.1)} 0
+        q ${n(-r * 0.55)} ${n(-r * 0.28)} ${n(-r * 1.1)} 0 Z" fill="${d.accent}"/>`,
+  }),
+
+  /** Stitched scalp and a tuft of hair that has seen better decades. */
+  undead: (cy, r, d) => ({
+    behind: '',
+    front:
+      // The tuft's base line stays ON the skull (a hair that floats above the
+      // head is the classic bug here), so only the spikes leave the circle.
+      `<path d="M ${n(CX - r * 0.72)} ${n(cy - r * 0.66)} l ${n(r * 0.26)} ${n(-r * 0.62)}
+        l ${n(r * 0.24)} ${n(r * 0.34)} l ${n(r * 0.3)} ${n(-r * 0.62)} l ${n(r * 0.32)} ${n(r * 0.6)} Z"
+        fill="${d.main}"/>` +
+      `<path d="M ${n(CX - r * 0.8)} ${n(cy - r * 0.5)} h ${n(r * 1.6)}" stroke="${d.accent}" stroke-width="2"
+        stroke-linecap="round"/>` +
+      `<path d="M ${n(CX - r * 0.5)} ${n(cy - r * 0.66)} v ${n(r * 0.32)} M ${n(CX)} ${n(cy - r * 0.66)} v ${n(r * 0.32)}
+        M ${n(CX + r * 0.5)} ${n(cy - r * 0.66)} v ${n(r * 0.32)}" stroke="${d.accent}" stroke-width="2"
+        stroke-linecap="round"/>`,
+  }),
+
+  /** Full head wrap: only the eyes show, and a headband trails behind. */
+  mask: (cy, r, d) => {
+    const hair = hairLayers(cy, r, d);
+    return {
+      behind: hair.behind,
+      front:
+        `<path d="M ${n(CX - r)} ${n(cy - r * 0.26)} a ${n(r)} ${n(r)} 0 0 1 ${n(r * 2)} 0 Z" fill="${d.main}"/>` +
+        `<path d="M ${n(CX - r * 0.98)} ${n(cy + r * 0.12)} a ${n(r)} ${n(r)} 0 0 0 ${n(r * 1.96)} 0 Z" fill="${d.main}"/>` +
+        `<path d="M ${n(CX - r * 0.95)} ${n(cy - r * 0.3)} h ${n(r * 1.9)}" stroke="${d.accent}"
+          stroke-width="${n(r * 0.17)}" stroke-linecap="round"/>` +
+        `<path d="M ${n(CX - r * 0.9)} ${n(cy - r * 0.28)} q ${n(-r * 0.85)} ${n(r * 0.35)} ${n(-r * 1.25)} ${n(r * 1.15)}
+          l ${n(r * 0.5)} ${n(-r * 0.18)} q ${n(r * 0.3)} ${n(-r * 0.5)} ${n(r * 0.85)} ${n(-r * 0.62)} Z"
+          fill="${d.accent}"/>`,
+      hideMouth: true,
+    };
+  },
+};
+
+/**
+ * The head: skull, decoration, eyes and mouth.
+ *
+ * Every feature is placed as a fraction of the head radius (the male values are
+ * the literals this was extracted from: r=18 ⇒ eyes at ±7, mouth at +7/+12), so
+ * a smaller head keeps its face proportional instead of drifting.
+ */
+function headGroup(geo: CharacterGeometry, char: CharacterDef): string {
+  const r = geo.headR;
+  const cy = HEAD_CY;
+  const d = DECOR_DRAW[char.decor.kind](cy, r, char.decor);
+  const dx = r * (7 / 18);
+  const eyeY = cy - r * (2 / 18);
+  const eyeR = r * (2.2 / 18);
+  const mouthY = cy + r * (7 / 18);
+  const mouthDip = cy + r * (12 / 18);
+  const eyes = d.hideEyes
+    ? ''
+    : `
+    <circle class="ch-eye" cx="${n(CX - dx)}" cy="${n(eyeY)}" r="${n(eyeR)}"/>
+    <circle class="ch-eye" cx="${n(CX + dx)}" cy="${n(eyeY)}" r="${n(eyeR)}"/>`;
+  const mouth = d.hideMouth
+    ? ''
+    : `
+    <path class="ch-mouth" d="M ${n(CX - dx)} ${n(mouthY)} Q ${n(CX)} ${n(mouthDip)} ${n(CX + dx)} ${n(mouthY)}" fill="none" stroke-linecap="round"/>`;
+
+  return `<g class="ch-head">${d.behind ? `\n    <g class="ch-decor back">${d.behind}</g>` : ''}
+    <circle class="ch-skin" cx="${n(CX)}" cy="${n(cy)}" r="${n(r)}"/>${
+      d.front ? `\n    <g class="ch-decor front">${d.front}</g>` : ''
+    }${eyes}${mouth}
+  </g>`;
+}
+
 export interface CharacterSvgOptions {
   /** Parts to pulse right now (level-up celebration). */
   pulse?: readonly BodyPart[];
@@ -366,6 +611,19 @@ export interface CharacterSvgOptions {
   equipment?: EquipmentState;
   /** How many world-boss medals to pin on the chest. */
   trophies?: number;
+  /**
+   * WHO is being drawn: a roster id or the definition itself. Unknown ids fall
+   * back to the default hero, so a save from a newer build (or a skin that was
+   * removed) still renders a character rather than nothing.
+   */
+  character?: string | CharacterDef;
+}
+
+/** Resolve the `character` option to a definition (never undefined). */
+export function resolveCharacter(character?: string | CharacterDef): CharacterDef {
+  if (!character) return defaultCharacter();
+  if (typeof character !== 'string') return character;
+  return characterById(character) ?? defaultCharacter();
 }
 
 /**
@@ -373,19 +631,30 @@ export interface CharacterSvgOptions {
  * `styles/character.css` so the palette stays in one place.
  */
 export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {}): string {
-  const geo = characterGeometry(parts);
+  const char = resolveCharacter(opts.character);
+  const p = char.palette;
+  const geo = characterGeometry(parts, char.geometry);
   const pulse = new Set<BodyPart>(opts.pulse ?? []);
   const cls = (part: BodyPart): string => `ch-part${pulse.has(part) ? ' pulse' : ''}`;
   const label = opts.label ?? 'הדמות שלך';
-  const pecOffset = geo.chestHalf * 0.44;
+  const pecOffset = geo.chestHalf * geo.pecSpread;
   const equipped = opts.equipment?.equipped ?? {};
   const layer = (slot: EquipmentSlot): string => equipmentLayer(slot, geo, equipped);
+  // One gradient per character id: several characters share a page (the roster
+  // strip draws them all), and two <defs> with the same id would make every
+  // torso take the first one's colours.
+  const grad = `chBody-${char.id}`;
+  // The palette rides on custom properties, so `styles/character.css` stays THE
+  // place colours are declared and a skin only overrides the values.
+  const vars =
+    `--ch-body:${p.body};--ch-body-2:${p.bodyDark};--ch-shade:${p.shade};` +
+    `--ch-skin:${p.skin};--ch-line:${p.line};--ch-eye:${p.eye}`;
 
-  return `<svg class="ch-svg" viewBox="0 0 200 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${label}">
+  return `<svg class="ch-svg" viewBox="0 0 200 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${label}" data-character="${char.id}" data-body="${char.geometry}" style="${vars}">
   <defs>
-    <linearGradient id="chBody" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#5A76AE"/>
-      <stop offset="100%" stop-color="#3B4E76"/>
+    <linearGradient id="${grad}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${p.torsoTop}"/>
+      <stop offset="100%" stop-color="${p.torsoBottom}"/>
     </linearGradient>
   </defs>
   <ellipse class="ch-shadow" cx="100" cy="306" rx="${n(geo.hipHalf + 16)}" ry="7"/>
@@ -403,12 +672,12 @@ export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {
 
   <g class="ch-torso-group">
     <rect class="ch-limb-fill" x="${n(CX - geo.neckHalf)}" y="60" width="${n(geo.neckHalf * 2)}" height="30" rx="6"/>
-    <path class="ch-torso" d="${torsoPath(geo)}"/>
+    <path class="ch-torso" style="fill:url(#${grad})" d="${torsoPath(geo)}"/>
   </g>
 
   <g class="${cls('chest')}" data-part="chest">
-    <ellipse class="ch-pec" cx="${n(CX - pecOffset)}" cy="${n(CHEST_Y)}" rx="${n(geo.pecRx)}" ry="${n(geo.pecRy)}"/>
-    <ellipse class="ch-pec" cx="${n(CX + pecOffset)}" cy="${n(CHEST_Y)}" rx="${n(geo.pecRx)}" ry="${n(geo.pecRy)}"/>
+    <ellipse class="ch-pec" cx="${n(CX - pecOffset)}" cy="${n(geo.pecY)}" rx="${n(geo.pecRx)}" ry="${n(geo.pecRy)}"/>
+    <ellipse class="ch-pec" cx="${n(CX + pecOffset)}" cy="${n(geo.pecY)}" rx="${n(geo.pecRx)}" ry="${n(geo.pecRy)}"/>
   </g>
 
   <g class="${cls('core')}" data-part="core">${absGroup(geo)}</g>
@@ -420,12 +689,7 @@ export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {
     <circle class="ch-delt" cx="${n(CX + geo.shoulderHalf)}" cy="${n(SHOULDER_Y + 2)}" r="${n(geo.deltoidR)}"/>
   </g>
 
-  <g class="ch-head">
-    <circle class="ch-skin" cx="100" cy="${n(HEAD_CY)}" r="${n(geo.headR)}"/>
-    <circle class="ch-eye" cx="93" cy="40" r="2.2"/>
-    <circle class="ch-eye" cx="107" cy="40" r="2.2"/>
-    <path class="ch-mouth" d="M 93 49 Q 100 54 107 49" fill="none" stroke-linecap="round"/>
-  </g>
+  ${headGroup(geo, char)}
 
   <!-- Equipment layers worn ON TOP of the body (see characterAnchors). -->
   <g class="ch-equip" data-slot="shoes">${layer('shoes')}</g>
