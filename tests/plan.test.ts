@@ -43,8 +43,11 @@ import {
   clonePlanDoc,
   customToExercise,
   defaultPlanDoc,
+  defaultTabView,
   deriveWeeklyTarget,
+  isBuiltInWeekdayMap,
   isDefaultPlan,
+  isTabView,
   libraryExercises,
   defaultDay,
   makeResolver,
@@ -57,9 +60,13 @@ import {
   planRows,
   planToRecord,
   resolveProgram,
+  resolveTab,
   savePlan,
+  scheduleTabs,
   validatePlanDoc,
+  viewDayKey,
 } from '../src/core/plan.ts';
+import { presetById } from '../src/data/presets.ts';
 import { buildRetroactiveGrants } from '../src/core/xp.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { AppEvent, Session } from '../src/storage/DataStore.ts';
@@ -926,6 +933,172 @@ describe('defaultDay', () => {
     const plan = abPlan();
     for (const d of plan.days) delete d.weekdays;
     for (let wd = 0; wd < 7; wd += 1) expect(defaultDay(plan, weekday(wd))).toBe('d_alef');
+  });
+});
+
+/* ----------------------------------------------------------- schedule tabs */
+
+/**
+ * The tab bar shows the WEEK, not the plan's day list: an A/B split trained on
+ * four weekdays is four tabs over two workouts. The one exception is the
+ * built-in `[0,1] / [2,3] / [4,5,6]` map, which is a ROUTING map (every weekday
+ * must open some tab) and therefore stays three tabs — the same exception
+ * `deriveWeeklyTarget` makes for the weekly target, through the same predicate.
+ */
+describe('scheduleTabs', () => {
+  function tabsOf(plan: PlanDoc | null): ReturnType<typeof scheduleTabs> {
+    return scheduleTabs(resolveProgram(plan));
+  }
+
+  it('expands the A/B preset into the four days of the week, in weekday order', () => {
+    const preset = presetById('ab4');
+    if (!preset) throw new Error('no ab4 preset');
+    const plan = preset.build();
+    const [alef, bet] = plan.days;
+    if (!alef || !bet) throw new Error('preset lost a day');
+
+    const tabs = tabsOf(plan);
+    expect(tabs).toHaveLength(4);
+    expect(tabs.map((t) => t.title)).toEqual(['ראשון', 'שלישי', 'רביעי', 'חמישי']);
+    expect(tabs.map((t) => t.weekday)).toEqual([0, 2, 3, 4]);
+    // ראשון + רביעי are חלק א׳, שלישי + חמישי are חלק ב׳ — two workouts, four days
+    expect(tabs.map((t) => t.dayKey)).toEqual([alef.key, bet.key, alef.key, bet.key]);
+    expect(tabs.map((t) => t.subtitle)).toEqual([alef.label, bet.label, alef.label, bet.label]);
+    // …and each occurrence carries its own stable view id
+    expect(tabs.map((t) => t.viewId)).toEqual([
+      `${alef.key}@0`,
+      `${bet.key}@2`,
+      `${alef.key}@3`,
+      `${bet.key}@4`,
+    ]);
+    // the day itself is untouched: the `@` is a label, and it strips back off
+    expect(tabs.map((t) => viewDayKey(t.viewId))).toEqual([alef.key, bet.key, alef.key, bet.key]);
+  });
+
+  it('leaves the built-in program at its three tabs, exactly as before', () => {
+    for (const plan of [null, defaultPlanDoc(), normalizePlanDoc(planToRecord(defaultPlanDoc()))]) {
+      const tabs = tabsOf(plan);
+      expect(tabs).toHaveLength(3);
+      expect(tabs.map((t) => t.viewId)).toEqual(['A', 'B', 'C']);
+      expect(tabs.map((t) => t.dayKey)).toEqual(['A', 'B', 'C']);
+      // the caption the tab bar has always shown, over the day's own label
+      expect(tabs.map((t) => t.title)).toEqual(DAY_ORDER.map((k) => PROGRAM[k].day));
+      expect(tabs.map((t) => t.subtitle)).toEqual(DAY_ORDER.map((k) => PROGRAM[k].label));
+      expect(tabs.map((t) => t.weekday)).toEqual([null, null, null]);
+    }
+  });
+
+  it('keeps a v1-migrated plan at three tabs too (it inherits the routing map)', () => {
+    const v1 = { version: 1, rev: 3, days: { A: PROGRAM.A, B: PROGRAM.B, C: PROGRAM.C } };
+    const tabs = tabsOf(normalizePlanDoc(v1));
+    expect(tabs.map((t) => t.viewId)).toEqual(['A', 'B', 'C']);
+    expect(tabs.map((t) => t.title)).toEqual(['ראשון', 'שלישי', 'חמישי']);
+  });
+
+  it('gives a day with no weekdays one tab, titled by its own caption', () => {
+    const plan = abPlan();
+    for (const d of plan.days) delete d.weekdays;
+    const tabs = tabsOf(plan);
+    expect(tabs).toHaveLength(2);
+    expect(tabs.map((t) => t.viewId)).toEqual(['d_alef', 'd_bet']);
+    expect(tabs.map((t) => t.title)).toEqual(["חלק א'", "חלק ב'"]);
+    expect(tabs.map((t) => t.weekday)).toEqual([null, null]);
+  });
+
+  it('mixes scheduled and unscheduled days: the week first, the rest after it', () => {
+    const plan = abPlan();
+    plan.days[0]!.weekdays = [2, 4];
+    delete plan.days[1]!.weekdays;
+    const tabs = tabsOf(plan);
+    expect(tabs.map((t) => t.viewId)).toEqual(['d_alef@2', 'd_alef@4', 'd_bet']);
+    expect(tabs.map((t) => t.title)).toEqual(['שלישי', 'חמישי', "חלק ב'"]);
+  });
+
+  it('keeps the PLAIN day key for a day trained once a week', () => {
+    const plan = abPlan();
+    plan.days[0]!.weekdays = [1];
+    plan.days[1]!.weekdays = [5];
+    const tabs = tabsOf(plan);
+    // one occurrence each — nothing to disambiguate, so no `@` is minted…
+    expect(tabs.map((t) => t.viewId)).toEqual(['d_alef', 'd_bet']);
+    // …but the tab is still titled by its weekday, because this IS a schedule
+    expect(tabs.map((t) => t.title)).toEqual(['שני', 'שישי']);
+  });
+
+  it('reuses the routing-map predicate rather than a second notion of it', () => {
+    expect(isBuiltInWeekdayMap(defaultPlanDoc().days)).toBe(true);
+    expect(isBuiltInWeekdayMap(resolveProgram(null).days)).toBe(true);
+    expect(isBuiltInWeekdayMap(abPlan().days)).toBe(false);
+    // the moment a user edits the built-in map, it is a real schedule again
+    const edited = defaultPlanDoc();
+    edited.days[0]!.weekdays = [0];
+    expect(isBuiltInWeekdayMap(edited.days)).toBe(false);
+    expect(scheduleTabs(resolveProgram(edited))).toHaveLength(6);
+  });
+});
+
+describe('view ids', () => {
+  function weekday(wd: number): Date {
+    const d = new Date(Date.UTC(2025, 0, 5 + wd, 12));
+    expect(d.getDay()).toBe(wd);
+    return d;
+  }
+
+  it('strips the occurrence off any view id', () => {
+    expect(viewDayKey('A')).toBe('A');
+    expect(viewDayKey('d_alef')).toBe('d_alef');
+    expect(viewDayKey('d_alef@3')).toBe('d_alef');
+    expect(viewDayKey('d_alef@')).toBe('d_alef');
+  });
+
+  it('accepts both shapes a stored view has ever had, and refuses the rest', () => {
+    const program = resolveProgram(abPlan());
+    expect(isTabView(program, 'd_alef@0')).toBe(true);
+    expect(isTabView(program, 'd_alef')).toBe(true); // stored before this feature
+    expect(isTabView(program, 'd_gone')).toBe(false);
+    expect(isTabView(program, 'd_alef@6')).toBe(false); // not a weekday it trains
+    expect(isTabView(program, '')).toBe(false);
+    expect(isTabView(program, 42)).toBe(false);
+    // the built-in program answers to its three keys and to nothing composed
+    expect(isTabView(resolveProgram(null), 'A')).toBe(true);
+    expect(isTabView(resolveProgram(null), 'A@0')).toBe(false);
+  });
+
+  it('resolves a bare day key onto TODAY’s occurrence of that day', () => {
+    const program = resolveProgram(abPlan());
+    expect(resolveTab(program, 'd_alef', weekday(3))?.viewId).toBe('d_alef@3');
+    expect(resolveTab(program, 'd_alef', weekday(2))?.viewId).toBe('d_alef@0'); // first one
+    expect(resolveTab(program, 'd_alef@0', weekday(3))?.viewId).toBe('d_alef@0'); // exact wins
+    expect(resolveTab(program, 'd_gone', weekday(0))).toBeNull();
+  });
+});
+
+describe('defaultTabView', () => {
+  function weekday(wd: number): Date {
+    const d = new Date(Date.UTC(2025, 0, 5 + wd, 12));
+    expect(d.getDay()).toBe(wd);
+    return d;
+  }
+
+  it('reproduces the legacy mapping for the built-in program', () => {
+    const expected = ['A', 'A', 'B', 'B', 'C', 'C', 'C'];
+    for (let wd = 0; wd < 7; wd += 1) expect(defaultTabView(null, weekday(wd))).toBe(expected[wd]);
+  });
+
+  it('opens on the occurrence scheduled for today', () => {
+    const plan = abPlan(); // א on Sun+Wed, ב on Tue+Thu
+    expect(defaultTabView(plan, weekday(0))).toBe('d_alef@0');
+    expect(defaultTabView(plan, weekday(3))).toBe('d_alef@3');
+    expect(defaultTabView(plan, weekday(2))).toBe('d_bet@2');
+    expect(defaultTabView(plan, weekday(4))).toBe('d_bet@4');
+    // rest days: nothing is scheduled, so the app opens on the first tab
+    for (const wd of [1, 5, 6]) expect(defaultTabView(plan, weekday(wd))).toBe('d_alef@0');
+  });
+
+  it('follows the plan day when there is no schedule to follow', () => {
+    const plan = abPlan();
+    for (const d of plan.days) delete d.weekdays;
+    for (let wd = 0; wd < 7; wd += 1) expect(defaultTabView(plan, weekday(wd))).toBe('d_alef');
   });
 });
 

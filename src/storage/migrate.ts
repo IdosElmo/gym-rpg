@@ -18,7 +18,15 @@
 
 import { BODY_PARTS, isDayKey, isReservedViewKey, type BodyPart, type DayKey } from '../data/program.ts';
 import { EQUIPMENT_SLOTS, bossById, equipmentById } from '../data/gameContent.ts';
-import { defaultDay, makeResolver, normalizePlanDoc, planFromEvents, resolveProgram } from '../core/plan.ts';
+import {
+  defaultDay,
+  defaultTabView,
+  isTabView,
+  makeResolver,
+  normalizePlanDoc,
+  planFromEvents,
+  resolveProgram,
+} from '../core/plan.ts';
 import type { PlanDoc } from '../data/planTypes.ts';
 import { todayISO } from '../core/workout.ts';
 import {
@@ -112,8 +120,14 @@ function toStr(v: unknown): string {
  */
 export { defaultDay };
 
+/**
+ * The fresh UI slot. The view is the default TAB, not merely the default day: a
+ * plan whose days are trained on several weekdays shows one tab per weekday, and
+ * the app opens on today's occurrence of the workout (see `scheduleTabs`). For
+ * the built-in program the two are the same string.
+ */
 export function emptyUi(now: Date = new Date(), plan: PlanDoc | null = null): UiState {
-  return { view: defaultDay(plan, now), open: {} };
+  return { view: defaultTabView(plan, now), open: {} };
 }
 
 export function emptyState(now: number = Date.now()): AppState {
@@ -311,9 +325,15 @@ export function normalizeGame(raw: unknown): GameState | null {
 
 /**
  * The persisted UI slot. A view that is one of the four reserved screens is kept
- * as-is; a DAY view is kept only when the active plan actually has that day
+ * as-is; a DAY view is kept only when the active plan still answers to it
  * (otherwise the app would open on a tab that does not exist), and anything else
- * falls back to the plan's default day for `now`.
+ * falls back to the plan's default tab for `now`.
+ *
+ * "Answers to it" is `isTabView`, so BOTH shapes a view has ever had are still
+ * accepted verbatim: a bare day key (`'A'`, `'d_alef'` — everything written
+ * before schedule-expanded tabs) and an occurrence id (`'d_alef@3'`). A bare key
+ * is not rewritten here: the shell canonicalises it to the tab it renders, so
+ * nothing about the stored blob has to move for this feature.
  */
 function normalizeUi(raw: unknown, now: Date = new Date(), plan: PlanDoc | null = null): UiState {
   if (!isRecord(raw)) return emptyUi(now, plan);
@@ -323,8 +343,8 @@ function normalizeUi(raw: unknown, now: Date = new Date(), plan: PlanDoc | null 
   if (isRecord(openRaw)) {
     for (const k of Object.keys(openRaw)) open[k] = openRaw[k] === true;
   }
-  const known = resolveProgram(plan).days.some((d) => d.key === view);
-  const v: ViewKey = isReservedViewKey(view) || known ? (view as ViewKey) : defaultDay(plan, now);
+  const known = isTabView(resolveProgram(plan), view);
+  const v: ViewKey = isReservedViewKey(view) || known ? (view as ViewKey) : defaultTabView(plan, now);
   return { view: v, open };
 }
 

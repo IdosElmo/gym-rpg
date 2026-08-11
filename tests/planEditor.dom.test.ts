@@ -429,7 +429,7 @@ describe('ready-made presets', () => {
     expect(payload?.days).toHaveLength(2);
   });
 
-  it('drives the app: two tabs, the new exercises, and real XP', () => {
+  it('drives the app: four scheduled tabs, the new exercises, and real XP', () => {
     const { store } = mount();
     openEditor();
     openPresets();
@@ -438,10 +438,13 @@ describe('ready-made presets', () => {
     click('#btnPlanBack');
 
     const tabs = [...document.querySelectorAll<HTMLElement>('#tabs .tab')];
-    expect(tabs).toHaveLength(5); // two workout days + דמות + קרב + היסטוריה
+    // The preset defines TWO days trained on four weekdays, and the tab bar
+    // shows the WEEK: ראשון / שלישי / רביעי / חמישי + דמות + קרב + היסטוריה.
+    expect(tabs).toHaveLength(7);
+    expect(tabs[0]?.textContent).toContain('ראשון');
     expect(tabs[0]?.textContent).toContain('חלק א׳');
-    // the boot day follows the real weekday, so pin the test to חלק א׳
-    click(`#tabs .tab[data-view="${store.getState().plan?.days[0]?.key ?? ''}"]`);
+    // the boot tab follows the real weekday, so pin the test to חלק א׳
+    click(`#tabs .tab[data-view^="${store.getState().plan?.days[0]?.key ?? ''}"]`);
     // the workout screen renders a library exercise like any other
     const card = document.getElementById('card-x1');
     expect(card?.querySelector('.ex-title')?.textContent).toBe('סקוואט בסמית׳ מאשין');
@@ -890,7 +893,9 @@ describe('history with a custom plan', () => {
     click('#plSave');
     click('#btnPlanBack');
     const dayKey = store.getState().plan?.days[0]?.key ?? '';
-    click(`#tabs .tab[data-view="${dayKey}"]`);
+    // חלק א׳ is trained twice a week, so its tabs are `key@0` / `key@3`; either
+    // occurrence logs under the bare day key.
+    click(`#tabs .tab[data-view^="${dayKey}"]`);
 
     // tick every set of every exercise of חלק א׳ -> workout_finished
     const boxes = [...document.querySelectorAll<HTMLElement>('#main .chk')];

@@ -1,11 +1,17 @@
 /**
  * ui/app.ts — the app shell: tabs, header and screen switching.
  *
- * Tab order: the plan's workout days IN THE PLAN'S OWN ORDER, then דמות, קרב,
- * היסטוריה. The day tabs are rendered from `resolveProgram(plan).days`, so a
- * plan with two days shows two tabs and the built-in program still shows the
- * familiar three. The tab list is data-driven, so a new screen only needs an
- * entry plus a render function.
+ * Tab order: the plan's workout tabs (`scheduleTabs`, see core/plan.ts), then
+ * דמות, קרב, היסטוריה. A tab is an OCCURRENCE of a workout, not a workout: the
+ * built-in program still shows its familiar three (its weekday map is a routing
+ * map), while an A/B split trained Sun+Wed / Tue+Thu shows FOUR — ראשון, שלישי,
+ * רביעי, חמישי — because that is the week the user actually trains.
+ *
+ * THE `@` STOPS HERE. An occurrence tab's view id is `dayKey@weekday`, and this
+ * module is the only one that ever holds that string: `viewDayKey` strips it
+ * before the workout screen, the header, the session lookup or any event sees a
+ * day. Two tabs of the same workout therefore log into exactly the same session
+ * and the same `set_*` payloads — no new event shape, no new session shape.
  *
  * PLAN EDITOR PLACEMENT (a Phase 4 decision): `'PL'` is a real view but NOT a
  * seventh tab. Six tabs already fill the width of a phone; a seventh would make
@@ -16,9 +22,17 @@
  * Leaving it restores the view you came from.
  */
 
-import { dayOf, defaultDayOf, programDay } from '../data/program.ts';
+import { dayOf } from '../data/program.ts';
 import { fmtDate, lastLoggedDate } from '../core/workout.ts';
-import { isDefaultPlan, resolveProgram } from '../core/plan.ts';
+import {
+  defaultTabView,
+  isDefaultPlan,
+  resolveProgram,
+  resolveTab,
+  scheduleTabs,
+  viewDayKey,
+  type ScheduleTab,
+} from '../core/plan.ts';
 import { gameOf } from '../core/game.ts';
 import { worldById } from '../data/gameContent.ts';
 import type { DataStore, ViewKey } from '../storage/DataStore.ts';
@@ -61,6 +75,22 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
   let returnView: ViewKey = store.getState().ui.view;
   if (!isReturnable(returnView)) returnView = 'H';
 
+  /** True for the four screens that are not a workout day. */
+  function isScreen(v: ViewKey): boolean {
+    return v === 'CH' || v === 'BT' || v === 'H' || v === 'PL';
+  }
+
+  /**
+   * The TAB a day view is showing right now, or `null` when the plan has no
+   * answer for it. This is also where a view stored in the older bare-day-key
+   * form (`'A'`, `'d_alef'`) is canonicalised onto a real tab, so exactly one
+   * tab lights up whichever shape the store happens to hold.
+   */
+  function currentTab(v: ViewKey): ScheduleTab | null {
+    if (isScreen(v)) return null;
+    return resolveTab(resolveProgram(store.getState().plan), v);
+  }
+
   /**
    * A view key the app can actually render.
    *
@@ -68,13 +98,13 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
    * change under a stored view: leaving the editor after picking a preset, or a
    * cloud pull that deleted a day on another device, both leave `ui.view`
    * pointing at a day that no longer exists. Rather than land the user on an
-   * empty screen, an unknown day key resolves to the plan's own default day —
-   * the same one the app boots on.
+   * empty screen, an unknown view resolves to the plan's own default tab — the
+   * same one the app boots on.
    */
   function resolveView(v: ViewKey): ViewKey {
-    if (v === 'CH' || v === 'BT' || v === 'H' || v === 'PL') return v;
-    const program = resolveProgram(store.getState().plan);
-    return programDay(program, v) ? v : defaultDayOf(program);
+    if (isScreen(v)) return v;
+    const state = store.getState();
+    return resolveTab(resolveProgram(state.plan), v)?.viewId ?? defaultTabView(state.plan);
   }
 
   function setView(view: ViewKey): void {
@@ -92,19 +122,41 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     render();
   }
 
+  /**
+   * Bring the active tab into view once the bar scrolls.
+   *
+   * `scrollIntoView` is what gets RTL right (a hand-computed `scrollLeft` means
+   * three different sign conventions across engines), and it is absent in jsdom
+   * — hence the capability check rather than a call.
+   */
+  function revealActiveTab(): void {
+    if (!tabsEl.classList.contains('scroll')) return;
+    const active = tabsEl.querySelector<HTMLElement>('.tab.active');
+    if (!active || typeof active.scrollIntoView !== 'function') return;
+    try {
+      active.scrollIntoView({ block: 'nearest', inline: 'center' });
+    } catch {
+      /* older engines: the tab is simply left where it is */
+    }
+  }
+
   function renderTabs(): void {
     const view = store.getState().ui.view;
     const program = resolveProgram(store.getState().plan);
-    const dayKeys = new Set(program.days.map((d) => d.key));
-    // One tab per day the PLAN defines, in the plan's own order. For the
-    // built-in program that is A/B/C with their weekday names — byte-identical
-    // to the hard-wired list this used to be.
+    const tabs = scheduleTabs(program);
+    const active = currentTab(view)?.viewId ?? view;
+    const viewIds = new Set(tabs.map((t) => t.viewId));
+    // One tab per TRAINING OCCURRENCE the plan schedules (`scheduleTabs`): the
+    // built-in program still yields A/B/C with their weekday names — the
+    // hard-wired list this used to be — and a real weekly schedule yields one
+    // weekday-titled tab per session of the week.
     tabsEl.innerHTML =
-      program.days
+      tabs
         .map(
-          (d) => `
-    <button class="tab ${view === d.key ? 'active' : ''}" data-view="${esc(d.key)}">
-      <span class="d">${esc(d.day.day)}</span><span class="w">${esc(d.label)}</span>
+          (t) => `
+    <button class="tab ${active === t.viewId ? 'active' : ''}" data-view="${esc(t.viewId)}"
+      title="${esc(t.title)} · ${esc(t.subtitle)}">
+      <span class="d">${esc(t.title)}</span><span class="w">${esc(t.subtitle)}</span>
     </button>`,
         )
         .join('') +
@@ -117,13 +169,18 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       `<button class="tab hist-tab ${view === 'H' ? 'active' : ''}" data-view="H">
       <span class="d">🗓</span><span class="w">היסטוריה</span>
     </button>`;
+    // A schedule-expanded plan can push past the six tabs a phone row fits, so
+    // the bar becomes horizontally scrollable instead of squeezing every tab
+    // into an untappable sliver. Up to six it looks exactly as it always has.
+    tabsEl.classList.toggle('scroll', tabs.length + 3 > 6);
     tabsEl.querySelectorAll<HTMLButtonElement>('.tab').forEach((b) => {
       b.addEventListener('click', () => {
         const v = b.dataset['view'];
         if (v === undefined) return;
-        if (v === 'H' || v === 'CH' || v === 'BT' || dayKeys.has(v)) setView(v);
+        if (v === 'H' || v === 'CH' || v === 'BT' || viewIds.has(v)) setView(v);
       });
     });
+    revealActiveTab();
   }
 
   /** Battle energy lives in the header corner on every screen — small and quiet. */
@@ -166,16 +223,23 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       return;
     }
     const program = resolveProgram(state.plan);
+    const dayKey = viewDayKey(view);
     // A day view whose key the plan no longer has (a day deleted on another
     // device) must still render a header rather than throw.
-    const p = dayOf(program, view) ?? program.days[0]?.day ?? null;
+    const p = dayOf(program, dayKey) ?? program.days[0]?.day ?? null;
     if (!p) {
       headerEl.innerHTML = `<h1 class="app-title">אימון <span class="en">Workout</span></h1>${energyPill()}`;
       return;
     }
-    const last = lastLoggedDate(state, view, program);
+    // On an occurrence tab the title names THIS session of the week ("יום רביעי
+    // · חלק א׳ …"); on a single-tab day the tab's title IS the day's caption, so
+    // the line is byte-identical to what it has always been.
+    const tab = currentTab(view);
+    const caption = tab?.title ?? p.day;
+    const name = tab?.subtitle ?? p.label;
+    const last = lastLoggedDate(state, dayKey, program);
     headerEl.innerHTML = `
-    <h1 class="app-title">יום ${esc(p.day)} · ${esc(p.label)} <span class="en">Hypertrophy</span></h1>
+    <h1 class="app-title">יום ${esc(caption)} · ${esc(name)} <span class="en">Hypertrophy</span></h1>
     <p class="day-meta"><b>${p.dur}</b> · ${p.focus}</p>
     <p class="last-log">אימון אחרון שתועד: <span class="val">${last ? fmtDate(last) : '— עדיין לא תועד'}</span></p>
     <button class="plan-edit-btn" id="btnEditPlan" aria-label="עריכת תוכנית האימונים">⚙️ עריכת תוכנית</button>
@@ -221,7 +285,9 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     } else if (view === 'BT') {
       renderBattle(mainEl, { store, refreshHeader: renderHeader, remount: renderBattleScreen });
     } else {
-      renderWorkout(mainEl, view, { store, timer, refreshHeader: renderHeader });
+      // The workout screen — and everything it writes — is keyed by the DAY.
+      // The occurrence a tab stands for is a label, never data.
+      renderWorkout(mainEl, viewDayKey(view), { store, timer, refreshHeader: renderHeader });
     }
     try {
       window.scrollTo(0, 0);
