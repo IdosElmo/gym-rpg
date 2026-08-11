@@ -1,7 +1,11 @@
 /* ---------- Character screen (דמות) ---------- */
 :root{
   --xp:#A78BFA;            /* XP violet — extends the palette, same family */
+  /* The DEFAULT character's palette. Every roster entry (data/characters.ts)
+     overrides these same properties on its own <svg>, so colours stay declared
+     here and a skin only supplies values. */
   --ch-body:#4A5F8C; --ch-body-2:#3B4E76; --ch-skin:#C79B75; --ch-shade:#5C77B0;
+  --ch-line:#22304C; --ch-eye:#1B2438;
 }
 
 .char-card{
@@ -17,17 +21,18 @@
 
 /* character palette (kept here so the SVG builder stays pure geometry) */
 .ch-shadow{fill:#0B0F19; opacity:.55}
-.ch-torso{fill:url(#chBody); stroke:#22304C; stroke-width:2}
-.ch-lat{fill:var(--ch-body-2); stroke:#22304C; stroke-width:2; stroke-linejoin:round}
+/* the torso gradient is per-character and set inline (one <defs> id each) */
+.ch-torso{stroke:var(--ch-line); stroke-width:2}
+.ch-lat{fill:var(--ch-body-2); stroke:var(--ch-line); stroke-width:2; stroke-linejoin:round}
 .ch-limb{stroke:var(--ch-body); fill:none}
 .ch-limb-fill{fill:var(--ch-body)}
 .ch-pec{fill:var(--ch-shade); opacity:.85}
-.ch-abs rect{fill:#22304C}
-.ch-delt{fill:var(--ch-shade); stroke:#22304C; stroke-width:1.5}
-.ch-foot{fill:#22304C}
+.ch-abs rect{fill:var(--ch-line)}
+.ch-delt{fill:var(--ch-shade); stroke:var(--ch-line); stroke-width:1.5}
+.ch-foot{fill:var(--ch-line)}
 .ch-skin{fill:var(--ch-skin)}
-.ch-eye{fill:#1B2438}
-.ch-mouth{stroke:#1B2438; stroke-width:2}
+.ch-eye{fill:var(--ch-eye)}
+.ch-mouth{stroke:var(--ch-eye); stroke-width:2}
 
 /* level-up celebration — killed by the global prefers-reduced-motion rule */
 .ch-part{transform-box:fill-box; transform-origin:center}
@@ -150,6 +155,43 @@
 .eq-btn.on{border-color:var(--accent); color:var(--accent)}
 .eq-btn.off{border-color:var(--line); color:var(--muted)}
 .eq-btn:disabled{opacity:.45; cursor:default}
+
+/* ---------- character roster (דמויות) ---------- */
+.chr-row{
+  margin:0; padding:2px 0 2px; list-style:none;
+  display:grid; grid-auto-flow:column; grid-auto-columns:minmax(96px,1fr);
+  gap:8px; overflow-x:auto; overscroll-behavior-x:contain;
+  scroll-snap-type:x proximity; -webkit-overflow-scrolling:touch;
+}
+.chr-item{scroll-snap-align:center; min-width:0}
+.chr-card{
+  width:100%; min-height:118px; display:flex; flex-direction:column; align-items:center; gap:3px;
+  padding:8px 5px 7px; cursor:pointer; color:var(--text);
+  background:var(--card-2); border:1px solid var(--line); border-radius:12px;
+}
+.chr-card.selected{border-color:var(--accent); background:#3B82F61A}
+.chr-card.owned{border-color:#3B82F544}
+.chr-card.locked{border-style:dashed}
+.chr-card.poor{opacity:.62}
+.chr-art{display:flex; justify-content:center; height:62px}
+.chr-art .ch-svg{width:auto; height:62px}
+.chr-name{font-size:12px; font-weight:800; line-height:1.2; text-align:center}
+.chr-tag{font-size:10.5px; font-weight:700; color:var(--muted); direction:ltr}
+.chr-card.selected .chr-tag{color:var(--accent)}
+.chr-card.owned .chr-tag{color:var(--ok)}
+.chr-card.locked .chr-tag{color:var(--warn)}
+
+.chr-buy{
+  margin-top:10px; padding:10px 11px;
+  background:var(--card-2); border:1px solid var(--accent); border-radius:12px;
+}
+.chr-buy-head{display:flex; flex-direction:column; gap:2px}
+.chr-buy-head b{font-size:13.5px; font-weight:800}
+.chr-buy-head span{font-size:11.5px; color:var(--muted); line-height:1.4}
+.chr-buy-price{margin:7px 0 9px; font-size:12.5px; color:var(--muted)}
+.chr-buy-price b{color:var(--text); direction:ltr; display:inline-block}
+.chr-buy-actions{display:flex; gap:8px}
+.chr-buy-actions .eq-btn{flex:1; min-height:44px}
 
 /* ---------- trophy shelf ---------- */
 .trophy-shelf{
