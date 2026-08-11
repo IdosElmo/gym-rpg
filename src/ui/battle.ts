@@ -48,7 +48,7 @@ import {
 import { gameOf, onBossDefeated, onWaveCleared } from '../core/game.ts';
 import { statsOfGame } from '../core/xp.ts';
 import { BODY_PART_HE, BODY_PARTS, type BodyPart } from '../data/program.ts';
-import { WORLD_COUNT, worldById, worldBossOf } from '../data/gameContent.ts';
+import { WORLDS, WORLD_COUNT, worldById, worldBossOf } from '../data/gameContent.ts';
 import type { DataStore, GameState } from '../storage/DataStore.ts';
 import { characterSvg } from './characterSvg.ts';
 import { esc } from './dom.ts';
@@ -165,6 +165,8 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
       <div class="bt-wave"><b id="btWave">${game.battle.wave}</b><span>גל</span></div>
     </div>
 
+    ${worldStrip(game)}
+
     <div class="bt-arena" id="btArena" style="--w-accent:${world.accent};--w-bg1:${world.bg[0]};--w-bg2:${world.bg[1]}">
       <div class="bt-fx" id="btFx" aria-hidden="true"></div>
 
@@ -229,7 +231,117 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
 
   ${gateCard(game)}`;
 
+  wireWorldStrip(main, store);
   start(main, deps);
+}
+
+/* ------------------------------------------------------ world progress strip */
+
+/**
+ * The four worlds as one compact row of nodes, directly under the world bar.
+ *
+ * It answers the three questions the arena could not answer before without
+ * scrolling: where am I in the run, how far into THIS world am I, and is the
+ * boss at the end of it open yet. Each node carries the world's icon, its Hebrew
+ * name and one status glyph:
+ *
+ *   🏆 the world's boss is a trophy      ✓ the gate is met — the boss is ready
+ *   🔒 locked (a future world, or a gate that still wants training)
+ *   👑 champion mode — the last boss is down and world 4 runs forever
+ *
+ * The current node also carries `גל 23/50` and a hairline progress bar. Tapping
+ * any node explains it in Hebrew; tapping the CURRENT one scrolls to the gate
+ * card that already renders the full met/unmet list, rather than duplicating it.
+ */
+function worldStrip(game: GameState): string {
+  const cur = game.battle.world;
+  const wave = game.battle.wave;
+  const perWorld = BALANCE.combat.wavesPerWorld;
+  const champion = isEndgame(game.battle.bossesDefeated);
+  const gate = worldGate(cur, partLevels(game));
+
+  const nodes = WORLDS.map((w) => {
+    const boss = worldBossOf(w.id);
+    const cleared = boss !== undefined && game.battle.bossesDefeated.includes(boss.id);
+    const current = w.id === cur;
+    const locked = !cleared && !current;
+    const championHere = current && champion;
+
+    const glyph = championHere ? '👑' : cleared ? '🏆' : locked ? '🔒' : gate.locked ? '🔒' : '✓';
+    const state = championHere
+      ? 'champion'
+      : current
+        ? gate.locked
+          ? 'current gated'
+          : 'current ready'
+        : cleared
+          ? 'done'
+          : 'locked';
+
+    let meta: string;
+    if (championHere) meta = `גל ${wave}`;
+    else if (current) meta = wave > perWorld ? 'קרב בוס' : `גל ${wave}/${perWorld}`;
+    else if (cleared) meta = 'הושלם';
+    else meta = 'נעול';
+
+    const pct = current && !champion ? Math.min(100, Math.round(((wave - 1) / perWorld) * 100)) : 0;
+    const label = `${w.he} · ${meta}${current ? (gate.locked ? ' · הבוס נעול' : ' · הבוס פתוח') : ''}`;
+
+    return `<li class="wp-node ${state}">
+      <button class="wp-btn" type="button" data-world="${w.id}" aria-label="${esc(label)}"
+        ${current ? 'aria-current="step"' : ''}>
+        <span class="wp-glyph" aria-hidden="true">${glyph}</span>
+        <span class="wp-icon" aria-hidden="true">${w.icon}</span>
+        <span class="wp-name">${esc(w.he)}</span>
+        <span class="wp-meta">${esc(meta)}</span>
+        ${current ? `<span class="wp-bar"><span style="width:${pct}%"></span></span>` : ''}
+      </button>
+    </li>`;
+  }).join('');
+
+  return `<ol class="wp-strip" id="btWorlds" aria-label="התקדמות בעולמות">${nodes}</ol>`;
+}
+
+/** Wire the strip: every node explains itself, the current one leads to the gate. */
+function wireWorldStrip(main: HTMLElement, store: DataStore): void {
+  main.querySelectorAll<HTMLButtonElement>('.wp-btn[data-world]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = Number(btn.dataset['world']);
+      const game = gameOf(store);
+      const world = worldById(id);
+      const boss = worldBossOf(id);
+      const cleared = boss !== undefined && game.battle.bossesDefeated.includes(boss.id);
+
+      if (id !== game.battle.world) {
+        toast(
+          cleared
+            ? `🏆 ${world.he} — הושלם.`
+            : `🔒 ${world.he} עדיין נעול — הפילו קודם את בוס ${worldById(id - 1).he}.`,
+        );
+        return;
+      }
+      if (cleared && isEndgame(game.battle.bossesDefeated)) {
+        toast(`👑 מצב אלוף — הגלים ב${world.he} ממשיכים בלי סוף.`);
+        return;
+      }
+      // The gate card below already renders the full met/unmet list — go there
+      // instead of saying the same thing twice in two shapes.
+      const gate = worldGate(id, partLevels(game));
+      const missing = gate.requirements
+        .filter((r) => !r.met)
+        .map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`)
+        .join(' · ');
+      toast(gate.locked ? `🔒 חסר לבוס: ${missing}` : `✓ בוס ${world.he} פתוח — הגיעו לגל ${BALANCE.combat.wavesPerWorld + 1}.`);
+      const card = main.querySelector('.bt-gate');
+      if (card && typeof card.scrollIntoView === 'function') {
+        try {
+          card.scrollIntoView({ block: 'center' });
+        } catch {
+          /* older engines: the card is simply left where it is */
+        }
+      }
+    });
+  });
 }
 
 /**

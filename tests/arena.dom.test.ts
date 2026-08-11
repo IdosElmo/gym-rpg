@@ -25,6 +25,7 @@ import { BALANCE } from '../src/core/balance.ts';
 import { onSetCompleted } from '../src/core/game.ts';
 import { emptyGame, totalXpToReach } from '../src/core/xp.ts';
 import { findExercise, type BodyPart, type Exercise } from '../src/data/program.ts';
+import { WORLDS, WORLD_BOSSES } from '../src/data/gameContent.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
 import { createApp } from '../src/ui/app.ts';
@@ -235,5 +236,119 @@ describe('reduced motion', () => {
     expect(has('btEnemySprite', 'anim-hit')).toBe(true);
     // and the hero is still drawn, not hidden by a suppressed animation
     expect(document.querySelector('#btHeroSprite .ch-svg')).not.toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------ world strip */
+
+describe('world progress strip', () => {
+  const nodes = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>('#btWorlds .wp-node')];
+
+  it('shows one node per world, named in Hebrew, with a ≥44px target', () => {
+    mount(battleStore());
+    const list = nodes();
+    expect(list).toHaveLength(WORLDS.length);
+    list.forEach((node, i) => {
+      expect(node.querySelector('.wp-name')?.textContent).toBe(WORLDS[i]?.he);
+      expect(node.querySelector('.wp-icon')?.textContent).toBe(WORLDS[i]?.icon);
+      expect(node.querySelector('button')?.tagName).toBe('BUTTON');
+    });
+  });
+
+  it('marks world 1 as current-and-gated, and the rest as locked', () => {
+    mount(battleStore());
+    const list = nodes();
+    expect(list[0]?.className).toContain('current');
+    expect(list[0]?.className).toContain('gated');
+    expect(list[0]?.querySelector('.wp-glyph')?.textContent).toBe('🔒');
+    expect(list[0]?.querySelector('.wp-meta')?.textContent).toBe(`גל 1/${BALANCE.combat.wavesPerWorld}`);
+    expect(list[0]?.querySelector('button')?.getAttribute('aria-current')).toBe('step');
+    for (const node of list.slice(1)) {
+      expect(node.className).toContain('locked');
+      expect(node.querySelector('.wp-meta')?.textContent).toBe('נעול');
+    }
+  });
+
+  it('turns the current node green with a ✓ once the boss gate is met', () => {
+    const store = battleStore(12);
+    store.update((d) => {
+      const g = d.game ?? emptyGame();
+      for (const [part, need] of Object.entries(WORLD_BOSSES[0]?.requires ?? {})) {
+        g.parts[part as BodyPart].level = need as number;
+        g.parts[part as BodyPart].xp = totalXpToReach(need as number) + 1;
+      }
+      g.battle.wave = 23;
+      d.game = g;
+    });
+    mount(store);
+    const first = nodes()[0];
+    expect(first?.className).toContain('ready');
+    expect(first?.querySelector('.wp-glyph')?.textContent).toBe('✓');
+    expect(first?.querySelector('.wp-meta')?.textContent).toBe(`גל 23/${BALANCE.combat.wavesPerWorld}`);
+  });
+
+  it('trophies the worlds behind the player and locks the ones ahead', () => {
+    const store = battleStore(12);
+    store.update((d) => {
+      const g = d.game ?? emptyGame();
+      g.battle.world = 3;
+      g.battle.wave = 7;
+      g.battle.bossesDefeated = ['boss_w1', 'boss_w2'];
+      d.game = g;
+    });
+    mount(store);
+    const list = nodes();
+    expect(list[0]?.className).toContain('done');
+    expect(list[0]?.querySelector('.wp-glyph')?.textContent).toBe('🏆');
+    expect(list[0]?.querySelector('.wp-meta')?.textContent).toBe('הושלם');
+    expect(list[1]?.className).toContain('done');
+    expect(list[2]?.className).toContain('current');
+    expect(list[3]?.className).toContain('locked');
+  });
+
+  it('crowns the last world once Zeus is down', () => {
+    const store = battleStore(12);
+    store.update((d) => {
+      const g = d.game ?? emptyGame();
+      g.battle.world = WORLDS.length;
+      g.battle.wave = 73;
+      g.battle.bossesDefeated = WORLD_BOSSES.map((b) => b.id);
+      d.game = g;
+    });
+    mount(store);
+    const last = nodes()[WORLDS.length - 1];
+    expect(last?.className).toContain('champion');
+    expect(last?.querySelector('.wp-glyph')?.textContent).toBe('👑');
+    // past the old world end the counter is open-ended, not "73/50"
+    expect(last?.querySelector('.wp-meta')?.textContent).toBe('גל 73');
+  });
+
+  it('explains a locked world on tap instead of doing nothing', () => {
+    mount(battleStore());
+    nodes()[2]?.querySelector('button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const toast = document.getElementById('toast');
+    expect(toast?.classList.contains('show')).toBe(true);
+    expect(toast?.textContent).toContain(WORLDS[2]?.he ?? '');
+    expect(toast?.textContent).toContain('נעול');
+  });
+
+  it('names the missing training when the current world is tapped', () => {
+    mount(battleStore());
+    nodes()[0]?.querySelector('button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const toast = document.getElementById('toast');
+    expect(toast?.textContent).toContain('חסר לבוס');
+    expect(toast?.textContent).toContain('חזה');
+    // the gate card it points at is the one that already lists every requirement
+    expect(document.querySelector('.bt-gate .bt-reqs')).not.toBeNull();
+  });
+
+  it('does not push the arena off the first screen', () => {
+    mount(battleStore());
+    // The strip lives inside the arena card, above the arena and below the world
+    // bar — one row, so the fight stays reachable with one thumb.
+    const card = document.querySelector('.bt-card');
+    const kids = [...(card?.children ?? [])].map((c) => c.className.split(' ')[0]);
+    expect(kids.slice(0, 3)).toEqual(['bt-worldbar', 'wp-strip', 'bt-arena']);
+    expect(document.querySelectorAll('#btWorlds').length).toBe(1);
   });
 });
