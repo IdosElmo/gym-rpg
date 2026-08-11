@@ -272,3 +272,59 @@
 .bt-chip.sk-focus{border-color:#FBBF2488}
 
 .bt-float.skill{color:#FDE68A; font-size:12px; font-weight:900}
+
+/* ---------- daily challenge card (🎲 אתגר יומי) ----------
+   Sits directly under the world strip, inside the arena card, and deliberately
+   does NOT look like a world node: amber accents, one row of enemy faces and
+   exactly one action. Four states, named by `data-state` on the section itself,
+   so the stylesheet and the tests read the same word. Every touch target is
+   ≥44px, like everything else on this screen.                               */
+.dc{
+  background:var(--card-2); border:1px solid #F59E0B44; border-radius:12px;
+  padding:8px 10px 10px; margin-bottom:8px;
+}
+.dc[data-state="locked"]{border-color:var(--line); opacity:.85}
+.dc[data-state="done"]{border-color:#10B98155}
+.dc[data-state="live"]{border-color:var(--warn); background:#F59E0B14}
+
+.dc-head{display:flex; align-items:center; gap:6px; flex-wrap:wrap}
+.dc-chip{
+  font-size:11px; font-weight:900; color:var(--warn);
+  background:#F59E0B1F; border:1px solid #F59E0B55; border-radius:99px; padding:2px 8px;
+}
+.dc-date{font-size:10.5px; color:var(--dim); direction:ltr; font-variant-numeric:tabular-nums}
+.dc-stats{
+  flex:1; min-width:0; text-align:end; font-size:10px; color:var(--muted);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+
+/* The real gauntlet's faces — five of the ten waves, finale last. */
+.dc-foes{display:flex; gap:4px; align-items:center; justify-content:center; margin:6px 0}
+.dc-foe{
+  flex:0 0 auto; width:30px; height:30px; display:flex; align-items:center; justify-content:center;
+  background:#0B0F1966; border:1px solid var(--line); border-radius:9px; overflow:hidden;
+}
+.dc-foe .en-svg{width:26px; height:26px; display:block}
+.dc-foe.mini{border-color:#F59E0B88; background:#F59E0B1A}
+
+.dc-go{
+  width:100%; min-height:44px; margin-top:2px; cursor:pointer;
+  background:linear-gradient(90deg,#B45309,#F59E0B); border:1px solid #FBBF24; color:#141A26;
+  border-radius:12px; font-size:14px; font-weight:900;
+}
+.dc-go.locked{background:var(--card); border-color:var(--line); color:var(--muted)}
+.dc-note{margin:6px 0 0; font-size:10.5px; line-height:1.5; color:var(--dim)}
+
+.dc-live{display:flex; align-items:center; gap:8px; min-height:44px}
+.dc-count{flex:0 0 auto; font-size:14px; font-weight:900; color:var(--warn)}
+.dc-bar{flex:1; height:7px; background:#0B0F1999; border-radius:99px; overflow:hidden}
+.dc-bar span{display:block; height:100%; background:linear-gradient(90deg,var(--warn),#FBBF24)}
+
+.dc-result{display:flex; align-items:baseline; gap:8px; min-height:44px}
+.dc-score{font-size:18px; font-weight:900; color:var(--ok); direction:ltr}
+.dc-result span{font-size:12px; color:var(--muted)}
+
+/* The arena while a challenge run is on: an amber frame, nothing that moves. */
+.bt-card.challenge{border-color:#F59E0B88; box-shadow:0 0 0 1px #F59E0B33}
+.bt-arena.challenge{border-color:#F59E0B88}
+.bt-status.daily{color:var(--warn); font-weight:700}

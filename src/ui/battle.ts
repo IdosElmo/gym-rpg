@@ -26,6 +26,20 @@
  * attack event, which means it automatically follows a Shoulders-driven attack
  * interval as the player trains. Durations come from `ANIM` below, which derives
  * them from `BALANCE` and publishes them to CSS as custom properties.
+ *
+ * THE DAILY CHALLENGE (Phase 7) rides on this same screen and this same loop.
+ * Pressing ⚔️ on the daily card swaps the battle STATE for a challenge one
+ * (`createChallengeBattle`) — the arena, the skill bar, the taps and the super
+ * are untouched, only the context changes — and the amber `challenge` class
+ * frames it. Two honesty rules live here:
+ *   - one run is recorded exactly ONCE, when it ends: cleared, knocked out, or
+ *     FORFEITED because the player left the arena (`stopBattle()` commits it).
+ *     Nothing is written per wave, so a run that is abandoned can never leak
+ *     partial coins and can never be replayed for a better score;
+ *   - a browser that is killed outright mid-run (a refresh, a crash) writes
+ *     nothing at all: the attempt is not spent, the coins are not paid, the run
+ *     is simply gone. Backgrounding the tab only PAUSES, exactly like a campaign
+ *     battle.
  */
 
 import { BALANCE } from '../core/balance.ts';
@@ -34,6 +48,8 @@ import {
   bossSpec,
   bossStanding,
   createBattle,
+  createChallengeBattle,
+  forfeitChallenge,
   isEndgame,
   setEnergy,
   setGate,
@@ -48,12 +64,16 @@ import {
   useSuper,
   waveSpec,
   worldGate,
+  type ChallengeResult,
+  type ChallengeRun,
   type CombatEvent,
   type CombatStats,
   type SkillView,
 } from '../core/combat.ts';
-import { gameOf, onBossDefeated, onWaveCleared } from '../core/game.ts';
+import { dailyChallenge, dailyRun } from '../core/daily.ts';
+import { dailyStatus, gameOf, onBossDefeated, onDailyChallenge, onWaveCleared } from '../core/game.ts';
 import { statsOfGame } from '../core/xp.ts';
+import { todayISO } from '../core/workout.ts';
 import { BODY_PART_HE, BODY_PARTS, type BodyPart } from '../data/program.ts';
 import { SKILLS, WORLDS, WORLD_COUNT, worldById, worldBossOf, type SkillId } from '../data/gameContent.ts';
 import type { DataStore, GameState } from '../storage/DataStore.ts';
@@ -102,6 +122,16 @@ function partLevels(game: GameState): Record<BodyPart, number> {
   const out = {} as Record<BodyPart, number>;
   for (const p of BODY_PARTS) out[p] = game.parts[p].level;
   return out;
+}
+
+/**
+ * The seed of one campaign battle SESSION. Nothing persisted depends on it (each
+ * cleared wave records the seed it actually ran with), so the clock is a fine
+ * source here — unlike the daily challenge, whose seed is the DATE and nothing
+ * else, so that every device faces the same gauntlet.
+ */
+function sessionSeed(): number {
+  return Math.floor(Date.now() % 0xffffffff) ^ 0x5f356495;
 }
 
 function reducedMotion(): boolean {
@@ -175,6 +205,8 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
     </div>
 
     ${worldStrip(game)}
+
+    <div class="dc-slot" id="btDaily">${dailyCard(game, todayISO(), null)}</div>
 
     <div class="bt-arena" id="btArena" style="--w-accent:${world.accent};--w-bg1:${world.bg[0]};--w-bg2:${world.bg[1]}">
       <div class="bt-fx" id="btFx" aria-hidden="true"></div>
@@ -280,6 +312,98 @@ function skillBar(game: GameState): string {
   return `
     <div class="bt-skills" id="btSkills" role="group" aria-label="מיומנויות גוף">${slots}</div>
     <p class="bm-foot bt-skills-foot">כל חלק גוף פותח מיומנות ברמה ${need} — והיא מתחזקת עם כל רמה נוספת.</p>`;
+}
+
+/* --------------------------------------------------------- daily challenge */
+
+/** "2025-05-04" -> "04.05" — the card only needs day and month. */
+function dayMonth(date: string): string {
+  const [, m, d] = date.split('-');
+  return d && m ? `${d}.${m}` : date;
+}
+
+/**
+ * The daily-challenge card, right under the world strip.
+ *
+ * It has exactly four states and renders all of them from data it is given —
+ * `data-state` names the one on screen so a test (and a stylesheet) can tell
+ * them apart without reading Hebrew:
+ *
+ *   available    the fee is affordable and today is unplayed — the ⚔️ button;
+ *   locked       not enough ⚡ — the button explains what to train instead;
+ *   done         today's one attempt is spent — the score, the purse, and
+ *                "מחר יש אתגר חדש";
+ *   live         a run is on screen — the wave counter and the forfeit warning.
+ *
+ * The enemy preview is the REAL gauntlet: five of the ten sprites the date will
+ * actually send, drawn straight from `dailyChallenge(date)`. Nothing here is
+ * random and nothing depends on the player's progress — two accounts opening the
+ * app on the same day see the same row of faces.
+ */
+function dailyCard(game: GameState, date: string, run: ChallengeRun | null): string {
+  const gauntlet = dailyChallenge(date);
+  const total = gauntlet.waves.length;
+  const record = game.daily.runs[date] ?? null;
+  const fee = gauntlet.energyCost;
+  const live = run !== null && run.outcome === 'running';
+  const state = live ? 'live' : record ? 'done' : game.energy < fee ? 'locked' : 'available';
+
+  // Waves 2/4/6/8/10 — a taste of the tour, ending on the finale mini-boss.
+  const preview = gauntlet.waves
+    .filter((w) => w.index % 2 === 0)
+    .map(
+      (w) =>
+        `<span class="dc-foe ${w.miniBoss ? 'mini' : ''}" title="${esc(`גל ${w.index} · ${w.he}`)}"
+          aria-hidden="true">${w.svg}</span>`,
+    )
+    .join('');
+
+  const streak = game.daily.streak;
+  const stats = [
+    game.daily.bestScore > 0 ? `שיא ${game.daily.bestScore}/${total}` : '',
+    game.daily.completed > 0 ? `${game.daily.completed} ניצחונות מלאים` : '',
+    streak > 1 ? `🔥 ${streak} ימים ברצף` : '',
+  ]
+    .filter((s) => s !== '')
+    .join(' · ');
+
+  let body: string;
+  if (live && run) {
+    const at = Math.min(run.index + 1, total);
+    const pct = Math.round((run.cleared / total) * 100);
+    body = `
+      <div class="dc-live">
+        <b class="dc-count">גל ${at}/${total}</b>
+        <span class="dc-bar"><span style="width:${pct}%"></span></span>
+      </div>
+      <p class="dc-note">ריצה אחת, בלי החייאות. יציאה מהזירה עכשיו = ויתור על הריצה של היום.</p>`;
+  } else if (record) {
+    body = `
+      <div class="dc-result">
+        <b class="dc-score">${record.score}/${total}</b>
+        <span>${record.complete ? '🏅 גאונטלט מלא' : 'הושלם היום'} · +${record.coins} 🪙</span>
+      </div>
+      <p class="dc-note">מחר יש אתגר חדש — אותו גאונטלט לכולם, נבנה מהתאריך עצמו.</p>`;
+  } else if (state === 'locked') {
+    body = `
+      <button class="dc-go locked" id="btDailyGo" type="button">🔒 חסרה אנרגיה · ${fee} ⚡</button>
+      <p class="dc-note">יש לכם ${fmtXp(game.energy)} ⚡ מתוך ${fee}. לכו להתאמן — כל סט מסומן שווה ${BALANCE.energy.perSet} ⚡.</p>`;
+  } else {
+    body = `
+      <button class="dc-go" id="btDailyGo" type="button">⚔️ התחילו את האתגר · ${fee} ⚡</button>
+      <p class="dc-note">${total} גלים מכל העולמות, ריצה אחת ליום, בלי החייאות. הניקוד = גלים שנוקו.</p>`;
+  }
+
+  return `
+  <section class="dc" data-state="${state}" aria-label="אתגר יומי">
+    <div class="dc-head">
+      <span class="dc-chip">🎲 אתגר יומי</span>
+      <span class="dc-date">${esc(dayMonth(date))}</span>
+      ${stats ? `<span class="dc-stats">${esc(stats)}</span>` : ''}
+    </div>
+    <div class="dc-foes">${preview}</div>
+    ${body}
+  </section>`;
 }
 
 /* ------------------------------------------------------ world progress strip */
@@ -476,6 +600,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
   const minisEl = el('btMinis');
   const bossesEl = el('btBosses');
   const buffsEl = el('btBuffs');
+  const dailyEl = el('btDaily');
   if (!arena) return;
 
   /** The six skill slots, by id — looked up once, repainted every frame. */
@@ -491,10 +616,13 @@ function start(main: HTMLElement, deps: BattleDeps): void {
   let stats = statsOf(game0);
   /** Body-part levels — what unlocks and scales the skills. Refreshed per frame. */
   let levels = partLevels(game0);
-  const state = createBattle({
-    // The seed is per SESSION: nothing in the persisted state depends on it, and
-    // the seed each cleared wave actually ran with is recorded in its event.
-    seed: Math.floor(Date.now() % 0xffffffff) ^ 0x5f356495,
+  /**
+   * THE battle on screen. It is a `let` because the daily challenge swaps the
+   * whole state for a challenge context and back again — the loop, the DOM and
+   * every listener below stay exactly as they are.
+   */
+  let state = createBattle({
+    seed: sessionSeed(),
     world: game0.battle.world,
     wave: game0.battle.wave,
     energy: game0.energy,
@@ -643,7 +771,13 @@ function start(main: HTMLElement, deps: BattleDeps): void {
       superBtn.disabled = !ready;
       superBtn.classList.toggle('ready', ready);
     }
-    if (waveEl) waveEl.textContent = String(state.wave);
+    if (waveEl) {
+      const run = state.challenge;
+      // In a challenge the counter is "3/10" — a gauntlet, not a world position.
+      waveEl.textContent = run
+        ? `${Math.min(run.index + 1, run.waves.length)}/${run.waves.length}`
+        : String(state.wave);
+    }
   }
 
   /**
@@ -718,6 +852,23 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     if (!statusEl) return;
     let text = '';
     let cls = '';
+    // A challenge run speaks for itself — it has no energy, no gate and no
+    // knock-out recovery, so none of the campaign's lines apply to it.
+    const run = state.challenge;
+    if (run) {
+      const total = run.waves.length;
+      if (state.status === 'finished') {
+        text =
+          run.cleared >= total
+            ? `🏅 גאונטלט מלא! ${run.cleared}/${total} · חוזרים לזירה הרגילה…`
+            : `🎲 האתגר היומי הסתיים — ${run.cleared}/${total} גלים. מחר יש חדש!`;
+      } else {
+        text = `🎲 אתגר יומי — גל ${Math.min(run.index + 1, total)}/${total}. ריצה אחת, בלי החייאות: הקישו ושחררו מיומנויות.`;
+      }
+      statusEl.textContent = text;
+      statusEl.className = 'bt-status daily';
+      return;
+    }
     switch (state.status) {
       case 'resting':
         text = `😴 אין מספיק אנרגיה — הדמות נחה. לכו להתאמן! כל סט מסומן שווה ${BALANCE.energy.perSet} ⚡ וסיום אימון עוד ${BALANCE.energy.perWorkout} ⚡.`;
@@ -759,6 +910,123 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     if (clearedEl) clearedEl.textContent = String(g.battle.wavesCleared);
     if (minisEl) minisEl.textContent = String(g.battle.miniBossesCleared);
     if (bossesEl) bossesEl.textContent = String(g.battle.bossesDefeated.length);
+  }
+
+  /* ----------------------------------------------------- daily challenge */
+
+  /**
+   * Today, resolved ONCE when the arena mounts. Every screen change re-mounts
+   * this module, so the card cannot go stale for long — and a run that started
+   * before midnight stays the run of the challenge it is actually playing.
+   */
+  const today = todayISO();
+  const card = main.querySelector<HTMLElement>('.bt-card');
+
+  /** Repaint the card from the store + the live run, and re-wire its button. */
+  function paintDaily(): void {
+    if (!dailyEl) return;
+    dailyEl.innerHTML = dailyCard(gameOf(store), today, state.challenge);
+    dailyEl
+      .querySelector<HTMLButtonElement>('#btDailyGo')
+      ?.addEventListener('click', startDaily);
+  }
+
+  /** Frame (or unframe) the arena as a challenge run. */
+  function setChallengeSkin(on: boolean): void {
+    arena?.classList.toggle('challenge', on);
+    card?.classList.toggle('challenge', on);
+  }
+
+  /**
+   * Enter today's challenge.
+   *
+   * The gate is asked BEFORE anything is created (`dailyStatus`), so a refused
+   * attempt — already played, or not enough ⚡ — writes nothing at all and only
+   * explains itself in Hebrew.
+   */
+  function startDaily(): void {
+    if (state.challenge) return;
+    const status = dailyStatus(store, today);
+    if (!status.ok) {
+      const waves = BALANCE.daily.waves;
+      toast(
+        status.error === 'already_played'
+          ? `🎲 האתגר של היום כבר נוצל — ${status.record?.score ?? 0}/${waves}. מחר יש אתגר חדש!`
+          : `⚡ צריך ${status.energyCost} אנרגיה כדי להיכנס לאתגר היומי. לכו להתאמן!`,
+      );
+      paintDaily();
+      return;
+    }
+    const g = gameOf(store);
+    stats = statsOf(g);
+    levels = partLevels(g);
+    // The SAME state machine, a different context: no second loop, no second
+    // renderer, and `wave_cleared` is not emitted while this is on screen.
+    state = createChallengeBattle({ run: dailyRun(today), stats, energy: g.energy });
+    setChallengeSkin(true);
+    buffSig = '';
+    toast(`🎲 אתגר יומי — ${BALANCE.daily.waves} גלים, ריצה אחת. בהצלחה!`);
+    paintDaily();
+    consume(advance(state, BALANCE.combat.tickMs, stats));
+  }
+
+  /** Persist a finished run (however it ended) and tell the player how it went. */
+  function endDaily(result: ChallengeResult): void {
+    const save = onDailyChallenge(store, result);
+    setEnergy(state, gameOf(store).energy);
+    paintTotals();
+    deps.refreshHeader();
+    paintDaily();
+    if (save.duplicate) {
+      toast('🎲 האתגר של היום כבר נרשם — אין תשלום כפול.');
+    } else {
+      toast(
+        `🎲 אתגר יומי: ${result.score}/${BALANCE.daily.waves} · +${result.coins} 🪙${
+          result.complete ? ' · גאונטלט מלא! 🏅' : ''
+        }`,
+      );
+    }
+    // Let the result sit for a beat, then hand the arena back to the campaign.
+    setTimeout(() => {
+      if (!disposed) restoreCampaign();
+    }, 2200);
+  }
+
+  /** Back to the ordinary world/wave battle, exactly as the screen mounted it. */
+  function restoreCampaign(): void {
+    const g = gameOf(store);
+    stats = statsOf(g);
+    levels = partLevels(g);
+    state = createBattle({
+      seed: sessionSeed(),
+      world: g.battle.world,
+      wave: g.battle.wave,
+      energy: g.energy,
+      stats,
+      gateOpen: gateOpenFor(g),
+      defeatedBosses: g.battle.bossesDefeated,
+    });
+    setChallengeSkin(false);
+    if (arena) {
+      const world = worldById(g.battle.world);
+      arena.style.setProperty('--w-accent', world.accent);
+      arena.style.setProperty('--w-bg1', world.bg[0]);
+      arena.style.setProperty('--w-bg2', world.bg[1]);
+    }
+    buffSig = '';
+    paintDaily();
+    consume(advance(state, BALANCE.combat.tickMs, stats));
+  }
+
+  /**
+   * Give up a run that is still on screen — called when the arena goes away.
+   * The attempt is spent and the waves that WERE cleared are paid; nothing
+   * partial, nothing twice (`buildDailyChallenge` refuses a second write).
+   */
+  function commitForfeit(): void {
+    if (!state.challenge || state.challenge.outcome !== 'running') return;
+    const result = forfeitChallenge(state);
+    if (result) onDailyChallenge(store, result);
   }
 
   /* --------------------------------------------------------------- events */
@@ -837,6 +1105,28 @@ function start(main: HTMLElement, deps: BattleDeps): void {
           queueRemount();
           break;
         }
+        case 'challenge_spawn': {
+          spawnSprite();
+          // The gauntlet tours the worlds — the backdrop travels with it.
+          const world = worldById(ev.wave.world);
+          arena?.style.setProperty('--w-accent', world.accent);
+          arena?.style.setProperty('--w-bg1', world.bg[0]);
+          arena?.style.setProperty('--w-bg2', world.bg[1]);
+          if (ev.wave.miniBoss) shake(true);
+          paintDaily();
+          break;
+        }
+        case 'challenge_wave':
+          anim(sprite, 'anim-die', ANIM.die);
+          // NOTHING is persisted per wave: the coins are banked in the run and
+          // paid by the single event written when the run ends.
+          float(`+${ev.wave.coins} 🪙`, 'coin', 'enemy');
+          paintDaily();
+          break;
+        case 'challenge_over':
+          anim(heroSprite, ev.result.complete ? 'anim-victory' : 'anim-hurt', ANIM.victory);
+          endDaily(ev.result);
+          break;
         case 'defeat':
           paintHero();
           anim(heroSprite, 'anim-hurt', ANIM.hit);
@@ -972,6 +1262,9 @@ function start(main: HTMLElement, deps: BattleDeps): void {
 
   active = {
     stop: () => {
+      // Leaving the arena FORFEITS a run that is still going — recorded here,
+      // once, with exactly the waves that were cleared.
+      commitForfeit();
       disposed = true;
       pause();
       clearAnimTimers();
@@ -983,6 +1276,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
   // One synchronous tick so the arena is never blank on the first paint: it
   // spawns the wave's enemy (or goes straight to "rest" when there is no ⚡).
   consume(advance(state, BALANCE.combat.tickMs, stats));
+  paintDaily();
   paintHero();
   paintMeters();
   paintSkills();

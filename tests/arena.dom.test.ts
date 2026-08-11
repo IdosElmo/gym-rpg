@@ -345,10 +345,11 @@ describe('world progress strip', () => {
   it('does not push the arena off the first screen', () => {
     mount(battleStore());
     // The strip lives inside the arena card, above the arena and below the world
-    // bar — one row, so the fight stays reachable with one thumb.
+    // bar — one row, so the fight stays reachable with one thumb. The daily
+    // challenge card slots in between them, and is just as compact.
     const card = document.querySelector('.bt-card');
     const kids = [...(card?.children ?? [])].map((c) => c.className.split(' ')[0]);
-    expect(kids.slice(0, 3)).toEqual(['bt-worldbar', 'wp-strip', 'bt-arena']);
+    expect(kids.slice(0, 4)).toEqual(['bt-worldbar', 'wp-strip', 'dc-slot', 'bt-arena']);
     expect(document.querySelectorAll('#btWorlds').length).toBe(1);
   });
 });

@@ -38,6 +38,7 @@
 .feed-item.streak{border-color:#F59E0B44}
 .feed-item.shop .fi-icon{filter:saturate(1.2)}
 .feed-item.import{border-color:#10B98144}
+.feed-item.daily{border-color:#F59E0B66}
 
 /* ---------- Account / cloud sync card ---------- */
 /* Sits above the plan card: "who am I and is it backed up" belongs with the

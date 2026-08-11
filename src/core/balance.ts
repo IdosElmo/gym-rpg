@@ -173,6 +173,51 @@ export const BALANCE = {
     },
   },
 
+  /* ----------------------------------------------------- daily challenge */
+  /**
+   * DAILY CHALLENGE — one seeded gauntlet per calendar date, the same one for
+   * every account on that date (the seed is a hash of the date string alone).
+   *
+   * It is a SKILL/STATS TEST, not progression: the waves are drawn from all four
+   * worlds regardless of where the player actually is, and they scale on the
+   * curve below — which is deliberately independent of `combat.enemy`, so
+   * retuning the campaign can never quietly retune the challenge (and the other
+   * way round).
+   *
+   * PACING (pinned by `tests/daily.test.ts`, measured with the same skill pilot
+   * the Phase-4 balance tests use and NO tapping — i.e. the conservative floor):
+   *   part level 5–6  → 5–8 waves,   part level 9+ → all ten.
+   * The run is ONE life: there is no retry, the only healing between waves is
+   * `healOnWaveClear` plus the Core regen, so surviving is half the test.
+   *
+   * ECONOMY. The entry fee is `entryEnergy` ⚡ — three ordinary waves' worth,
+   * charged ONCE per attempt (never per wave), so a training day still gates the
+   * challenge exactly like everything else in the game. A full clear pays
+   * `coins.base…` per wave plus `coins.completionBonus`, which is roughly what
+   * the same 30 ⚡ buys a late-world player in ordinary waves — generous early,
+   * fair later, and capped at one attempt a day either way.
+   */
+  daily: {
+    /** Waves in one gauntlet. The LAST one is the finale mini-boss. */
+    waves: 10,
+    /** ⚡ charged once per attempt, when the run is recorded. */
+    entryEnergy: 30,
+    /** The gauntlet's own curve: `hp = hpBase × hpGrowth^(wave−1)`, etc. */
+    enemy: {
+      hpBase: 130, hpGrowth: 1.34,
+      atkBase: 9, atkGrowth: 1.24,
+      attackIntervalMs: 1700,
+      /** The wave-10 finale, on top of the curve. */
+      miniBossHpMult: 1.5, miniBossAtkMult: 1.05, miniBossAttackIntervalMs: 1500,
+    },
+    /** Fraction of max HP healed when a gauntlet wave is cleared. */
+    healOnWaveClear: 0.18,
+    /** Breather between two gauntlet waves. */
+    spawnDelayMs: 400,
+    /** coins = base + perWave × (wave−1); the bonus is paid for a full clear. */
+    coins: { base: 20, perWave: 5, completionBonus: 250 },
+  },
+
   /* --------------------------------------------------------------- skills */
   /**
    * BODY-PART SKILLS — six active abilities, one per body part, unlocked by

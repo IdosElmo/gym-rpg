@@ -21,6 +21,7 @@ import {
   worldById,
   type EquipmentSlot,
 } from '../data/gameContent.ts';
+import { BALANCE } from '../core/balance.ts';
 import { upgradeLabel } from '../core/upgrades.ts';
 import { tsToIso } from '../core/xp.ts';
 import { fmtDate } from '../core/workout.ts';
@@ -200,6 +201,25 @@ export function buildFeed(
             p['endgame'] === true
               ? `${esc(name)} הובס — מצב אלוף נפתח! +${num(p['coins'])} 🪙`
               : `בוס העולם ${esc(name)} (${esc(world.he)}) הובס! עולם ${num(p['nextWorld'])} נפתח · +${num(p['coins'])} 🪙`,
+        });
+        break;
+      }
+      /**
+       * One daily-challenge run — one line, whatever the score. It names the
+       * gauntlet's own date (the payload's `date` IS the challenge), so a run
+       * always sits on the day it belonged to.
+       */
+      case 'daily_challenge': {
+        const score = num(p['score'] ?? p['wavesCleared']);
+        const complete = p['complete'] === true;
+        items.push({
+          ts: ev.ts,
+          date,
+          icon: complete ? '🏅' : '🎲',
+          cls: 'daily',
+          text: `אתגר יומי: ${score}/${BALANCE.daily.waves} · +${num(p['coins'])} 🪙${
+            complete ? ' · גאונטלט מלא' : ''
+          }`,
         });
         break;
       }
