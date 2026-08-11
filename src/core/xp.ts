@@ -54,10 +54,16 @@ import {
 import {
   CHARACTERS,
   DEFAULT_CHARACTER_ID,
+  SKINS,
   characterById,
+  characterId,
   defaultCharacter,
-  isBaseCharacter,
+  isBaseSkin,
+  resolveCharacterId,
+  skinOf,
+  type BodyGeometry,
   type CharacterDef,
+  type SkinDef,
 } from '../data/characters.ts';
 import {
   GAME_STATE_VERSION,
@@ -385,24 +391,46 @@ export function emptyEquipment(): EquipmentState {
 }
 
 /**
- * A fresh roster: no skins bought, playing the default hero. The second base
- * body is not listed because base bodies are never listed — `ownsCharacter`
- * treats every `cost: 0` entry as owned.
+ * A fresh roster: no skins bought, playing the default hero on the default body.
+ * The free skin is not listed because free skins are never listed — `ownsSkin`
+ * treats every `cost: 0` skin as owned, on BOTH bodies.
  */
 export function emptyCharacters(): CharactersState {
   return { owned: [], selected: DEFAULT_CHARACTER_ID };
 }
 
-/** Can this save play that character? Base bodies: always. Skins: if bought. */
+/**
+ * Can this save wear that SKIN? Free skins: always. Bought ones: if bought.
+ *
+ * There is deliberately no body in this question: a purchase unlocks the skin
+ * on both bodies at once, which is the whole point of the matrix.
+ */
+export function ownsSkin(game: GameState, skinId: string): boolean {
+  const skin = skinOf(skinId);
+  if (!skin) return false;
+  return isBaseSkin(skin.id) || game.characters.owned.includes(skin.id);
+}
+
+/** Can this save play that combination? (Its skin has to be owned.) */
 export function ownsCharacter(game: GameState, id: string): boolean {
-  if (characterById(id) === undefined) return false;
-  return isBaseCharacter(id) || game.characters.owned.includes(id);
+  const def = characterById(resolveCharacterId(id) ?? '');
+  return def !== undefined && ownsSkin(game, def.skin);
 }
 
 /** The character being played — the default whenever the stored id is unusable. */
 export function selectedCharacter(game: GameState): CharacterDef {
-  const id = game.characters.selected;
+  const id = resolveCharacterId(game.characters.selected) ?? '';
   return (ownsCharacter(game, id) ? characterById(id) : undefined) ?? defaultCharacter();
+}
+
+/** The BODY being played — the toggle on the דמות screen reads this. */
+export function selectedBody(game: GameState): BodyGeometry {
+  return selectedCharacter(game).geometry;
+}
+
+/** The SKIN being worn right now. */
+export function selectedSkin(game: GameState): SkinDef {
+  return skinOf(selectedCharacter(game).skin) ?? (SKINS[0] as SkinDef);
 }
 
 /** Key of one payout slot — the anti-farming guard. */
@@ -569,32 +597,46 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
       break;
     }
     /**
-     * A cosmetic skin was bought. Idempotent by CHARACTER ID, not by event id:
-     * the union of two devices' logs may hold two purchases of the same skin
-     * with different uuids, and the purse may only be charged once.
+     * A cosmetic skin was bought. Idempotent by SKIN ID, not by event id: the
+     * union of two devices' logs may hold two purchases of the same skin with
+     * different uuids, and the purse may only be charged once.
      *
-     * A base body can never be purchased (`buildCharacterPurchase` refuses, and
-     * the reducer refuses too) — the free bodies are owned by definition, so a
+     * ONE PURCHASE, BOTH BODIES: what lands in `characters.owned` is the skin,
+     * never a body-specific combination, so `robot` unlocks `robot_m` and
+     * `robot_f` together. `skinOf` accepts either shape, which is exactly what
+     * makes a pre-matrix `character_purchased: 'ninja'` fold into the ninja skin
+     * on both bodies without rewriting a single stored event.
+     *
+     * A free skin can never be purchased (`buildCharacterPurchase` refuses, and
+     * the reducer refuses too) — the base look is owned by definition, so a
      * crafted event cannot make the player pay for one.
      */
     case 'character_purchased': {
       const id = typeof payload['characterId'] === 'string' ? payload['characterId'] : '';
-      const def = id ? characterById(id) : undefined;
-      if (!def || def.cost <= 0) break;
-      if (game.characters.owned.includes(id)) break;
+      const skin = id ? skinOf(id) : undefined;
+      if (!skin || skin.cost <= 0) break;
+      if (game.characters.owned.includes(skin.id)) break;
       const cost = Math.max(0, toNumber(payload['cost']));
       game.battle.coins = round2(Math.max(0, game.battle.coins - cost));
-      game.characters.owned.push(id);
+      game.characters.owned.push(skin.id);
       break;
     }
     /**
-     * Switch character. Last one in the total `(ts, id)` order wins, which is
-     * what makes two devices converge. An unknown id, or a skin this save never
-     * bought, is IGNORED rather than stored — the drawing must always be
-     * something the player actually owns.
+     * Switch the combination being played — the ONE event behind both "wear
+     * another skin" and "switch body", because a body and a skin are never
+     * chosen separately: you always play exactly one `<skin>_<body>` pair, so a
+     * second event (a `body_selected`) could only ever disagree with this one
+     * after a merge. Last one in the total `(ts, id)` order wins, which is what
+     * makes two devices converge.
+     *
+     * A legacy id is resolved first (`'robot'` → `'robot_m'`, `'hero_f'` →
+     * itself), and an id that is unknown, or whose skin this save never bought,
+     * is IGNORED rather than stored — the drawing must always be something the
+     * player actually owns.
      */
     case 'character_selected': {
-      const id = typeof payload['characterId'] === 'string' ? payload['characterId'] : '';
+      const raw = typeof payload['characterId'] === 'string' ? payload['characterId'] : '';
+      const id = raw ? resolveCharacterId(raw) : undefined;
       if (!id || !ownsCharacter(game, id)) break;
       game.characters.selected = id;
       break;
@@ -1045,52 +1087,80 @@ export interface CharacterPurchasePlan {
 }
 
 /**
- * Plan a skin purchase. PURE — it decides, it does not spend.
+ * Plan a SKIN purchase. PURE — it decides, it does not spend.
  *
  * The affordability check lives HERE, exactly like `buildPurchase`, so a refused
  * purchase never reaches the log and a replay can never produce a negative
- * purse. A free base body reports `already_owned`: there is nothing to buy.
+ * purse. The free base skin reports `already_owned`: there is nothing to buy.
  *
- * Buying also SELECTS, mirroring "buying a piece of gear puts it on": one tap,
- * one obvious result.
+ * `skinId` is the ownership unit — one price, both bodies. A composite id is
+ * accepted too (and reduced to its skin), so a caller may pass whatever it has
+ * on hand. Buying also SELECTS, mirroring "buying a piece of gear puts it on":
+ * one tap, one obvious result — and it selects the new skin ON THE BODY THE
+ * PLAYER IS ALREADY PLAYING, never on the body they happen to be previewing
+ * from, so a purchase never quietly changes who you are.
  */
 export function buildCharacterPurchase(
   game: GameState,
-  characterId: string,
+  skinId: string,
   date: string,
   ts: number,
 ): CharacterPurchasePlan {
-  const def = characterById(characterId);
-  if (!def) return { ok: false, error: 'unknown_character', events: [] };
-  if (ownsCharacter(game, characterId)) return { ok: false, error: 'already_owned', events: [] };
-  if (game.battle.coins < def.cost) return { ok: false, error: 'insufficient_coins', events: [] };
+  const skin = skinOf(skinId);
+  if (!skin) return { ok: false, error: 'unknown_character', events: [] };
+  if (ownsSkin(game, skin.id)) return { ok: false, error: 'already_owned', events: [] };
+  if (game.battle.coins < skin.cost) return { ok: false, error: 'insufficient_coins', events: [] };
+  const wear = characterId(skin.id, selectedBody(game));
   return {
     ok: true,
     events: [
-      { type: 'character_purchased', payload: { date, characterId, cost: def.cost }, ts },
-      { type: 'character_selected', payload: { date, characterId }, ts: ts + 1 },
+      { type: 'character_purchased', payload: { date, characterId: skin.id, cost: skin.cost }, ts },
+      { type: 'character_selected', payload: { date, characterId: wear }, ts: ts + 1 },
     ],
   };
 }
 
 /**
- * Plan a character switch. Only an owned character can be selected, and
- * re-selecting the current one is a no-op (no event, no log noise).
+ * Plan a switch to one body × skin combination. Only an owned combination can be
+ * selected, and re-selecting the current one is a no-op (no event, no log noise).
  */
 export function buildCharacterSelect(
   game: GameState,
-  characterId: string,
+  charId: string,
   date: string,
   ts: number,
 ): PendingEvent[] {
-  if (!ownsCharacter(game, characterId)) return [];
-  if (game.characters.selected === characterId) return [];
-  return [{ type: 'character_selected', payload: { date, characterId }, ts }];
+  const id = resolveCharacterId(charId);
+  if (!id || !ownsCharacter(game, id)) return [];
+  if (game.characters.selected === id) return [];
+  return [{ type: 'character_selected', payload: { date, characterId: id }, ts }];
 }
 
-/** Every character the save can play right now, in roster order. */
+/**
+ * Plan a BODY switch: the same skin, the other silhouette.
+ *
+ * Bodies are free and always available, so this can only fail by being a no-op.
+ * It deliberately reuses `character_selected` rather than introducing a
+ * `body_selected`: the player plays exactly ONE combination, and two events
+ * describing halves of it could disagree after a merge.
+ */
+export function buildBodySelect(
+  game: GameState,
+  body: BodyGeometry,
+  date: string,
+  ts: number,
+): PendingEvent[] {
+  return buildCharacterSelect(game, characterId(selectedCharacter(game).skin, body), date, ts);
+}
+
+/** Every combination the save can play right now, in roster order. */
 export function availableCharacters(game: GameState): readonly CharacterDef[] {
   return CHARACTERS.filter((c) => ownsCharacter(game, c.id));
+}
+
+/** Every skin the save owns, in roster (= price) order. */
+export function availableSkins(game: GameState): readonly SkinDef[] {
+  return SKINS.filter((s) => ownsSkin(game, s.id));
 }
 
 /**

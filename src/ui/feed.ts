@@ -12,7 +12,7 @@
  */
 
 import { BODY_PART_HE, findExercise, type BodyPart, type ExerciseResolver } from '../data/program.ts';
-import { characterById } from '../data/characters.ts';
+import { skinOf } from '../data/characters.ts';
 import {
   EQUIPMENT_SLOTS,
   SLOT_HE,
@@ -237,17 +237,18 @@ export function buildFeed(
       }
       /**
        * A cosmetic skin was bought. Only the PURCHASE gets a line: switching
-       * character is free and reversible, and a line per switch would bury the
-       * training story the feed exists to tell.
+       * body or skin is free and reversible, and a line per switch would bury
+       * the training story the feed exists to tell. The line names the SKIN, not
+       * a body — one purchase unlocked it on both.
        */
       case 'character_purchased': {
-        const def = characterById(str(p['characterId']));
+        const skin = skinOf(str(p['characterId']));
         items.push({
           ts: ev.ts,
           date,
           icon: '🎭',
           cls: 'shop',
-          text: `דמות ${esc(def ? def.he : str(p['characterId']))} נרכשה · −${num(p['cost'])} 🪙`,
+          text: `דמות ${esc(skin ? skin.he : str(p['characterId']))} נרכשה · −${num(p['cost'])} 🪙`,
         });
         break;
       }

@@ -14,20 +14,28 @@
  * Growth is clamped at `BALANCE.character.visualMaxLevel`, so a very high level
  * stays a charming cartoon rather than a blob.
  *
- * THE ROSTER (`data/characters.ts`) rides on exactly two knobs:
+ * THE ROSTER (`data/characters.ts`) is a body × skin matrix, and it rides on
+ * exactly three knobs:
  *   - `geometry` picks the BODY the proportions above are drawn on (`male` —
  *     the original hero — or `female`). Both bodies read the same six levels and
  *     expose the same `characterAnchors`, so every equipment layer fits either
  *     one without a second set of shapes;
- *   - `palette` + `decor` recolour and redecorate that body. A skin never
- *     touches a proportion, and no character touches a stat: the roster is
- *     cosmetic, full stop.
- * The default (`hero_m`) renders exactly what it always did — the palette below
- * is the same one `styles/character.css` declares.
+ *   - `palette` recolours that body — one palette per skin, both bodies;
+ *   - `decor` + `hair` redecorate the head. They are TWO layers on purpose: the
+ *     covering (helmet, visor, wrap) is the skin's and is identical on both
+ *     bodies, while the hair underneath is chosen per body, which is what lets
+ *     one purchase dress a male AND a female character convincingly.
+ * A skin never touches a proportion, and no character touches a stat: the
+ * roster is cosmetic, full stop. The default (`hero_m`) renders exactly what it
+ * always did — the palette below is the same one `styles/character.css` declares.
  *
  * LAYERS (draw order) — equipment hangs off the anchors in `characterAnchors`:
- *   shadow · [cape] · legs · lats · torso · pecs · abs · arms · deltoids ·
- *   head (hair/helmet/visor) · [shoes · belt · gloves] · trophy medals
+ *   shadow · [cape] · hair cascade · legs · lats · torso · pecs · abs · arms ·
+ *   deltoids · head (hair · helmet/visor/wrap) · [shoes · belt · gloves] ·
+ *   trophy medals
+ * The cape and the long hair's cascade are the two layers drawn BEFORE the body:
+ * a cape hangs behind everything, and long hair falls behind the torso — but in
+ * front of the cape, because hair rests on a cape rather than vanishing under it.
  * The cape is the one piece drawn BEFORE the body (it hangs behind it); every
  * other slot is worn on top. Every body group carries `data-part`, which is all
  * the level-up pulse and any part-targeted effect needs.
@@ -36,11 +44,12 @@
 import { BALANCE } from '../core/balance.ts';
 import { clamp } from '../core/xp.ts';
 import {
-  characterById,
+  characterByAnyId,
   defaultCharacter,
   type BodyGeometry,
   type CharacterDecor,
   type CharacterDef,
+  type CharacterHair,
 } from '../data/characters.ts';
 import {
   equipmentById,
@@ -481,9 +490,14 @@ function absGroup(geo: CharacterGeometry): string {
  *
  * Everything is expressed in units of the head radius, so the same shape reads
  * correctly on either body and at either scale (220px on the דמות screen, 90px
- * in the arena). `behind` is drawn before the head circle (hair — curls, tails),
- * `front` after it; a decoration may also hide the default eyes or mouth when it
- * covers them (a visor, a ninja mask).
+ * in the arena) — and, since the two bodies differ ONLY in that radius (both
+ * heads are centred on `HEAD_CY`), the very same descriptor fits a male skull
+ * and a female one without a second set of numbers. That is what makes every
+ * skin wearable on both bodies: the ninja wrap lands on the male head, the
+ * spartan helmet on the female one.
+ *
+ * `behind` is drawn before the head circle, `front` after it; a decoration may
+ * also hide the default eyes or mouth when it covers them (a visor, a mask).
  */
 interface DecorLayers {
   behind: string;
@@ -493,57 +507,131 @@ interface DecorLayers {
 }
 
 /**
- * CURLY hair — the free female body's look.
+ * Hair is its own layer, so a covering and a hairstyle COMPOSE: a spartan helmet
+ * can sit on a braid, a zombie can keep tattered curls under its stitches.
  *
- * A cloud of overlapping curls, built from one ellipse (the mass) plus rings of
- * circles, every radius a multiple of the head radius so the same silhouette
- * reads at 220px (the דמות stage), 90px (the arena) and 62px (a roster card).
- *
- * LAYERING follows the same discipline the tied hair uses: the bulk sits BEHIND
- * the skull — a mass whose curls bite past its outline, plus two puffs at ear
- * height that give the cloud its width — and only the hairline curls are drawn
- * in FRONT, sitting ON the skull so they frame the face without ever covering
- * the eyes. Two small accent curls on the upper side are the highlight that
- * keeps the shape from reading as one flat blob on the dark UI.
+ * `cascade` is the one part of a drawing that is not in the head group at all —
+ * long hair falls past the shoulders, and the masses that fall down the BACK
+ * have to be drawn before the torso (see `characterSvg`'s layer list).
  */
-function curlyHairLayers(cy: number, r: number, d: CharacterDecor): DecorLayers {
+interface HairLayers extends DecorLayers {
+  cascade: string;
+}
+
+const EMPTY_HAIR: HairLayers = { behind: '', front: '', cascade: '' };
+
+/**
+ * LONG CURLY hair — the free female body's look (and, thinned, the undead one).
+ *
+ * A cloud of overlapping curls, built from one ellipse (the crown mass) plus
+ * rings and columns of circles, every radius and offset a multiple of the head
+ * radius so the same silhouette reads at 220px (the דמות stage), 90px (the
+ * arena) and 62px (a roster card).
+ *
+ * THREE LAYERS, because the hair is longer than the head:
+ *   1. `behind` — the crown: a mass whose curls bite past the skull's outline
+ *      plus two puffs at ear height that give the cloud its width. Drawn inside
+ *      the head group, behind the skull.
+ *   2. `cascade` — the length: two outer columns falling to about chest height
+ *      and a narrower pair behind the neck. Drawn BEFORE the body, so the mass
+ *      sits behind the torso (and over a cape, which is drawn before it —
+ *      hair rests on a cape, it does not vanish under one).
+ *   3. `front` — the hairline that frames the face, its two accent highlights,
+ *      and ONE strand per side falling over the shoulder. Drawn last of all, so
+ *      the length still reads at any level: a very wide back can swallow the
+ *      cascade, it can never swallow these.
+ *
+ * Nothing here scales with a body-part level, so no amount of chest or shoulder
+ * growth can push a curl outside the 200×320 stage: the widest point is
+ * ±2.05·r from the centre line and the lowest is ≈4.9·r below the head centre.
+ */
+function curlCloudLayers(cy: number, r: number, h: CharacterHair, tattered = false): HairLayers {
   const curl = (x: number, y: number, rad: number, fill: string): string =>
     `<circle class="ch-curl" cx="${n(x)}" cy="${n(y)}" r="${n(rad)}" fill="${fill}"/>`;
+  // Tattered hair is the same cloud with pieces missing and thinner curls — the
+  // gaps are what make it read as "this hair has been dead for a while".
+  const gone = (i: number): boolean => tattered && i % 3 === 2;
+  const thin = tattered ? 0.86 : 1;
+
   /** `count` curls spread along the arc `from`°→`to`°, angles measured with y UP. */
   const ring = (ringR: number, curlR: number, from: number, to: number, count: number, fill: string): string =>
     Array.from({ length: count }, (_, i) => {
+      if (gone(i)) return '';
       const t = count === 1 ? 0.5 : i / (count - 1);
       const a = ((from + (to - from) * t) * Math.PI) / 180;
-      return curl(CX + Math.cos(a) * ringR, cy - Math.sin(a) * ringR, curlR, fill);
+      return curl(CX + Math.cos(a) * ringR, cy - Math.sin(a) * ringR, curlR * thin, fill);
     }).join('');
 
+  /**
+   * One falling column of curls, mirrored on both sides: `x`/`y` are travelled
+   * as fractions of the head radius from `[0]` to `[1]`, the radius shrinks
+   * along the way so the lock tapers to a tip.
+   */
+  const column = (
+    count: number,
+    x: readonly [number, number],
+    y: readonly [number, number],
+    rad: readonly [number, number],
+    fill: string,
+  ): string =>
+    [-1, 1]
+      .flatMap((side) =>
+        Array.from({ length: count }, (_, i) => {
+          if (gone(i)) return '';
+          const t = count === 1 ? 0 : i / (count - 1);
+          const lerp = (p: readonly [number, number]): number => p[0] + (p[1] - p[0]) * t;
+          return curl(CX + side * r * lerp(x), cy + r * lerp(y), r * lerp(rad) * thin, fill);
+        }),
+      )
+      .join('');
+
   const behind =
-    `<ellipse cx="${n(CX)}" cy="${n(cy - r * 0.1)}" rx="${n(r * 1.28)}" ry="${n(r * 1.22)}" fill="${d.main}"/>` +
-    ring(r * 1.1, r * 0.44, 196, -16, 9, d.main) +
-    curl(CX - r * 1.14, cy + r * 0.42, r * 0.46, d.main) +
-    curl(CX + r * 1.14, cy + r * 0.42, r * 0.46, d.main);
+    `<ellipse cx="${n(CX)}" cy="${n(cy - r * 0.1)}" rx="${n(r * 1.28)}" ry="${n(r * 1.22)}" fill="${h.main}"/>` +
+    ring(r * 1.1, r * 0.44, 196, -16, 9, h.main) +
+    curl(CX - r * 1.14, cy + r * 0.42, r * 0.46 * thin, h.main) +
+    curl(CX + r * 1.14, cy + r * 0.42, r * 0.46 * thin, h.main);
+
+  const cascade =
+    // the outer fall — the widest part of the silhouette, ending at chest height
+    column(6, [1.16, 1.68], [0.78, 4.68], [0.5, 0.36], h.main) +
+    // …and a narrower pair right behind the neck, so the mass is not a ring
+    column(5, [0.42, 0.76], [1.05, 4.2], [0.56, 0.44], h.main) +
+    // two highlight curls high on the fall keep it from reading as one flat blob
+    column(2, [1.02, 1.24], [1.5, 2.35], [0.2, 0.17], h.accent);
+
   // The hairline stops well above the eyes (they are drawn last, but an eye
   // sitting IN the hair reads as a mistake at card size).
-  const front = ring(r * 0.86, r * 0.34, 148, 32, 6, d.main) + ring(r * 1.0, r * 0.2, 138, 112, 2, d.accent);
-  return { behind, front };
+  const front =
+    ring(r * 0.86, r * 0.34, 148, 32, 6, h.main) +
+    ring(r * 1.0, r * 0.2, 138, 112, 2, h.accent) +
+    // the strands worn over the shoulders — always visible, at every level
+    column(6, [0.92, 1.64], [0.35, 4.5], [0.42, 0.28], h.main);
+
+  return { behind, front, cascade };
 }
 
 /** Tied-back hair: a mass behind the head, a tail, and a fringe on top. */
-function tiedHairLayers(cy: number, r: number, d: CharacterDecor): DecorLayers {
+function tiedHairLayers(cy: number, r: number, h: CharacterHair): HairLayers {
   const behind =
-    `<ellipse cx="${n(CX)}" cy="${n(cy + r * 0.16)}" rx="${n(r + 3.5)}" ry="${n(r + 2)}" fill="${d.main}"/>` +
+    `<ellipse cx="${n(CX)}" cy="${n(cy + r * 0.16)}" rx="${n(r + 3.5)}" ry="${n(r + 2)}" fill="${h.main}"/>` +
     `<path d="M ${n(CX + r * 0.7)} ${n(cy + r * 0.2)} q ${n(r * 1.5)} ${n(r * 0.8)} ${n(r * 0.35)} ${n(r * 2.4)}
-       q ${n(-r * 0.55)} ${n(-r * 0.25)} ${n(-r * 0.95)} ${n(-r * 1.15)} Z" fill="${d.main}"/>`;
+       q ${n(-r * 0.55)} ${n(-r * 0.25)} ${n(-r * 0.95)} ${n(-r * 1.15)} Z" fill="${h.main}"/>`;
   const front = `<path d="M ${n(CX - r)} ${n(cy - r * 0.1)} a ${n(r)} ${n(r)} 0 0 1 ${n(r * 2)} 0
       q ${n(-r * 0.5)} ${n(-r * 0.45)} ${n(-r)} ${n(-r * 0.1)}
-      q ${n(-r * 0.5)} ${n(-r * 0.35)} ${n(-r)} ${n(r * 0.1)} Z" fill="${d.main}"/>`;
-  return { behind, front };
+      q ${n(-r * 0.5)} ${n(-r * 0.35)} ${n(-r)} ${n(r * 0.1)} Z" fill="${h.main}"/>`;
+  return { behind, front, cascade: '' };
 }
+
+const HAIR_DRAW: Readonly<Record<CharacterHair['kind'], (cy: number, r: number, h: CharacterHair) => HairLayers>> = {
+  none: () => EMPTY_HAIR,
+  curls: (cy, r, h) => curlCloudLayers(cy, r, h),
+  /** The undead cloud: same curls, a third of them torn away. */
+  ragged: (cy, r, h) => curlCloudLayers(cy, r, h, true),
+  tied: (cy, r, h) => tiedHairLayers(cy, r, h),
+};
 
 const DECOR_DRAW: Readonly<Record<CharacterDecor['kind'], (cy: number, r: number, d: CharacterDecor) => DecorLayers>> = {
   none: () => ({ behind: '', front: '' }),
-
-  curls: (cy, r, d) => curlyHairLayers(cy, r, d),
 
   /** A visor band instead of a face, an antenna on top, a speaker-grille mouth. */
   visor: (cy, r, d) => ({
@@ -589,15 +677,12 @@ const DECOR_DRAW: Readonly<Record<CharacterDecor['kind'], (cy: number, r: number
 
   /**
    * Full head wrap: only the eyes show, and a headband trails behind. The hair
-   * under the wrap is TIED BACK, not curly — the ninja owns that geometry (a
-   * loose cloud would push out past the mask and break its silhouette), and a
-   * skin never inherits another character's decoration anyway: `DECOR_DRAW` is
-   * picked by this character's own `decor.kind`.
+   * that goes with it is declared by the skin (`hair: 'tied'` on BOTH bodies) —
+   * a loose cloud would push out past the wrap and break its silhouette.
    */
   mask: (cy, r, d) => {
-    const hair = tiedHairLayers(cy, r, d);
     return {
-      behind: hair.behind,
+      behind: '',
       front:
         `<path d="M ${n(CX - r)} ${n(cy - r * 0.26)} a ${n(r)} ${n(r)} 0 0 1 ${n(r * 2)} 0 Z" fill="${d.main}"/>` +
         `<path d="M ${n(CX - r * 0.98)} ${n(cy + r * 0.12)} a ${n(r)} ${n(r)} 0 0 0 ${n(r * 1.96)} 0 Z" fill="${d.main}"/>` +
@@ -612,16 +697,37 @@ const DECOR_DRAW: Readonly<Record<CharacterDecor['kind'], (cy: number, r: number
 };
 
 /**
+ * The whole look of one character's head: hair FIRST, covering ON TOP.
+ *
+ * That order is the entire trick behind "every skin on both bodies" — the two
+ * descriptors are independent, so a body picks the hair that suits it (the
+ * female spartan's braid, the female zombie's tattered curls) while the skin
+ * keeps one covering for both.
+ */
+function lookLayers(geo: CharacterGeometry, char: CharacterDef): HairLayers {
+  const r = geo.headR;
+  const hair = HAIR_DRAW[char.hair.kind](HEAD_CY, r, char.hair);
+  const decor = DECOR_DRAW[char.decor.kind](HEAD_CY, r, char.decor);
+  const out: HairLayers = {
+    behind: hair.behind + decor.behind,
+    front: hair.front + decor.front,
+    cascade: hair.cascade,
+  };
+  if (decor.hideEyes === true) out.hideEyes = true;
+  if (decor.hideMouth === true) out.hideMouth = true;
+  return out;
+}
+
+/**
  * The head: skull, decoration, eyes and mouth.
  *
  * Every feature is placed as a fraction of the head radius (the male values are
  * the literals this was extracted from: r=18 ⇒ eyes at ±7, mouth at +7/+12), so
  * a smaller head keeps its face proportional instead of drifting.
  */
-function headGroup(geo: CharacterGeometry, char: CharacterDef): string {
+function headGroup(geo: CharacterGeometry, d: HairLayers): string {
   const r = geo.headR;
   const cy = HEAD_CY;
-  const d = DECOR_DRAW[char.decor.kind](cy, r, char.decor);
   const dx = r * (7 / 18);
   const eyeY = cy - r * (2 / 18);
   const eyeR = r * (2.2 / 18);
@@ -661,11 +767,17 @@ export interface CharacterSvgOptions {
   character?: string | CharacterDef;
 }
 
-/** Resolve the `character` option to a definition (never undefined). */
+/**
+ * Resolve the `character` option to a definition (never undefined).
+ *
+ * Ids are resolved through `characterByAnyId`, so a legacy id from an old save
+ * or an old event (`'robot'`, `'ninja'`) still draws the combination it always
+ * meant instead of silently falling back to the default hero.
+ */
 export function resolveCharacter(character?: string | CharacterDef): CharacterDef {
   if (!character) return defaultCharacter();
   if (typeof character !== 'string') return character;
-  return characterById(character) ?? defaultCharacter();
+  return characterByAnyId(character) ?? defaultCharacter();
 }
 
 /**
@@ -682,6 +794,7 @@ export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {
   const pecOffset = geo.chestHalf * geo.pecSpread;
   const equipped = opts.equipment?.equipped ?? {};
   const layer = (slot: EquipmentSlot): string => equipmentLayer(slot, geo, equipped);
+  const look = lookLayers(geo, char);
   // One gradient per character id: several characters share a page (the roster
   // strip draws them all), and two <defs> with the same id would make every
   // torso take the first one's colours.
@@ -692,7 +805,7 @@ export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {
     `--ch-body:${p.body};--ch-body-2:${p.bodyDark};--ch-shade:${p.shade};` +
     `--ch-skin:${p.skin};--ch-line:${p.line};--ch-eye:${p.eye}`;
 
-  return `<svg class="ch-svg" viewBox="0 0 200 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${label}" data-character="${char.id}" data-body="${char.geometry}" style="${vars}">
+  return `<svg class="ch-svg" viewBox="0 0 200 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${label}" data-character="${char.id}" data-skin="${char.skin}" data-body="${char.geometry}" style="${vars}">
   <defs>
     <linearGradient id="${grad}" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="${p.torsoTop}"/>
@@ -704,6 +817,11 @@ export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {
   <!-- The cape hangs BEHIND the body, so it is the only equipment layer drawn
        before the character rather than after it. -->
   <g class="ch-equip" data-slot="cape">${layer('cape')}</g>
+
+  <!-- LONG HAIR, the part that falls past the shoulders: behind the torso (so
+       the body reads first) but over the cape (hair rests on a cape). Empty for
+       every short hairstyle, so nothing changes for the skins without one. -->
+  ${look.cascade ? `<g class="ch-hair back">${look.cascade}</g>` : '<g class="ch-hair back"></g>'}
 
   <g class="${cls('legs')}" data-part="legs">${legGroup(geo, -1)}${legGroup(geo, 1)}</g>
 
@@ -731,7 +849,7 @@ export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {
     <circle class="ch-delt" cx="${n(CX + geo.shoulderHalf)}" cy="${n(SHOULDER_Y + 2)}" r="${n(geo.deltoidR)}"/>
   </g>
 
-  ${headGroup(geo, char)}
+  ${headGroup(geo, look)}
 
   <!-- Equipment layers worn ON TOP of the body (see characterAnchors). -->
   <g class="ch-equip" data-slot="shoes">${layer('shoes')}</g>

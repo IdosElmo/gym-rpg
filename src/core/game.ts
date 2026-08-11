@@ -21,8 +21,10 @@ import type {
 } from '../storage/DataStore.ts';
 import type { BossResult, WaveResult } from './combat.ts';
 import { todayISO } from './workout.ts';
+import type { BodyGeometry } from '../data/characters.ts';
 import {
   applyGameEvent,
+  buildBodySelect,
   buildCharacterPurchase,
   buildCharacterSelect,
   buildEquip,
@@ -245,14 +247,15 @@ export interface CharacterPurchaseResult {
 }
 
 /**
- * Buy a cosmetic character skin with battle coins (and play it immediately).
+ * Buy a cosmetic character SKIN with battle coins (and wear it immediately).
  *
  * Same contract as `buyItem`: the decision is made in `core/xp.ts` BEFORE
  * anything is appended, so a refused purchase leaves no trace in the log.
- * Skins change nothing but the drawing — no stat, anywhere, ever.
+ * One purchase unlocks the skin on BOTH bodies, and skins change nothing but
+ * the drawing — no stat, anywhere, ever.
  */
-export function buyCharacter(store: DataStore, characterId: string, now: Date = new Date()): CharacterPurchaseResult {
-  const plan = buildCharacterPurchase(gameOf(store), characterId, todayISO(now), now.getTime());
+export function buyCharacter(store: DataStore, skinId: string, now: Date = new Date()): CharacterPurchaseResult {
+  const plan = buildCharacterPurchase(gameOf(store), skinId, todayISO(now), now.getTime());
   if (!plan.ok) {
     const out: CharacterPurchaseResult = { ok: false };
     if (plan.error) out.error = plan.error;
@@ -262,9 +265,20 @@ export function buyCharacter(store: DataStore, characterId: string, now: Date = 
   return { ok: true };
 }
 
-/** Play an owned character. Returns false when there was nothing to change. */
+/**
+ * Play an owned body × skin combination (`'robot_f'`; a legacy id such as
+ * `'robot'` is accepted and resolved). False when there was nothing to change.
+ */
 export function selectCharacter(store: DataStore, characterId: string, now: Date = new Date()): boolean {
   const pending = buildCharacterSelect(gameOf(store), characterId, todayISO(now), now.getTime());
+  if (pending.length === 0) return false;
+  commit(store, pending, now);
+  return true;
+}
+
+/** Switch body, keeping the skin. False when that body is already being played. */
+export function selectBody(store: DataStore, body: BodyGeometry, now: Date = new Date()): boolean {
+  const pending = buildBodySelect(gameOf(store), body, todayISO(now), now.getTime());
   if (pending.length === 0) return false;
   commit(store, pending, now);
   return true;
