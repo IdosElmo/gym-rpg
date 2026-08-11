@@ -122,7 +122,11 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
       <div class="bt-fx" id="btFx" aria-hidden="true"></div>
 
       <div class="bt-side bt-hero">
-        <div class="bt-sprite hero">${characterSvg(game.parts, { label: 'הדמות שלך בקרב' })}</div>
+        <div class="bt-sprite hero">${characterSvg(game.parts, {
+          label: 'הדמות שלך בקרב',
+          // The arena fights with whoever the דמות screen selected.
+          character: game.characters.selected,
+        })}</div>
         <div class="bt-bar hp"><span id="btHeroHp" style="width:100%"></span></div>
         <div class="bt-hp-txt" id="btHeroHpTxt">${Math.round(stats.maxHp)} / ${Math.round(stats.maxHp)}</div>
       </div>
