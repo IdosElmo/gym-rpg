@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Gym RPG">
+  <rect width="512" height="512" rx="112" fill="#121824"/>
+  <!-- character silhouette -->
+  <g fill="#233049">
+    <circle cx="256" cy="150" r="46"/>
+    <path d="M188 214h136c14 0 24 11 22 25l-14 96c-2 12-12 21-24 21H204c-12 0-22-9-24-21l-14-96c-2-14 8-25 22-25z"/>
+  </g>
+  <!-- barbell -->
+  <g stroke="#3B82F6" stroke-width="28" stroke-linecap="round" fill="none">
+    <path d="M150 300h212"/>
+  </g>
+  <g stroke="#10B981" stroke-width="26" stroke-linecap="round" fill="none">
+    <path d="M132 258v84M380 258v84"/>
+  </g>
+  <g stroke="#F59E0B" stroke-width="20" stroke-linecap="round" fill="none">
+    <path d="M84 276v48M428 276v48"/>
+  </g>
+  <!-- legs -->
+  <g fill="#233049">
+    <rect x="200" y="374" width="42" height="80" rx="18"/>
+    <rect x="270" y="374" width="42" height="80" rx="18"/>
+  </g>
+</svg>

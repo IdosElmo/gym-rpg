@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#121824">
+<title>היפרטרופיה 3 ימים · חזה וליבה</title>
+<style>
+:root{
+  --bg:#121824; --card:#1E2638; --card-2:#232E44; --line:#2C3A55;
+  --accent:#3B82F6; --ok:#10B981; --warn:#F59E0B; --danger:#EF4444;
+  --text:#E8EDF5; --muted:#8B96AB; --dim:#5D6B85;
+  --radius:14px;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+html,body{margin:0; padding:0}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Heebo","Noto Sans Hebrew",Arial,sans-serif;
+  font-size:16px; line-height:1.5;
+  padding-bottom:110px; /* room for floating timer */
+}
+button{font-family:inherit; cursor:pointer}
+input{font-family:inherit}
+
+/* ---------- Header ---------- */
+header{
+  padding:18px 16px 10px;
+  background:linear-gradient(180deg,#16203245,transparent);
+}
+.app-title{
+  display:flex; align-items:baseline; gap:8px; margin:0 0 2px;
+  font-size:20px; font-weight:800; letter-spacing:-.02em;
+}
+.app-title .en{font-size:11px; font-weight:600; color:var(--dim); letter-spacing:.14em; text-transform:uppercase}
+.day-meta{color:var(--muted); font-size:13.5px; margin:2px 0 0}
+.day-meta b{color:var(--text); font-weight:700}
+.last-log{font-size:12.5px; color:var(--dim); margin-top:2px}
+.last-log .val{color:var(--accent)}
+
+/* ---------- Tabs ---------- */
+nav.tabs{
+  display:flex; gap:8px; padding:12px 16px 4px; position:sticky; top:0; z-index:30;
+  background:linear-gradient(180deg,var(--bg) 75%,transparent);
+}
+.tab{
+  flex:1; border:1px solid var(--line); background:var(--card); color:var(--muted);
+  border-radius:12px; padding:9px 4px; text-align:center; transition:.15s;
+}
+.tab .d{display:block; font-weight:800; font-size:15px}
+.tab .w{display:block; font-size:11px; margin-top:1px}
+.tab.active{background:var(--accent); border-color:var(--accent); color:#fff}
+.tab.active .w{color:#DBEAFE}
+.tab.hist-tab{flex:.7}
+.tab.hist-tab.active{background:var(--card-2); border-color:var(--accent); color:var(--accent)}
+
+/* ---------- Exercise card ---------- */
+main{padding:10px 14px 0}
+.ex-card{
+  background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  margin-bottom:14px; overflow:hidden;
+}
+.ex-card.done-all{border-color:var(--ok)}
+.ex-head{padding:14px 14px 8px}
+.ex-order{
+  font-size:11px; font-weight:700; color:var(--dim); letter-spacing:.1em;
+}
+.ex-title{margin:1px 0 2px; font-size:17.5px; font-weight:800; letter-spacing:-.01em}
+.ex-title-en{font-size:12px; color:var(--muted); direction:ltr; text-align:right}
+.badges{display:flex; flex-wrap:wrap; gap:6px; margin-top:9px}
+.badge{
+  font-size:11.5px; padding:3px 9px; border-radius:99px; font-weight:600;
+  border:1px solid var(--line); color:var(--muted); background:var(--card-2);
+}
+.badge.muscle{color:#93C5FD; border-color:#3B82F640; background:#3B82F614}
+.badge.scheme{color:var(--warn); border-color:#F59E0B33; background:#F59E0B10}
+.badge.equip::before{content:"⛭ "; opacity:.7}
+
+/* collapsible form panel */
+.form-toggle{
+  width:100%; text-align:right; background:none; border:none; color:var(--accent);
+  font-size:13.5px; font-weight:700; padding:10px 14px; display:flex; justify-content:space-between; align-items:center;
+  border-top:1px dashed var(--line);
+}
+.form-toggle .chev{transition:.2s; color:var(--dim)}
+.ex-card.open .form-toggle .chev{transform:rotate(180deg)}
+.form-panel{display:none; padding:0 14px 14px; font-size:13.5px; color:#C4CDDD}
+.ex-card.open .form-panel{display:block}
+.form-panel h4{margin:10px 0 4px; font-size:12px; color:var(--dim); letter-spacing:.06em}
+.form-panel ol{margin:0; padding-inline-start:18px}
+.form-panel li{margin-bottom:3px}
+.cue{
+  margin-top:10px; padding:9px 11px; border-radius:10px;
+  background:#3B82F612; border-inline-start:3px solid var(--accent); font-size:13px;
+}
+.mistake{
+  margin-top:8px; padding:9px 11px; border-radius:10px;
+  background:#EF444410; border-inline-start:3px solid var(--danger); font-size:13px; color:#FCA5A5;
+}
+
+/* ---------- Log table ---------- */
+.log{padding:4px 12px 14px}
+.log-row{
+  display:grid; grid-template-columns:34px 1fr 1fr 46px; gap:8px; align-items:center;
+  padding:7px 0;
+}
+.log-row.head{font-size:11px; color:var(--dim); padding-bottom:2px; font-weight:700}
+.set-num{
+  font-size:13px; font-weight:800; color:var(--muted); text-align:center;
+  background:var(--card-2); border-radius:8px; padding:6px 0;
+}
+.log-row.checked .set-num{background:#10B98122; color:var(--ok)}
+.inp-wrap{position:relative}
+.inp{
+  width:100%; background:var(--bg); border:1px solid var(--line); color:var(--text);
+  border-radius:10px; padding:9px 10px 9px; font-size:16px; font-weight:700; text-align:center;
+  -moz-appearance:textfield; appearance:textfield;
+}
+.inp::-webkit-inner-spin-button{display:none}
+.inp:focus{outline:none; border-color:var(--accent)}
+.prev{
+  display:block; text-align:center; font-size:10.5px; color:var(--dim); margin-top:2px; min-height:13px;
+}
+.chk{
+  width:38px; height:38px; border-radius:11px; border:2px solid var(--line);
+  background:var(--card-2); color:transparent; font-size:18px; font-weight:900;
+  display:flex; align-items:center; justify-content:center; margin:0 auto; transition:.15s;
+}
+.chk.on{background:var(--ok); border-color:var(--ok); color:#06281D}
+.rest-hint{font-size:11px; color:var(--dim); text-align:center; margin-top:4px}
+
+/* ---------- Floating rest timer ---------- */
+#timerBar{
+  position:fixed; bottom:0; right:0; left:0; z-index:60;
+  background:#1A2334F2; backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+  border-top:1px solid var(--line);
+  padding:10px 14px calc(10px + env(safe-area-inset-bottom));
+  transform:translateY(110%); transition:transform .25s ease;
+}
+#timerBar.show{transform:translateY(0)}
+#timerBar.flash{animation:flash .4s ease 5}
+@keyframes flash{
+  0%,100%{background:#1A2334F2}
+  50%{background:#10B981E0}
+}
+.t-progress{
+  position:absolute; top:0; right:0; height:3px; background:var(--warn);
+  width:100%; transition:width .5s linear; border-radius:0 0 0 3px;
+}
+.t-inner{display:flex; align-items:center; gap:10px}
+.t-time{
+  font-variant-numeric:tabular-nums; font-size:34px; font-weight:900; letter-spacing:.01em;
+  color:var(--warn); min-width:100px; direction:ltr; text-align:center;
+}
+#timerBar.zero .t-time{color:var(--ok)}
+.t-label{flex:1; min-width:0}
+.t-label .ttl{font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.t-label .sub{font-size:11px; color:var(--dim)}
+.t-btns{display:flex; gap:6px}
+.t-btn{
+  border:1px solid var(--line); background:var(--card-2); color:var(--text);
+  border-radius:10px; padding:8px 10px; font-size:13px; font-weight:700; min-width:44px;
+}
+.t-btn.warn{color:var(--warn); border-color:#F59E0B44}
+.t-btn.close{color:var(--muted)}
+
+/* ---------- History ---------- */
+.hist-day{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); margin-bottom:12px; padding:12px 14px}
+.hist-day h3{margin:0 0 2px; font-size:15px}
+.hist-day .sub{font-size:12px; color:var(--muted); margin-bottom:8px}
+.hist-ex{font-size:13px; padding:5px 0; border-top:1px dashed var(--line)}
+.hist-ex b{font-weight:700}
+.hist-sets{color:var(--muted); direction:ltr; display:inline-block}
+.empty{
+  text-align:center; color:var(--dim); padding:50px 20px; font-size:14px;
+}
+.data-actions{display:flex; gap:10px; margin:6px 0 18px}
+.action-btn{
+  flex:1; background:var(--card); border:1px solid var(--line); color:var(--accent);
+  border-radius:12px; padding:11px; font-size:14px; font-weight:700;
+}
+.action-btn.danger{color:var(--danger)}
+footer{padding:20px 16px 30px; text-align:center; font-size:11.5px; color:var(--dim)}
+.toast{
+  position:fixed; bottom:120px; right:50%; transform:translateX(50%);
+  background:var(--card-2); border:1px solid var(--accent); color:var(--text);
+  padding:9px 18px; border-radius:99px; font-size:13.5px; z-index:80;
+  opacity:0; transition:.25s; pointer-events:none;
+}
+.toast.show{opacity:1}
+@media (min-width:640px){
+  main,nav.tabs,header{max-width:560px; margin-inline:auto}
+  #timerBar .t-inner{max-width:560px; margin-inline:auto}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none!important; animation:none!important}
+}
+</style>
+</head>
+<body>
+
+<nav class="tabs" id="tabs"></nav>
+
+<header id="header"></header>
+
+<main id="main"></main>
+
+<footer>💪 האפליקציה עובדת 100% אופליין · הנתונים נשמרים במכשיר בלבד</footer>
+
+<!-- Floating rest timer -->
+<div id="timerBar" dir="rtl">
+  <div class="t-progress" id="tProg"></div>
+  <div class="t-inner">
+    <div class="t-time" id="tTime">1:30</div>
+    <div class="t-label">
+      <div class="ttl" id="tTitle">מנוחה</div>
+      <div class="sub">טיימר מנוחה</div>
+    </div>
+    <div class="t-btns">
+      <button class="t-btn" id="tMinus">‎-15s</button>
+      <button class="t-btn" id="tPlus">‎+15s</button>
+      <button class="t-btn warn" id="tPause">השהה</button>
+      <button class="t-btn" id="tReset">איפוס</button>
+      <button class="t-btn close" id="tClose">✕</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<input type="file" id="importFile" accept="application/json" style="display:none">
+
+<script>
+"use strict";
+/* ================= PROGRAM DATA ================= */
+const PROGRAM = {
+  A: {
+    day:"ראשון", label:"אימון A", dur:"~50 דק׳",
+    focus:"חזה עליון · גב רחב · רגליים · יד קדמית · בטן תחתונה",
+    exercises:[
+      {id:"a1", he:"לחיצת חזה בשיפוע חיובי", en:"Incline Smith / Dumbbell Press",
+       equip:["Smith Machine","Dumbbells"], muscle:"חזה עליון", sets:3, reps:"8–10", rest:90, unit:"חזרות",
+       steps:["כוונו ספסל לזווית ‎30°‎.","כווצו שכמות לאחור והצמידו לספסל.","הורידו את המוט/משקולות באיטיות (2–3 שניות) אל החזה העליון.","דחפו בפיצוץ למעלה מבלי לנעול מרפקים."],
+       cue:"דחפו מרפקים מעט פנימה בדרך למעלה; שלטו במתיחה בתחתית.",
+       mistake:"טעות נפוצה: קשת גב מוגזמת או הורדת המוט לכיוון הבטן במקום לחזה העליון."},
+      {id:"a2", he:"חתירה חד־זרועית (Hand Row)", en:"One-Arm Dumbbell Row",
+       equip:["Dumbbells"], muscle:"גב רחב ועובי גב", sets:3, reps:"8–10", rest:90, unit:"חזרות",
+       steps:["הניחו ברך ויד על ספסל שטוח.","שמרו על גב ישר ומקביל לרצפה.","משכו את המשקולת אל כיס המכנס (ירך).","הורידו באיטיות עד מתיחה מלאה."],
+       cue:"משכו עם המרפק ולא עם היד הקדמית; הגו נשאר יציב לחלוטין.",
+       mistake:"טעות נפוצה: סיבוב הגו כלפי מעלה כדי 'לעזור' למשיכה."},
+      {id:"a3", he:"לאנג׳ים / מכרעים נייחים", en:"Stationary Lunges / Split Squats",
+       equip:["Dumbbells"], muscle:"ארבע־ראשי וישבן", sets:3, reps:"10–12 לרגל", rest:90, unit:"חזרות/רגל",
+       steps:["החזיקו משקולות לצידי הגוף.","צעד קדימה ועמידה יציבה.","רדו אנכית עד שהברך האחורית כמעט נוגעת ברצפה.","דחפו דרך העקב הקדמי חזרה למעלה."],
+       cue:"‎70%‎ ממשקל הגוף על הרגל הקדמית; חזה זקוף לאורך כל התנועה.",
+       mistake:"טעות נפוצה: ברך קדמית קורסת פנימה או רכינה של הגו קדימה."},
+      {id:"a4", he:"פרפר בשכיבה עם משקולות", en:"Dumbbell Chest Flyes",
+       equip:["Dumbbells"], muscle:"בידוד ומתיחת חזה", sets:2, reps:"12–15", rest:60, unit:"חזרות",
+       steps:["שכבו על ספסל שטוח, כיפוף קל במרפקים.","פתחו ידיים לצדדים בקשת רחבה.","עצרו כשמורגשת מתיחה בחזה — ללא כאב בכתף.","כווצו את החזה והחזירו בקשת."],
+       cue:"דמיינו שאתם מחבקים גזע עץ רחב; מתיחה עמוקה בלי כאב בכתפיים.",
+       mistake:"טעות נפוצה: יישור המרפקים והפיכת התרגיל ללחיצה."},
+      {id:"a5", he:"כפיפת מרפקים עם משקולות", en:"Dumbbell Bicep Curls",
+       equip:["Dumbbells"], muscle:"יד קדמית", sets:3, reps:"10–12", rest:60, unit:"חזרות",
+       steps:["בעמידה או בישיבה, מרפקים צמודים לצלעות.","גלגלו את המשקולת מעלה בתנועה חלקה.","סובבו את כף היד (סופינציה) תוך כדי עלייה.","הורידו לאט ובשליטה מלאה."],
+       cue:"אפס נדנוד גוף; כווצו את היד הקדמית חזק בנקודה העליונה.",
+       mistake:"טעות נפוצה: נדנוד הגו ושימוש בתנופה במקום בשריר."},
+      {id:"a6", he:"הרמות רגליים/ברכיים בתלייה או בשכיבה", en:"Hanging / Lying Leg & Knee Raises",
+       equip:["Bodyweight"], muscle:"בטן תחתונה", sets:3, reps:"12–15", rest:60, unit:"חזרות",
+       steps:["היתלו על מוט מתח או שכבו על ספסל.","הרימו ברכיים/רגליים אל החזה.","גלגלו את האגן מעט מעלה בסוף התנועה.","הורידו לאט ללא נדנוד."],
+       cue:"גלגלו את האגן לכיוון החזה בנקודה העליונה של התנועה.",
+       mistake:"טעות נפוצה: נדנוד רגליים בתנופה במקום כפיפה מבוקרת של הבטן."}
+    ]
+  },
+  B: {
+    day:"שלישי", label:"אימון B", dur:"~50 דק׳",
+    focus:"חזה מרכזי ותחתון · רוחב גב · עובי גב · ליבה עמוקה",
+    exercises:[
+      {id:"b1", he:"לחיצת חזה בשכיבה שטוחה בסמית׳", en:"Flat Smith Bench Press",
+       equip:["Smith Machine"], muscle:"חזה מרכזי", sets:3, reps:"8–10", rest:90, unit:"חזרות",
+       steps:["שכבו מתחת למכונת הסמית׳.","שחררו את המוט והורידו בשליטה לאמצע עצם החזה.","עצרו קלות ולחצו חזק למעלה.","שמרו על כפות רגליים נטועות ברצפה."],
+       cue:"שכמות צמודות למטה ולאחור לאורך כל הסט.",
+       mistake:"טעות נפוצה: הקפצת המוט מהחזה או ניתוק שכמות מהספסל."},
+      {id:"b2", he:"פולי עליון / מתח", en:"Lat Pulldown / Pull-ups",
+       equip:["Bodyweight","Machine"], muscle:"רוחב גב · V-Taper", sets:3, reps:"8–10", rest:90, unit:"חזרות",
+       steps:["אחיזה רחבה על המוט.","משכו את המוט אל החזה העליון.","הובילו את המרפקים מטה ולאחור.","עלייה איטית חזרה עד מתיחה מלאה."],
+       cue:"הובילו עם המרפקים; החזה עולה לפגוש את המוט.",
+       mistake:"טעות נפוצה: משיכה עם הידיים הקדמיות ורכינה מוגזמת לאחור."},
+      {id:"b3", he:"מקבילים", en:"Dips",
+       equip:["Bodyweight"], muscle:"חזה תחתון ויד אחורית", sets:3, reps:"עד כשל / RIR 1–2", rest:90, unit:"חזרות",
+       steps:["תמכו את משקל הגוף על מוטות המקבילים.","הטו את הגו קדימה כ־‎30°‎ לדגש חזה.","רדו עד כיפוף ‎90°‎ במרפקים.","דחפו חזרה למעלה בכוח."],
+       cue:"רכינה קדימה = דגש חזה; גו אנכי = דגש יד אחורית.",
+       mistake:"טעות נפוצה: ירידה עמוקה מדי שמעמיסה על הכתפיים."},
+      {id:"b4", he:"חתירה בסמית׳ / משקולות", en:"Smith Machine / Dumbbell Row",
+       equip:["Smith Machine","Dumbbells"], muscle:"עובי גב עליון", sets:3, reps:"8–10", rest:90, unit:"חזרות",
+       steps:["כופפו ברכיים מעט והטו אגן לאחור לזווית ‎45°‎.","גב ישר לחלוטין.","משכו את המוט/משקולות אל הבטן התחתונה.","הורידו באיטיות ובשליטה."],
+       cue:"כווצו את השכמות זו לזו בשיא הכיווץ.",
+       mistake:"טעות נפוצה: עיגול הגב התחתון או משיכה גבוהה מדי לחזה."},
+      {id:"b5", he:"פלאנק (עם/בלי משקל)", en:"Weighted / Bodyweight Plank",
+       equip:["Bodyweight"], muscle:"ליבה עמוקה", sets:3, reps:"45–60 שנ׳", rest:60, unit:"שניות",
+       steps:["אמות על המזרן, גוף בקו ישר אחד.","כווצו ישבן חזק.","משכו את הטבור פנימה לכיוון עמוד השדרה.","נשמו באופן סדיר לאורך ההחזקה."],
+       cue:"אל תתנו לגב התחתון לשקוע; שמרו על גשר קשיח.",
+       mistake:"טעות נפוצה: הרמת ישבן גבוה מדי או שקיעת אגן."}
+    ]
+  },
+  C: {
+    day:"חמישי", label:"אימון C", dur:"~50 דק׳",
+    focus:"חזה עליון (טווח מלא) · שרשרת אחורית · כתפיים · יד אחורית · בטן עליונה",
+    exercises:[
+      {id:"c1", he:"לחיצת חזה בשיפוע עם משקולות", en:"Incline Dumbbell Bench Press",
+       equip:["Dumbbells"], muscle:"חזה עליון · טווח תנועה מלא", sets:3, reps:"10–12", rest:90, unit:"חזרות",
+       steps:["ספסל בשיפוע ‎30°‎.","הורידו משקולות עמוק — מתיחה גדולה יותר מהמוט.","לחצו מעלה ומעט פנימה.","שמרו על כתפיים משוכות לאחור."],
+       cue:"מתיחה מלאה בתחתית מבלי שהכתפיים מתגלגלות קדימה.",
+       mistake:"טעות נפוצה: הצמדת המשקולות בכוח למעלה ואיבוד מתח מהחזה."},
+      {id:"c2", he:"דדליפט רומני (RDL)", en:"Dumbbell / Smith Romanian Deadlift",
+       equip:["Dumbbells","Smith Machine"], muscle:"ירך אחורית · ישבן · זוקפי גב", sets:3, reps:"8–10", rest:90, unit:"חזרות",
+       steps:["כיפוף קל וקבוע בברכיים.","הטו אגן לאחור, גב שטוח לחלוטין.","המשקולות צמודות לשוקיים לאורך הירידה.","דחפו אגן קדימה לעמידה זקופה."],
+       cue:"דחפו את הישבן אחורה אל הקיר שמאחוריכם; עמוד שדרה ניטרלי לחלוטין.",
+       mistake:"טעות נפוצה: עיגול הגב או כיפוף ברכיים שהופך את התרגיל לסקוואט."},
+      {id:"c3", he:"לחיצת כתפיים בישיבה", en:"Seated Dumbbell Shoulder Press",
+       equip:["Dumbbells"], muscle:"כתף קדמית וצידית", sets:3, reps:"10–12", rest:90, unit:"חזרות",
+       steps:["ספסל בזווית גבוהה ‎80–85°‎.","התחילו עם המשקולות בגובה האוזניים.","לחצו מעלה עד יישור ידיים מלא.","הורידו בשליטה חזרה לגובה האוזניים."],
+       cue:"ליבה מכווצת; אל תקשתו את הגב התחתון מהספסל.",
+       mistake:"טעות נפוצה: קשת גב מוגזמת שהופכת את הלחיצה ללחיצת חזה עליון."},
+      {id:"c4", he:"פשיטת מרפקים מעל הראש", en:"Overhead Dumbbell Tricep Extension",
+       equip:["Dumbbells"], muscle:"יד אחורית · הראש הארוך", sets:3, reps:"10–12", rest:60, unit:"חזרות",
+       steps:["בישיבה/עמידה, החזיקו משקולת אחת כבדה בשתי ידיים מעל הראש.","כופפו מרפקים והורידו את המשקולת מאחורי הראש.","פשטו את הידיים ישר למעלה.","שמרו על מרפקים יציבים."],
+       cue:"מרפקים אסופים ופונים קדימה — לא נפתחים לצדדים.",
+       mistake:"טעות נפוצה: פתיחת מרפקים לצדדים והורדת עומס מהראש הארוך."},
+      {id:"c5", he:"כפיפות בטן בשיפוע / עם משקל", en:"Weighted / Incline Crunches",
+       equip:["Bodyweight","Dumbbells"], muscle:"בטן עליונה", sets:3, reps:"12–15", rest:60, unit:"חזרות",
+       steps:["ספסל בשיפוע שלילי או מזרן, משקל קל על החזה.","כופפו את עמוד השדרה — צלעות מתקרבות לאגן.","עצרו בכיווץ מלא לשנייה.","רדו לאט ובשליטה."],
+       cue:"תנועת גלגול של עמוד השדרה — לא משיכה עם הצוואר או כופפי הירך.",
+       mistake:"טעות נפוצה: משיכת הראש עם הידיים או עליית כל הגו ישר."}
+    ]
+  }
+};
+const DAY_ORDER = ["A","B","C"];
+const DAY_NAMES = {A:"ראשון", B:"שלישי", C:"חמישי"};
+
+/* ================= STATE & STORAGE ================= */
+const LS_KEY = "hyp3_data_v1";
+const UI_KEY = "hyp3_ui_v1";
+let DB = load();
+let UI = loadUI();
+
+function load(){
+  try{
+    const raw = localStorage.getItem(LS_KEY);
+    if(raw){ const d = JSON.parse(raw); if(d && typeof d==="object" && d.sessions) return d; }
+  }catch(e){}
+  return {sessions:{}};
+}
+function save(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(DB)); }catch(e){} }
+function loadUI(){
+  try{ const u = JSON.parse(localStorage.getItem(UI_KEY)); if(u) return u; }catch(e){}
+  return {view: defaultDay(), open:{}};
+}
+function saveUI(){ try{ localStorage.setItem(UI_KEY, JSON.stringify(UI)); }catch(e){} }
+function defaultDay(){
+  const wd = new Date().getDay(); // 0=Sun
+  if(wd===2||wd===3) return "B";
+  if(wd>=4&&wd<=6) return "C";
+  return "A";
+}
+function todayISO(){
+  const d = new Date();
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+}
+function fmtDate(iso){
+  const [y,m,d] = iso.split("-");
+  return d+"."+m+"."+y;
+}
+/* session for a given day-letter at today's date (created on demand) */
+function getSession(dayKey, create){
+  const key = todayISO();
+  let s = DB.sessions[key];
+  if(!s && create){ s = DB.sessions[key] = {day:dayKey, ex:{}}; }
+  if(s && create && s.day!==dayKey){ s.day = dayKey; } // last edited day wins for label
+  return s;
+}
+function getSetData(dayKey, exId, i, create){
+  const s = getSession(dayKey, create);
+  if(!s) return null;
+  if(!s.ex[exId]){ if(!create) return null; s.ex[exId]=[]; }
+  if(!s.ex[exId][i]){ if(!create) return null; s.ex[exId][i]={w:"",r:"",done:false}; }
+  return s.ex[exId][i];
+}
+/* most recent previous performance of an exercise (before today) */
+function prevPerf(exId){
+  const today = todayISO();
+  const dates = Object.keys(DB.sessions).filter(d=>d<today).sort().reverse();
+  for(const d of dates){
+    const ex = DB.sessions[d].ex[exId];
+    if(ex && ex.some(s=>s && (s.w!==""||s.r!==""||s.done))) return {date:d, sets:ex};
+  }
+  return null;
+}
+function lastLoggedDate(dayKey){
+  const dates = Object.keys(DB.sessions).sort().reverse();
+  for(const d of dates){
+    const s = DB.sessions[d];
+    if(s.day===dayKey || PROGRAM[dayKey].exercises.some(e=>s.ex[e.id])) return d;
+  }
+  return null;
+}
+
+/* ================= RENDER ================= */
+const $ = id => document.getElementById(id);
+
+function renderTabs(){
+  const t = $("tabs");
+  t.innerHTML = DAY_ORDER.map(k=>`
+    <button class="tab ${UI.view===k?'active':''}" data-view="${k}">
+      <span class="d">${DAY_NAMES[k]}</span><span class="w">${PROGRAM[k].label}</span>
+    </button>`).join("") +
+    `<button class="tab hist-tab ${UI.view==='H'?'active':''}" data-view="H">
+      <span class="d">🗓</span><span class="w">היסטוריה</span>
+    </button>`;
+  t.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{ UI.view=b.dataset.view; saveUI(); render(); });
+}
+
+function renderHeader(){
+  const h = $("header");
+  if(UI.view==="H"){
+    h.innerHTML = `<h1 class="app-title">היסטוריית אימונים <span class="en">History</span></h1>
+      <p class="day-meta">כל הנתונים נשמרים במכשיר · ניתן לגבות ולשחזר כקובץ JSON</p>`;
+    return;
+  }
+  const p = PROGRAM[UI.view];
+  const last = lastLoggedDate(UI.view);
+  h.innerHTML = `
+    <h1 class="app-title">יום ${p.day} · ${p.label} <span class="en">Hypertrophy</span></h1>
+    <p class="day-meta"><b>${p.dur}</b> · ${p.focus}</p>
+    <p class="last-log">אימון אחרון שתועד: <span class="val">${last?fmtDate(last):"— עדיין לא תועד"}</span></p>`;
+}
+
+function equipHe(e){
+  return {"Smith Machine":"סמית׳","Dumbbells":"משקולות","Bodyweight":"משקל גוף","Machine":"מכונה"}[e]||e;
+}
+
+function renderWorkout(){
+  const p = PROGRAM[UI.view];
+  const m = $("main");
+  m.innerHTML = p.exercises.map((ex,idx)=>{
+    const prev = prevPerf(ex.id);
+    const rows = [];
+    let doneCount = 0;
+    for(let i=0;i<ex.sets;i++){
+      const d = getSetData(UI.view, ex.id, i, false) || {w:"",r:"",done:false};
+      if(d.done) doneCount++;
+      let prevTxt = "";
+      if(prev && prev.sets[i] && (prev.sets[i].w!==""||prev.sets[i].r!=="")){
+        const pw = prev.sets[i].w, pr = prev.sets[i].r;
+        prevTxt = `אימון קודם: ${pw!==""?pw+' ק"ג':""}${pw!==""&&pr!==""?" × ":""}${pr!==""?pr:""}`;
+      }
+      rows.push(`
+      <div class="log-row ${d.done?'checked':''}">
+        <div class="set-num">${i+1}</div>
+        <div class="inp-wrap">
+          <input class="inp" type="number" inputmode="decimal" step="0.5" min="0" placeholder='ק"ג'
+            value="${d.w}" data-ex="${ex.id}" data-set="${i}" data-f="w">
+          <span class="prev">${prevTxt}</span>
+        </div>
+        <div class="inp-wrap">
+          <input class="inp" type="number" inputmode="numeric" min="0" placeholder="${ex.unit}"
+            value="${d.r}" data-ex="${ex.id}" data-set="${i}" data-f="r">
+          <span class="prev"></span>
+        </div>
+        <button class="chk ${d.done?'on':''}" data-ex="${ex.id}" data-set="${i}" aria-label="סמן סט ${i+1} כהושלם">✓</button>
+      </div>`);
+    }
+    const open = UI.open[ex.id] ? "open" : "";
+    const allDone = doneCount===ex.sets ? "done-all" : "";
+    return `
+    <section class="ex-card ${open} ${allDone}" id="card-${ex.id}">
+      <div class="ex-head">
+        <div class="ex-order">תרגיל ${idx+1} / ${p.exercises.length}</div>
+        <h2 class="ex-title">${ex.he}</h2>
+        <div class="ex-title-en">${ex.en}</div>
+        <div class="badges">
+          <span class="badge muscle">🎯 ${ex.muscle}</span>
+          <span class="badge scheme">${ex.sets} סטים × ${ex.reps}</span>
+          ${ex.equip.map(e=>`<span class="badge equip">${equipHe(e)}</span>`).join("")}
+        </div>
+      </div>
+      <button class="form-toggle" data-toggle="${ex.id}">
+        <span>הסבר ודגשי ביצוע</span><span class="chev">▾</span>
+      </button>
+      <div class="form-panel">
+        <h4>שלבי ביצוע</h4>
+        <ol>${ex.steps.map(s=>`<li>${s}</li>`).join("")}</ol>
+        <div class="cue">💡 <b>דגש:</b> ${ex.cue}</div>
+        <div class="mistake">⚠️ ${ex.mistake}</div>
+      </div>
+      <div class="log">
+        <div class="log-row head">
+          <div style="text-align:center">סט</div><div style="text-align:center">משקל (ק"ג)</div>
+          <div style="text-align:center">${ex.unit}</div><div style="text-align:center">✓</div>
+        </div>
+        ${rows.join("")}
+        <div class="rest-hint">⏱ מנוחה מומלצת: ${ex.rest} שניות (מתחיל אוטומטית בסימון סט)</div>
+      </div>
+    </section>`;
+  }).join("");
+  bindWorkout();
+}
+
+function bindWorkout(){
+  document.querySelectorAll(".form-toggle").forEach(b=>{
+    b.onclick=()=>{ const id=b.dataset.toggle; UI.open[id]=!UI.open[id]; saveUI();
+      b.closest(".ex-card").classList.toggle("open"); };
+  });
+  document.querySelectorAll(".inp").forEach(inp=>{
+    inp.addEventListener("input",()=>{
+      const d = getSetData(UI.view, inp.dataset.ex, +inp.dataset.set, true);
+      d[inp.dataset.f] = inp.value;
+      save(); renderHeaderOnly();
+    });
+  });
+  document.querySelectorAll(".chk").forEach(btn=>{
+    btn.onclick=()=>{
+      const exId = btn.dataset.ex, i = +btn.dataset.set;
+      const d = getSetData(UI.view, exId, i, true);
+      d.done = !d.done;
+      save();
+      const row = btn.closest(".log-row");
+      btn.classList.toggle("on", d.done);
+      row.classList.toggle("checked", d.done);
+      const ex = PROGRAM[UI.view].exercises.find(e=>e.id===exId);
+      const card = document.getElementById("card-"+exId);
+      const all = getSession(UI.view,false);
+      const arr = all && all.ex[exId] ? all.ex[exId] : [];
+      const doneCount = arr.filter(s=>s&&s.done).length;
+      card.classList.toggle("done-all", doneCount===ex.sets);
+      if(d.done){
+        startTimer(ex.rest, `${ex.he} · סט ${i+1} הושלם`);
+      }
+      renderHeaderOnly();
+    };
+  });
+}
+function renderHeaderOnly(){ renderHeader(); }
+
+/* ================= HISTORY ================= */
+function renderHistory(){
+  const m = $("main");
+  const dates = Object.keys(DB.sessions).sort().reverse();
+  let html = `
+  <div class="data-actions">
+    <button class="action-btn" id="btnExport">⬇ ייצוא JSON</button>
+    <button class="action-btn" id="btnImport">⬆ ייבוא JSON</button>
+    <button class="action-btn danger" id="btnClear">🗑 מחיקה</button>
+  </div>`;
+  const nonEmpty = dates.filter(d=>Object.keys(DB.sessions[d].ex).length);
+  if(!nonEmpty.length){
+    html += `<div class="empty">עדיין אין אימונים מתועדים.<br>סמנו סטים באחד מימי האימון והם יופיעו כאן. 💪</div>`;
+  } else {
+    html += nonEmpty.map(date=>{
+      const s = DB.sessions[date];
+      const p = PROGRAM[s.day] || PROGRAM.A;
+      const exHtml = Object.keys(s.ex).map(exId=>{
+        let exDef = null;
+        for(const k of DAY_ORDER){ const f=PROGRAM[k].exercises.find(e=>e.id===exId); if(f){exDef=f;break;} }
+        const sets = s.ex[exId].filter(x=>x&&(x.w!==""||x.r!==""||x.done));
+        if(!sets.length) return "";
+        const setsTxt = sets.map(x=>`${x.w!==""?x.w:"–"}kg×${x.r!==""?x.r:"–"}${x.done?"✓":""}`).join("  |  ");
+        return `<div class="hist-ex"><b>${exDef?exDef.he:exId}</b><br><span class="hist-sets">${setsTxt}</span></div>`;
+      }).join("");
+      if(!exHtml) return "";
+      return `<div class="hist-day">
+        <h3>${fmtDate(date)} · ${p.label} (יום ${p.day})</h3>
+        <div class="sub">${p.focus}</div>
+        ${exHtml}
+      </div>`;
+    }).join("");
+  }
+  m.innerHTML = html;
+  $("btnExport").onclick = exportJSON;
+  $("btnImport").onclick = ()=>$("importFile").click();
+  $("btnClear").onclick = ()=>{
+    if(confirm("למחוק את כל היסטוריית האימונים? פעולה זו אינה הפיכה.")){
+      DB = {sessions:{}}; save(); render(); toast("כל הנתונים נמחקו");
+    }
+  };
+}
+function exportJSON(){
+  const blob = new Blob([JSON.stringify(DB,null,2)],{type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "workout-backup-"+todayISO()+".json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("קובץ הגיבוי ירד למכשיר");
+}
+$("importFile").addEventListener("change", e=>{
+  const f = e.target.files[0]; if(!f) return;
+  const rd = new FileReader();
+  rd.onload = ()=>{
+    try{
+      const d = JSON.parse(rd.result);
+      if(!d || typeof d!=="object" || !d.sessions) throw 0;
+      DB = d; save(); render(); toast("הנתונים שוחזרו בהצלחה ✓");
+    }catch(err){ toast("קובץ לא תקין — הייבוא בוטל"); }
+  };
+  rd.readAsText(f);
+  e.target.value = "";
+});
+
+/* ================= REST TIMER ================= */
+const timer = {total:90, left:90, running:false, iv:null};
+function fmt(s){ s=Math.max(0,Math.round(s)); return Math.floor(s/60)+":"+String(s%60).padStart(2,"0"); }
+function updateTimerUI(){
+  $("tTime").textContent = fmt(timer.left);
+  $("tProg").style.width = (timer.total? (timer.left/timer.total*100):0)+"%";
+  $("tPause").textContent = timer.running ? "השהה" : "המשך";
+  $("timerBar").classList.toggle("zero", timer.left<=0);
+}
+function startTimer(seconds, label){
+  timer.total = seconds; timer.left = seconds; timer.running = true;
+  $("tTitle").textContent = label || "מנוחה";
+  $("timerBar").classList.add("show");
+  $("timerBar").classList.remove("flash");
+  clearInterval(timer.iv);
+  timer.iv = setInterval(tick, 500);
+  updateTimerUI();
+}
+let lastTick = null;
+function tick(){
+  if(!timer.running){ lastTick=null; return; }
+  const now = Date.now();
+  if(lastTick===null) lastTick = now;
+  timer.left -= (now-lastTick)/1000;
+  lastTick = now;
+  if(timer.left<=0){
+    timer.left = 0; timer.running = false; clearInterval(timer.iv); lastTick=null;
+    timerDone();
+  }
+  updateTimerUI();
+}
+function timerDone(){
+  $("timerBar").classList.add("flash");
+  chime();
+  if(navigator.vibrate) try{navigator.vibrate([200,100,200,100,400]);}catch(e){}
+  $("tTitle").textContent = "המנוחה הסתיימה — לסט הבא! 💪";
+}
+$("tPlus").onclick = ()=>{ timer.left+=15; timer.total=Math.max(timer.total,timer.left); if(!timer.running&&timer.left>0){timer.running=true; clearInterval(timer.iv); lastTick=null; timer.iv=setInterval(tick,500); $("timerBar").classList.remove("flash","zero");} updateTimerUI(); };
+$("tMinus").onclick = ()=>{ timer.left=Math.max(0,timer.left-15); if(timer.left===0&&timer.running){timer.running=false; clearInterval(timer.iv); lastTick=null; timerDone();} updateTimerUI(); };
+$("tPause").onclick = ()=>{
+  if(timer.left<=0) return;
+  timer.running = !timer.running; lastTick=null;
+  if(timer.running){ clearInterval(timer.iv); timer.iv=setInterval(tick,500); }
+  updateTimerUI();
+};
+$("tReset").onclick = ()=>{ timer.left=timer.total; timer.running=true; lastTick=null; clearInterval(timer.iv); timer.iv=setInterval(tick,500); $("timerBar").classList.remove("flash","zero"); updateTimerUI(); };
+$("tClose").onclick = ()=>{ timer.running=false; clearInterval(timer.iv); lastTick=null; $("timerBar").classList.remove("show","flash"); };
+
+/* synthesized chime — Web Audio, no files */
+let audioCtx = null;
+function chime(){
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state==="suspended") audioCtx.resume();
+    const t0 = audioCtx.currentTime;
+    [[880,0],[1108.7,0.18],[1318.5,0.36]].forEach(([f,dt])=>{
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = "sine"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0+dt);
+      g.gain.exponentialRampToValueAtTime(0.35, t0+dt+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0+dt+0.45);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(t0+dt); o.stop(t0+dt+0.5);
+    });
+  }catch(e){}
+}
+/* unlock audio on first user interaction (mobile requirement) */
+document.addEventListener("touchstart", initAudio, {once:true});
+document.addEventListener("click", initAudio, {once:true});
+function initAudio(){ try{ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+
+/* ================= TOAST & BOOT ================= */
+let toastTO = null;
+function toast(msg){
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTO); toastTO = setTimeout(()=>t.classList.remove("show"), 2600);
+}
+function render(){
+  renderTabs(); renderHeader();
+  if(UI.view==="H") renderHistory(); else renderWorkout();
+  window.scrollTo(0,0);
+}
+render();
+</script>
+</body>
+</html>

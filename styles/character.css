@@ -1,0 +1,169 @@
+/* ---------- Character screen (דמות) ---------- */
+:root{
+  --xp:#A78BFA;            /* XP violet — extends the palette, same family */
+  --ch-body:#4A5F8C; --ch-body-2:#3B4E76; --ch-skin:#C79B75; --ch-shade:#5C77B0;
+}
+
+.char-card{
+  background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  padding:10px 12px 12px; margin-bottom:14px;
+}
+.char-stage{
+  position:relative; display:flex; justify-content:center;
+  background:radial-gradient(circle at 50% 38%, #24304A 0%, #1A2334 60%, #161E2E 100%);
+  border-radius:12px; padding:8px 0 4px;
+}
+.ch-svg{width:min(62vw,220px); height:auto; display:block}
+
+/* character palette (kept here so the SVG builder stays pure geometry) */
+.ch-shadow{fill:#0B0F19; opacity:.55}
+.ch-torso{fill:url(#chBody); stroke:#22304C; stroke-width:2}
+.ch-lat{fill:var(--ch-body-2); stroke:#22304C; stroke-width:2; stroke-linejoin:round}
+.ch-limb{stroke:var(--ch-body); fill:none}
+.ch-limb-fill{fill:var(--ch-body)}
+.ch-pec{fill:var(--ch-shade); opacity:.85}
+.ch-abs rect{fill:#22304C}
+.ch-delt{fill:var(--ch-shade); stroke:#22304C; stroke-width:1.5}
+.ch-foot{fill:#22304C}
+.ch-skin{fill:var(--ch-skin)}
+.ch-eye{fill:#1B2438}
+.ch-mouth{stroke:#1B2438; stroke-width:2}
+
+/* level-up celebration — killed by the global prefers-reduced-motion rule */
+.ch-part{transform-box:fill-box; transform-origin:center}
+.ch-part.pulse{animation:chPulse 1.1s ease-out 2}
+@keyframes chPulse{
+  0%,100%{filter:none; transform:scale(1)}
+  40%{filter:drop-shadow(0 0 9px var(--accent)) brightness(1.35); transform:scale(1.05)}
+}
+
+.char-level{
+  position:absolute; top:8px; inset-inline-start:10px; text-align:center;
+  background:#0F172ACC; border:1px solid var(--accent); border-radius:12px;
+  padding:5px 11px; min-width:52px;
+}
+.char-level .cl-num{display:block; font-size:22px; font-weight:900; color:var(--accent); line-height:1}
+.char-level .cl-lbl{display:block; font-size:10px; color:var(--muted); letter-spacing:.08em}
+.char-streak-chip{
+  position:absolute; top:8px; inset-inline-end:10px;
+  background:#F59E0B1F; border:1px solid #F59E0B55; color:var(--warn);
+  border-radius:99px; padding:5px 11px; font-size:12px; font-weight:700;
+}
+
+.char-meta{display:flex; gap:8px; margin-top:10px}
+.cm-item{
+  flex:1; background:var(--card-2); border:1px solid var(--line); border-radius:12px;
+  padding:8px 6px; text-align:center;
+}
+.cm-item b{display:block; font-size:15px; font-weight:800}
+.cm-item span{display:block; font-size:10.5px; color:var(--muted); margin-top:1px}
+
+/* ---------- shared game cards ---------- */
+.game-card{
+  background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  padding:12px 14px 14px; margin-bottom:14px;
+}
+.game-card.locked{opacity:.72}
+.gc-title{margin:0 0 10px; font-size:15px; font-weight:800; display:flex; align-items:baseline; gap:8px}
+.gc-sub{font-size:11.5px; font-weight:600; color:var(--dim)}
+.gc-note{margin:8px 0 0; font-size:12px; color:var(--muted); line-height:1.55}
+.gc-note.dim{color:var(--dim); font-size:11.5px}
+
+.stat-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:8px}
+.stat{
+  background:var(--card-2); border:1px solid var(--line); border-radius:11px;
+  padding:8px 4px; text-align:center;
+}
+.stat .s-k{display:block; font-size:10.5px; color:var(--muted)}
+.stat b{display:block; font-size:15px; font-weight:800; margin-top:2px}
+
+/* ---------- body-part bars ---------- */
+.parts{display:flex; flex-direction:column; gap:12px}
+.part-head,.part-foot{display:flex; justify-content:space-between; align-items:baseline}
+.part-name{font-size:14px; font-weight:800}
+.part-level{font-size:12px; font-weight:800; color:var(--accent)}
+.part-bar{
+  height:9px; background:var(--bg); border:1px solid var(--line); border-radius:99px;
+  overflow:hidden; margin:5px 0 3px;
+}
+.part-bar span{
+  display:block; height:100%; border-radius:99px;
+  background:linear-gradient(90deg,var(--accent),var(--xp)); transition:width .35s ease;
+}
+.part-bar.streak span{background:linear-gradient(90deg,var(--warn),#FBBF24)}
+.part-foot{font-size:11px; color:var(--muted)}
+.part-xp{direction:ltr; color:var(--dim)}
+
+.streak-row{display:flex; gap:12px; align-items:flex-start}
+.streak-tier{
+  flex:0 0 68px; background:var(--card-2); border:1px solid #F59E0B44; border-radius:12px;
+  padding:9px 4px; text-align:center;
+}
+.streak-tier b{display:block; font-size:22px; font-weight:900; color:var(--warn); line-height:1.1}
+.streak-tier span{display:block; font-size:10.5px; color:var(--muted)}
+.streak-body{flex:1; min-width:0}
+
+.slot-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:8px}
+.slot{
+  background:var(--card-2); border:1px dashed var(--line); border-radius:11px;
+  padding:10px 2px; text-align:center; font-size:11.5px; font-weight:700; min-height:52px;
+}
+.slot span{display:block; font-size:10px; color:var(--dim); font-weight:600; margin-top:3px}
+
+/* ---------- equipment shop ---------- */
+.eq-slots{display:flex; flex-direction:column; gap:8px}
+.eq-slot{background:var(--card-2); border:1px solid var(--line); border-radius:12px; overflow:hidden}
+.eq-slot.open{border-color:var(--accent)}
+.eq-head{
+  display:flex; align-items:center; gap:8px; width:100%; min-height:44px;
+  padding:8px 12px; background:none; border:0; color:var(--text);
+  font-size:13.5px; font-weight:800; text-align:start; cursor:pointer;
+}
+.eq-slot-name{flex:0 0 auto}
+.eq-worn{
+  flex:1; min-width:0; font-size:11.5px; font-weight:600; color:var(--muted);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:start;
+}
+.eq-caret{flex:0 0 auto; font-size:10px; color:var(--dim)}
+
+.eq-list{margin:0; padding:0 8px 8px; list-style:none; display:flex; flex-direction:column; gap:7px}
+.eq-item{
+  display:flex; align-items:center; gap:9px;
+  background:var(--bg); border:1px solid var(--line); border-radius:11px; padding:7px 9px;
+}
+.eq-item.owned{border-color:#3B82F655}
+.eq-item.equipped{border-color:var(--ok); background:#10B9810F}
+.eq-item.poor{opacity:.6}
+.eq-art{flex:0 0 34px; display:flex}
+.eq-icon{width:34px; height:34px; display:block}
+.eq-body{flex:1; min-width:0; display:flex; flex-direction:column; gap:1px}
+.eq-body b{font-size:12.5px; font-weight:800}
+.eq-tier{font-size:10px; font-weight:600; color:var(--dim)}
+.eq-bonus{font-size:11px; font-weight:700; color:var(--ok)}
+.eq-note{font-size:10.5px; color:var(--dim); line-height:1.35}
+.eq-btn{
+  flex:0 0 auto; min-height:40px; min-width:64px; padding:0 10px;
+  border-radius:10px; font-size:12.5px; font-weight:800; cursor:pointer;
+  background:var(--card-2); border:1px solid var(--line); color:var(--text);
+}
+.eq-btn.buy{border-color:#F59E0B66; color:var(--warn); direction:ltr}
+.eq-btn.on{border-color:var(--accent); color:var(--accent)}
+.eq-btn.off{border-color:var(--line); color:var(--muted)}
+.eq-btn:disabled{opacity:.45; cursor:default}
+
+/* ---------- trophy shelf ---------- */
+.trophy-shelf{
+  margin:0 0 10px; padding:0; list-style:none;
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(84px,1fr)); gap:9px;
+}
+.trophy{
+  background:var(--card-2); border:1px solid #FBBF2444; border-radius:12px;
+  padding:8px 4px 7px; text-align:center;
+}
+.tr-svg{width:44px; height:52px; display:block; margin:0 auto 4px}
+.trophy b{display:block; font-size:11.5px; font-weight:800; line-height:1.25}
+.trophy span{display:block; font-size:10px; color:var(--muted); margin-top:1px}
+.trophy-meta{margin-top:0}
+
+/* medals pinned on the character's chest */
+.ch-medal{opacity:.95}

@@ -1,0 +1,73 @@
+/* ---------- Exercise card ---------- */
+.ex-card{
+  background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  margin-bottom:14px; overflow:hidden;
+}
+.ex-card.done-all{border-color:var(--ok)}
+.ex-head{padding:14px 14px 8px}
+.ex-order{
+  font-size:11px; font-weight:700; color:var(--dim); letter-spacing:.1em;
+}
+.ex-title{margin:1px 0 2px; font-size:17.5px; font-weight:800; letter-spacing:-.01em}
+.ex-title-en{font-size:12px; color:var(--muted); direction:ltr; text-align:right}
+.badges{display:flex; flex-wrap:wrap; gap:6px; margin-top:9px}
+.badge{
+  font-size:11.5px; padding:3px 9px; border-radius:99px; font-weight:600;
+  border:1px solid var(--line); color:var(--muted); background:var(--card-2);
+}
+.badge.muscle{color:#93C5FD; border-color:#3B82F640; background:#3B82F614}
+.badge.scheme{color:var(--warn); border-color:#F59E0B33; background:#F59E0B10}
+.badge.equip::before{content:"⛭ "; opacity:.7}
+
+/* collapsible form panel */
+.form-toggle{
+  width:100%; text-align:right; background:none; border:none; color:var(--accent);
+  font-size:13.5px; font-weight:700; padding:10px 14px; display:flex; justify-content:space-between; align-items:center;
+  border-top:1px dashed var(--line);
+}
+.form-toggle .chev{transition:.2s; color:var(--dim)}
+.ex-card.open .form-toggle .chev{transform:rotate(180deg)}
+.form-panel{display:none; padding:0 14px 14px; font-size:13.5px; color:#C4CDDD}
+.ex-card.open .form-panel{display:block}
+.form-panel h4{margin:10px 0 4px; font-size:12px; color:var(--dim); letter-spacing:.06em}
+.form-panel ol{margin:0; padding-inline-start:18px}
+.form-panel li{margin-bottom:3px}
+.cue{
+  margin-top:10px; padding:9px 11px; border-radius:10px;
+  background:#3B82F612; border-inline-start:3px solid var(--accent); font-size:13px;
+}
+.mistake{
+  margin-top:8px; padding:9px 11px; border-radius:10px;
+  background:#EF444410; border-inline-start:3px solid var(--danger); font-size:13px; color:#FCA5A5;
+}
+
+/* ---------- Log table ---------- */
+.log{padding:4px 12px 14px}
+.log-row{
+  display:grid; grid-template-columns:34px 1fr 1fr 46px; gap:8px; align-items:center;
+  padding:7px 0;
+}
+.log-row.head{font-size:11px; color:var(--dim); padding-bottom:2px; font-weight:700}
+.set-num{
+  font-size:13px; font-weight:800; color:var(--muted); text-align:center;
+  background:var(--card-2); border-radius:8px; padding:6px 0;
+}
+.log-row.checked .set-num{background:#10B98122; color:var(--ok)}
+.inp-wrap{position:relative}
+.inp{
+  width:100%; background:var(--bg); border:1px solid var(--line); color:var(--text);
+  border-radius:10px; padding:9px 10px 9px; font-size:16px; font-weight:700; text-align:center;
+  -moz-appearance:textfield; appearance:textfield;
+}
+.inp::-webkit-inner-spin-button{display:none}
+.inp:focus{outline:none; border-color:var(--accent)}
+.prev{
+  display:block; text-align:center; font-size:10.5px; color:var(--dim); margin-top:2px; min-height:13px;
+}
+.chk{
+  width:38px; height:38px; border-radius:11px; border:2px solid var(--line);
+  background:var(--card-2); color:transparent; font-size:18px; font-weight:900;
+  display:flex; align-items:center; justify-content:center; margin:0 auto; transition:.15s;
+}
+.chk.on{background:var(--ok); border-color:var(--ok); color:#06281D}
+.rest-hint{font-size:11px; color:var(--dim); text-align:center; margin-top:4px}

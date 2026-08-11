@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#121824">
+<meta name="description" content="אפליקציית אימוני היפרטרופיה 3 ימים — עובדת 100% אופליין">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Gym RPG">
+<title>היפרטרופיה 3 ימים · חזה וליבה</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<!-- Favicon is an inline data: URI so the single-file build has zero external refs. -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23121824'/%3E%3Cg stroke='%233B82F6' stroke-width='6' stroke-linecap='round'%3E%3Cpath d='M16 32h32'/%3E%3Cpath d='M14 22v20M50 22v20'/%3E%3C/g%3E%3Cg stroke='%2310B981' stroke-width='5' stroke-linecap='round'%3E%3Cpath d='M8 26v12M56 26v12'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="./icon.svg">
+</head>
+<body>
+
+<nav class="tabs" id="tabs"></nav>
+
+<header id="header"></header>
+
+<main id="main"></main>
+
+<footer>💪 האפליקציה עובדת 100% אופליין · הנתונים נשמרים במכשיר בלבד</footer>
+
+<!-- Floating rest timer -->
+<div id="timerBar" dir="rtl">
+  <div class="t-progress" id="tProg"></div>
+  <div class="t-inner">
+    <div class="t-time" id="tTime">1:30</div>
+    <div class="t-label">
+      <div class="ttl" id="tTitle">מנוחה</div>
+      <div class="sub">טיימר מנוחה</div>
+    </div>
+    <div class="t-btns">
+      <button class="t-btn" id="tMinus">‎-15s</button>
+      <button class="t-btn" id="tPlus">‎+15s</button>
+      <button class="t-btn warn" id="tPause">השהה</button>
+      <button class="t-btn" id="tReset">איפוס</button>
+      <button class="t-btn close" id="tClose">✕</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<input type="file" id="importFile" accept="application/json" style="display:none">
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

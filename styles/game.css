@@ -1,0 +1,36 @@
+/* ---------- Game feedback on the workout screen ---------- */
+
+/* Floating "+8 XP חזה!" labels. Base state is fully visible, so when
+   prefers-reduced-motion disables the keyframes the text still reads. */
+.xp-fly{
+  position:fixed; z-index:90; pointer-events:none; white-space:nowrap;
+  transform:translate(-50%,-50%);
+  font-size:13.5px; font-weight:900; color:var(--ok);
+  text-shadow:0 2px 8px #000A;
+  animation:xpFly 1.15s cubic-bezier(.2,.7,.3,1) forwards;
+}
+.xp-fly.bonus{color:var(--warn); font-size:15px}
+@keyframes xpFly{
+  0%{opacity:0; transform:translate(-50%,-50%) scale(.75)}
+  18%{opacity:1; transform:translate(-50%,-70%) scale(1.08)}
+  100%{opacity:0; transform:translate(-50%,-170%) scale(1)}
+}
+
+/* Unobtrusive battle-energy counter, top corner of the header. */
+.energy-pill{
+  position:absolute; top:18px; inset-inline-end:16px;
+  display:inline-flex; align-items:center; gap:5px;
+  background:var(--card-2); border:1px solid #F59E0B44; color:var(--warn);
+  border-radius:99px; padding:5px 11px; font-size:12.5px; font-weight:800;
+  line-height:1.2;
+}
+.energy-pill .ep-num{direction:ltr; font-variant-numeric:tabular-nums}
+header{position:relative}
+
+/* Keep the title clear of the pill on narrow screens. */
+header .app-title{padding-inline-end:74px}
+
+/* דמות tab in the nav — 5 tabs now, so the two icon tabs shrink a little. */
+.tab.char-tab{flex:.7}
+.tab.char-tab.active{background:var(--card-2); border-color:var(--accent); color:var(--accent)}
+.tab.char-tab .w,.tab.hist-tab .w{font-size:10px}

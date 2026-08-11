@@ -1,0 +1,27 @@
+{
+  "name": "היפרטרופיה 3 ימים · Gym RPG",
+  "short_name": "Gym RPG",
+  "description": "אפליקציית אימוני היפרטרופיה 3 ימים — עובדת 100% אופליין, הנתונים נשמרים במכשיר בלבד",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#121824",
+  "theme_color": "#121824",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
