@@ -4,7 +4,7 @@ nav.tabs{
 }
 .tab{
   flex:1; border:1px solid var(--line); background:var(--card); color:var(--muted);
-  border-radius:12px; padding:9px 4px; text-align:center; transition:.15s;
+  border-radius:12px; padding:9px 4px; text-align:center; transition:.15s; min-height:44px;
 }
 .tab .d{display:block; font-weight:800; font-size:15px}
 .tab .w{display:block; font-size:11px; margin-top:1px}
@@ -12,3 +12,30 @@ nav.tabs{
 .tab.active .w{color:#DBEAFE}
 .tab.hist-tab{flex:.7}
 .tab.hist-tab.active{background:var(--card-2); border-color:var(--accent); color:var(--accent)}
+
+/**
+ * A schedule-expanded plan shows one tab per TRAINING DAY of the week (see
+ * core/plan.ts#scheduleTabs), so four workout tabs + דמות/קרב/היסטוריה is an
+ * ordinary week. Past six tabs the row scrolls sideways instead of squeezing
+ * every tab into an untappable sliver; the shell adds `.scroll` from the tab
+ * count, so up to six the bar is byte-identical to what it always was.
+ *
+ * The scrollbar itself is hidden (a 7px gutter under a 44px row is clutter, and
+ * the row is dragged, not scrolled with a wheel) — the partially visible tab at
+ * the edge is the affordance. RTL needs no special casing: the flex row lays
+ * itself out right-to-left and the browser starts the scroller at its own
+ * inline start, which is the right edge.
+ */
+nav.tabs.scroll{
+  flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden;
+  scrollbar-width:none; -ms-overflow-style:none;
+  overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch;
+  scroll-padding-inline:16px;
+}
+nav.tabs.scroll::-webkit-scrollbar{display:none}
+/* No shrinking once we scroll: every tab keeps a ≥40px touch target. */
+nav.tabs.scroll .tab{flex:0 0 auto; min-width:72px; padding-inline:10px}
+nav.tabs.scroll .tab.hist-tab{flex:0 0 auto}
+/* A workout name can be a whole sentence ("חלק א׳ — רגליים, חזה…"): one line,
+   elided, so the tab stays a thumb-sized target rather than a paragraph. */
+nav.tabs.scroll .tab .w{max-width:104px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
