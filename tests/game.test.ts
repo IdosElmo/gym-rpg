@@ -13,7 +13,7 @@ import { savePlan } from '../src/core/plan.ts';
 import type { PlanDoc } from '../src/data/planTypes.ts';
 import { PROGRAM, findExercise, type Exercise } from '../src/data/program.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
-import type { AppEvent, GameState, Session } from '../src/storage/DataStore.ts';
+import { GAME_STATE_VERSION, type AppEvent, type GameState, type Session } from '../src/storage/DataStore.ts';
 import {
   EVENTS_KEY,
   STATE_KEY,
@@ -87,13 +87,13 @@ describe('live XP grants through the store', () => {
     expect(types).toEqual(['xp_gained', 'energy_gained']);
   });
 
-  it('writes the v4 game blob, with an idempotency key on every energy grant', () => {
+  it('writes the current game blob, with an idempotency key on every energy grant', () => {
     const store = new LocalStore(fakeStorage());
     onSetCompleted(store, { date: TODAY, day: 'A', ex: ex('a1'), setIndex: 0, w: '40', r: '10' });
     onWorkoutFinished(store, { date: TODAY, day: 'A' });
 
     const game = gameOf(store);
-    expect(game.version).toBe(4);
+    expect(game.version).toBe(GAME_STATE_VERSION);
     expect(game.energyGranted).toEqual({ [`${TODAY}|a1|0`]: true, [`bonus|${TODAY}`]: true });
     expect(game.prKeys).toEqual({});
 

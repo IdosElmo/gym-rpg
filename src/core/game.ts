@@ -23,6 +23,8 @@ import type { BossResult, WaveResult } from './combat.ts';
 import { todayISO } from './workout.ts';
 import {
   applyGameEvent,
+  buildCharacterPurchase,
+  buildCharacterSelect,
   buildEquip,
   buildPurchase,
   buildSetGrant,
@@ -31,6 +33,7 @@ import {
   emptyGame,
   finalizeGame,
   weeklyTargetsFromEvents,
+  type CharacterPurchaseError,
   type PendingEvent,
   type PurchaseError,
 } from './xp.ts';
@@ -229,6 +232,39 @@ export function equipItem(
   now: Date = new Date(),
 ): boolean {
   const pending = buildEquip(gameOf(store), slot, itemId, todayISO(now), now.getTime());
+  if (pending.length === 0) return false;
+  commit(store, pending, now);
+  return true;
+}
+
+/* ------------------------------------------------------------- characters */
+
+export interface CharacterPurchaseResult {
+  ok: boolean;
+  error?: CharacterPurchaseError;
+}
+
+/**
+ * Buy a cosmetic character skin with battle coins (and play it immediately).
+ *
+ * Same contract as `buyItem`: the decision is made in `core/xp.ts` BEFORE
+ * anything is appended, so a refused purchase leaves no trace in the log.
+ * Skins change nothing but the drawing — no stat, anywhere, ever.
+ */
+export function buyCharacter(store: DataStore, characterId: string, now: Date = new Date()): CharacterPurchaseResult {
+  const plan = buildCharacterPurchase(gameOf(store), characterId, todayISO(now), now.getTime());
+  if (!plan.ok) {
+    const out: CharacterPurchaseResult = { ok: false };
+    if (plan.error) out.error = plan.error;
+    return out;
+  }
+  commit(store, plan.events, now);
+  return { ok: true };
+}
+
+/** Play an owned character. Returns false when there was nothing to change. */
+export function selectCharacter(store: DataStore, characterId: string, now: Date = new Date()): boolean {
+  const pending = buildCharacterSelect(gameOf(store), characterId, todayISO(now), now.getTime());
   if (pending.length === 0) return false;
   commit(store, pending, now);
   return true;
