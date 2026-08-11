@@ -101,24 +101,28 @@ describe('plan editor entry points', () => {
     expect(document.querySelector('#header .app-title')?.textContent).toContain('עריכת תוכנית');
   });
 
-  it('opens from the plan card on the history screen, and comes back to it', () => {
+  it('opens from the plan card on the settings screen, and comes back to it', () => {
     const { store, render } = mount();
     store.update((d) => {
-      d.ui.view = 'H';
+      d.ui.view = 'ST';
     });
     render();
     expect(document.querySelector('.plan-card')).not.toBeNull();
     click('#btnPlanEdit');
     expect(store.getState().ui.view).toBe('PL');
     click('#btnPlanBack');
-    expect(store.getState().ui.view).toBe('H');
+    expect(store.getState().ui.view).toBe('ST');
   });
 
-  it('does NOT add a seventh tab to the nav', () => {
+  it('does NOT add a tab to either row of the nav', () => {
     mount();
-    expect(document.querySelectorAll('#tabs .tab')).toHaveLength(6);
+    expect(document.querySelectorAll('#tabs .hub')).toHaveLength(3);
+    expect(document.querySelectorAll('#tabs .tab')).toHaveLength(3);
     openEditor();
-    expect(document.querySelectorAll('#tabs .tab')).toHaveLength(6);
+    // the editor lives in the אימון hub but claims no tab of its own
+    expect(document.querySelectorAll('#tabs .hub')).toHaveLength(3);
+    expect(document.querySelectorAll('#tabs .tab')).toHaveLength(3);
+    expect(document.querySelectorAll('#tabs .tab.active')).toHaveLength(0);
     // the nav still works as an escape hatch
     expect(document.querySelector<HTMLElement>('#tabs .tab[data-view="A"]')).not.toBeNull();
   });
@@ -438,9 +442,9 @@ describe('ready-made presets', () => {
     click('#btnPlanBack');
 
     const tabs = [...document.querySelectorAll<HTMLElement>('#tabs .tab')];
-    // The preset defines TWO days trained on four weekdays, and the tab bar
-    // shows the WEEK: ראשון / שלישי / רביעי / חמישי + דמות + קרב + היסטוריה.
-    expect(tabs).toHaveLength(7);
+    // The preset defines TWO days trained on four weekdays, and the אימון hub's
+    // inner row shows the WEEK: ראשון / שלישי / רביעי / חמישי — nothing else.
+    expect(tabs).toHaveLength(4);
     expect(tabs[0]?.textContent).toContain('ראשון');
     expect(tabs[0]?.textContent).toContain('חלק א׳');
     // the boot tab follows the real weekday, so pin the test to חלק א׳
@@ -843,6 +847,11 @@ describe('history with a custom plan', () => {
     });
     render();
     expect(document.querySelector('#main .hist-ex b')?.textContent).toBe('מתח באחיזה צרה');
+    // the plan card moved one inner tab across, to הגדרות
+    store.update((d) => {
+      d.ui.view = 'ST';
+    });
+    render();
     expect(document.querySelector('.plan-card .gc-sub')?.textContent).toContain('מותאמת');
   });
 

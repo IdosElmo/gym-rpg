@@ -30,7 +30,7 @@ import {
 } from '../src/sync/account.ts';
 import type { SyncStatus } from '../src/sync/engine.ts';
 import { createApp } from '../src/ui/app.ts';
-import { CLEAR_CONFIRM_ACCOUNT, CLEAR_CONFIRM_LOCAL, initImportInput } from '../src/ui/history.ts';
+import { CLEAR_CONFIRM_ACCOUNT, CLEAR_CONFIRM_LOCAL, initImportInput } from '../src/ui/settings.ts';
 import { RestTimer } from '../src/ui/timer.ts';
 
 function fakeStorage(seed: Record<string, string> = {}): StorageLike {
@@ -102,15 +102,16 @@ function mount(account: FakeAccount, store: LocalStore = new LocalStore(fakeStor
   });
   const mounted: Mounted = { store, render: () => undefined, account, merges: 0 };
   const app = createApp(store, timer, {
-    history: {
+    settings: {
       account,
       isSignedIn: () => isSignedIn(account.state),
       onLocalMerge: () => void (mounted.merges += 1),
     },
   });
   mounted.render = app.render;
+  // The card lives on the הגדרות inner tab of the settings hub (view `ST`).
   store.update((d) => {
-    d.ui.view = 'H';
+    d.ui.view = 'ST';
   });
   app.render();
   return mounted;
@@ -209,12 +210,12 @@ describe('the account card', () => {
     const acc = fakeAccount(status({ kind: 'syncing', pending: 1 }));
     mount(acc);
     expect(cardText()).toContain('מסנכרן');
-    const heading = document.querySelector('.hist-heading');
+    const planCard = document.querySelector('.plan-card');
 
     acc.state = status({ kind: 'idle', pending: 0, lastSyncAt: NOW });
     expect(refreshAccountCard(acc)).toBe(true);
     expect(cardText()).toContain('הכל מגובה');
-    expect(document.querySelector('.hist-heading')).toBe(heading); // same DOM node
+    expect(document.querySelector('.plan-card')).toBe(planCard); // same DOM node
 
     // …and the swapped-in card is live again
     click('#btnSignOut');

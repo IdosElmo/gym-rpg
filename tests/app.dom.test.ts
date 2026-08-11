@@ -10,7 +10,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { PROGRAM, isBuiltInDayKey, type BuiltInDayKey } from '../src/data/program.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
-import { savePlan } from '../src/core/plan.ts';
+import { defaultPlanDoc, makePlanDay, savePlan } from '../src/core/plan.ts';
+import { HUBS, hubOf } from '../src/ui/nav.ts';
+import { APP_VERSION } from '../src/ui/settings.ts';
 import { presetById } from '../src/data/presets.ts';
 import { createApp } from '../src/ui/app.ts';
 import { RestTimer } from '../src/ui/timer.ts';
@@ -59,10 +61,33 @@ function currentDay(store: LocalStore): BuiltInDayKey {
   return view;
 }
 
+/** The three main tabs, in order. */
+function hubs(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>('#tabs .hub-row .hub')];
+}
+
+/** The inner tabs of whichever hub is open. */
+function innerTabs(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>('#tabs .sub-row .tab')];
+}
+
+function clickHub(id: string): void {
+  const el = document.querySelector<HTMLElement>(`#tabs .hub[data-hub="${id}"]`);
+  if (!el) throw new Error(`no hub ${id}`);
+  el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+}
+
+function clickView(viewId: string): void {
+  const el = document.querySelector<HTMLElement>(`#tabs .tab[data-view="${viewId}"]`);
+  if (!el) throw new Error(`no tab ${viewId}`);
+  el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+}
+
 describe('workout screen', () => {
-  it('renders the 6 tabs (3 days + דמות + קרב + היסטוריה) and the day exercise cards', () => {
+  it('renders the 3 hubs + the 3 day tabs of the built-in plan, and the day exercise cards', () => {
     const { store } = mount();
-    expect(document.querySelectorAll('#tabs .tab')).toHaveLength(6);
+    expect(hubs()).toHaveLength(3);
+    expect(innerTabs()).toHaveLength(3);
     const view = currentDay(store);
     expect(document.querySelectorAll('#main .ex-card')).toHaveLength(PROGRAM[view].exercises.length);
     expect(document.querySelector('.ex-title')?.textContent).toBe(PROGRAM[view].exercises[0]?.he);
@@ -164,15 +189,8 @@ describe('schedule-expanded day tabs', () => {
     return { store, alef, bet };
   }
 
-  function tabs(): HTMLElement[] {
-    return [...document.querySelectorAll<HTMLElement>('#tabs .tab')];
-  }
-
-  function clickTab(viewId: string): void {
-    const el = document.querySelector<HTMLElement>(`#tabs .tab[data-view="${viewId}"]`);
-    if (!el) throw new Error(`no tab ${viewId}`);
-    el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-  }
+  const tabs = innerTabs;
+  const clickTab = clickView;
 
   function cardIds(): string[] {
     return [...document.querySelectorAll<HTMLElement>('#main .ex-card')].map((c) => c.id);
@@ -180,7 +198,10 @@ describe('schedule-expanded day tabs', () => {
 
   it('renders four workout tabs for the two-day A/B plan, in weekday order', () => {
     const { alef, bet } = mountAb();
-    expect(tabs()).toHaveLength(7); // 4 workout occurrences + דמות + קרב + היסטוריה
+    // The four occurrences are the WHOLE inner row now: דמות/קרב/היסטוריה moved
+    // into their own hubs, so a four-day split no longer overflows anything.
+    expect(tabs()).toHaveLength(4);
+    expect(hubs()).toHaveLength(3);
     expect(tabs().slice(0, 4).map((t) => t.dataset['view'])).toEqual([
       `${alef}@0`,
       `${bet}@2`,
@@ -195,14 +216,31 @@ describe('schedule-expanded day tabs', () => {
     ]);
     // the workout's own name is the small line, so a tab reads "רביעי / חלק א׳"
     expect(tabs()[2]?.querySelector('.w')?.textContent).toContain('חלק א׳');
-    // seven tabs no longer fit a phone row: the bar scrolls instead of squeezing
-    expect(document.getElementById('tabs')?.classList.contains('scroll')).toBe(true);
+    // four inner tabs still fit a phone row — nothing scrolls, and the main bar
+    // never can (it is always the same three hubs).
+    expect(document.querySelector('#tabs .sub-row')?.classList.contains('scroll')).toBe(false);
   });
 
-  it('keeps the six-tab bar of the built-in program unscrolled', () => {
+  it('keeps the three-tab inner row of the built-in program unscrolled', () => {
     mount();
+    expect(tabs()).toHaveLength(3);
+    expect(document.querySelector('#tabs .sub-row')?.classList.contains('scroll')).toBe(false);
+  });
+
+  it('scrolls the inner row only once a plan defines more days than fit', () => {
+    const store = new LocalStore(fakeStorage());
+    // Six days, one weekday each: six inner tabs, which is past the four a
+    // phone row fits.
+    const doc = defaultPlanDoc();
+    doc.days = [0, 1, 2, 3, 4, 5].map((w) =>
+      makePlanDay(`d_day${w}`, `יום ${w}`, [w], [{ id: 'a1', sets: 3, reps: '10', rest: 90 }]),
+    );
+    const res = savePlan(store, doc);
+    if (!res.ok) throw new Error(res.errors.join(', '));
+    mount(store);
     expect(tabs()).toHaveLength(6);
-    expect(document.getElementById('tabs')?.classList.contains('scroll')).toBe(false);
+    expect(hubs()).toHaveLength(3);
+    expect(document.querySelector('#tabs .sub-row')?.classList.contains('scroll')).toBe(true);
   });
 
   it('shows the right workout per tab, with ONLY the tapped tab active', () => {
@@ -290,9 +328,6 @@ describe('history screen', () => {
     });
     render();
     expect(document.querySelector('#main .empty')).not.toBeNull();
-    expect(document.getElementById('btnExport')).not.toBeNull();
-    expect(document.getElementById('btnImport')).not.toBeNull();
-    expect(document.getElementById('btnClear')).not.toBeNull();
 
     store.update((d) => {
       d.sessions['2025-01-05'] = { day: 'A', ex: { a1: [{ w: '40', r: '10', done: true }] } };
@@ -300,5 +335,192 @@ describe('history screen', () => {
     render();
     expect(document.querySelector('#main .hist-day h3')?.textContent).toContain('05.01.2025');
     expect(document.querySelector('#main .hist-sets')?.textContent).toContain('40kg×10✓');
+  });
+});
+
+/* ------------------------------------------------------ two-level navigation */
+
+/**
+ * The main bar is exactly three hubs — אימון / קרב / הגדרות — and the second
+ * row is whatever that hub contains. The hub is DERIVED from `ui.view`, so no
+ * stored view had to move for this: every id the app ever persisted still names
+ * the same screen, and now also names the hub that screen lives in.
+ */
+describe('the three-hub navigation', () => {
+  function hubIds(): (string | undefined)[] {
+    return hubs().map((h) => h.dataset['hub']);
+  }
+
+  function activeHub(): string | undefined {
+    return hubs().find((h) => h.classList.contains('active'))?.dataset['hub'];
+  }
+
+  it('always shows exactly three main tabs, whatever screen is open', () => {
+    const { store, render } = mount();
+    for (const view of ['A', 'B', 'C', 'CH', 'BT', 'H', 'ST', 'PL']) {
+      store.update((d) => {
+        d.ui.view = view;
+      });
+      render();
+      expect(hubIds()).toEqual(['TR', 'GM', 'SE']);
+      expect(hubs().filter((h) => h.classList.contains('active'))).toHaveLength(1);
+    }
+    expect(HUBS.map((h) => h.title)).toEqual(['אימון', 'קרב', 'הגדרות']);
+  });
+
+  it('derives the hub from every view id the store can hold', () => {
+    expect(hubOf('A')).toBe('TR');
+    expect(hubOf('d_alef')).toBe('TR');
+    expect(hubOf('d_alef@3')).toBe('TR');
+    expect(hubOf('PL')).toBe('TR');
+    expect(hubOf('BT')).toBe('GM');
+    expect(hubOf('CH')).toBe('GM');
+    expect(hubOf('ST')).toBe('SE');
+    expect(hubOf('H')).toBe('SE');
+    // a day key minted by a plan on another device is still a workout day
+    expect(hubOf('d_whatever')).toBe('TR');
+  });
+
+  it('lights the hub that owns the open screen, editor included', () => {
+    const { store, render } = mount();
+    const of = (view: string): string | undefined => {
+      store.update((d) => {
+        d.ui.view = view;
+      });
+      render();
+      return activeHub();
+    };
+    expect(of('A')).toBe('TR');
+    expect(of('PL')).toBe('TR'); // the editor belongs to the training hub…
+    expect(innerTabs().every((t) => !t.classList.contains('active'))).toBe(true); // …but to no tab of it
+    expect(of('BT')).toBe('GM');
+    expect(of('CH')).toBe('GM');
+    expect(of('ST')).toBe('SE');
+    expect(of('H')).toBe('SE');
+  });
+
+  it('gives each hub its own inner tabs', () => {
+    mount();
+    expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['A', 'B', 'C']);
+
+    clickHub('GM');
+    expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['BT', 'CH']);
+    expect(innerTabs()[0]?.textContent).toContain('קרב');
+    expect(innerTabs()[1]?.textContent).toContain('דמות');
+
+    clickHub('SE');
+    expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['ST', 'H']);
+    expect(innerTabs()[0]?.textContent).toContain('הגדרות');
+    expect(innerTabs()[1]?.textContent).toContain('היסטוריה');
+  });
+
+  it('opens each hub on its home screen and remembers the inner tab per hub', () => {
+    const { store } = mount();
+    clickView('B');
+    expect(store.getState().ui.view).toBe('B');
+
+    clickHub('GM');
+    expect(store.getState().ui.view).toBe('BT'); // the arena is the game hub's home
+    clickView('CH');
+    expect(store.getState().ui.view).toBe('CH');
+
+    clickHub('SE');
+    expect(store.getState().ui.view).toBe('ST'); // settings-first, not history
+    clickView('H');
+    expect(store.getState().ui.view).toBe('H');
+
+    // …and every hub comes back to where it was left
+    clickHub('TR');
+    expect(store.getState().ui.view).toBe('B');
+    clickHub('GM');
+    expect(store.getState().ui.view).toBe('CH');
+    clickHub('SE');
+    expect(store.getState().ui.view).toBe('H');
+  });
+
+  it('does not remember the plan editor as the training hub’s inner tab', () => {
+    const { store } = mount();
+    clickView('C');
+    document.getElementById('btnEditPlan')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(store.getState().ui.view).toBe('PL');
+    clickHub('GM');
+    clickHub('TR');
+    // back to the workout that was open, not back into the editor
+    expect(store.getState().ui.view).toBe('C');
+  });
+
+  it('opens an install left on the old היסטוריה view inside the settings hub', () => {
+    const store = new LocalStore(fakeStorage());
+    store.update((d) => {
+      d.ui.view = 'H';
+    });
+    mount(store);
+    expect(activeHub()).toBe('SE');
+    expect(store.getState().ui.view).toBe('H');
+    expect(innerTabs().find((t) => t.classList.contains('active'))?.dataset['view']).toBe('H');
+    expect(document.querySelector('#main .empty')).not.toBeNull();
+    // …and its hub-mate is one tap away
+    clickView('ST');
+    expect(document.getElementById('btnExport')).not.toBeNull();
+  });
+});
+
+/* -------------------------------------------------------------- settings hub */
+
+describe('the settings hub', () => {
+  it('splits pressable settings from browsable history', () => {
+    const { store, render } = mount();
+    store.update((d) => {
+      d.sessions['2025-01-05'] = { day: 'A', ex: { a1: [{ w: '40', r: '10', done: true }] } };
+      d.ui.view = 'ST';
+    });
+    render();
+
+    // הגדרות: the plan card, the data actions and the app-info line…
+    expect(document.querySelector('#main .plan-card')).not.toBeNull();
+    expect(document.getElementById('btnExport')).not.toBeNull();
+    expect(document.getElementById('btnImport')).not.toBeNull();
+    expect(document.getElementById('btnClear')).not.toBeNull();
+    expect(document.getElementById('btnPlanEdit')).not.toBeNull();
+    expect(document.querySelector('#main .app-info')?.textContent).toContain('אופליין');
+    // …and none of the log
+    expect(document.querySelector('#main .hist-day')).toBeNull();
+    expect(document.querySelector('#main .feed')).toBeNull();
+
+    clickView('H');
+    // היסטוריה: the log and the adventure feed, and none of the buttons
+    expect(document.querySelector('#main .hist-day h3')?.textContent).toContain('05.01.2025');
+    expect(document.querySelector('#main .hist-heading')?.textContent).toContain('אימונים מתועדים');
+    expect(document.getElementById('btnExport')).toBeNull();
+    expect(document.getElementById('btnClear')).toBeNull();
+    expect(document.querySelector('#main .plan-card')).toBeNull();
+  });
+
+  it('shows the app version the package actually declares', () => {
+    const pkg = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')) as { version: string };
+    // The version is a constant rather than a build-time define (the bundle is
+    // a plain single-file build with nothing injected), so this test is what
+    // keeps it honest.
+    expect(APP_VERSION).toBe(pkg.version);
+    const { store, render } = mount();
+    store.update((d) => {
+      d.ui.view = 'ST';
+    });
+    render();
+    expect(document.querySelector('#main .app-info')?.textContent).toContain(pkg.version);
+  });
+
+  it('keeps the ⚙️ plan editor reachable from the settings screen', () => {
+    const { store, render } = mount();
+    store.update((d) => {
+      d.ui.view = 'ST';
+    });
+    render();
+    document.getElementById('btnPlanEdit')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(store.getState().ui.view).toBe('PL');
+    // the editor belongs to the training hub, and ← returns to where it opened
+    expect(hubs().find((h) => h.classList.contains('active'))?.dataset['hub']).toBe('TR');
+    document.getElementById('btnPlanBack')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(store.getState().ui.view).toBe('ST');
   });
 });

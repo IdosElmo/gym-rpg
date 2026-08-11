@@ -667,8 +667,10 @@ describe('unknown day keys are DATA, not errors', () => {
       meta: { legacyImported: true, createdAt: 1, updatedAt: 1 },
     });
     expect(s.ui.view).toBe('d_alef');
-    // …and the four reserved screens are always legal, plan or no plan
-    for (const view of ['CH', 'BT', 'H', 'PL']) {
+    // …and the reserved screens are always legal, plan or no plan — including
+    // 'ST' (הגדרות), the one view id the two-level nav added, and the 'H' every
+    // earlier build persisted for the same hub.
+    for (const view of ['CH', 'BT', 'H', 'PL', 'ST']) {
       const withView = migrateState({
         schemaVersion: CURRENT_STATE_VERSION,
         sessions: {},
