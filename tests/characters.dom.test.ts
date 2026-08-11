@@ -187,6 +187,46 @@ describe('roster artwork', () => {
     expect(bigger.shoulderHalf).toBeGreaterThan(f.shoulderHalf);
   });
 
+  it('crowns the free female body with a cloud of curls, at every level', () => {
+    const hero = characterById('hero_f');
+    if (!hero) throw new Error('no hero_f');
+    expect(hero.decor.kind).toBe('curls');
+    const geo = characterGeometry(emptyGame().parts, 'female');
+
+    for (const level of [1, 5, 12, 99]) {
+      const doc = parser.parseFromString(characterSvg(partsAt(level), { character: 'hero_f' }), 'image/svg+xml');
+      const curls = [...doc.querySelectorAll('.ch-curl')];
+      // a BOLD silhouette: enough overlapping curls to read as one cloud
+      expect(curls.length, `L${level}`).toBeGreaterThanOrEqual(12);
+      // layered like the tied hair was: bulk behind the skull, hairline in front
+      expect(doc.querySelectorAll('.ch-decor.back .ch-curl').length).toBeGreaterThanOrEqual(9);
+      expect(doc.querySelectorAll('.ch-decor.front .ch-curl').length).toBeGreaterThanOrEqual(4);
+      expect(doc.querySelector('.ch-decor.back ellipse')).not.toBeNull(); // the mass
+
+      for (const c of curls) {
+        const cx = Number(c.getAttribute('cx'));
+        const cy = Number(c.getAttribute('cy'));
+        const r = Number(c.getAttribute('r'));
+        // every curl is a real, visible circle in the hair's own colours…
+        expect(r).toBeGreaterThan(2);
+        expect([hero.decor.main, hero.decor.accent]).toContain(c.getAttribute('fill'));
+        // …hugging the head rather than floating off it (the classic hair bug)
+        expect(Math.hypot(cx - 100, cy - 42)).toBeLessThan(geo.headR * 1.7);
+      }
+      // the face is never covered by the hairline
+      expect(doc.querySelectorAll('.ch-eye')).toHaveLength(2);
+      expect(doc.querySelector('.ch-mouth')).not.toBeNull();
+    }
+
+    // the curls belong to hero_f alone — the ninja keeps its own wrapped head,
+    // and no skin inherits another character's decoration.
+    expect(characterById('ninja')?.decor.kind).toBe('mask');
+    for (const c of CHARACTERS) {
+      const svg = characterSvg(partsAt(6), { character: c.id });
+      expect(svg.includes('ch-curl'), `${c.id}`).toBe(c.id === 'hero_f');
+    }
+  });
+
   it('recolours a skin without touching its geometry', () => {
     const parts = partsAt(6);
     const robot = characterById('robot');
@@ -246,6 +286,19 @@ describe('the דמויות strip', () => {
     // switching bodies is free: coins untouched, and no purchase in the log
     expect(gameOf(store).battle.coins).toBe(0);
     expect(store.getEvents().some((e) => e.type === 'character_purchased')).toBe(false);
+  });
+
+  it('reads the same curls at card size and at stage size', () => {
+    mount(charStore(0));
+    const card = document.querySelector('.chr-card[data-character="hero_f"] .ch-svg');
+    const onCard = card?.querySelectorAll('.ch-curl').length ?? 0;
+    expect(onCard).toBeGreaterThanOrEqual(12);
+
+    click(document.querySelector('.chr-card[data-character="hero_f"]'));
+    const big = document.querySelector('.char-stage .ch-svg');
+    expect(big?.getAttribute('data-character')).toBe('hero_f');
+    // one drawing, two sizes — the strip's 62px preview is the 220px character
+    expect(big?.querySelectorAll('.ch-curl').length).toBe(onCard);
   });
 
   it('asks before buying a skin, then buys it and plays it', () => {
