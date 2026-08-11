@@ -218,6 +218,38 @@ export const BALANCE = {
     coins: { base: 20, perWave: 5, completionBonus: 250 },
   },
 
+  /* ------------------------------------------------------------ ghost duel */
+  /**
+   * GHOST DUEL — one fight against another account's character (`core/ghost.ts`).
+   *
+   * ECONOMY, in one line: it costs ⚡ and pays NOTHING. Coins from a duel would
+   * make two accounts in one household a coin faucet — fight each other twice a
+   * day, for ever, without training — so the only thing a duel produces is the
+   * record, and the record is the reward. The fee is real (`entryEnergy`, two
+   * ordinary waves) so the duel is still gated by having trained, exactly like
+   * every other button in the game.
+   *
+   * DIFFICULTY is not tuned here at all, and that is the point: the opponent's
+   * numbers come from `deriveStats` over ITS OWN levels, streak and gear, the
+   * same function the player's numbers come from. A duel is therefore a straight
+   * comparison of two training histories, with the live player's skills, taps
+   * and super move as the handicap that makes an uphill fight winnable.
+   *
+   * The two clamps below are SECURITY, not balance: a ghost row is written by
+   * another client and can say anything, so `core/ghost.ts` folds it into these
+   * bounds before a single number is derived from it.
+   */
+  duel: {
+    /** ⚡ charged once per duel, when the result is recorded. */
+    entryEnergy: 20,
+    /** Coins a duel pays. Zero — see above. Never make this non-zero. */
+    coins: 0,
+    /** Breather before the opponent walks on (the arena's own beat). */
+    spawnDelayMs: 400,
+    /** Hard ceiling on a FETCHED streak tier (≈4 years of perfect weeks). */
+    maxStreakTier: 200,
+  },
+
   /* --------------------------------------------------------------- skills */
   /**
    * BODY-PART SKILLS — six active abilities, one per body part, unlocked by

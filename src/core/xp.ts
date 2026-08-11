@@ -44,6 +44,7 @@ import {
 import { weeklyTargetOfPlanPayload } from '../data/planTypes.ts';
 import { BALANCE } from './balance.ts';
 import { bestDailyStreak, dailyStreak } from './daily.ts';
+import { duelKey, normalizeHandle } from './handle.ts';
 import type { ChallengeResult } from './combat.ts';
 import {
   EQUIPMENT_SLOTS,
@@ -85,6 +86,9 @@ import {
   type EquipmentState,
   type EventType,
   type GameState,
+  type GhostDuelPayload,
+  type GhostDuelRecord,
+  type GhostDuelState,
   type PartsProgress,
   type Session,
   type SetEntry,
@@ -390,7 +394,13 @@ export function emptyGame(): GameState {
     equipment: emptyEquipment(),
     characters: emptyCharacters(),
     daily: emptyDaily(),
+    duels: emptyDuels(),
   };
+}
+
+/** A fresh duel ledger: nobody fought yet, so every total is zero. */
+export function emptyDuels(): GhostDuelState {
+  return { runs: {}, duels: 0, wins: 0, losses: 0, byOpponent: {} };
 }
 
 /** A fresh daily-challenge ledger: nothing attempted, so everything is zero. */
@@ -682,6 +692,41 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
       };
       break;
     }
+    /**
+     * ONE ghost duel — the only event the feature writes.
+     *
+     * IDEMPOTENT PER (DATE, OPPONENT). The key is DERIVED here from the payload
+     * (`duelKey`), never carried in it, so a crafted event cannot claim a slot
+     * that does not match its own contents; the event applies only while that
+     * slot is empty, and the fee is charged only when it applies. A duplicate is
+     * a total no-op, and two devices that both fought the same person offline
+     * converge on the run that comes FIRST in the log's `(ts, id)` order.
+     *
+     * NO COINS. Not "zero coins in the payload" — the branch does not read a
+     * coin field at all, so no version of this event, however it was written or
+     * crafted, can ever add to the purse. Two accounts cannot farm each other.
+     *
+     * The result is authoritative: a replay reproduces the record from the
+     * event, never by re-simulating a fight whose opponent has since retrained.
+     */
+    case 'ghost_duel': {
+      const date = typeof payload['date'] === 'string' ? payload['date'] : '';
+      const opponent = normalizeHandle(payload['opponentHandle']);
+      if (!date || !opponent) break;
+      const key = duelKey(date, opponent);
+      const d = game.duels;
+      if (d.runs[key]) break;
+
+      const spent = Math.max(0, toNumber(payload['energySpent']));
+      game.energy = round2(Math.max(0, game.energy - spent));
+      d.runs[key] = {
+        opponent,
+        won: payload['won'] === true,
+        score: payload['won'] === true ? 1 : 0,
+        tiebreak: clamp(toNumber(payload['tiebreak']), 0, 100),
+      };
+      break;
+    }
     /** Put an item on, or (with `itemId: null`) take the slot's item off. */
     case 'item_equipped': {
       const slot = typeof payload['slot'] === 'string' ? payload['slot'] : '';
@@ -761,6 +806,40 @@ export function finalizeGame(game: GameState, today: string, targets: WeeklyTarg
   game.level = characterLevel(game.parts);
   game.streak = computeStreak(game.workoutDays, today, targets);
   finalizeDaily(game.daily, today);
+  finalizeDuels(game.duels);
+}
+
+/**
+ * Recompute every duel total from the per-(date, opponent) ledger.
+ *
+ * DERIVED, not folded — the same rule as the daily challenge's totals and the
+ * body-part levels. Lifetime W/L, and W/L against each opponent, are pure
+ * functions of a map that unions exactly, so they cannot drift after a merge
+ * however many duplicate events arrive.
+ */
+export function finalizeDuels(duels: GhostDuelState): void {
+  const byOpponent: Record<string, { wins: number; losses: number; duels: number }> = {};
+  let wins = 0;
+  let losses = 0;
+
+  for (const key of Object.keys(duels.runs).sort()) {
+    const run = duels.runs[key] as GhostDuelRecord;
+    const tally = byOpponent[run.opponent] ?? { wins: 0, losses: 0, duels: 0 };
+    tally.duels += 1;
+    if (run.won) {
+      tally.wins += 1;
+      wins += 1;
+    } else {
+      tally.losses += 1;
+      losses += 1;
+    }
+    byOpponent[run.opponent] = tally;
+  }
+
+  duels.duels = wins + losses;
+  duels.wins = wins;
+  duels.losses = losses;
+  duels.byOpponent = byOpponent;
 }
 
 /**
@@ -1314,6 +1393,77 @@ export function buildDailyChallenge(
     durationMs: result.durationMs,
   };
   return [{ type: 'daily_challenge', payload, ts }];
+}
+
+/* ------------------------------------------------------ ghost duel rules */
+
+/** Why a duel cannot start — the UI turns this into Hebrew. */
+export type DuelEntryError = 'no_opponent' | 'already_dueled' | 'insufficient_energy';
+
+export interface DuelEntryStatus {
+  ok: boolean;
+  error?: DuelEntryError;
+  /** ⚡ the duel costs. */
+  energyCost: number;
+  /** The duel already counted against that opponent today, or `null`. */
+  record: GhostDuelRecord | null;
+  /** Lifetime record against them, for the preview card. */
+  tally: { wins: number; losses: number; duels: number };
+}
+
+/**
+ * May this save duel `opponentHandle` on `date`? PURE — it decides, it does not
+ * spend.
+ *
+ * Every refusal is checked HERE, before a run is created, so a duel that cannot
+ * happen leaves no trace anywhere: no event, no fee. The "one per opponent per
+ * day" half is enforced twice on purpose — here so the UI can explain it, and
+ * again in the reducer so a duplicated or crafted event cannot buy a second one.
+ */
+export function duelEntryStatus(game: GameState, date: string, opponentHandle: string): DuelEntryStatus {
+  const energyCost = BALANCE.duel.entryEnergy;
+  const handle = normalizeHandle(opponentHandle);
+  const tally = game.duels.byOpponent[handle] ?? { wins: 0, losses: 0, duels: 0 };
+  if (!handle) return { ok: false, error: 'no_opponent', energyCost, record: null, tally };
+  const record = game.duels.runs[duelKey(date, handle)] ?? null;
+  if (record) return { ok: false, error: 'already_dueled', energyCost, record, tally };
+  if (game.energy < energyCost) {
+    return { ok: false, error: 'insufficient_energy', energyCost, record: null, tally };
+  }
+  return { ok: true, energyCost, record: null, tally };
+}
+
+/**
+ * The event for a duel that just ended. Returns `[]` when that (date, opponent)
+ * pair already has a counted duel, so a second write is impossible even if the
+ * UI asked for one (a forfeit racing the finish, a double tap, a replayed
+ * callback).
+ */
+export function buildGhostDuel(
+  game: GameState,
+  result: ChallengeResult,
+  snapshotHash: string,
+  ts: number,
+): PendingEvent[] {
+  const opponent = result.opponent;
+  if (!opponent) return [];
+  const handle = normalizeHandle(opponent.handle);
+  if (!handle) return [];
+  if (game.duels.runs[duelKey(result.date, handle)]) return [];
+  const payload: GhostDuelPayload = {
+    date: result.date,
+    opponentHandle: handle,
+    opponentName: opponent.name,
+    won: result.won === true,
+    score: result.won === true ? 1 : 0,
+    tiebreak: result.tiebreak,
+    seed: result.seed,
+    energySpent: result.energySpent,
+    snapshotHash,
+    outcome: result.outcome,
+    durationMs: result.durationMs,
+  };
+  return [{ type: 'ghost_duel', payload, ts }];
 }
 
 /* ---------------------------------------------------------- the roster */

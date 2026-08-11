@@ -51,6 +51,15 @@
  * the run ends, and the single `daily_challenge` event carries the whole story.
  * That is what makes "abandoning a run leaks no coins" structural.
  *
+ * GHOST DUELS (Phase 8) reuse that context unchanged — `kind: 'ghost'`, one
+ * wave, `coins: 0` — and add exactly one thing to the machine: a gauntlet wave
+ * MAY carry the defensive half of a character (`def` / `critChance` /
+ * `critMultiplier` / `regen`), because the opponent is another player's
+ * character rather than a monster. Every one of those fields is optional and
+ * skipped when absent, and `mitigation(0)` is 1, so an ordinary fight is
+ * byte-identical to what it always was — the RNG stream included, since the
+ * enemy's crit draw only happens when it HAS a crit chance.
+ *
  * ENERGY
  * ------
  * Energy is charged when a wave is CLEARED, never when it starts — so being
@@ -461,6 +470,17 @@ export interface EnemyState {
   /** True while the world boss itself is on screen. */
   worldBoss: boolean;
   svg: string;
+  /**
+   * A GHOST's defensive stats (see `GauntletWave`). Absent for every ordinary
+   * enemy, and every rule below is skipped when they are — so nothing about an
+   * ordinary fight changes, down to the order of the RNG draws.
+   */
+  def?: number;
+  critChance?: number;
+  critMultiplier?: number;
+  regen?: number;
+  /** True while another account's character is the opponent (drives the UI). */
+  ghost?: boolean;
 }
 
 export type BattleStatus =
@@ -502,6 +522,22 @@ export interface GauntletWave {
   attackIntervalMs: number;
   /** Coins this wave pays when it is cleared. */
   coins: number;
+  /**
+   * THE DEFENSIVE HALF OF A CHARACTER — optional, and absent for every ordinary
+   * enemy in the game (a monster is a hit-point bag with a fist).
+   *
+   * A GHOST (`core/ghost.ts`) is a person: it mitigates with its Back, crits
+   * with its Arms and regenerates with its Core, because those are the stats its
+   * owner trained. Each one is skipped entirely when it is absent or zero, and
+   * `mitigation(0)` is exactly 1, so a wave without them is byte-for-byte the
+   * fight it has always been — RNG stream included, which is what keeps every
+   * existing determinism test true.
+   */
+  def?: number;
+  critChance?: number;
+  critMultiplier?: number;
+  /** HP per second, paid on the same clock as the player's regen. */
+  regen?: number;
 }
 
 /** How a challenge run ended. `running` means it has not. */
@@ -519,9 +555,32 @@ export type ChallengeOutcome = 'running' | 'complete' | 'defeated' | 'forfeit';
  * Energy is not touched here at all: the entry fee is charged once, by the
  * single event, which is also why no partial coins can ever leak.
  */
+/**
+ * The other side of a GHOST DUEL — display data, carried through the run so the
+ * arena and the result can name it.
+ *
+ * Structural on purpose: `core/ghost.ts` builds it, and this module never
+ * imports that one (the state machine has no idea what a ghost is beyond "a
+ * gauntlet wave that hits back with real stats").
+ */
+export interface ChallengeOpponent {
+  /** The handle that was looked up — half of the duel's ledger key. */
+  handle: string;
+  /** Display name (the handle in its canonical form). */
+  name: string;
+  /** Roster id (`'robot_f'`) — what the arena draws, mirrored. */
+  characterId: string;
+  level: number;
+}
+
 export interface ChallengeRun {
-  /** What kind of gauntlet this is (the ghost duel will add its own). */
-  kind: 'daily';
+  /**
+   * Which kind of gauntlet this is: the DAILY challenge (ten scripted waves) or
+   * a GHOST duel (one wave that is another account's character). The engine
+   * treats them identically; the kind only decides which event the caller
+   * writes when the run ends, and how the screen frames it.
+   */
+  kind: 'daily' | 'ghost';
   /** Calendar date of the challenge (YYYY-MM-DD) — its idempotency key. */
   date: string;
   /** Seed the gauntlet was generated from — recorded in the event. */
@@ -538,10 +597,13 @@ export interface ChallengeRun {
   healOnWaveClear: number;
   spawnDelayMs: number;
   outcome: ChallengeOutcome;
+  /** GHOST duels only: who is on the other side. */
+  opponent?: ChallengeOpponent;
 }
 
 /** The persistent record of ONE challenge run — the `daily_challenge` payload. */
 export interface ChallengeResult {
+  kind: 'daily' | 'ghost';
   date: string;
   seed: number;
   /** Waves fully cleared, 0…`waves.length`. This IS the score. */
@@ -555,6 +617,9 @@ export interface ChallengeResult {
   complete: boolean;
   outcome: Exclude<ChallengeOutcome, 'running'>;
   durationMs: number;
+  /** GHOST duels only: the opponent, and whether the ghost went down. */
+  opponent?: ChallengeOpponent;
+  won?: boolean;
 }
 
 export interface BattleState {
@@ -647,8 +712,11 @@ export type CombatEvent =
   /** The run is over — this carries the ONE fact that gets persisted. */
   | { kind: 'challenge_over'; result: ChallengeResult }
   | { kind: 'hit'; source: 'auto' | 'tap' | 'super' | 'skill'; amount: number; crit: boolean; enemyHp: number }
-  | { kind: 'enemy_hit'; amount: number; playerHp: number }
+  /** `crit` is only ever set by a GHOST, which is the only enemy with crit stats. */
+  | { kind: 'enemy_hit'; amount: number; playerHp: number; crit?: boolean }
   | { kind: 'regen'; amount: number; playerHp: number }
+  /** A ghost healed itself from its own Core. Never fires for an ordinary enemy. */
+  | { kind: 'enemy_regen'; amount: number; enemyHp: number }
   /** A skill went off. Not an event-log event — the UI's cue to play it. */
   | { kind: 'skill_used'; skillId: SkillId; part: BodyPart; power: number; durationMs: number }
   /** A timed skill window closed (the hero's buff chip comes off). */
@@ -814,6 +882,13 @@ function spawnChallenge(state: BattleState, run: ChallengeRun, out: CombatEvent[
     miniBoss: wave.miniBoss,
     worldBoss: false,
     svg: wave.svg,
+    // A ghost carries the defensive half of a character; an ordinary gauntlet
+    // wave carries none of it and behaves exactly as it always did.
+    ...(wave.def === undefined ? {} : { def: wave.def }),
+    ...(wave.critChance === undefined ? {} : { critChance: wave.critChance }),
+    ...(wave.critMultiplier === undefined ? {} : { critMultiplier: wave.critMultiplier }),
+    ...(wave.regen === undefined ? {} : { regen: wave.regen }),
+    ...(run.kind === 'ghost' ? { ghost: true } : {}),
   });
   out.push({ kind: 'challenge_spawn', enemy: state.enemy as EnemyState, wave, run });
 }
@@ -864,6 +939,7 @@ function finishChallenge(
   run.outcome = outcome;
   const complete = run.cleared >= run.waves.length;
   const result: ChallengeResult = {
+    kind: run.kind,
     date: run.date,
     seed: run.seed,
     wavesCleared: run.cleared,
@@ -876,6 +952,9 @@ function finishChallenge(
     complete,
     outcome,
     durationMs: Math.round(state.elapsedMs),
+    // A duel has exactly one wave, so "cleared every wave" IS "the ghost went
+    // down" — there is no third outcome to invent.
+    ...(run.opponent ? { opponent: run.opponent, won: complete } : {}),
   };
   state.enemy = null;
   state.status = 'finished';
@@ -975,7 +1054,10 @@ function damageEnemy(
 ): void {
   const enemy = state.enemy;
   if (!enemy) return;
-  const dealt = Math.max(1, Math.round(amount * 10) / 10);
+  // The enemy's own DEF, on the same soft-cap curve the player's is on. It is 0
+  // for every ordinary enemy and `mitigation(0)` is exactly 1, so this line
+  // changes nothing outside a ghost duel.
+  const dealt = Math.max(1, Math.round(amount * mitigation(enemy.def ?? 0) * 10) / 10);
   enemy.hp = Math.max(0, Math.round((enemy.hp - dealt) * 10) / 10);
   out.push({ kind: 'hit', source, amount: dealt, crit, enemyHp: enemy.hp });
   if (enemy.hp <= 0) {
@@ -1186,6 +1268,18 @@ function step(state: BattleState, dt: number, stats: CombatStats, out: CombatEve
         playerHp: state.playerHp,
       });
     }
+    // A GHOST recovers too, on the same clock and from its own Core. Nothing
+    // happens for an ordinary enemy, which has no `regen` at all.
+    const foeRegen = enemy.regen ?? 0;
+    if (foeRegen > 0 && enemy.hp > 0 && enemy.hp < enemy.maxHp) {
+      const before = enemy.hp;
+      enemy.hp = Math.min(enemy.maxHp, Math.round((enemy.hp + foeRegen) * 10) / 10);
+      out.push({
+        kind: 'enemy_regen',
+        amount: Math.round((enemy.hp - before) * 10) / 10,
+        enemyHp: enemy.hp,
+      });
+    }
   }
 
   // 2. the character attacks (Chest damage, Shoulders speed, Arms crit).
@@ -1214,12 +1308,19 @@ function step(state: BattleState, dt: number, stats: CombatStats, out: CombatEve
   if (state.enemyCd <= 0) {
     state.enemyCd += enemy.attackIntervalMs;
     const guard = state.skills.guardMs > 0 ? state.skills.guardTaken : 1;
-    const dealt = Math.max(
-      1,
-      Math.round(varied(enemy.atk, state.rng) * mitigation(stats.def) * guard * 10) / 10,
-    );
+    let raw = varied(enemy.atk, state.rng);
+    // A GHOST crits with the Arms its owner trained. The draw is INSIDE the
+    // guard, so an enemy without a crit chance takes no number out of the
+    // stream and every existing seed replays exactly as before.
+    let crit = false;
+    const foeCrit = enemy.critChance ?? 0;
+    if (foeCrit > 0) {
+      crit = nextFloat(state.rng) < foeCrit;
+      if (crit) raw *= enemy.critMultiplier ?? 1;
+    }
+    const dealt = Math.max(1, Math.round(raw * mitigation(stats.def) * guard * 10) / 10);
     state.playerHp = Math.max(0, Math.round((state.playerHp - dealt) * 10) / 10);
-    out.push({ kind: 'enemy_hit', amount: dealt, playerHp: state.playerHp });
+    out.push({ kind: 'enemy_hit', amount: dealt, playerHp: state.playerHp, ...(crit ? { crit } : {}) });
     if (state.playerHp <= 0) knockOut(state, out);
   }
 }

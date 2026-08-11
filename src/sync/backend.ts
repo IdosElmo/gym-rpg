@@ -25,6 +25,21 @@ export interface PullPage {
   lastSeq: number;
 }
 
+/**
+ * One row of the `ghosts` table — another account's published character.
+ *
+ * `payload` is deliberately typed as a bare record: the backend is a dumb pipe
+ * and must NOT understand what it carries. Every field is untrusted input
+ * written by another client, and `core/ghost.ts` (`normalizeGhost`) is the one
+ * place it is allowed to become numbers.
+ */
+export interface GhostRow {
+  handle: string;
+  payload: Record<string, unknown>;
+  /** ms epoch of the last publish, when the backend knows it. */
+  updatedAt: number | null;
+}
+
 export interface SyncBackend {
   /**
    * Store events for `userId`. MUST be idempotent per event id — the engine
@@ -38,6 +53,44 @@ export interface SyncBackend {
    * `afterSeq`, oldest first. A full page means "there may be more".
    */
   pullEvents(userId: string, afterSeq: number, limit: number): Promise<PullPage>;
+
+  /**
+   * Upsert THIS user's ghost row (their handle + character snapshot).
+   *
+   * A ghost is presence data, not history: it is a side-channel snapshot that
+   * lives beside the log and is overwritten in place, never appended to. The
+   * event log stays the single source of truth for the account's OWN state —
+   * nothing about a ghost is ever folded back into it, on this device or any
+   * other, which is why publishing can fail forever without costing the user
+   * anything but visibility.
+   *
+   * Rejecting because the handle is taken by somebody else is a normal outcome:
+   * the caller surfaces it in Hebrew. Anything else is a network problem.
+   */
+  publishGhost(userId: string, handle: string, payload: Record<string, unknown>): Promise<void>;
+
+  /**
+   * Look up a ghost by EXACT handle (already canonical — see `core/handle.ts`),
+   * or `null` when nobody answers to it. This is the whole discovery surface:
+   * there is no listing, no search and no way to enumerate accounts.
+   */
+  fetchGhost(handle: string): Promise<GhostRow | null>;
+}
+
+/**
+ * Thrown by `publishGhost` when the handle belongs to somebody else. It is a
+ * user-fixable conflict (pick another name), never a reason to retry.
+ */
+export class GhostHandleTakenError extends Error {
+  constructor(message = 'handle taken') {
+    super(message);
+    this.name = 'GhostHandleTakenError';
+  }
+}
+
+/** True for "that name is taken", as opposed to "the network failed". */
+export function isHandleTaken(err: unknown): boolean {
+  return err instanceof GhostHandleTakenError;
 }
 
 /** The signed-in identity, as little of it as the UI needs. */
