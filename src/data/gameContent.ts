@@ -1131,3 +1131,49 @@ export function bonusHe(b: EquipBonus): string {
   if (b.regen) parts.push(`+${b.regen} התאוששות`);
   return parts.join(' · ');
 }
+
+/* -------------------------------------------------- body-part skills (Phase 4) */
+
+/**
+ * The six ACTIVE abilities, one per body part.
+ *
+ * Content only, exactly like the rest of this file: identity, Hebrew copy and an
+ * icon. Every number (unlock level, cooldown, multiplier, duration) lives in
+ * `BALANCE.skills`, and the Hebrew sentence that quotes those numbers is built
+ * by `skillSummaryHe()` in `core/combat.ts` — so a retune is one edit, and this
+ * roster can never drift from the simulation.
+ *
+ * The order is the body-part order (`BODY_PARTS`), which is also the order the
+ * skill bar renders in and the order an auto-pilot fires them in.
+ */
+export type SkillId = 'smash' | 'guard' | 'quake' | 'flurry' | 'focus' | 'breath';
+
+export interface SkillDef {
+  readonly id: SkillId;
+  /** The body part whose level unlocks AND scales this skill. */
+  readonly part: BodyPart;
+  readonly he: string;
+  readonly icon: string;
+  /** Flavour, without numbers — the numbers come from BALANCE at render time. */
+  readonly desc: string;
+}
+
+export const SKILLS: readonly SkillDef[] = [
+  { id: 'smash', part: 'chest', he: 'מכת מחץ', icon: '🔨', desc: 'מכה אחת כבדה שמרסקת את האויב.' },
+  { id: 'guard', part: 'back', he: 'עמידת ברזל', icon: '🛡️', desc: 'עמידה איתנה — הנזק הנכנס מצטמצם בחדות.' },
+  { id: 'quake', part: 'legs', he: 'רעידת אדמה', icon: '🌋', desc: 'הקרקע רועדת: נזק ועצירה קצרה של האויב.' },
+  { id: 'flurry', part: 'shoulders', he: 'סערת מהלומות', icon: '🌀', desc: 'רצף מהלומות — קצב ההתקפה מוכפל.' },
+  { id: 'focus', part: 'arms', he: 'מכה מדויקת', icon: '🎯', desc: 'ההתקפה הבאה קריטית מובטחת, עם נזק מוגבר.' },
+  { id: 'breath', part: 'core', he: 'נשימה עמוקה', icon: '🌬️', desc: 'ריפוי מיידי ועוד רגע של התאוששות מוגברת.' },
+] as const;
+
+export const SKILL_IDS: readonly SkillId[] = SKILLS.map((s) => s.id);
+
+export function skillById(id: string): SkillDef | undefined {
+  return SKILLS.find((s) => s.id === id);
+}
+
+/** The skill a body part owns (every part owns exactly one). */
+export function skillForPart(part: BodyPart): SkillDef | undefined {
+  return SKILLS.find((s) => s.part === part);
+}

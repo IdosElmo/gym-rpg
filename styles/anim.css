@@ -174,3 +174,81 @@
   25%{filter:drop-shadow(0 0 18px #FBBF24) drop-shadow(0 0 6px #FDE68A) brightness(1.12)}
   100%{filter:none}
 }
+
+/* ---------- body-part skills: the pose, the flex and the flash ----------
+   Same contract as everything above: `ui/battle.ts` toggles short-lived classes
+   from the render path it already had (`skill_used` → `.anim-skill` + `.sk-<part>`
+   on the hero, `.fx-<skill>` on the arena's effect layer) and the keyframes live
+   here. `--anim-skill` is published by JS from `ANIM.skill`.
+
+   Every one of them starts AND ends at the identity transform with no filter, so
+   the global `prefers-reduced-motion` rule leaves the arena in its resting pose
+   and the classes are inert markers — the skill still fires, the screen just
+   does not move.                                                            */
+.bt-sprite.hero.anim-skill .ch-svg{
+  animation:btSkillPose var(--anim-skill,520ms) cubic-bezier(.2,.9,.3,1);
+}
+@keyframes btSkillPose{
+  0%{transform:scale(1) translateX(0); filter:none}
+  18%{transform:scale(.94) translateX(calc(var(--to-hero) * 6px)); filter:brightness(.9)}
+  46%{transform:scale(1.1) translateX(calc(var(--to-foe) * 7px)); filter:brightness(1.25)}
+  100%{transform:scale(1) translateX(0); filter:none}
+}
+
+/* The TRAINED part is the one that swells — chest for מכת מחץ, legs for
+   רעידת אדמה, and so on. `sk-<part>` is set from the skill's own `part`, so a
+   retune of the roster cannot leave the wrong muscle flexing. */
+.bt-sprite.hero.anim-skill.sk-chest .ch-svg [data-part="chest"],
+.bt-sprite.hero.anim-skill.sk-back .ch-svg [data-part="back"],
+.bt-sprite.hero.anim-skill.sk-legs .ch-svg [data-part="legs"],
+.bt-sprite.hero.anim-skill.sk-shoulders .ch-svg [data-part="shoulders"],
+.bt-sprite.hero.anim-skill.sk-arms .ch-svg [data-part="arms"],
+.bt-sprite.hero.anim-skill.sk-core .ch-svg [data-part="core"]{
+  transform-box:fill-box; transform-origin:50% 50%;
+  animation:btSkillPart var(--anim-skill,520ms) cubic-bezier(.2,.9,.3,1);
+}
+@keyframes btSkillPart{
+  0%,100%{transform:scale(1)}
+  45%{transform:scale(1.24)}
+}
+
+/* The screen's tint, one per skill, painted on the effect layer that already
+   sits over the arena (`.bt-fx`) — NOT on the arena itself, which is where the
+   shake lives; two animations on one element would fight over the property. */
+.bt-fx.fx-smash{animation:btFxWarm var(--anim-skill,520ms) ease-out}
+.bt-fx.fx-quake{animation:btFxQuake var(--anim-skill,520ms) ease-out}
+.bt-fx.fx-guard{animation:btFxGuard var(--anim-skill,520ms) ease-out}
+.bt-fx.fx-flurry{animation:btFxFlurry var(--anim-skill,520ms) ease-out}
+.bt-fx.fx-focus{animation:btFxFocus var(--anim-skill,520ms) ease-out}
+.bt-fx.fx-breath{animation:btFxBreath var(--anim-skill,520ms) ease-out}
+@keyframes btFxWarm{
+  0%,100%{background:#F59E0B00}
+  18%{background:#F59E0B2E}
+}
+@keyframes btFxQuake{
+  0%,100%{background:#B4530900}
+  18%{background:#B4530938}
+}
+@keyframes btFxGuard{
+  0%,100%{box-shadow:inset 0 0 0 0 #60A5FA00}
+  25%{box-shadow:inset 0 0 26px 4px #60A5FA55}
+}
+@keyframes btFxFlurry{
+  0%,100%{background:#A78BFA00}
+  20%{background:#A78BFA2A}
+}
+@keyframes btFxFocus{
+  0%,100%{background:#FDE68A00}
+  15%{background:#FDE68A2A}
+}
+@keyframes btFxBreath{
+  0%,100%{background:#10B98100}
+  22%{background:#10B98130}
+}
+
+/* A live buff chip breathes gently so the eye finds it without it shouting. */
+.bt-chip{animation:btChipPulse 2.4s ease-in-out infinite}
+@keyframes btChipPulse{
+  0%,100%{opacity:1}
+  50%{opacity:.72}
+}
