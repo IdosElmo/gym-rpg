@@ -27,6 +27,7 @@ import {
   BUILTIN_PROGRAM,
   BUILTIN_WEEKDAYS,
   DAY_ORDER,
+  EXTRA_EXERCISES,
   PROGRAM,
   bodyPartWeights,
   dayOf,
@@ -38,9 +39,11 @@ import {
 } from '../src/data/program.ts';
 import type { CustomExercise, PlanDay, PlanDoc } from '../src/data/planTypes.ts';
 import {
+  assignedWeekdays,
   clonePlanDoc,
   customToExercise,
   defaultPlanDoc,
+  deriveWeeklyTarget,
   isDefaultPlan,
   libraryExercises,
   defaultDay,
@@ -270,8 +273,10 @@ describe('makeResolver', () => {
   it('offers every built-in plus the customs in the add-exercise library', () => {
     const lib = libraryExercises(editedPlan()).map((e) => e.id);
     const builtinCount = DAY_ORDER.reduce((n, k) => n + PROGRAM[k].exercises.length, 0);
-    expect(lib).toHaveLength(builtinCount + 1);
+    // the program's own exercises, the library additions, then the customs
+    expect(lib).toHaveLength(builtinCount + EXTRA_EXERCISES.length + 1);
     expect(lib).toContain('a3');
+    expect(lib).toContain(EXTRA_EXERCISES[0]?.id);
     expect(lib).toContain(CUSTOM.id);
   });
 
@@ -921,5 +926,54 @@ describe('defaultDay', () => {
     const plan = abPlan();
     for (const d of plan.days) delete d.weekdays;
     for (let wd = 0; wd < 7; wd += 1) expect(defaultDay(plan, weekday(wd))).toBe('d_alef');
+  });
+});
+
+/* -------------------------------------------------- the derived weekly target */
+
+describe('deriveWeeklyTarget', () => {
+  function withWeekdays(...map: number[][]): PlanDay[] {
+    return map.map((weekdays, i) => ({
+      key: `d_${i}`,
+      label: `יום ${i}`,
+      weekdays,
+      exercises: [{ id: 'a1', sets: 3, reps: '8', rest: 60 }],
+    }));
+  }
+
+  it('counts the DISTINCT weekdays a plan claims', () => {
+    // the A/B split this feature exists for: two days, four weekdays, target 4
+    expect(deriveWeeklyTarget(withWeekdays([0, 3], [2, 4]))).toBe(4);
+    expect(assignedWeekdays(withWeekdays([0, 3], [2, 4]))).toEqual([0, 2, 3, 4]);
+    expect(deriveWeeklyTarget(withWeekdays([1], [3], [5]))).toBe(3);
+    expect(deriveWeeklyTarget(withWeekdays([0, 1, 2, 3, 4, 5, 6]))).toBe(7);
+  });
+
+  it('falls back to one workout per day, capped at three, with no schedule', () => {
+    expect(deriveWeeklyTarget(withWeekdays([]))).toBe(1);
+    expect(deriveWeeklyTarget(withWeekdays([], []))).toBe(2);
+    expect(deriveWeeklyTarget(withWeekdays([], [], []))).toBe(3);
+    // a six-day plan with no weekdays assigned still asks for three, not six
+    expect(deriveWeeklyTarget(withWeekdays([], [], [], [], [], []))).toBe(3);
+  });
+
+  it('reads the built-in A/B/C ranges as ROUTING, not as seven training days', () => {
+    // [0,1] / [2,3] / [4,5,6] covers the whole week with three workouts — it is
+    // the map that picks the default tab, and it must keep meaning "3".
+    const doc = defaultPlanDoc();
+    expect(assignedWeekdays(doc.days)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(deriveWeeklyTarget(doc.days)).toBe(3);
+    expect(doc.weeklyTarget).toBe(3);
+    // …but the moment the user edits that map it is a real schedule again
+    const edited = clonePlanDoc(doc);
+    edited.days[0]!.weekdays = [0];
+    expect(deriveWeeklyTarget(edited.days)).toBe(6);
+  });
+
+  it('always lands inside 1–7 and ignores junk weekdays', () => {
+    const days = withWeekdays([0, 0, 9, -2, 3]);
+    expect(deriveWeeklyTarget(days)).toBe(2);
+    expect(assignedWeekdays(days)).toEqual([0, 3]);
+    expect(deriveWeeklyTarget([])).toBe(1);
   });
 });

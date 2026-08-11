@@ -53,6 +53,7 @@ import {
   MAX_WEEKLY_TARGET,
   MIN_WEEKLY_TARGET,
   PROGRAM,
+  builtInExercises,
   defaultDayOf,
   findExercise,
   isBuiltInDayKey,
@@ -164,7 +165,7 @@ export function newDayKey(): string {
  * different strings for the same plan, and the editor would claim unsaved
  * changes forever. One constructor, one key order.
  */
-function makePlanDay(
+export function makePlanDay(
   key: DayKey,
   label: string,
   weekdays: readonly number[],
@@ -199,6 +200,66 @@ export function defaultPlanDoc(): PlanDoc {
     weeklyTarget: DEFAULT_WEEKLY_TARGET,
     customExercises: [],
   };
+}
+
+/* --------------------------------------------------- the derived target */
+
+/** The distinct weekdays a set of days is trained on, ascending. */
+export function assignedWeekdays(days: readonly PlanDay[]): number[] {
+  const out = new Set<number>();
+  for (const d of days) {
+    for (const w of d.weekdays ?? []) {
+      if (Number.isFinite(w) && w >= 0 && w <= 6) out.add(Math.trunc(w));
+    }
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
+/**
+ * True for the A/B/C weekday map v1 shipped with — `[0,1] / [2,3] / [4,5,6]`.
+ *
+ * That map is a ROUTING map, not a schedule: it exists so that every weekday
+ * opens SOME tab, which is why three workouts claim all seven days. Reading it
+ * as a schedule would say "seven training days a week", which is exactly what
+ * `DEFAULT_WEEKLY_TARGET` (three) has always denied. See `deriveWeeklyTarget`.
+ */
+function isBuiltInWeekdayMap(days: readonly PlanDay[]): boolean {
+  if (days.length !== DAY_ORDER.length) return false;
+  return days.every((d, i) => {
+    const k = DAY_ORDER[i];
+    if (!k || d.key !== k) return false;
+    const mine = d.weekdays ?? [];
+    const builtIn = BUILTIN_WEEKDAYS[k];
+    return mine.length === builtIn.length && mine.every((w, j) => w === builtIn[j]);
+  });
+}
+
+/**
+ * THE rule that turns a weekday assignment into a weekly training target — the
+ * number the streak judges a "perfect week" by. One rule, one place: the editor
+ * displays it and writes it into the draft, and nothing else derives its own.
+ *
+ *   * days with weekdays assigned  -> the count of DISTINCT weekdays claimed.
+ *     Chips are exclusive (a weekday belongs to at most one day), so this is
+ *     literally "how many times a week does this plan send me to the gym". An
+ *     A/B split trained Sun+Wed / Tue+Thu is two days and a target of four.
+ *   * nothing assigned at all      -> `min(days.length, DEFAULT_WEEKLY_TARGET)`.
+ *     A plan with no schedule still has to say something; one workout per day of
+ *     the plan is the honest reading, capped at the built-in three so a seven-day
+ *     plan does not silently demand a perfect attendance record.
+ *   * the built-in A/B/C map       -> the same fallback (i.e. three). It covers
+ *     all seven weekdays with three workouts because it is a routing map (see
+ *     `isBuiltInWeekdayMap`); counting it would turn "open the editor and save"
+ *     into a jump from three to seven.
+ *
+ * Always inside 1–7.
+ */
+export function deriveWeeklyTarget(days: readonly PlanDay[]): number {
+  const assigned = assignedWeekdays(days);
+  if (assigned.length === 0 || isBuiltInWeekdayMap(days)) {
+    return clampWeeklyTarget(Math.min(days.length, DEFAULT_WEEKLY_TARGET));
+  }
+  return clampWeeklyTarget(assigned.length);
 }
 
 /** Deep copy — the editor mutates a draft that must not touch the saved doc. */
@@ -738,10 +799,7 @@ export function isDefaultPlan(doc: PlanDoc | null): boolean {
 
 /** Every exercise the library offers for a day: built-ins first, then customs. */
 export function libraryExercises(plan: PlanDoc | null): Exercise[] {
-  const out: Exercise[] = [];
-  for (const k of DAY_ORDER) {
-    for (const ex of PROGRAM[k].exercises) if (!out.some((e) => e.id === ex.id)) out.push(ex);
-  }
+  const out: Exercise[] = builtInExercises();
   if (plan) for (const c of plan.customExercises) out.push(customToExercise(c));
   return out;
 }

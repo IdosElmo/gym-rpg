@@ -14,9 +14,13 @@ import {
   DAY_NAMES,
   DAY_ORDER,
   DEFAULT_WEEKLY_TARGET,
+  EXTRA_EXERCISES,
   PROGRAM,
   RESERVED_VIEW_KEYS,
+  UNKNOWN_DAY_LABEL,
   bodyPartWeights,
+  builtInExercises,
+  dayLabelOf,
   dayOf,
   equipHe,
   findExercise,
@@ -27,6 +31,7 @@ import {
   weekdaysCaption,
   type BodyPart,
   type BuiltInDayKey,
+  type ResolvedProgram,
 } from '../src/data/program.ts';
 import { BALANCE } from '../src/core/balance.ts';
 
@@ -122,6 +127,18 @@ describe('program data', () => {
     expect(DEFAULT_WEEKLY_TARGET).toBe(BALANCE.streak.daysPerWeek);
   });
 
+  it('resolves the day label of a session, and degrades gracefully', () => {
+    // a key the program still has -> its own label
+    expect(dayLabelOf(BUILTIN_PROGRAM, 'A')).toBe(PROGRAM.A.label);
+    // a key the program no longer has, but the app once shipped -> that label
+    const oneDay: ResolvedProgram = { days: [BUILTIN_PROGRAM.days[1]!], weeklyTarget: 1 };
+    expect(dayLabelOf(oneDay, 'A')).toBe(PROGRAM.A.label);
+    // a key nothing knows (a day invented on another device) -> neutral, never
+    // the raw d_… string and never somebody else's day
+    expect(dayLabelOf(oneDay, 'd_ghost')).toBe(UNKNOWN_DAY_LABEL);
+    expect(UNKNOWN_DAY_LABEL).toBe('אימון');
+  });
+
   it('accepts any plausible day key and refuses the reserved view keys', () => {
     for (const k of ['A', 'B', 'C', 'd_abc123', 'anything']) expect(isDayKey(k)).toBe(true);
     for (const k of RESERVED_VIEW_KEYS) expect(isDayKey(k)).toBe(false);
@@ -132,5 +149,63 @@ describe('program data', () => {
     expect(isPlanDayKey('d_abc123')).toBe(true);
     expect(isPlanDayKey('a b')).toBe(false);
     expect(isPlanDayKey('"><script>')).toBe(false);
+  });
+});
+
+/* --------------------------------------------------- the exercise library */
+
+describe('the exercise library (EXTRA_EXERCISES)', () => {
+  it('stays OUT of PROGRAM, so the legacy parity guarantee still holds', () => {
+    const programIds = DAY_ORDER.flatMap((d: BuiltInDayKey) => PROGRAM[d].exercises.map((e) => e.id));
+    for (const ex of EXTRA_EXERCISES) expect(programIds).not.toContain(ex.id);
+  });
+
+  it('has unique ids that findExercise resolves like a program exercise', () => {
+    const ids = EXTRA_EXERCISES.map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const ex of EXTRA_EXERCISES) expect(findExercise(ex.id)).toBe(ex);
+  });
+
+  it('carries the full coaching copy every screen expects', () => {
+    for (const ex of EXTRA_EXERCISES) {
+      expect(ex.he.trim()).not.toBe('');
+      expect(ex.en.trim()).not.toBe('');
+      expect(ex.muscle.trim()).not.toBe('');
+      expect(ex.unit.trim()).not.toBe('');
+      expect(ex.equip.length).toBeGreaterThan(0);
+      expect(ex.steps.length).toBeGreaterThanOrEqual(3);
+      expect(ex.cue.trim()).not.toBe('');
+      expect(ex.mistake.trim()).not.toBe('');
+      expect(ex.sets).toBeGreaterThan(0);
+      expect(ex.reps.trim()).not.toBe('');
+      expect(ex.rest).toBeGreaterThanOrEqual(15);
+    }
+  });
+
+  it('feeds the XP engine: every weight set sums to 1 on a valid part', () => {
+    for (const ex of EXTRA_EXERCISES) {
+      expect(BODY_PARTS).toContain(ex.bodyPart);
+      const w = bodyPartWeights(ex);
+      expect(BODY_PARTS.reduce((acc, p) => acc + w[p], 0)).toBeCloseTo(1, 10);
+      expect(w[ex.bodyPart]).toBeGreaterThan(0);
+    }
+    // the two split exercises of the library, per the brief
+    const pulldown = findExercise('x6');
+    expect(pulldown?.en).toBe('Close-Grip Lat Pulldown');
+    expect(bodyPartWeights(pulldown!).back).toBeCloseTo(0.7, 10);
+    expect(bodyPartWeights(pulldown!).arms).toBeCloseTo(0.3, 10);
+    const facePull = findExercise('x7');
+    expect(facePull?.en).toBe('Cable Face Pull');
+    expect(bodyPartWeights(facePull!).shoulders).toBeCloseTo(0.6, 10);
+    expect(bodyPartWeights(facePull!).back).toBeCloseTo(0.4, 10);
+  });
+
+  it('is offered by builtInExercises, after the program, without duplicates', () => {
+    const all = builtInExercises().map((e) => e.id);
+    expect(new Set(all).size).toBe(all.length);
+    for (const ex of EXTRA_EXERCISES) expect(all).toContain(ex.id);
+    for (const d of DAY_ORDER) for (const ex of PROGRAM[d].exercises) expect(all).toContain(ex.id);
+    const firstExtra = all.indexOf(EXTRA_EXERCISES[0]?.id ?? '');
+    expect(firstExtra).toBe(all.length - EXTRA_EXERCISES.length);
   });
 });

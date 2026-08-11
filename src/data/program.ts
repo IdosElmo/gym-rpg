@@ -488,6 +488,207 @@ export const PROGRAM: BuiltInProgram = {
   },
 };
 
+/**
+ * The exercise LIBRARY beyond the three built-in days.
+ *
+ * These are first-class built-in exercises — same shape, same coaching copy,
+ * same `bodyPart` / `split` metadata — that simply do not appear in the default
+ * A/B/C program. They exist so the plan editor (and the ready-made presets in
+ * `data/presets.ts`) can offer a gym's usual machines without forcing the user
+ * to re-type them as custom exercises, and so their XP, PRs and history behave
+ * exactly like a program exercise's.
+ *
+ * They are kept OUT of `PROGRAM` on purpose: `tests/program.test.ts` diffs
+ * `PROGRAM` against the legacy `legacy/index.html` literal byte for byte, and
+ * that guarantee is worth more than the convenience of one flat object.
+ * `findExercise` searches both, which is what makes an id here resolvable
+ * everywhere (workout screen, previous performance, history, feed, XP).
+ */
+export const EXTRA_EXERCISES: readonly Exercise[] = [
+  {
+    id: 'x1',
+    he: 'סקוואט בסמית׳ מאשין',
+    en: 'Smith Machine Squat',
+    equip: ['Smith Machine'],
+    muscle: 'ארבע־ראשי · ישבן',
+    sets: 4,
+    reps: '8–10',
+    rest: 90,
+    unit: 'חזרות',
+    steps: [
+      'הניחו את המוט על הטרפזים ועמדו ברוחב אגן.',
+      'הציבו את כפות הרגליים מעט לפנים מקו המוט.',
+      'רדו באיטיות עד שהירכיים מקבילות לרצפה.',
+      'דחפו דרך אמצע כף הרגל חזרה למעלה בלי לנעול ברכיים.',
+    ],
+    cue: 'ברכיים בכיוון קצות האצבעות; חזה פתוח לאורך כל הירידה.',
+    mistake: 'טעות נפוצה: קפיצה מהתחתית או הרמת עקבים מהרצפה.',
+    bodyPart: 'legs',
+  },
+  {
+    id: 'x2',
+    he: 'פשיטת ברכיים במכשיר',
+    en: 'Leg Extension Machine',
+    equip: ['Machine'],
+    muscle: 'ארבע־ראשי (בידוד)',
+    sets: 4,
+    reps: '10–12',
+    rest: 60,
+    unit: 'חזרות',
+    steps: [
+      'כווננו את משענת הגב כך שהברך תשב על ציר המכשיר.',
+      'אחזו בידיות והצמידו את הגב למשענת.',
+      'פשטו את הברכיים עד יישור כמעט מלא.',
+      'עצרו שנייה בכיווץ והורידו לאט.',
+    ],
+    cue: 'עצירה קצרה למעלה — שם הארבע־ראשי עובד הכי חזק.',
+    mistake: 'טעות נפוצה: זריקת המשקל בתנופה והרמת הישבן מהמושב.',
+    bodyPart: 'legs',
+  },
+  {
+    id: 'x3',
+    he: 'כפיפת ברכיים במכשיר',
+    en: 'Leg Curl Machine',
+    equip: ['Machine'],
+    muscle: 'ירך אחורית',
+    sets: 4,
+    reps: '12',
+    rest: 60,
+    unit: 'חזרות',
+    steps: [
+      'שכבו או שבו במכשיר כשהכרית מונחת מעל גיד אכילס.',
+      'אחזו בידיות ושמרו על האגן צמוד לכרית.',
+      'כופפו את הברכיים בכוח עד סוף הטווח.',
+      'החזירו לאט ובשליטה בלי להרפות את המתח.',
+    ],
+    cue: 'האגן נשאר מוצמד — רק הברך זזה.',
+    mistake: 'טעות נפוצה: הרמת האגן מהכרית כדי לסייע לתנועה.',
+    bodyPart: 'legs',
+  },
+  {
+    id: 'x4',
+    he: 'הרחקה לצדדים עם משקולות',
+    en: 'Dumbbell Lateral Raises',
+    equip: ['Dumbbells'],
+    muscle: 'כתף צידית',
+    sets: 3,
+    reps: '12–15',
+    rest: 60,
+    unit: 'חזרות',
+    steps: [
+      'עמדו עם משקולות קלות לצידי הגוף, כיפוף קל במרפקים.',
+      'הרימו את הידיים לצדדים עד גובה הכתפיים.',
+      'הובילו עם המרפקים ולא עם כפות הידיים.',
+      'הורידו לאט ובשליטה מלאה.',
+    ],
+    cue: 'דמיינו שאתם שופכים מים מקנקן קטן בסוף התנועה.',
+    mistake: 'טעות נפוצה: נדנוד גוף ומשקל כבד שמעביר את העבודה לטרפז.',
+    bodyPart: 'shoulders',
+  },
+  {
+    id: 'x5',
+    he: 'פשיטת מרפקים בפולי (חבל)',
+    en: 'Cable Rope Pushdown',
+    equip: ['Machine'],
+    muscle: 'יד אחורית',
+    sets: 4,
+    reps: '12',
+    rest: 60,
+    unit: 'חזרות',
+    steps: [
+      'אחזו בחבל בפולי עליון, מרפקים צמודים לצלעות.',
+      'הטו את הגו קלות קדימה ונעלו את המרפקים במקומם.',
+      'פשטו את המרפקים ופתחו את קצות החבל לצדדים.',
+      'חזרו לאט עד כיפוף מלא.',
+    ],
+    cue: 'רק האמה זזה — המרפק נשאר מסומר לצלעות.',
+    mistake: 'טעות נפוצה: רכינה עם כל הגוף כדי לדחוף משקל כבד מדי.',
+    bodyPart: 'arms',
+  },
+  {
+    id: 'x6',
+    he: 'פולי עליון אחיזה צרה',
+    en: 'Close-Grip Lat Pulldown',
+    equip: ['Machine'],
+    muscle: 'רוחב גב · יד קדמית',
+    sets: 4,
+    reps: '10–12',
+    rest: 90,
+    unit: 'חזרות',
+    steps: [
+      'אחזו בידית משולשת באחיזה ניטרלית וצרה.',
+      'שבו זקופים והצמידו את הברכיים מתחת לכרית.',
+      'משכו את הידית אל אמצע החזה, מרפקים לאחור.',
+      'עלו לאט עד מתיחה מלאה של הרחבים.',
+    ],
+    cue: 'משכו את המרפקים אל הכיסים; החזה עולה לפגוש את הידית.',
+    mistake: 'טעות נפוצה: רכינה גדולה לאחור שהופכת את התרגיל לחתירה.',
+    bodyPart: 'back',
+    split: { back: 0.7, arms: 0.3 },
+  },
+  {
+    id: 'x7',
+    he: 'פייס פול בפולי',
+    en: 'Cable Face Pull',
+    equip: ['Machine'],
+    muscle: 'כתף אחורית · טרפז אמצעי',
+    sets: 3,
+    reps: '15',
+    rest: 60,
+    unit: 'חזרות',
+    steps: [
+      'כווננו את הפולי לגובה הפנים ואחזו בחבל בשתי ידיים.',
+      'צעדו אחורה עד שהכבל במתח והידיים מושטות.',
+      'משכו את החבל אל המצח כשהמרפקים גבוהים.',
+      'סובבו את כפות הידיים החוצה וכווצו שכמות.',
+    ],
+    cue: 'המרפקים גבוהים מכפות הידיים לאורך כל המשיכה.',
+    mistake: 'טעות נפוצה: משקל כבד שמוריד את המרפקים והופך את התרגיל לחתירה.',
+    bodyPart: 'shoulders',
+    split: { shoulders: 0.6, back: 0.4 },
+  },
+  {
+    id: 'x8',
+    he: 'הרמת שכמות עם משקולות',
+    en: 'Dumbbell Shrugs',
+    equip: ['Dumbbells'],
+    muscle: 'טרפז עליון',
+    sets: 3,
+    reps: '15–20',
+    rest: 60,
+    unit: 'חזרות',
+    steps: [
+      'עמדו עם משקולות לצידי הגוף וידיים ישרות.',
+      'הרימו את הכתפיים ישר למעלה לכיוון האוזניים.',
+      'עצרו שנייה בכיווץ העליון.',
+      'הורידו לאט עד מתיחה מלאה של הטרפז.',
+    ],
+    cue: 'תנועה אנכית בלבד — בלי סיבוב כתפיים.',
+    mistake: 'טעות נפוצה: כיפוף מרפקים שהופך את התרגיל לחתירה זקופה.',
+    bodyPart: 'back',
+  },
+  {
+    id: 'x9',
+    he: 'פטישים עם משקולות',
+    en: 'Hammer Curls',
+    equip: ['Dumbbells'],
+    muscle: 'יד קדמית · ברכיורדיאליס',
+    sets: 3,
+    reps: '10–12',
+    rest: 60,
+    unit: 'חזרות',
+    steps: [
+      'עמדו עם משקולות באחיזה ניטרלית (אגודלים כלפי מעלה).',
+      'שמרו על מרפקים צמודים לצלעות.',
+      'כופפו מרפקים עד גובה הכתף בלי לסובב את כף היד.',
+      'הורידו לאט ובשליטה מלאה.',
+    ],
+    cue: 'אחיזת פטיש קבועה — כף היד לא מסתובבת בכלל.',
+    mistake: 'טעות נפוצה: נדנוד הגו והנפת המשקולות בתנופה.',
+    bodyPart: 'arms',
+  },
+];
+
 export const DAY_ORDER: readonly BuiltInDayKey[] = ['A', 'B', 'C'] as const;
 
 export const DAY_NAMES: Readonly<Record<BuiltInDayKey, string>> = {
@@ -556,6 +757,26 @@ export function programDay(program: ResolvedProgram, key: DayKey): ProgramDay | 
 /** The renderable `Day` of a key, or `null` — the safe replacement of `p[key]`. */
 export function dayOf(program: ResolvedProgram, key: DayKey): Day | null {
   return programDay(program, key)?.day ?? null;
+}
+
+/** What a day key is called when nothing in the app can resolve it any more. */
+export const UNKNOWN_DAY_LABEL = 'אימון';
+
+/**
+ * The Hebrew label of a day key, for screens that show HISTORY.
+ *
+ * A logged session carries the day key it was trained under, and that key may
+ * have been renamed, removed from the plan, or invented on another device. The
+ * ladder is therefore: the plan's own label → the built-in label when the key is
+ * still one of `A`/`B`/`C` (a session from before the user ever edited the plan)
+ * → a neutral "אימון". A stored key is the user's DATA: it is never coerced into
+ * another day, and it never renders as a raw `d_…` string either.
+ */
+export function dayLabelOf(program: ResolvedProgram, key: DayKey): string {
+  const found = programDay(program, key);
+  if (found) return found.label;
+  if (isBuiltInDayKey(key)) return PROGRAM[key].label;
+  return UNKNOWN_DAY_LABEL;
 }
 
 /** The day keys in tab order. */
@@ -634,13 +855,30 @@ export function isPlanDayKey(v: unknown): v is DayKey {
   return isDayKey(v) && /^[A-Za-z0-9_-]+$/.test(v);
 }
 
-/** Find an exercise definition by id across all days (legacy history lookup). */
+/**
+ * Every built-in exercise the app knows: the program's own, in day order, then
+ * the library additions. Deduplicated by id, so an exercise that appears in two
+ * days is listed once — this is the list the editor's add-sheet offers.
+ */
+export function builtInExercises(): Exercise[] {
+  const out: Exercise[] = [];
+  for (const k of DAY_ORDER) {
+    for (const ex of PROGRAM[k].exercises) if (!out.some((e) => e.id === ex.id)) out.push(ex);
+  }
+  for (const ex of EXTRA_EXERCISES) if (!out.some((e) => e.id === ex.id)) out.push(ex);
+  return out;
+}
+
+/**
+ * Find an exercise definition by id across the program AND the library (legacy
+ * history lookup). A row, a session or an event may point at either.
+ */
 export function findExercise(exId: string): Exercise | null {
   for (const k of DAY_ORDER) {
     const found = PROGRAM[k].exercises.find((e) => e.id === exId);
     if (found) return found;
   }
-  return null;
+  return EXTRA_EXERCISES.find((e) => e.id === exId) ?? null;
 }
 
 /**
