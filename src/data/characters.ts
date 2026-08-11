@@ -27,7 +27,7 @@ export type BodyGeometry = 'male' | 'female';
  * Head/face decoration of a skin. The geometry stays the body's; this is only
  * what is drawn on and around the head (plus, for `mask`, what is hidden).
  */
-export type DecorKind = 'none' | 'ponytail' | 'visor' | 'helmet' | 'undead' | 'mask';
+export type DecorKind = 'none' | 'curls' | 'visor' | 'helmet' | 'undead' | 'mask';
 
 /**
  * Every colour the character drawing uses. The default body's values are
@@ -113,7 +113,7 @@ export const CHARACTERS: readonly CharacterDef[] = [
     cost: 0,
     geometry: 'female',
     palette: CLASSIC,
-    decor: { kind: 'ponytail', main: '#6B3A2E', accent: '#8C4E3C' },
+    decor: { kind: 'curls', main: '#6B3A2E', accent: '#A9613F' },
   },
   {
     id: 'robot',

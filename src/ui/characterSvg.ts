@@ -481,7 +481,7 @@ function absGroup(geo: CharacterGeometry): string {
  *
  * Everything is expressed in units of the head radius, so the same shape reads
  * correctly on either body and at either scale (220px on the דמות screen, 90px
- * in the arena). `behind` is drawn before the head circle (hair, ponytails),
+ * in the arena). `behind` is drawn before the head circle (hair — curls, tails),
  * `front` after it; a decoration may also hide the default eyes or mouth when it
  * covers them (a visor, a ninja mask).
  */
@@ -492,8 +492,44 @@ interface DecorLayers {
   hideMouth?: boolean;
 }
 
-/** Long hair: a mass behind the head, a ponytail, and a fringe on top. */
-function hairLayers(cy: number, r: number, d: CharacterDecor): DecorLayers {
+/**
+ * CURLY hair — the free female body's look.
+ *
+ * A cloud of overlapping curls, built from one ellipse (the mass) plus rings of
+ * circles, every radius a multiple of the head radius so the same silhouette
+ * reads at 220px (the דמות stage), 90px (the arena) and 62px (a roster card).
+ *
+ * LAYERING follows the same discipline the tied hair uses: the bulk sits BEHIND
+ * the skull — a mass whose curls bite past its outline, plus two puffs at ear
+ * height that give the cloud its width — and only the hairline curls are drawn
+ * in FRONT, sitting ON the skull so they frame the face without ever covering
+ * the eyes. Two small accent curls on the upper side are the highlight that
+ * keeps the shape from reading as one flat blob on the dark UI.
+ */
+function curlyHairLayers(cy: number, r: number, d: CharacterDecor): DecorLayers {
+  const curl = (x: number, y: number, rad: number, fill: string): string =>
+    `<circle class="ch-curl" cx="${n(x)}" cy="${n(y)}" r="${n(rad)}" fill="${fill}"/>`;
+  /** `count` curls spread along the arc `from`°→`to`°, angles measured with y UP. */
+  const ring = (ringR: number, curlR: number, from: number, to: number, count: number, fill: string): string =>
+    Array.from({ length: count }, (_, i) => {
+      const t = count === 1 ? 0.5 : i / (count - 1);
+      const a = ((from + (to - from) * t) * Math.PI) / 180;
+      return curl(CX + Math.cos(a) * ringR, cy - Math.sin(a) * ringR, curlR, fill);
+    }).join('');
+
+  const behind =
+    `<ellipse cx="${n(CX)}" cy="${n(cy - r * 0.1)}" rx="${n(r * 1.28)}" ry="${n(r * 1.22)}" fill="${d.main}"/>` +
+    ring(r * 1.1, r * 0.44, 196, -16, 9, d.main) +
+    curl(CX - r * 1.14, cy + r * 0.42, r * 0.46, d.main) +
+    curl(CX + r * 1.14, cy + r * 0.42, r * 0.46, d.main);
+  // The hairline stops well above the eyes (they are drawn last, but an eye
+  // sitting IN the hair reads as a mistake at card size).
+  const front = ring(r * 0.86, r * 0.34, 148, 32, 6, d.main) + ring(r * 1.0, r * 0.2, 138, 112, 2, d.accent);
+  return { behind, front };
+}
+
+/** Tied-back hair: a mass behind the head, a tail, and a fringe on top. */
+function tiedHairLayers(cy: number, r: number, d: CharacterDecor): DecorLayers {
   const behind =
     `<ellipse cx="${n(CX)}" cy="${n(cy + r * 0.16)}" rx="${n(r + 3.5)}" ry="${n(r + 2)}" fill="${d.main}"/>` +
     `<path d="M ${n(CX + r * 0.7)} ${n(cy + r * 0.2)} q ${n(r * 1.5)} ${n(r * 0.8)} ${n(r * 0.35)} ${n(r * 2.4)}
@@ -507,7 +543,7 @@ function hairLayers(cy: number, r: number, d: CharacterDecor): DecorLayers {
 const DECOR_DRAW: Readonly<Record<CharacterDecor['kind'], (cy: number, r: number, d: CharacterDecor) => DecorLayers>> = {
   none: () => ({ behind: '', front: '' }),
 
-  ponytail: (cy, r, d) => hairLayers(cy, r, d),
+  curls: (cy, r, d) => curlyHairLayers(cy, r, d),
 
   /** A visor band instead of a face, an antenna on top, a speaker-grille mouth. */
   visor: (cy, r, d) => ({
@@ -551,9 +587,15 @@ const DECOR_DRAW: Readonly<Record<CharacterDecor['kind'], (cy: number, r: number
         stroke-linecap="round"/>`,
   }),
 
-  /** Full head wrap: only the eyes show, and a headband trails behind. */
+  /**
+   * Full head wrap: only the eyes show, and a headband trails behind. The hair
+   * under the wrap is TIED BACK, not curly — the ninja owns that geometry (a
+   * loose cloud would push out past the mask and break its silhouette), and a
+   * skin never inherits another character's decoration anyway: `DECOR_DRAW` is
+   * picked by this character's own `decor.kind`.
+   */
   mask: (cy, r, d) => {
-    const hair = hairLayers(cy, r, d);
+    const hair = tiedHairLayers(cy, r, d);
     return {
       behind: hair.behind,
       front:

@@ -51,7 +51,7 @@ import { worldById } from '../data/gameContent.ts';
 import type { DataStore, ViewKey } from '../storage/DataStore.ts';
 import type { RestTimer } from './timer.ts';
 import { renderBattle, stopBattle } from './battle.ts';
-import { renderCharacter } from './character.ts';
+import { exitCharacterPreview, renderCharacter } from './character.ts';
 import { esc, must } from './dom.ts';
 import { renderHistory } from './history.ts';
 import {
@@ -353,6 +353,10 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     renderTabs();
     renderHeader();
     const view = store.getState().ui.view;
+    // A try-on of a locked character (ui/character.ts) is a look at the דמות
+    // screen, nothing more: leaving the screen ends it, so no other screen —
+    // the arena above all — can ever draw a character the player does not own.
+    if (view !== 'CH') exitCharacterPreview();
     if (view === 'ST') {
       renderSettings(mainEl, { store, rerender: render, editPlan: () => setView('PL'), ...hooks.settings });
     } else if (view === 'H') {

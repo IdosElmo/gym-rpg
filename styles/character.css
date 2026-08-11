@@ -55,6 +55,23 @@
   border-radius:99px; padding:5px 11px; font-size:12px; font-weight:700;
 }
 
+/* ---------- try-on preview (a locked character on MY body) ---------- */
+/* A dashed, slightly ghosted stage says "this is not yours yet" before a single
+   word is read; the chip and the way back say it in Hebrew. No animation — the
+   marking must survive prefers-reduced-motion, so it is static by design. */
+.char-stage.previewing{outline:2px dashed var(--warn); outline-offset:-3px}
+.char-stage.previewing .ch-svg{opacity:.9}
+.char-preview{
+  position:absolute; inset:0; padding:8px; pointer-events:none;
+  display:flex; flex-direction:column; justify-content:flex-end; align-items:center;
+}
+.char-preview .cp-chip{
+  position:absolute; top:8px; inset-inline-end:10px;
+  background:#F59E0B1F; border:1px dashed #F59E0B88; color:var(--warn);
+  border-radius:99px; padding:5px 11px; font-size:11.5px; font-weight:800;
+}
+.char-preview .cp-back{pointer-events:auto; min-height:40px; padding:0 14px; background:#0F172AE6}
+
 .char-meta{display:flex; gap:8px; margin-top:10px}
 .cm-item{
   flex:1; background:var(--card-2); border:1px solid var(--line); border-radius:12px;
@@ -172,6 +189,8 @@
 .chr-card.selected{border-color:var(--accent); background:#3B82F61A}
 .chr-card.owned{border-color:#3B82F544}
 .chr-card.locked{border-style:dashed}
+.chr-card.previewing{border-color:var(--warn); background:#F59E0B14}
+.chr-card.previewing .chr-tag{color:var(--warn)}
 .chr-card.poor{opacity:.62}
 .chr-art{display:flex; justify-content:center; height:62px}
 .chr-art .ch-svg{width:auto; height:62px}
@@ -190,6 +209,8 @@
 .chr-buy-head span{font-size:11.5px; color:var(--muted); line-height:1.4}
 .chr-buy-price{margin:7px 0 9px; font-size:12.5px; color:var(--muted)}
 .chr-buy-price b{color:var(--text); direction:ltr; display:inline-block}
+.chr-buy-try{display:flex; margin-bottom:2px}
+.chr-buy-try .eq-btn{flex:1; min-height:44px}
 .chr-buy-actions{display:flex; gap:8px}
 .chr-buy-actions .eq-btn{flex:1; min-height:44px}
 
