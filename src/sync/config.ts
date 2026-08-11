@@ -28,8 +28,8 @@ export interface SyncConfig {
  * build-time environment that a fork would silently lose.
  */
 export const SYNC_CONFIG: SyncConfig = {
-  url: '',
-  anonKey: '',
+  url: 'https://omiqettlrjbcafnmomrm.supabase.co',
+  anonKey: 'sb_publishable_vfsRAX65C-PMgmnlIDGJnA_hrNzoq8_',
 };
 
 /** Protocols a Supabase client can actually work over. */
