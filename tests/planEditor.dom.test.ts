@@ -55,6 +55,9 @@ function mount(store: LocalStore = new LocalStore(fakeStorage())): { store: Loca
   });
   const app = createApp(store, timer);
   app.render();
+  // The boot view follows the real weekday (defaultDay); these tests assume
+  // day A, so navigate there explicitly to stay green on any day of the week.
+  click('.tab[data-view="A"]');
   return { store, render: app.render };
 }
 
