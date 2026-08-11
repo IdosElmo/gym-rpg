@@ -5,7 +5,8 @@
 .hist-ex{font-size:13px; padding:5px 0; border-top:1px dashed var(--line)}
 .hist-ex b{font-weight:700}
 .hist-sets{color:var(--muted); direction:ltr; display:inline-block}
-.data-actions{display:flex; gap:10px; margin:6px 0 18px}
+/* Export / import / clear, grouped inside the "הנתונים שלי" card on הגדרות. */
+.data-actions{display:flex; gap:10px; margin:12px 0 0}
 .action-btn{
   flex:1; background:var(--card); border:1px solid var(--line); color:var(--accent);
   border-radius:12px; padding:11px; font-size:14px; font-weight:700;
@@ -45,3 +46,10 @@
 .account-card{margin-bottom:12px}
 .account-card .gc-sub.warn{color:var(--warn)}
 .account-card .action-btn{width:100%; margin-top:10px}
+
+/* ---------- Settings screen ---------- */
+/* The quiet last line of הגדרות: what this app is, and the offline promise the
+   footer has always made. Deliberately the dimmest text on the screen. */
+.app-info{
+  margin:18px 0 0; text-align:center; font-size:11.5px; line-height:1.7; color:var(--dim);
+}

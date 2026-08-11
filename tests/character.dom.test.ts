@@ -121,6 +121,10 @@ describe('דמות screen', () => {
     const store = new LocalStore(fakeStorage());
     mount(store);
 
+    // דמות is the second tab of the 🎮 hub, so getting there is hub → tab.
+    document
+      .querySelector<HTMLButtonElement>('#tabs .hub[data-hub="GM"]')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
     const tab = document.querySelector<HTMLButtonElement>('.tab[data-view="CH"]');
     expect(tab?.textContent).toContain('דמות');
     tab!.dispatchEvent(new MouseEvent('click', { bubbles: true }));

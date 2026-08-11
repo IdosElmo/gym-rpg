@@ -141,9 +141,9 @@
 .bt-reqs li.unmet{color:var(--muted)}
 
 /* ---------- nav tab ---------- */
-.tab.battle-tab{flex:.7}
-.tab.battle-tab.active{background:var(--card-2); border-color:var(--warn); color:var(--warn)}
-.tab.battle-tab .w{font-size:10px}
+/* The arena keeps its warm accent inside the 🎮 hub's inner row — the one place
+   in the nav that is not `--accent` blue, exactly as the flat bar had it. */
+.sub-row .tab[data-view="BT"].active{border-color:var(--warn); color:var(--warn)}
 
 /* ---------- world-boss fight ---------- */
 .bt-sprite.enemy.world-boss .en-svg{

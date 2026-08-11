@@ -29,8 +29,3 @@ header{position:relative}
 
 /* Keep the title clear of the pill on narrow screens. */
 header .app-title{padding-inline-end:74px}
-
-/* דמות tab in the nav — 5 tabs now, so the two icon tabs shrink a little. */
-.tab.char-tab{flex:.7}
-.tab.char-tab.active{background:var(--card-2); border-color:var(--accent); color:var(--accent)}
-.tab.char-tab .w,.tab.hist-tab .w{font-size:10px}

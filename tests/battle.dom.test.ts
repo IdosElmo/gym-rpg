@@ -74,20 +74,30 @@ function battleStore(sets = 12): LocalStore {
 }
 
 describe('battle tab', () => {
-  it('sits between דמות and היסטוריה in the nav', () => {
+  it('leads the game hub, ahead of דמות', () => {
     mount(new LocalStore(fakeStorage()));
+    // On a workout screen the arena is not in the second row at all — it lives
+    // one level down, inside the 🎮 hub.
+    expect([...document.querySelectorAll<HTMLElement>('#tabs .tab')].map((t) => t.dataset['view'])).toEqual([
+      'A',
+      'B',
+      'C',
+    ]);
+    document
+      .querySelector<HTMLButtonElement>('#tabs .hub[data-hub="GM"]')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
     const views = [...document.querySelectorAll<HTMLElement>('#tabs .tab')].map((t) => t.dataset['view']);
-    expect(views).toEqual(['A', 'B', 'C', 'CH', 'BT', 'H']);
+    expect(views).toEqual(['BT', 'CH']);
     const battleTab = document.querySelector('#tabs .tab[data-view="BT"]');
     expect(battleTab?.textContent).toContain('קרב');
-    expect(battleTab?.classList.contains('active')).toBe(false);
+    expect(battleTab?.classList.contains('active')).toBe(true);
   });
 
-  it('switches to the arena when the tab is clicked', () => {
+  it('switches to the arena when the game hub is opened', () => {
     const store = new LocalStore(fakeStorage());
     mount(store);
     document
-      .querySelector<HTMLButtonElement>('#tabs .tab[data-view="BT"]')!
+      .querySelector<HTMLButtonElement>('#tabs .hub[data-hub="GM"]')!
       .dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(store.getState().ui.view).toBe('BT');
     expect(document.getElementById('btArena')).not.toBeNull();
@@ -206,6 +216,39 @@ describe('battle tab', () => {
       d.ui.view = 'CH';
     });
     render();
+    expect(document.getElementById('btArena')).toBeNull();
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(document.getElementById('btArena')).toBeNull();
+  });
+
+  /**
+   * The battle must stop when the arena leaves the screen — and with a
+   * two-level bar there are now TWO ways to leave it: the דמות tab beside it
+   * inside the 🎮 hub, and any other hub in the main bar.
+   */
+  it('stops the loop on the דמות inner tab AND on a main-hub switch', () => {
+    const store = battleStore();
+    mount(store);
+    expect(document.getElementById('btArena')).not.toBeNull();
+
+    // (1) the sibling inner tab
+    document
+      .querySelector<HTMLButtonElement>('#tabs .tab[data-view="CH"]')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(store.getState().ui.view).toBe('CH');
+    expect(document.getElementById('btArena')).toBeNull();
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(document.getElementById('btArena')).toBeNull();
+
+    // (2) back to the arena, then out of the hub entirely
+    document
+      .querySelector<HTMLButtonElement>('#tabs .tab[data-view="BT"]')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(document.getElementById('btArena')).not.toBeNull();
+    document
+      .querySelector<HTMLButtonElement>('#tabs .hub[data-hub="SE"]')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(store.getState().ui.view).toBe('ST');
     expect(document.getElementById('btArena')).toBeNull();
     document.dispatchEvent(new Event('visibilitychange'));
     expect(document.getElementById('btArena')).toBeNull();
