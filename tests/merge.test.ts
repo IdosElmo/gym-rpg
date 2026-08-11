@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { onSetCompleted, onWorkoutFinished } from '../src/core/game.ts';
+import { buyCharacter, onSetCompleted, onWaveCleared, onWorkoutFinished, selectBody } from '../src/core/game.ts';
 import { compareEvents } from '../src/core/xp.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import { mergeIntoStore } from '../src/storage/merge.ts';
@@ -218,6 +218,76 @@ describe('union merge converges', () => {
 });
 
 /* ---------------------------------------------------- semantic duplicates */
+
+/* ------------------------------------------------- the roster (body × skin) */
+
+/**
+ * The roster is folded from the same log as everything else, so it inherits
+ * these properties for free — but it is the one part of the state whose ids
+ * changed shape (a purchase names a SKIN, a selection names a body × skin
+ * combination, and a pre-matrix log names neither exactly). This drives the real
+ * `mergeIntoStore` path across that boundary.
+ */
+describe('the roster converges through a real merge', () => {
+  it('charges one skin once and lands both devices on the last choice', () => {
+    // A frozen clock throughout: `LocalStore` stamps `ts` itself, and the whole
+    // point of the scenario is that B acted LATER.
+    const a = withClock(NOW - 100_000, () => {
+      const store = new LocalStore(fakeStorage());
+      onWaveCleared(store, {
+        world: 1,
+        wave: 1,
+        miniBoss: false,
+        enemyId: 'w1_rat',
+        coins: 3000,
+        energySpent: 0,
+        seed: 1,
+        durationMs: 10,
+      });
+      return store;
+    });
+    const b = new LocalStore(fakeStorage());
+    b.replaceAll(JSON.parse(JSON.stringify(a.getState())) as AppState, a.getEvents());
+
+    // both devices buy the same skin offline (different uuids)…
+    withClock(NOW, () => buyCharacter(a, 'robot', new Date(NOW)));
+    withClock(NOW + 10_000, () => buyCharacter(b, 'robot', new Date(NOW + 10_000)));
+    // …and B then switches body, later
+    withClock(NOW + 20_000, () => selectBody(b, 'female', new Date(NOW + 20_000)));
+
+    mergeIntoStore(a, b.getEvents(), NOW + 60_000);
+    mergeIntoStore(b, a.getEvents(), NOW + 60_000);
+
+    expect(a.getState().game?.characters).toEqual(b.getState().game?.characters);
+    expect(a.getState().game?.characters.owned).toEqual(['robot']);
+    expect(a.getState().game?.characters.selected).toBe('robot_f');
+    expect(a.getState().game?.battle.coins).toBe(2600); // 3000 − 400, once
+    expect(JSON.stringify(a.getState().game)).toBe(JSON.stringify(b.getState().game));
+  });
+
+  it('merges a single-body device\'s log into a body × skin one', () => {
+    const modern = new LocalStore(fakeStorage());
+    // events exactly as the single-body build wrote them
+    const legacy: AppEvent[] = [
+      { id: 'L1', ts: NOW - 9_000, type: 'wave_cleared', payload: { world: 1, wave: 1, coins: 2500 } },
+      { id: 'L2', ts: NOW - 8_000, type: 'character_purchased', payload: { characterId: 'ninja', cost: 1800 } },
+      { id: 'L3', ts: NOW - 7_000, type: 'character_selected', payload: { characterId: 'ninja' } },
+    ];
+    mergeIntoStore(modern, legacy, NOW);
+    expect(modern.getState().game?.characters).toEqual({ owned: ['ninja'], selected: 'ninja_f' });
+
+    // this device now switches the ninja onto the male body — free
+    expect(selectBody(modern, 'male')).toBe(true);
+    expect(modern.getState().game?.characters.selected).toBe('ninja_m');
+    expect(modern.getState().game?.battle.coins).toBe(700);
+
+    // and the merged log still folds the same way from either direction
+    const union = modern.getEvents();
+    const forward = rebuildFromEvents(union, NOW);
+    const backward = rebuildFromEvents([...union].reverse(), NOW);
+    expect(JSON.stringify(forward.game)).toBe(JSON.stringify(backward.game));
+  });
+});
 
 describe('semantic duplicates never double-pay', () => {
   /** Two installs that each imported the same legacy backup, independently. */
