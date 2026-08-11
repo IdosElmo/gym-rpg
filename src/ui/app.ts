@@ -16,7 +16,7 @@
  * Leaving it restores the view you came from.
  */
 
-import { dayOf } from '../data/program.ts';
+import { dayOf, defaultDayOf, programDay } from '../data/program.ts';
 import { fmtDate, lastLoggedDate } from '../core/workout.ts';
 import { isDefaultPlan, resolveProgram } from '../core/plan.ts';
 import { gameOf } from '../core/game.ts';
@@ -61,7 +61,24 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
   let returnView: ViewKey = store.getState().ui.view;
   if (!isReturnable(returnView)) returnView = 'H';
 
-  function setView(v: ViewKey): void {
+  /**
+   * A view key the app can actually render.
+   *
+   * A day key is only as real as the plan that defines it, and the plan can
+   * change under a stored view: leaving the editor after picking a preset, or a
+   * cloud pull that deleted a day on another device, both leave `ui.view`
+   * pointing at a day that no longer exists. Rather than land the user on an
+   * empty screen, an unknown day key resolves to the plan's own default day —
+   * the same one the app boots on.
+   */
+  function resolveView(v: ViewKey): ViewKey {
+    if (v === 'CH' || v === 'BT' || v === 'H' || v === 'PL') return v;
+    const program = resolveProgram(store.getState().plan);
+    return programDay(program, v) ? v : defaultDayOf(program);
+  }
+
+  function setView(view: ViewKey): void {
+    const v = resolveView(view);
     const current = store.getState().ui.view;
     if (v === 'PL') {
       if (isReturnable(current)) returnView = current;

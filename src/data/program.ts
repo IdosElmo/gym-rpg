@@ -709,6 +709,12 @@ export const WEEKDAY_HE: readonly string[] = [
 ] as const;
 
 /**
+ * One-letter weekday names, same indexing as `WEEKDAY_HE`. Used by the plan
+ * editor's toggle chips, where seven full names would never fit a phone row.
+ */
+export const WEEKDAY_SHORT_HE: readonly string[] = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'] as const;
+
+/**
  * Weekdays each built-in day is trained on — the exact mapping the app has
  * always used to pick the default tab (Sun/Mon → A, Tue/Wed → B, Thu–Sat → C).
  * A plan migrated from v1 inherits these, so the default tab never moves under

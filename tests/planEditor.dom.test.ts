@@ -16,6 +16,7 @@ import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BUILTIN_PROGRAM, PROGRAM } from '../src/data/program.ts';
+import { PLAN_PRESETS } from '../src/data/presets.ts';
 import { isDefaultPlan, planRows, resolveProgram } from '../src/core/plan.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import { createApp } from '../src/ui/app.ts';
@@ -153,6 +154,315 @@ describe('plan editor rendering', () => {
     openEditor();
     click('.pl-day[data-day="B"]');
     expect(rowIds()).toEqual(PROGRAM.B.exercises.map((e) => e.id));
+  });
+});
+
+/* --------------------------------------------------------- day management */
+
+function dayTabNames(): string[] {
+  return [...document.querySelectorAll<HTMLElement>('.pl-day .pl-day-name')].map((el) => el.textContent ?? '');
+}
+
+function dayTabKeys(): string[] {
+  return [...document.querySelectorAll<HTMLElement>('.pl-day')].map((el) => el.dataset['day'] ?? '');
+}
+
+function targetText(): string {
+  return document.getElementById('plTarget')?.textContent ?? '';
+}
+
+function chip(wd: number): HTMLButtonElement {
+  const el = document.querySelector<HTMLButtonElement>(`[data-wd="${wd}"]`);
+  if (!el) throw new Error(`no weekday chip ${wd}`);
+  return el;
+}
+
+describe('day management', () => {
+  it('renders the day card: a name, the seven chips and the derived target', () => {
+    mount();
+    openEditor();
+    expect(document.querySelector<HTMLInputElement>('#plDayLabel')?.value).toBe(PROGRAM.A.label);
+    expect(document.querySelectorAll('.pl-wd')).toHaveLength(7);
+    expect([...document.querySelectorAll('.pl-wd')].map((c) => c.textContent)).toEqual([
+      'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש',
+    ]);
+    // day A of the built-in program is Sun+Mon
+    expect(chip(0).classList.contains('on')).toBe(true);
+    expect(chip(1).classList.contains('on')).toBe(true);
+    expect(chip(2).classList.contains('on')).toBe(false);
+    expect(document.getElementById('plWdCaption')?.textContent).toContain('ראשון · שני');
+    expect(targetText()).toBe('יעד שבועי: 3 ימי אימון (משפיע על רצף השבוע המושלם)');
+  });
+
+  it('renames a day in place, updates its tab, and saves the new name', () => {
+    const { store } = mount();
+    openEditor();
+    type('#plDayLabel', 'יום רגליים');
+    expect(dayTabNames()[0]).toBe('יום רגליים');
+    click('#plSave');
+    expect(store.getState().plan?.days[0]?.label).toBe('יום רגליים');
+    // the KEY never moves, so history logged under it is untouched
+    expect(store.getState().plan?.days[0]?.key).toBe('A');
+  });
+
+  it('falls back to a name when the field is emptied', () => {
+    mount();
+    openEditor();
+    type('#plDayLabel', '   ');
+    expect(document.querySelector<HTMLInputElement>('#plDayLabel')?.value).toBe('אימון חדש');
+  });
+
+  it('adds a day: a new tab, a fresh d_ key, and the library sheet already open', () => {
+    const { store } = mount();
+    openEditor();
+    click('#plDayAdd');
+    expect(dayTabKeys()).toHaveLength(4);
+    expect(dayTabKeys()[3]?.startsWith('d_')).toBe(true);
+    expect(dayTabNames()[3]).toBe('אימון חדש');
+    expect(document.querySelector('.pl-day.active .pl-day-name')?.textContent).toBe('אימון חדש');
+    expect(document.querySelector('.pl-sheet')).not.toBeNull();
+    expect(document.querySelector('.pl-empty')).not.toBeNull();
+
+    // an empty day cannot be saved — the plan refuses it, and nothing is logged
+    click('#plSheetClose');
+    click('#plSave');
+    expect(planEvents(store)).toHaveLength(0);
+
+    // …give it an exercise and the same save goes through
+    click('#plAdd');
+    const first = document.querySelector<HTMLButtonElement>('[data-add]');
+    first?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    click('#plSave');
+    expect(planEvents(store)).toHaveLength(1);
+    expect(store.getState().plan?.days).toHaveLength(4);
+    expect(store.getState().plan?.days[3]?.exercises).toHaveLength(1);
+  });
+
+  it('stops at seven days', () => {
+    mount();
+    openEditor();
+    for (let i = 0; i < 4; i += 1) {
+      click('#plDayAdd');
+      click('#plSheetClose');
+    }
+    expect(dayTabKeys()).toHaveLength(7);
+    expect(document.querySelector<HTMLButtonElement>('#plDayAdd')?.disabled).toBe(true);
+    click('#plDayAdd'); // the guard holds even if the button is reached anyway
+    expect(dayTabKeys()).toHaveLength(7);
+  });
+
+  it('removes a day after a confirm, and warns that the history stays', () => {
+    const { store } = mount();
+    openEditor();
+    let asked = '';
+    window.confirm = (msg?: string) => {
+      asked = msg ?? '';
+      return false;
+    };
+    click('#plDayRemove');
+    expect(asked).toContain('היסטוריה');
+    expect(dayTabKeys()).toEqual(['A', 'B', 'C']);
+
+    window.confirm = () => true;
+    click('#plDayRemove');
+    expect(dayTabKeys()).toEqual(['B', 'C']);
+    // the day that follows becomes the active one, with its own rows
+    expect(rowIds()).toEqual(PROGRAM.B.exercises.map((e) => e.id));
+    click('#plSave');
+    expect(store.getState().plan?.days.map((d) => d.key)).toEqual(['B', 'C']);
+  });
+
+  it('refuses to remove the last day', () => {
+    mount();
+    openEditor();
+    click('#plDayRemove');
+    click('#plDayRemove');
+    expect(dayTabKeys()).toHaveLength(1);
+    expect(document.querySelector<HTMLButtonElement>('#plDayRemove')?.disabled).toBe(true);
+    click('#plDayRemove');
+    expect(dayTabKeys()).toHaveLength(1);
+  });
+
+  it('reorders the days with ▲ / ▼ — that order is the tab order', () => {
+    const { store } = mount();
+    openEditor();
+    click('#plDayDown');
+    expect(dayTabKeys()).toEqual(['B', 'A', 'C']);
+    // the moved day stays the active one
+    expect(document.querySelector('.pl-day.active')?.getAttribute('data-day')).toBe('A');
+    click('#plDayUp');
+    expect(dayTabKeys()).toEqual(['A', 'B', 'C']);
+    click('#plDayDown');
+    click('#plSave');
+    expect(store.getState().plan?.days.map((d) => d.key)).toEqual(['B', 'A', 'C']);
+  });
+});
+
+/* ------------------------------------------------------ weekday chips */
+
+describe('weekday assignment', () => {
+  it('toggles a weekday on and off, and updates the caption', () => {
+    mount();
+    openEditor();
+    click('[data-wd="3"]');
+    expect(chip(3).classList.contains('on')).toBe(true);
+    expect(chip(3).getAttribute('aria-pressed')).toBe('true');
+    expect(document.getElementById('plWdCaption')?.textContent).toContain('רביעי');
+    click('[data-wd="3"]');
+    expect(chip(3).classList.contains('on')).toBe(false);
+    expect(document.getElementById('plWdCaption')?.textContent).not.toContain('רביעי');
+  });
+
+  it('gives a weekday to at most ONE day, and says where it came from', () => {
+    const { store } = mount();
+    openEditor();
+    // Wednesday (3) belongs to day B in the built-in map; claim it for day A
+    click('.pl-day[data-day="B"]');
+    expect(chip(3).classList.contains('on')).toBe(true);
+    click('.pl-day[data-day="A"]');
+    click('[data-wd="3"]');
+    expect(document.getElementById('plWdHint')?.textContent).toContain('רביעי');
+    expect(document.getElementById('plWdHint')?.textContent).toContain(PROGRAM.B.label);
+    // …and day B really lost it
+    click('.pl-day[data-day="B"]');
+    expect(chip(3).classList.contains('on')).toBe(false);
+    click('#plSave');
+    const days = store.getState().plan?.days ?? [];
+    expect(days[0]?.weekdays).toEqual([0, 1, 3]);
+    expect(days[1]?.weekdays).toEqual([2]);
+    // no weekday is claimed twice
+    const all = days.flatMap((d) => d.weekdays ?? []);
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it('drops the field entirely when a day is left with no weekdays', () => {
+    const { store } = mount();
+    openEditor();
+    click('[data-wd="0"]');
+    click('[data-wd="1"]');
+    expect(document.getElementById('plWdCaption')?.textContent).toContain('לא שובצו');
+    click('#plSave');
+    expect(store.getState().plan?.days[0]?.weekdays).toBeUndefined();
+  });
+
+  it('derives the weekly target from the chips, and shows it', () => {
+    const { store } = mount();
+    openEditor();
+    // the built-in A/B/C ranges are a routing map: three workouts, target 3
+    expect(targetText()).toContain('יעד שבועי: 3');
+    // clear every day's weekdays, then hand-build a real 4-day schedule
+    for (const key of ['A', 'B', 'C']) {
+      click(`.pl-day[data-day="${key}"]`);
+      for (let wd = 0; wd < 7; wd += 1) if (chip(wd).classList.contains('on')) click(`[data-wd="${wd}"]`);
+    }
+    expect(targetText()).toContain('יעד שבועי: 3'); // nothing assigned -> one per day
+    click('.pl-day[data-day="A"]');
+    click('[data-wd="0"]');
+    click('[data-wd="3"]');
+    expect(targetText()).toContain('יעד שבועי: 2');
+    click('.pl-day[data-day="B"]');
+    click('[data-wd="2"]');
+    click('[data-wd="4"]');
+    expect(targetText()).toBe('יעד שבועי: 4 ימי אימון (משפיע על רצף השבוע המושלם)');
+    click('#plSave');
+    expect(store.getState().plan?.weeklyTarget).toBe(4);
+    expect(resolveProgram(store.getState().plan).weeklyTarget).toBe(4);
+  });
+});
+
+/* ---------------------------------------------------------------- presets */
+
+describe('ready-made presets', () => {
+  function openPresets(): void {
+    click('#plPresets');
+  }
+
+  it('lists every preset with its name, day count and description', () => {
+    mount();
+    openEditor();
+    openPresets();
+    const cards = [...document.querySelectorAll<HTMLElement>('[data-preset]')];
+    expect(cards.map((c) => c.dataset['preset'])).toEqual(PLAN_PRESETS.map((p) => p.id));
+    for (const [i, card] of cards.entries()) {
+      const preset = PLAN_PRESETS[i];
+      expect(card.querySelector('b')?.textContent).toBe(preset?.name);
+      expect(card.querySelector('span')?.textContent).toContain(`${preset?.days} ימי אימון`);
+    }
+  });
+
+  it('keeps the draft when the confirm is declined', () => {
+    mount();
+    openEditor();
+    openPresets();
+    window.confirm = () => false;
+    click('[data-preset="ab4"]');
+    expect(dayTabKeys()).toEqual(['A', 'B', 'C']);
+    expect(document.querySelector('.pl-sheet')).not.toBeNull();
+  });
+
+  it('replaces the draft, then saves it as ONE plan_updated event', () => {
+    const { store } = mount();
+    openEditor();
+    openPresets();
+    click('[data-preset="ab4"]');
+
+    expect(document.querySelector('.pl-sheet')).toBeNull();
+    expect(dayTabNames()).toHaveLength(2);
+    expect(dayTabNames()[0]).toContain('חלק א׳');
+    expect(dayTabNames()[1]).toContain('חלק ב׳');
+    expect(targetText()).toContain('יעד שבועי: 4');
+    expect(rowIds()).toEqual(['x1', 'c2', 'x2', 'x3', 'b1', 'c3', 'x4', 'x5']);
+    // …still only a draft
+    expect(store.getState().plan).toBeNull();
+    expect(planEvents(store)).toHaveLength(0);
+
+    click('#plSave');
+    expect(planEvents(store)).toHaveLength(1);
+    const saved = store.getState().plan;
+    expect(saved?.days).toHaveLength(2);
+    expect(saved?.weeklyTarget).toBe(4);
+    expect(saved?.days[0]?.weekdays).toEqual([0, 3]);
+    expect(saved?.days[1]?.weekdays).toEqual([2, 4]);
+    expect(saved?.days[1]?.exercises.map((r) => r.id)).toEqual(['b2', 'x6', 'b4', 'a2', 'x7', 'x8', 'a5', 'x9']);
+    // the whole document travels in the one event
+    const payload = planEvents(store)[0]?.payload['plan'] as { days?: unknown[] } | null;
+    expect(payload?.days).toHaveLength(2);
+  });
+
+  it('drives the app: two tabs, the new exercises, and real XP', () => {
+    const { store } = mount();
+    openEditor();
+    openPresets();
+    click('[data-preset="ab4"]');
+    click('#plSave');
+    click('#btnPlanBack');
+
+    const tabs = [...document.querySelectorAll<HTMLElement>('#tabs .tab')];
+    expect(tabs).toHaveLength(5); // two workout days + דמות + קרב + היסטוריה
+    expect(tabs[0]?.textContent).toContain('חלק א׳');
+    // the boot day follows the real weekday, so pin the test to חלק א׳
+    click(`#tabs .tab[data-view="${store.getState().plan?.days[0]?.key ?? ''}"]`);
+    // the workout screen renders a library exercise like any other
+    const card = document.getElementById('card-x1');
+    expect(card?.querySelector('.ex-title')?.textContent).toBe('סקוואט בסמית׳ מאשין');
+    expect(card?.querySelectorAll('.chk')).toHaveLength(4);
+    expect(card?.querySelector('.form-panel')).not.toBeNull();
+
+    click('#main .chk[data-ex="x1"][data-set="0"]');
+    expect(store.getState().game?.parts.legs.xp).toBeGreaterThan(0);
+    expect(store.getEvents().find((e) => e.type === 'xp_gained')?.payload['exId']).toBe('x1');
+  });
+
+  it('offers the built-in program as a preset too', () => {
+    const { store } = mount();
+    openEditor();
+    openPresets();
+    click('[data-preset="ab4"]');
+    openPresets();
+    click('[data-preset="builtin3"]');
+    expect(dayTabKeys()).toEqual(['A', 'B', 'C']);
+    click('#plSave');
+    expect(isDefaultPlan(store.getState().plan)).toBe(true);
   });
 });
 
@@ -558,6 +868,15 @@ describe('touch targets', () => {
     for (const b of minis) expect(b.classList.contains('pl-mini')).toBe(true);
     expect(document.querySelector('#plAdd')?.classList.contains('pl-add')).toBe(true);
     expect(document.querySelector('#plSave')?.classList.contains('action-btn')).toBe(true);
+    // the day controls added with variable-day plans carry theirs too
+    expect(document.querySelector('#plDayAdd')?.classList.contains('pl-day-add')).toBe(true);
+    expect(document.querySelector('#plPresets')?.classList.contains('action-btn')).toBe(true);
+    for (const id of ['plDayUp', 'plDayDown', 'plDayRemove']) {
+      expect(document.getElementById(id)?.classList.contains('pl-mini')).toBe(true);
+    }
+    const chips = [...document.querySelectorAll('.pl-wd')];
+    expect(chips).toHaveLength(7);
+    for (const c of chips) expect(c.getAttribute('aria-pressed')).toMatch(/true|false/);
   });
 
   it('labels the reorder and remove buttons for screen readers', () => {
