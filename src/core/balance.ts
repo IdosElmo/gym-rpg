@@ -141,6 +141,55 @@ export const BALANCE = {
       superDamageMult: 6,
     },
   },
+
+  /* --------------------------------------------------------------- skills */
+  /**
+   * BODY-PART SKILLS — six active abilities, one per body part, unlocked by
+   * that part's LEVEL and scaled by it forever after.
+   *
+   * Nothing here is persisted: a skill is unlocked because the part is at
+   * `unlockLevel`, which is derived from the event log like every other level,
+   * and an activation is within-battle tactics (like a tap), so no event is
+   * written. Cooldowns and buff windows live in `BattleState` in ms.
+   *
+   * POWER. Every magnitude below is multiplied by
+   *   `power = 1 + min(powerMaxBonus, powerPerLevel × (partLevel − unlockLevel))`
+   * so the skill keeps getting better as the player keeps training — gently,
+   * and with a ceiling, so a skill can never eclipse the stats it rides on.
+   * Cooldowns deliberately do NOT scale: the rhythm of the fight stays readable.
+   *
+   * PACING. At part level 5–6 firing all six on cooldown clears waves ≈25–35%
+   * faster than pure idling (pinned by the simulation tests in tests/skills.*),
+   * which is meaningful without making the idle loop pointless.
+   */
+  skills: {
+    /** Part level at which that part's skill unlocks. */
+    unlockLevel: 5,
+    /** Power gained per part level above the unlock. */
+    powerPerLevel: 0.03,
+    /** Ceiling of that bonus (+60% ⇒ reached at part level 25). */
+    powerMaxBonus: 0.6,
+
+    /** חזה — מכת מחץ: one heavy blow. */
+    smash: { cooldownMs: 20_000, atkMult: 4 },
+    /** גב — עמידת ברזל: a window where incoming damage is cut hard. */
+    guard: {
+      cooldownMs: 30_000,
+      durationMs: 6000,
+      /** Incoming damage multiplier at power 1 (on TOP of DEF mitigation). */
+      damageTaken: 0.45,
+      /** Floor, so a fully trained back is never immune. */
+      minDamageTaken: 0.2,
+    },
+    /** רגליים — רעידת אדמה: damage plus a short stun (the enemy's swing is pushed back). */
+    quake: { cooldownMs: 25_000, atkMult: 1.2, stunMs: 1500 },
+    /** כתפיים — סערת מהלומות: the attack interval is halved for a few seconds. */
+    flurry: { cooldownMs: 30_000, durationMs: 5000, intervalFactor: 0.5 },
+    /** ידיים — מכה מדויקת: the next AUTO attack is a guaranteed, bigger crit. */
+    focus: { cooldownMs: 15_000, critMultiplierBonus: 0.5 },
+    /** ליבה — נשימה עמוקה: instant heal + a short regen burst. */
+    breath: { cooldownMs: 35_000, healPct: 0.25, durationMs: 4000, regenMult: 5 },
+  },
 } as const;
 
 export type Balance = typeof BALANCE;

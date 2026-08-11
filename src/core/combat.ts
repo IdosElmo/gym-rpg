@@ -24,6 +24,19 @@
  * the seed, wave, coins and energy spent. That single event is enough for
  * `rebuildFromEvents` to reproduce world/wave/energy/coins exactly.
  *
+ * SKILLS (Phase 4)
+ * ----------------
+ * Six active abilities, one per body part, unlocked at that part's level and
+ * scaled by it. They are part of THIS state machine: `useSkill()` mutates the
+ * same `BattleState`, cooldowns and buff windows count down on the same fixed
+ * tick, and every random draw still comes from the same seeded stream. So a
+ * replay of the same seed with the same activation TICKS is byte-identical.
+ *
+ * Nothing about them is persisted. Unlocks are derived from part levels (which
+ * the event log already owns), and an activation is within-battle tactics —
+ * exactly like a tap — so `wave_cleared` remains the only battle event and
+ * there is nothing to migrate.
+ *
  * ENERGY
  * ------
  * Energy is charged when a wave is CLEARED, never when it starts — so being
@@ -34,13 +47,18 @@
 
 import { BALANCE } from './balance.ts';
 import {
+  SKILLS,
+  SKILL_IDS,
   WORLD_COUNT,
   enemyForWave,
+  skillById,
   worldBossOf,
   bossGateStatus,
   type BossDef,
   type EnemyDef,
   type GateStatus,
+  type SkillDef,
+  type SkillId,
 } from '../data/gameContent.ts';
 import type { BodyPart } from '../data/program.ts';
 
@@ -260,6 +278,162 @@ export function worldGate(world: number, levels: Readonly<Record<BodyPart, numbe
   return bossGateStatus(worldBossOf(world), levels);
 }
 
+/* -------------------------------------------------------------- the skills */
+
+/** Body-part levels — the ONLY input a skill's unlock and power depend on. */
+export type PartLevels = Readonly<Record<BodyPart, number>>;
+
+function skillDef(skill: SkillDef | SkillId): SkillDef | undefined {
+  return typeof skill === 'string' ? skillById(skill) : skill;
+}
+
+/** The level a part needs before its skill appears. Same for all six. */
+export function skillUnlockLevel(): number {
+  return BALANCE.skills.unlockLevel;
+}
+
+/**
+ * Is this skill unlocked? DERIVED from the part level — there is no unlock flag
+ * anywhere in the state, so nothing can drift and nothing needs migrating.
+ */
+export function skillUnlocked(skill: SkillDef | SkillId, levels: PartLevels): boolean {
+  const def = skillDef(skill);
+  if (!def) return false;
+  return (levels[def.part] ?? 1) >= BALANCE.skills.unlockLevel;
+}
+
+/**
+ * How hard the skill hits, as a multiplier on its tuned magnitude.
+ *
+ * `1` at the unlock level, `+powerPerLevel` for every part level above it, and
+ * capped at `1 + powerMaxBonus`. Training the part therefore keeps paying long
+ * after the unlock, without ever letting a skill outgrow the stats.
+ */
+export function skillPower(skill: SkillDef | SkillId, levels: PartLevels): number {
+  const def = skillDef(skill);
+  if (!def) return 1;
+  const s = BALANCE.skills;
+  const over = Math.max(0, (levels[def.part] ?? 1) - s.unlockLevel);
+  return 1 + Math.min(s.powerMaxBonus, over * s.powerPerLevel);
+}
+
+/** Per-skill runtime: cooldowns and the resolved magnitude of every live buff. */
+export interface SkillRuntime {
+  /** ms of cooldown left per skill (0 = ready). */
+  cd: Record<SkillId, number>;
+  /** עמידת ברזל — ms left, and the incoming-damage multiplier it resolved to. */
+  guardMs: number;
+  guardTaken: number;
+  /** סערת מהלומות — ms left, and the attack-interval factor it resolved to. */
+  flurryMs: number;
+  flurryFactor: number;
+  /** נשימה עמוקה — ms left of the regen burst, and its regen multiplier. */
+  breathMs: number;
+  breathRegen: number;
+  /** מכה מדויקת — crit-multiplier bonus armed for the next auto attack (0 = unarmed). */
+  focusBonus: number;
+  /** רעידת אדמה — ms of stun left. The delay itself is already on `enemyCd`. */
+  stunMs: number;
+}
+
+export function emptySkillRuntime(): SkillRuntime {
+  const cd = {} as Record<SkillId, number>;
+  for (const id of SKILL_IDS) cd[id] = 0;
+  return {
+    cd,
+    guardMs: 0,
+    guardTaken: 1,
+    flurryMs: 0,
+    flurryFactor: 1,
+    breathMs: 0,
+    breathRegen: 1,
+    focusBonus: 0,
+    stunMs: 0,
+  };
+}
+
+/** Everything the skill bar needs about one skill, right now. */
+export interface SkillView {
+  def: SkillDef;
+  unlocked: boolean;
+  /** Part level required, and the level the character actually has. */
+  need: number;
+  have: number;
+  /** ms of cooldown left, and the same as a 0..1 fraction of the full cooldown. */
+  cooldownMs: number;
+  cooldownRatio: number;
+  ready: boolean;
+  /** ms left of this skill's buff window (0 when it has none, or it is over). */
+  activeMs: number;
+  power: number;
+}
+
+/** ms left of a skill's own buff window — 0 for the instant ones. */
+function activeMsOf(state: BattleState, id: SkillId): number {
+  const s = state.skills;
+  switch (id) {
+    case 'guard':
+      return s.guardMs;
+    case 'flurry':
+      return s.flurryMs;
+    case 'breath':
+      return s.breathMs;
+    case 'quake':
+      return s.stunMs;
+    case 'focus':
+      return s.focusBonus > 0 ? 1 : 0;
+    default:
+      return 0;
+  }
+}
+
+/** The six skills as the UI wants them — pure, so the bar has no rules of its own. */
+export function skillViews(state: BattleState, levels: PartLevels): SkillView[] {
+  return SKILLS.map((def) => {
+    const full = BALANCE.skills[def.id].cooldownMs;
+    const cooldownMs = state.skills.cd[def.id] ?? 0;
+    const unlocked = skillUnlocked(def, levels);
+    return {
+      def,
+      unlocked,
+      need: BALANCE.skills.unlockLevel,
+      have: levels[def.part] ?? 1,
+      cooldownMs,
+      cooldownRatio: full > 0 ? Math.min(1, Math.max(0, cooldownMs / full)) : 0,
+      ready: unlocked && cooldownMs <= 0,
+      activeMs: activeMsOf(state, def.id),
+      power: skillPower(def, levels),
+    };
+  });
+}
+
+/**
+ * The Hebrew sentence for a skill, with its numbers resolved at `power`.
+ * Lives here (not in `data/`) because every number in it comes from BALANCE.
+ */
+export function skillSummaryHe(skill: SkillDef | SkillId, power = 1): string {
+  const def = skillDef(skill);
+  if (!def) return '';
+  const B = BALANCE.skills;
+  const secs = (ms: number): string => `${Math.round(ms / 100) / 10}`.replace(/\.0$/, '');
+  switch (def.id) {
+    case 'smash':
+      return `נזק פי ${Math.round(B.smash.atkMult * power * 10) / 10} מההתקפה, מכה אחת.`;
+    case 'guard': {
+      const taken = Math.max(B.guard.minDamageTaken, 1 - (1 - B.guard.damageTaken) * power);
+      return `${secs(B.guard.durationMs)} שניות של הגנה — הנזק הנכנס יורד ב־${Math.round((1 - taken) * 100)}%.`;
+    }
+    case 'quake':
+      return `נזק פי ${Math.round(B.quake.atkMult * power * 10) / 10} ועצירת האויב ל־${secs(B.quake.stunMs * power)} שניות.`;
+    case 'flurry':
+      return `${secs(B.flurry.durationMs * power)} שניות של קצב התקפה כפול.`;
+    case 'focus':
+      return `ההתקפה הבאה קריטית מובטחת, עם +${Math.round(B.focus.critMultiplierBonus * power * 100)}% נזק קריטי.`;
+    case 'breath':
+      return `ריפוי מיידי של ${Math.round(B.breath.healPct * power * 100)}% מהחיים ועוד ${secs(B.breath.durationMs)} שניות של התאוששות מוגברת.`;
+  }
+}
+
 /* -------------------------------------------------------------- the state */
 
 export interface EnemyState {
@@ -309,6 +483,11 @@ export interface BattleState {
   enemy: EnemyState | null;
   /** 0..1 — full means the super move is ready. */
   superMeter: number;
+  /**
+   * Skill cooldowns and live buff windows. IN-MEMORY ONLY: nothing persists a
+   * `BattleState`, so this shape is free to change without a migration.
+   */
+  skills: SkillRuntime;
   status: BattleStatus;
   /** Leftover time smaller than one tick, carried to the next `advance`. */
   acc: number;
@@ -358,9 +537,13 @@ export interface BossResult {
 export type CombatEvent =
   | { kind: 'spawn'; enemy: EnemyState; spec: WaveSpec }
   | { kind: 'boss_spawn'; enemy: EnemyState; spec: BossSpec }
-  | { kind: 'hit'; source: 'auto' | 'tap' | 'super'; amount: number; crit: boolean; enemyHp: number }
+  | { kind: 'hit'; source: 'auto' | 'tap' | 'super' | 'skill'; amount: number; crit: boolean; enemyHp: number }
   | { kind: 'enemy_hit'; amount: number; playerHp: number }
   | { kind: 'regen'; amount: number; playerHp: number }
+  /** A skill went off. Not an event-log event — the UI's cue to play it. */
+  | { kind: 'skill_used'; skillId: SkillId; part: BodyPart; power: number; durationMs: number }
+  /** A timed skill window closed (the hero's buff chip comes off). */
+  | { kind: 'skill_expired'; skillId: SkillId }
   | { kind: 'wave_cleared'; result: WaveResult }
   | { kind: 'boss_defeated'; result: BossResult }
   | { kind: 'defeat'; wave: number; streakDefeats: number }
@@ -396,6 +579,7 @@ export function createBattle(a: CreateBattleArgs): BattleState {
     maxHp: a.stats.maxHp,
     enemy: null,
     superMeter: 0,
+    skills: emptySkillRuntime(),
     status: 'idle',
     acc: 0,
     elapsedMs: 0,
@@ -521,7 +705,7 @@ function spawn(state: BattleState, out: CombatEvent[]): void {
 function damageEnemy(
   state: BattleState,
   amount: number,
-  source: 'auto' | 'tap' | 'super',
+  source: 'auto' | 'tap' | 'super' | 'skill',
   crit: boolean,
   out: CombatEvent[],
 ): void {
@@ -608,14 +792,74 @@ function knockOut(state: BattleState, out: CombatEvent[]): void {
   state.enemy = null;
   state.playerHp = 0;
   state.superMeter = 0;
+  // The buffs die with the attempt; the COOLDOWNS keep running, so being knocked
+  // out is never a way to refresh a skill.
+  clearSkillBuffs(state, out);
   state.status = 'recovering';
   state.spawnCd = BALANCE.combat.recoverMs;
   out.push({ kind: 'defeat', wave: state.wave, streakDefeats: state.streakDefeats });
 }
 
+/**
+ * Count the skill clocks down by one tick.
+ *
+ * Runs in EVERY status (even between waves and while resting), so a cooldown
+ * that started in one wave is honestly spent by the time the next one spawns.
+ * Buff windows only ever start inside a fight, so they can only run there.
+ */
+function tickSkills(state: BattleState, dt: number, out: CombatEvent[]): void {
+  const s = state.skills;
+  for (const id of SKILL_IDS) {
+    if (s.cd[id] > 0) s.cd[id] = Math.max(0, s.cd[id] - dt);
+  }
+  if (s.guardMs > 0) {
+    s.guardMs = Math.max(0, s.guardMs - dt);
+    if (s.guardMs === 0) {
+      s.guardTaken = 1;
+      out.push({ kind: 'skill_expired', skillId: 'guard' });
+    }
+  }
+  if (s.flurryMs > 0) {
+    s.flurryMs = Math.max(0, s.flurryMs - dt);
+    if (s.flurryMs === 0) {
+      s.flurryFactor = 1;
+      out.push({ kind: 'skill_expired', skillId: 'flurry' });
+    }
+  }
+  if (s.breathMs > 0) {
+    s.breathMs = Math.max(0, s.breathMs - dt);
+    if (s.breathMs === 0) {
+      s.breathRegen = 1;
+      out.push({ kind: 'skill_expired', skillId: 'breath' });
+    }
+  }
+  if (s.stunMs > 0) {
+    s.stunMs = Math.max(0, s.stunMs - dt);
+    if (s.stunMs === 0) out.push({ kind: 'skill_expired', skillId: 'quake' });
+  }
+}
+
+/** Drop every live buff (a knock-out), leaving the cooldowns alone. */
+function clearSkillBuffs(state: BattleState, out: CombatEvent[]): void {
+  const s = state.skills;
+  for (const id of ['guard', 'flurry', 'breath', 'quake'] as const) {
+    if (activeMsOf(state, id) > 0) out.push({ kind: 'skill_expired', skillId: id });
+  }
+  if (s.focusBonus > 0) out.push({ kind: 'skill_expired', skillId: 'focus' });
+  s.guardMs = 0;
+  s.guardTaken = 1;
+  s.flurryMs = 0;
+  s.flurryFactor = 1;
+  s.breathMs = 0;
+  s.breathRegen = 1;
+  s.focusBonus = 0;
+  s.stunMs = 0;
+}
+
 /** One fixed simulation tick. Order is fixed, which is half of determinism. */
 function step(state: BattleState, dt: number, stats: CombatStats, out: CombatEvent[]): void {
   state.elapsedMs += dt;
+  tickSkills(state, dt, out);
 
   if (state.status === 'gated') return;
 
@@ -649,13 +893,14 @@ function step(state: BattleState, dt: number, stats: CombatStats, out: CombatEve
   if (!enemy) return;
   state.waveElapsedMs += dt;
 
-  // 1. regen (Core)
+  // 1. regen (Core) — multiplied while נשימה עמוקה is burning.
   state.regenCd -= dt;
   if (state.regenCd <= 0) {
     state.regenCd += BALANCE.combat.regenIntervalMs;
-    if (state.playerHp < state.maxHp && stats.regen > 0) {
+    const regen = stats.regen * (state.skills.breathMs > 0 ? state.skills.breathRegen : 1);
+    if (state.playerHp < state.maxHp && regen > 0) {
       const before = state.playerHp;
-      state.playerHp = Math.min(state.maxHp, state.playerHp + stats.regen);
+      state.playerHp = Math.min(state.maxHp, state.playerHp + regen);
       out.push({
         kind: 'regen',
         amount: Math.round((state.playerHp - before) * 10) / 10,
@@ -664,21 +909,36 @@ function step(state: BattleState, dt: number, stats: CombatStats, out: CombatEve
     }
   }
 
-  // 2. the character attacks (Chest damage, Shoulders speed, Arms crit)
+  // 2. the character attacks (Chest damage, Shoulders speed, Arms crit).
+  //    סערת מהלומות shortens the interval; מכה מדויקת forces the next crit —
+  //    the crit DRAW still happens either way, so the RNG stream is unchanged.
   state.playerCd -= dt;
   if (state.playerCd <= 0) {
-    state.playerCd += Math.max(BALANCE.combat.tickMs, stats.attackIntervalMs);
+    const interval = stats.attackIntervalMs * (state.skills.flurryMs > 0 ? state.skills.flurryFactor : 1);
+    state.playerCd += Math.max(BALANCE.combat.tickMs, interval);
     const raw = varied(stats.atk, state.rng);
-    const crit = nextFloat(state.rng) < stats.critChance;
-    damageEnemy(state, crit ? raw * stats.critMultiplier : raw, 'auto', crit, out);
+    const rolled = nextFloat(state.rng) < stats.critChance;
+    const focus = state.skills.focusBonus;
+    const crit = rolled || focus > 0;
+    const critMult = stats.critMultiplier + (focus > 0 ? focus : 0);
+    if (focus > 0) {
+      state.skills.focusBonus = 0;
+      out.push({ kind: 'skill_expired', skillId: 'focus' });
+    }
+    damageEnemy(state, crit ? raw * critMult : raw, 'auto', crit, out);
     if (!state.enemy) return; // wave cleared by this hit
   }
 
-  // 3. the enemy attacks back (reduced by Back/DEF, absorbed by Legs/HP)
+  // 3. the enemy attacks back (reduced by Back/DEF, absorbed by Legs/HP, and cut
+  //    further while עמידת ברזל holds).
   state.enemyCd -= dt;
   if (state.enemyCd <= 0) {
     state.enemyCd += enemy.attackIntervalMs;
-    const dealt = Math.max(1, Math.round(varied(enemy.atk, state.rng) * mitigation(stats.def) * 10) / 10);
+    const guard = state.skills.guardMs > 0 ? state.skills.guardTaken : 1;
+    const dealt = Math.max(
+      1,
+      Math.round(varied(enemy.atk, state.rng) * mitigation(stats.def) * guard * 10) / 10,
+    );
     state.playerHp = Math.max(0, Math.round((state.playerHp - dealt) * 10) / 10);
     out.push({ kind: 'enemy_hit', amount: dealt, playerHp: state.playerHp });
     if (state.playerHp <= 0) knockOut(state, out);
@@ -759,6 +1019,111 @@ export function useSuper(state: BattleState, stats: CombatStats): TapResult {
   return { events: out, accepted: true };
 }
 
+/* ---------------------------------------------------------------- skills */
+
+/** Why a skill activation was refused — the UI turns this into Hebrew. */
+export type SkillRefusal = 'unknown' | 'locked' | 'cooldown' | 'idle';
+
+export interface SkillResult {
+  events: CombatEvent[];
+  accepted: boolean;
+  /** Only set when `accepted` is false. */
+  reason?: SkillRefusal;
+}
+
+/**
+ * Fire a body-part skill.
+ *
+ * Everything it needs is passed in: the stats it scales off, and the part levels
+ * that decide whether it is unlocked at all and how hard it lands. The MAGNITUDE
+ * is resolved here, at activation, and stored in the state — so the tick loop
+ * never needs to know about levels and a level-up mid-buff cannot retroactively
+ * change a window that is already running.
+ *
+ * A locked skill is a NO-OP: no cooldown is started, no RNG is drawn, nothing in
+ * the state moves. Same for one that is still cooling down, or one fired while
+ * there is no enemy on screen.
+ */
+export function useSkill(
+  state: BattleState,
+  skillId: SkillId,
+  stats: CombatStats,
+  levels: PartLevels,
+): SkillResult {
+  const out: CombatEvent[] = [];
+  const def = skillById(skillId);
+  if (!def) return { events: out, accepted: false, reason: 'unknown' };
+  if (!skillUnlocked(def, levels)) return { events: out, accepted: false, reason: 'locked' };
+  if (state.status !== 'fighting' || !state.enemy) return { events: out, accepted: false, reason: 'idle' };
+  if ((state.skills.cd[skillId] ?? 0) > 0) return { events: out, accepted: false, reason: 'cooldown' };
+
+  const B = BALANCE.skills;
+  const s = state.skills;
+  const power = skillPower(def, levels);
+  s.cd[skillId] = B[skillId].cooldownMs;
+
+  // The duration is known before the effect lands, so the UI gets one event it
+  // can hang both the flash AND the buff chip on.
+  const durationMs =
+    skillId === 'guard'
+      ? B.guard.durationMs
+      : skillId === 'flurry'
+        ? Math.round(B.flurry.durationMs * power)
+        : skillId === 'breath'
+          ? B.breath.durationMs
+          : skillId === 'quake'
+            ? Math.round(B.quake.stunMs * power)
+            : 0;
+  out.push({ kind: 'skill_used', skillId, part: def.part, power, durationMs });
+
+  switch (skillId) {
+    case 'smash':
+      damageEnemy(state, varied(stats.atk * B.smash.atkMult * power, state.rng), 'skill', true, out);
+      break;
+
+    case 'guard':
+      s.guardMs = durationMs;
+      s.guardTaken = Math.max(B.guard.minDamageTaken, 1 - (1 - B.guard.damageTaken) * power);
+      break;
+
+    case 'quake': {
+      // The stun IS the enemy's swing pushed back: its cooldown gains the whole
+      // window, and `stunMs` counts the same window down for the UI.
+      s.stunMs = durationMs;
+      state.enemyCd += durationMs;
+      damageEnemy(state, varied(stats.atk * B.quake.atkMult * power, state.rng), 'skill', false, out);
+      break;
+    }
+
+    case 'flurry':
+      s.flurryMs = durationMs;
+      s.flurryFactor = B.flurry.intervalFactor;
+      // Shorten the swing already in flight too, or the first "faster" attack
+      // would still arrive at the old pace.
+      state.playerCd = Math.max(0, state.playerCd * s.flurryFactor);
+      break;
+
+    case 'focus':
+      s.focusBonus = B.focus.critMultiplierBonus * power;
+      break;
+
+    case 'breath': {
+      s.breathMs = durationMs;
+      s.breathRegen = B.breath.regenMult;
+      const before = state.playerHp;
+      state.playerHp = Math.min(state.maxHp, state.playerHp + state.maxHp * B.breath.healPct * power);
+      out.push({
+        kind: 'regen',
+        amount: Math.round((state.playerHp - before) * 10) / 10,
+        playerHp: state.playerHp,
+      });
+      break;
+    }
+  }
+
+  return { events: out, accepted: true };
+}
+
 /* ----------------------------------------------------------- test helpers */
 
 export interface SimulationSummary {
@@ -773,23 +1138,47 @@ export interface SimulationSummary {
 }
 
 /**
+ * An auto-pilot for the simulation: fire these skills the moment they are ready.
+ *
+ * The order is fixed (the roster order) and the attempt happens once per step,
+ * so a simulated run with skills is exactly as reproducible as one without —
+ * which is what lets the balance tests compare the two.
+ */
+export interface SkillPilot {
+  levels: PartLevels;
+  /** Defaults to all six. */
+  ids?: readonly SkillId[];
+}
+
+/**
  * Run a battle forward in fixed steps until `waves` waves are cleared or the
  * time budget runs out. Used by the tests (and handy for balance spreadsheets).
  */
 export function simulate(
   state: BattleState,
   stats: CombatStats,
-  opts: { waves?: number; maxMs?: number; stepMs?: number } = {},
+  opts: { waves?: number; maxMs?: number; stepMs?: number; pilot?: SkillPilot } = {},
 ): SimulationSummary {
   const waves = opts.waves ?? 1;
   const maxMs = opts.maxMs ?? 10 * 60_000;
   const stepMs = opts.stepMs ?? BALANCE.combat.tickMs;
+  const pilotIds = opts.pilot ? (opts.pilot.ids ?? SKILL_IDS) : [];
   const events: CombatEvent[] = [];
   const results: WaveResult[] = [];
   const bosses: BossResult[] = [];
   let elapsed = 0;
 
   while (elapsed < maxMs && results.length + bosses.length < waves) {
+    if (opts.pilot) {
+      for (const id of pilotIds) {
+        const res = useSkill(state, id, stats, opts.pilot.levels);
+        for (const ev of res.events) {
+          events.push(ev);
+          if (ev.kind === 'wave_cleared') results.push(ev.result);
+          else if (ev.kind === 'boss_defeated') bosses.push(ev.result);
+        }
+      }
+    }
     for (const ev of advance(state, stepMs, stats)) {
       events.push(ev);
       if (ev.kind === 'wave_cleared') results.push(ev.result);
