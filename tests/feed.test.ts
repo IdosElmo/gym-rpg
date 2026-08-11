@@ -199,6 +199,21 @@ describe('history feed', () => {
     expect(buildFeed(quiet.getEvents())).toHaveLength(0);
   });
 
+  it('names a finished workout only when the caller can name the day', () => {
+    const store = new LocalStore(fakeStorage());
+    store.append('workout_finished', { date: '2025-05-04', day: 'd_alef' });
+    // the log alone does not know which plan is active -> no name, no raw key
+    const bare = buildFeed(store.getEvents())[0];
+    expect(bare?.text).toBe('אימון הושלם במלואו');
+    expect(bare?.text).not.toContain('d_alef');
+    // a screen that knows the plan passes the label in
+    const named = buildFeed(store.getEvents(), 40, findExercise, (k) => (k === 'd_alef' ? 'חלק א׳' : ''))[0];
+    expect(named?.text).toBe('אימון הושלם במלואו · חלק א׳');
+    // …and the label is escaped like every other piece of user text
+    const evil = buildFeed(store.getEvents(), 40, findExercise, () => '<b>x</b>')[0];
+    expect(evil?.text).not.toContain('<b>');
+  });
+
   it('escapes nothing dangerous into the markup', () => {
     const store = new LocalStore(fakeStorage());
     store.append('boss_defeated', { bossId: '<img src=x onerror=alert(1)>', date: '2025-05-04' });

@@ -14,7 +14,14 @@
  * farming XP by unchecking and re-checking a set.
  */
 
-import { BODY_PART_HE, equipHe, type DayKey, type Exercise, type ProgramMap } from '../data/program.ts';
+import {
+  BODY_PART_HE,
+  dayOf,
+  equipHe,
+  type DayKey,
+  type Exercise,
+  type ResolvedProgram,
+} from '../data/program.ts';
 import {
   doneCount,
   getSetData,
@@ -44,8 +51,15 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
   // The user's plan when there is one, the built-in PROGRAM object itself when
   // there isn't — so an un-edited install renders exactly the same objects.
   const program = resolveProgram(state.plan);
-  const p = program[view];
+  const p = dayOf(program, view);
   const today = todayISO();
+
+  // A day key the plan does not (or no longer) has: say so instead of throwing.
+  // Reachable when a day is deleted on another device while this tab is open.
+  if (!p) {
+    main.innerHTML = `<div class="empty">יום האימון הזה כבר לא קיים בתוכנית. בחרו יום אחר או ערכו את התוכנית. 🛠</div>`;
+    return;
+  }
 
   main.innerHTML = p.exercises
     .map((ex, idx) => {
@@ -125,8 +139,8 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
   bind(main, view, deps, today, program);
 }
 
-function findEx(program: ProgramMap, view: DayKey, exId: string): Exercise | undefined {
-  return program[view].exercises.find((e) => e.id === exId);
+function findEx(program: ResolvedProgram, view: DayKey, exId: string): Exercise | undefined {
+  return dayOf(program, view)?.exercises.find((e) => e.id === exId);
 }
 
 function bind(
@@ -134,7 +148,7 @@ function bind(
   view: DayKey,
   deps: WorkoutDeps,
   today: string,
-  program: ProgramMap,
+  program: ResolvedProgram,
 ): void {
   const { store, timer, refreshHeader } = deps;
 
@@ -246,7 +260,7 @@ function maybeFinishWorkout(
   view: DayKey,
   date: string,
   anchor: Element,
-  program: ProgramMap,
+  program: ResolvedProgram,
 ): void {
   if (!isWorkoutComplete(store.getState(), view, date, program)) return;
   const already = store.getEvents().some((e) => e.type === 'workout_finished' && e.payload['date'] === date);

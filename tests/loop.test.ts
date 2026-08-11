@@ -35,7 +35,7 @@ import {
 } from '../src/core/game.ts';
 import { computeStreak, statsOfGame, tsToIso } from '../src/core/xp.ts';
 import { worldBossOf } from '../src/data/gameContent.ts';
-import { BODY_PARTS, PROGRAM, type BodyPart, type DayKey } from '../src/data/program.ts';
+import { BODY_PARTS, PROGRAM, type BodyPart, type BuiltInDayKey } from '../src/data/program.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import {
   buildExport,
@@ -54,7 +54,7 @@ function fakeStorage(): StorageLike {
 }
 
 const BOSS_WAVE = BALANCE.combat.wavesPerWorld + 1;
-const DAYS: readonly DayKey[] = ['A', 'B', 'C'];
+const DAYS: readonly BuiltInDayKey[] = ['A', 'B', 'C'];
 
 function levelsOf(store: LocalStore): Record<BodyPart, number> {
   const game = gameOf(store);
@@ -80,7 +80,7 @@ function combatStats(store: LocalStore): CombatStats {
  * Log one FULL workout day, set by set and then the completion bonus — exactly
  * the two calls `ui/workout.ts` makes when the last checkbox is ticked.
  */
-function logWorkout(store: LocalStore, date: string, day: DayKey): void {
+function logWorkout(store: LocalStore, date: string, day: BuiltInDayKey): void {
   const now = new Date(`${date}T10:00:00Z`);
   for (const exercise of PROGRAM[day].exercises) {
     for (let i = 0; i < exercise.sets; i += 1) {
@@ -182,7 +182,7 @@ describe('the core loop, end to end', () => {
     let workouts = 1;
     while (worldGate(1, levelsOf(store)).locked && workouts < 40) {
       const date = `2025-06-${String(2 + workouts).padStart(2, '0')}`;
-      logWorkout(store, date, DAYS[workouts % DAYS.length] as DayKey);
+      logWorkout(store, date, DAYS[workouts % DAYS.length] as BuiltInDayKey);
       workouts += 1;
     }
     expect(worldGate(1, levelsOf(store)).locked).toBe(false);
@@ -207,7 +207,7 @@ describe('the core loop, end to end', () => {
       playUntil(store, state, (s) => s.world > 1);
       if (gameOf(store).battle.bossesDefeated.length > 0) break;
       const date = `2025-06-${String(11 + round).padStart(2, '0')}`;
-      logWorkout(store, date, DAYS[round % DAYS.length] as DayKey);
+      logWorkout(store, date, DAYS[round % DAYS.length] as BuiltInDayKey);
       setEnergy(state, gameOf(store).energy);
       setGate(
         state,

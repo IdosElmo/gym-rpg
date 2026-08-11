@@ -28,8 +28,12 @@ import {
   splitXp,
   streakMultiplier,
   totalXpToReach,
+  tsToIso,
   volumeFactor,
   weekStartISO,
+  weeklyTargetAt,
+  weeklyTargetForWeek,
+  weeklyTargetsFromEvents,
   xpForLevel,
   xpForSet,
 } from '../src/core/xp.ts';
@@ -188,6 +192,105 @@ describe('week math', () => {
     expect(addDays('2025-01-30', 3)).toBe('2025-02-02');
     expect(addDays('2025-03-01', -1)).toBe('2025-02-28');
     expect(isoToTs('1970-01-02')).toBe(86_400_000);
+  });
+});
+
+/**
+ * THE PLAN DECIDES WHAT A PERFECT WEEK IS.
+ *
+ * `weeklyTarget` lives in the plan document, the plan lives in the log, and the
+ * log is totally ordered by `(ts, id)` — so the threshold a given week is judged
+ * by is a function of the event SET, exactly like the XP is. That is what lets
+ * two devices agree on a streak they computed independently.
+ */
+describe('the weekly target timeline', () => {
+  /** A `plan_updated` event carrying a v2 document with `target` days a week. */
+  function planEvent(id: string, ts: number, target: number | null): AppEvent {
+    const plan =
+      target === null
+        ? null
+        : {
+            version: 2,
+            rev: 1,
+            days: [{ key: 'd_x', label: 'יום', weekdays: [0], exercises: [{ id: 'a1', sets: 3, reps: '8', rest: 60 }] }],
+            weeklyTarget: target,
+            customExercises: [],
+          };
+    return { id, ts, type: 'plan_updated', payload: { plan, revision: 1, date: tsToIso(ts) } };
+  }
+
+  it('reads the target out of plan_updated, and resets it on data_cleared', () => {
+    const log = [
+      planEvent('a', isoToTs('2025-01-06'), 4),
+      { id: 'b', ts: isoToTs('2025-01-20'), type: 'data_cleared', payload: {} } as AppEvent,
+    ];
+    const targets = weeklyTargetsFromEvents(log);
+    expect(targets.map((t) => t.target)).toEqual([4, 3]);
+    // before any plan: the built-in program's three days a week
+    expect(weeklyTargetAt(targets, isoToTs('2025-01-01'))).toBe(3);
+    expect(weeklyTargetAt(targets, isoToTs('2025-01-10'))).toBe(4);
+    expect(weeklyTargetAt(targets, isoToTs('2025-01-25'))).toBe(3);
+  });
+
+  it('is a function of the event SET: shuffling the log changes nothing', () => {
+    const log = [planEvent('a', 1_000, 5), planEvent('z', 2_000, 2)];
+    expect(weeklyTargetsFromEvents([...log].reverse())).toEqual(weeklyTargetsFromEvents(log));
+    // a ts tie is broken by id, in both directions
+    const tie = [planEvent('aaa', 5_000, 6), planEvent('zzz', 5_000, 1)];
+    for (const perm of [tie, [...tie].reverse()]) {
+      expect(weeklyTargetAt(weeklyTargetsFromEvents(perm), 9_000)).toBe(1);
+    }
+  });
+
+  it('reads a v1 payload (an older client) as the built-in three days', () => {
+    const v1: AppEvent = {
+      id: 'v1',
+      ts: 1_000,
+      type: 'plan_updated',
+      payload: { plan: { version: 1, rev: 1, days: {}, customExercises: [] }, revision: 1 },
+    };
+    expect(weeklyTargetsFromEvents([v1])).toEqual([{ ts: 1_000, target: 3 }]);
+  });
+
+  it('judges a week by the plan in force when that week CLOSED', () => {
+    // the switch lands mid-week: the week it lands in is judged by the new plan
+    const targets = weeklyTargetsFromEvents([planEvent('a', isoToTs('2025-01-08'), 4)]);
+    expect(weeklyTargetForWeek(targets, '2024-12-29')).toBe(3);
+    expect(weeklyTargetForWeek(targets, '2025-01-05')).toBe(4);
+    expect(weeklyTargetForWeek(targets, '2025-01-12')).toBe(4);
+  });
+});
+
+describe('streak tiers under a plan target', () => {
+  const week1 = ['2025-01-05', '2025-01-07', '2025-01-08', '2025-01-09'];
+  /** A plan of `target` days a week, active from before any of the history. */
+  function targets(target: number): ReturnType<typeof weeklyTargetsFromEvents> {
+    return [{ ts: isoToTs('2025-01-01'), target }];
+  }
+
+  it('a 4-day plan needs FOUR days for the tier — three drops it', () => {
+    expect(computeStreak(week1, '2025-01-12', targets(4)).tier).toBe(1);
+    expect(computeStreak(week1.slice(0, 3), '2025-01-12', targets(4)).tier).toBe(0);
+    // the same three days are a perfect week under the built-in program
+    expect(computeStreak(week1.slice(0, 3), '2025-01-12').tier).toBe(1);
+  });
+
+  it('reports the ACTIVE target as `needed`, for the character screen', () => {
+    expect(computeStreak([], '2025-01-12', targets(5)).needed).toBe(5);
+    expect(computeStreak(week1, '2025-01-12', targets(1)).needed).toBe(1);
+    expect(computeStreak(week1, '2025-01-12').needed).toBe(BALANCE.streak.daysPerWeek);
+  });
+
+  it('judges each week against the target that was active THAT week', () => {
+    const days = [...week1.slice(0, 3), '2025-01-12', '2025-01-14', '2025-01-16'];
+    // three days a week throughout: two perfect weeks
+    expect(computeStreak(days, '2025-01-19').tier).toBe(2);
+    // …but switching to a 4-day plan at the start of week 2 makes week 2 a miss
+    const switched = [
+      { ts: isoToTs('2025-01-01'), target: 3 },
+      { ts: isoToTs('2025-01-12'), target: 4 },
+    ];
+    expect(computeStreak(days, '2025-01-19', switched).tier).toBe(0);
   });
 });
 

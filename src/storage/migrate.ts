@@ -16,9 +16,10 @@
  * never paid XP gets retroactive grants appended to the log (see core/xp.ts).
  */
 
-import { BODY_PARTS, isDayKey, type BodyPart, type DayKey } from '../data/program.ts';
+import { BODY_PARTS, isDayKey, isReservedViewKey, type BodyPart, type DayKey } from '../data/program.ts';
 import { EQUIPMENT_SLOTS, bossById, equipmentById } from '../data/gameContent.ts';
-import { makeResolver, normalizePlanDoc, planFromEvents, resolveProgram } from '../core/plan.ts';
+import { defaultDay, makeResolver, normalizePlanDoc, planFromEvents, resolveProgram } from '../core/plan.ts';
+import type { PlanDoc } from '../data/planTypes.ts';
 import { todayISO } from '../core/workout.ts';
 import {
   buildRetroactiveGrants,
@@ -67,8 +68,12 @@ export const LEGACY_UI_KEY = 'hyp3_ui_v1';
  * v2 (Phase 1): the opaque `game` slot became a typed `GameState`.
  * v3 (editable plans): `plan: PlanDoc | null` joined the state. The step is a
  * pure addition — a v2 blob simply had no plan, i.e. the built-in program.
+ * v4 (variable-day plans): the plan document itself went to v2 (days became an
+ * ordered array with their own keys, labels and weekdays, plus a weeklyTarget).
+ * The step re-routes the cached plan through `normalizePlanDoc`, which performs
+ * the document migration; the rest of the state is untouched.
  */
-export const CURRENT_STATE_VERSION = 3;
+export const CURRENT_STATE_VERSION = 4;
 /**
  * Bump when the shape of `EventLog` changes.
  * v2 (merge-safe core): events may carry an optional `device` stamp and the log
@@ -100,15 +105,15 @@ function toStr(v: unknown): string {
   return '';
 }
 
-export function defaultDay(now: Date = new Date()): DayKey {
-  const wd = now.getDay(); // 0 = Sunday
-  if (wd === 2 || wd === 3) return 'B';
-  if (wd >= 4 && wd <= 6) return 'C';
-  return 'A';
-}
+/**
+ * The day the app opens on. Re-exported from the plan model, which owns the
+ * weekday mapping now that a plan defines its own days; for `plan === null` it
+ * is the legacy mapping unchanged (Sun/Mon -> A, Tue/Wed -> B, Thu-Sat -> C).
+ */
+export { defaultDay };
 
-export function emptyUi(now: Date = new Date()): UiState {
-  return { view: defaultDay(now), open: {} };
+export function emptyUi(now: Date = new Date(), plan: PlanDoc | null = null): UiState {
+  return { view: defaultDay(plan, now), open: {} };
 }
 
 export function emptyState(now: number = Date.now()): AppState {
@@ -147,6 +152,13 @@ export function normalizeSet(raw: unknown): SetEntry | null {
   return { w: toStr(raw['w']), r: toStr(raw['r']), done: raw['done'] === true };
 }
 
+/**
+ * A session as stored. The day key is PRESERVED verbatim whenever it is a
+ * plausible key — including one this build has never seen, because a plan on
+ * another device may define days this one knows nothing about. Only junk (a
+ * non-string, an empty string, one of the reserved view keys) falls back to 'A',
+ * which is what every pre-plan session carried anyway.
+ */
 export function normalizeSession(raw: unknown): Session | null {
   if (!isRecord(raw)) return null;
   const day: DayKey = isDayKey(raw['day']) ? raw['day'] : 'A';
@@ -297,18 +309,22 @@ export function normalizeGame(raw: unknown): GameState | null {
   };
 }
 
-function normalizeUi(raw: unknown, now: Date = new Date()): UiState {
-  if (!isRecord(raw)) return emptyUi(now);
+/**
+ * The persisted UI slot. A view that is one of the four reserved screens is kept
+ * as-is; a DAY view is kept only when the active plan actually has that day
+ * (otherwise the app would open on a tab that does not exist), and anything else
+ * falls back to the plan's default day for `now`.
+ */
+function normalizeUi(raw: unknown, now: Date = new Date(), plan: PlanDoc | null = null): UiState {
+  if (!isRecord(raw)) return emptyUi(now, plan);
   const view = raw['view'];
   const open: Record<string, boolean> = {};
   const openRaw = raw['open'];
   if (isRecord(openRaw)) {
     for (const k of Object.keys(openRaw)) open[k] = openRaw[k] === true;
   }
-  const v: ViewKey =
-    isDayKey(view) || view === 'H' || view === 'CH' || view === 'BT' || view === 'PL'
-      ? (view as ViewKey)
-      : defaultDay(now);
+  const known = resolveProgram(plan).days.some((d) => d.key === view);
+  const v: ViewKey = isReservedViewKey(view) || known ? (view as ViewKey) : defaultDay(plan, now);
   return { view: v, open };
 }
 
@@ -336,7 +352,12 @@ const STATE_MIGRATIONS: ReadonlyArray<(blob: Record<string, unknown>) => Record<
   // `normalizePlanDoc` anyway, so a blob that somehow carries one is validated
   // rather than trusted.
   (blob) => ({ ...blob, plan: normalizePlanDoc(blob['plan']), schemaVersion: 3 }),
-  // 3 -> 4: (future) add your step here and bump CURRENT_STATE_VERSION.
+  // 3 -> 4: variable-day plans. A v3 blob caches a PlanDoc v1 (the fixed A/B/C
+  // record); `normalizePlanDoc` migrates it to v2 in place. Nothing else moves,
+  // and the log — which is the source of truth — needs no rewriting at all,
+  // because `plan_updated` payloads are normalised on every fold.
+  (blob) => ({ ...blob, plan: normalizePlanDoc(blob['plan']), schemaVersion: 4 }),
+  // 4 -> 5: (future) add your step here and bump CURRENT_STATE_VERSION.
 ];
 
 function readVersion(blob: Record<string, unknown>): number {
@@ -373,12 +394,15 @@ export function migrateState(raw: unknown, now: number = Date.now()): AppState {
 
   const metaRaw = isRecord(blob['meta']) ? blob['meta'] : {};
   const createdAt = typeof metaRaw['createdAt'] === 'number' ? metaRaw['createdAt'] : now;
+  // The plan is read FIRST: it decides which day views are legal and what the
+  // default tab is, so the UI slot cannot be validated without it.
+  const plan = normalizePlanDoc(blob['plan']);
   const state: AppState = {
     schemaVersion: CURRENT_STATE_VERSION,
     sessions: normalizeSessions(blob['sessions']),
-    ui: normalizeUi(blob['ui'], new Date(now)),
+    ui: normalizeUi(blob['ui'], new Date(now), plan),
     game: normalizeGame(blob['game']),
-    plan: normalizePlanDoc(blob['plan']),
+    plan,
     meta: {
       legacyImported: metaRaw['legacyImported'] === true,
       createdAt,
@@ -507,7 +531,11 @@ export function importLegacy(
   );
 
   const ui = isRecord(legacyUiRaw) || typeof legacyUiRaw === 'string'
-    ? normalizeUi(typeof legacyUiRaw === 'string' ? safeParse(legacyUiRaw) : legacyUiRaw, new Date(now))
+    ? normalizeUi(
+        typeof legacyUiRaw === 'string' ? safeParse(legacyUiRaw) : legacyUiRaw,
+        new Date(now),
+        state.plan,
+      )
     : state.ui;
 
   const nextState: AppState = {
@@ -792,6 +820,8 @@ export function rebuildFromEvents(events: readonly AppEvent[], now: number = Dat
         const exId = typeof p['exId'] === 'string' ? p['exId'] : null;
         const idx = typeof p['setIndex'] === 'number' ? p['setIndex'] : -1;
         if (!date || !exId || idx < 0) break;
+        // Any plausible day key is kept verbatim — including a key minted by a
+        // plan on another device, which this build has never heard of.
         const day: DayKey = isDayKey(p['day']) ? p['day'] : 'A';
         const session = (state.sessions[date] ??= { day, ex: {} });
         session.day = day;

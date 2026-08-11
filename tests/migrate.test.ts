@@ -583,3 +583,100 @@ describe('rebuildFromEvents', () => {
     expect(s.game).toEqual(rebuildFromEvents(events.slice(0, 1)).game);
   });
 });
+
+/* ------------------------------------------------- unknown day keys (v2) */
+
+describe('unknown day keys are DATA, not errors', () => {
+  it('preserves a session day this build has never heard of', () => {
+    // A plan on another device defines `d_alef`; this device pulls the workout
+    // long before (or without ever) learning about that plan. Rewriting the day
+    // to 'A' would silently re-file the user's workout under the wrong day.
+    const s = migrateState({
+      schemaVersion: CURRENT_STATE_VERSION,
+      sessions: { '2025-05-01': { day: 'd_alef', ex: { a1: [{ w: '40', r: '10', done: true }] } } },
+      ui: { view: 'H', open: {} },
+      meta: { legacyImported: true, createdAt: 1, updatedAt: 1 },
+    });
+    expect(s.sessions['2025-05-01']?.day).toBe('d_alef');
+  });
+
+  it('only falls back to A for a day that is not a key at all', () => {
+    const of = (day: unknown): string | undefined =>
+      migrateState({
+        schemaVersion: CURRENT_STATE_VERSION,
+        sessions: { '2025-05-01': { day, ex: {} } },
+        meta: { legacyImported: true, createdAt: 1, updatedAt: 1 },
+      }).sessions['2025-05-01']?.day;
+    expect(of('d_alef')).toBe('d_alef');
+    expect(of('A')).toBe('A');
+    expect(of(42)).toBe('A');
+    expect(of('')).toBe('A');
+    // a reserved view key would make the session claim a screen, not a day
+    expect(of('H')).toBe('A');
+  });
+
+  it('replays set events of an unknown day key verbatim', () => {
+    const events: AppEvent[] = [
+      { id: '1', ts: 1, type: 'set_completed', payload: { date: '2025-06-01', day: 'd_bet', exId: 'b1', setIndex: 0, w: '60', r: '8' } },
+      { id: '2', ts: 2, type: 'set_logged', payload: { date: '2025-06-01', day: 'd_bet', exId: 'b1', setIndex: 1, w: '62', r: '8' } },
+    ];
+    const s = rebuildFromEvents(events);
+    expect(s.sessions['2025-06-01']?.day).toBe('d_bet');
+    expect(s.sessions['2025-06-01']?.ex['b1']?.[0]).toEqual({ w: '60', r: '8', done: true });
+    // and the XP the events paid is unaffected by the day being unknown
+    expect(rebuildFromEvents(events).sessions).toEqual(s.sessions);
+  });
+
+  it('keeps a session_imported day key through the import round-trip', () => {
+    const res = importLegacy(emptyState(0), {
+      sessions: { '2025-01-05': { day: 'd_custom1', ex: { a1: [{ w: '1', r: '1', done: true }] } } },
+    });
+    expect(res.state.sessions['2025-01-05']?.day).toBe('d_custom1');
+    expect(res.events[0]?.payload['day']).toBe('d_custom1');
+    expect(rebuildFromEvents(res.events).sessions['2025-01-05']?.day).toBe('d_custom1');
+  });
+
+  it('drops a stored UI view that no plan day answers to', () => {
+    // The tab the app was left on is gone (a day deleted on another device):
+    // open on the default day instead of on a tab that renders nothing.
+    const s = migrateState(
+      {
+        schemaVersion: CURRENT_STATE_VERSION,
+        sessions: {},
+        ui: { view: 'd_gone', open: {} },
+        meta: { legacyImported: true, createdAt: 1, updatedAt: 1 },
+      },
+      Date.parse('2025-01-05T12:00:00Z'), // a Sunday -> day A of the built-in program
+    );
+    expect(s.ui.view).toBe('A');
+  });
+
+  it('keeps a stored UI view that the saved plan DOES define', () => {
+    const plan = {
+      version: 2,
+      rev: 1,
+      days: [{ key: 'd_alef', label: "חלק א'", weekdays: [0, 3], exercises: [{ id: 'a1', sets: 3, reps: '8', rest: 60 }] }],
+      weeklyTarget: 4,
+      customExercises: [],
+    };
+    const s = migrateState({
+      schemaVersion: CURRENT_STATE_VERSION,
+      sessions: {},
+      ui: { view: 'd_alef', open: {} },
+      plan,
+      meta: { legacyImported: true, createdAt: 1, updatedAt: 1 },
+    });
+    expect(s.ui.view).toBe('d_alef');
+    // …and the four reserved screens are always legal, plan or no plan
+    for (const view of ['CH', 'BT', 'H', 'PL']) {
+      const withView = migrateState({
+        schemaVersion: CURRENT_STATE_VERSION,
+        sessions: {},
+        ui: { view, open: {} },
+        plan,
+        meta: { legacyImported: true, createdAt: 1, updatedAt: 1 },
+      });
+      expect(withView.ui.view).toBe(view);
+    }
+  });
+});

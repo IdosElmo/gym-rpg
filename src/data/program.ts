@@ -54,7 +54,34 @@ export interface Exercise {
   readonly split?: BodyPartSplit;
 }
 
-export type DayKey = 'A' | 'B' | 'C';
+/**
+ * Key of ONE workout day.
+ *
+ * It used to be the compile-time union `'A' | 'B' | 'C'` — the app had exactly
+ * three days and nothing else was expressible. A plan now defines its OWN days
+ * (1–7 of them), so the key is a plain string: `'A' | 'B' | 'C'` for the
+ * built-in program (and for every plan document migrated from v1), `'d_' + a
+ * uuid slice` for a day the user created.
+ *
+ * Persisted data therefore keeps working unchanged: an old `Session.day: 'A'`
+ * or an old `set_completed` payload is still a perfectly valid day key. Nothing
+ * anywhere may COERCE an unknown key back into 'A' — the string is the user's
+ * data, and a screen that cannot resolve it degrades gracefully instead.
+ */
+export type DayKey = string;
+
+/** The three days of the built-in program — the only keys that exist in CODE. */
+export type BuiltInDayKey = 'A' | 'B' | 'C';
+
+/**
+ * View keys that are NOT workout days: דמות, קרב, היסטוריה and the plan editor.
+ * They are reserved: a plan may not name a day after one of them, or tapping the
+ * day would open the wrong screen.
+ */
+export const RESERVED_VIEW_KEYS: readonly string[] = ['CH', 'BT', 'H', 'PL'] as const;
+
+/** Longest day key we accept — long enough for `d_` + a uuid slice. */
+export const MAX_DAY_KEY_LENGTH = 40;
 
 export interface Day {
   readonly day: string;
@@ -65,12 +92,34 @@ export interface Day {
 }
 
 /**
- * The three-day skeleton, resolved. `PROGRAM` is the built-in instance;
- * `core/plan.ts` produces another one from a user's `PlanDoc`. Every consumer
- * that used to reach for `PROGRAM` directly now takes one of these, defaulted
- * to `PROGRAM` so nothing changes until a plan exists.
+ * ONE day of a resolved program: its stable key, its Hebrew label, the weekdays
+ * it is trained on, and the fully resolved `Day` the workout screen renders.
  */
-export type ProgramMap = Readonly<Record<DayKey, Day>>;
+export interface ProgramDay {
+  /** Stable key — what `Session.day`, the events and `UiState.view` carry. */
+  readonly key: DayKey;
+  /** Hebrew workout name, e.g. "אימון A" / "חלק א'". Mirrors `day.label`. */
+  readonly label: string;
+  /** Weekdays this day is trained on (0 = Sunday … 6 = Saturday). May be empty. */
+  readonly weekdays: readonly number[];
+  /** The resolved day: exercises + the header copy. */
+  readonly day: Day;
+}
+
+/**
+ * A program the app can render: an ORDERED list of days (that order IS the tab
+ * order) plus the weekly training target the streak judges a week by.
+ *
+ * `PROGRAM` is the raw built-in data; `BUILTIN_PROGRAM` is it in this shape, and
+ * `core/plan.ts#resolveProgram` produces one from a user's `PlanDoc`. Consumers
+ * take a `ResolvedProgram` and look a day up with `dayOf` / `programDay`, which
+ * both return `null` for a key the program does not have.
+ */
+export interface ResolvedProgram {
+  readonly days: readonly ProgramDay[];
+  /** Distinct training days per week that make a "perfect week" (1–7). */
+  readonly weeklyTarget: number;
+}
 
 /**
  * Exercise lookup by id — `findExercise` for the built-ins, or a plan-aware
@@ -80,7 +129,10 @@ export type ProgramMap = Readonly<Record<DayKey, Day>>;
  */
 export type ExerciseResolver = (exId: string) => Exercise | null;
 
-export const PROGRAM: ProgramMap = {
+/** The raw built-in data, by day letter. `BUILTIN_PROGRAM` wraps it for the app. */
+export type BuiltInProgram = Readonly<Record<BuiltInDayKey, Day>>;
+
+export const PROGRAM: BuiltInProgram = {
   A: {
     day: 'ראשון',
     label: 'אימון A',
@@ -436,13 +488,336 @@ export const PROGRAM: ProgramMap = {
   },
 };
 
-export const DAY_ORDER: readonly DayKey[] = ['A', 'B', 'C'] as const;
+/**
+ * The exercise LIBRARY beyond the three built-in days.
+ *
+ * These are first-class built-in exercises — same shape, same coaching copy,
+ * same `bodyPart` / `split` metadata — that simply do not appear in the default
+ * A/B/C program. They exist so the plan editor (and the ready-made presets in
+ * `data/presets.ts`) can offer a gym's usual machines without forcing the user
+ * to re-type them as custom exercises, and so their XP, PRs and history behave
+ * exactly like a program exercise's.
+ *
+ * They are kept OUT of `PROGRAM` on purpose: `tests/program.test.ts` diffs
+ * `PROGRAM` against the legacy `legacy/index.html` literal byte for byte, and
+ * that guarantee is worth more than the convenience of one flat object.
+ * `findExercise` searches both, which is what makes an id here resolvable
+ * everywhere (workout screen, previous performance, history, feed, XP).
+ */
+export const EXTRA_EXERCISES: readonly Exercise[] = [
+  {
+    id: 'x1',
+    he: 'סקוואט בסמית׳ מאשין',
+    en: 'Smith Machine Squat',
+    equip: ['Smith Machine'],
+    muscle: 'ארבע־ראשי · ישבן',
+    sets: 4,
+    reps: '8–10',
+    rest: 90,
+    unit: 'חזרות',
+    steps: [
+      'הניחו את המוט על הטרפזים ועמדו ברוחב אגן.',
+      'הציבו את כפות הרגליים מעט לפנים מקו המוט.',
+      'רדו באיטיות עד שהירכיים מקבילות לרצפה.',
+      'דחפו דרך אמצע כף הרגל חזרה למעלה בלי לנעול ברכיים.',
+    ],
+    cue: 'ברכיים בכיוון קצות האצבעות; חזה פתוח לאורך כל הירידה.',
+    mistake: 'טעות נפוצה: קפיצה מהתחתית או הרמת עקבים מהרצפה.',
+    bodyPart: 'legs',
+  },
+  {
+    id: 'x2',
+    he: 'פשיטת ברכיים במכשיר',
+    en: 'Leg Extension Machine',
+    equip: ['Machine'],
+    muscle: 'ארבע־ראשי (בידוד)',
+    sets: 4,
+    reps: '10–12',
+    rest: 60,
+    unit: 'חזרות',
+    steps: [
+      'כווננו את משענת הגב כך שהברך תשב על ציר המכשיר.',
+      'אחזו בידיות והצמידו את הגב למשענת.',
+      'פשטו את הברכיים עד יישור כמעט מלא.',
+      'עצרו שנייה בכיווץ והורידו לאט.',
+    ],
+    cue: 'עצירה קצרה למעלה — שם הארבע־ראשי עובד הכי חזק.',
+    mistake: 'טעות נפוצה: זריקת המשקל בתנופה והרמת הישבן מהמושב.',
+    bodyPart: 'legs',
+  },
+  {
+    id: 'x3',
+    he: 'כפיפת ברכיים במכשיר',
+    en: 'Leg Curl Machine',
+    equip: ['Machine'],
+    muscle: 'ירך אחורית',
+    sets: 4,
+    reps: '12',
+    rest: 60,
+    unit: 'חזרות',
+    steps: [
+      'שכבו או שבו במכשיר כשהכרית מונחת מעל גיד אכילס.',
+      'אחזו בידיות ושמרו על האגן צמוד לכרית.',
+      'כופפו את הברכיים בכוח עד סוף הטווח.',
+      'החזירו לאט ובשליטה בלי להרפות את המתח.',
+    ],
+    cue: 'האגן נשאר מוצמד — רק הברך זזה.',
+    mistake: 'טעות נפוצה: הרמת האגן מהכרית כדי לסייע לתנועה.',
+    bodyPart: 'legs',
+  },
+  {
+    id: 'x4',
+    he: 'הרחקה לצדדים עם משקולות',
+    en: 'Dumbbell Lateral Raises',
+    equip: ['Dumbbells'],
+    muscle: 'כתף צידית',
+    sets: 3,
+    reps: '12–15',
+    rest: 60,
+    unit: 'חזרות',
+    steps: [
+      'עמדו עם משקולות קלות לצידי הגוף, כיפוף קל במרפקים.',
+      'הרימו את הידיים לצדדים עד גובה הכתפיים.',
+      'הובילו עם המרפקים ולא עם כפות הידיים.',
+      'הורידו לאט ובשליטה מלאה.',
+    ],
+    cue: 'דמיינו שאתם שופכים מים מקנקן קטן בסוף התנועה.',
+    mistake: 'טעות נפוצה: נדנוד גוף ומשקל כבד שמעביר את העבודה לטרפז.',
+    bodyPart: 'shoulders',
+  },
+  {
+    id: 'x5',
+    he: 'פשיטת מרפקים בפולי (חבל)',
+    en: 'Cable Rope Pushdown',
+    equip: ['Machine'],
+    muscle: 'יד אחורית',
+    sets: 4,
+    reps: '12',
+    rest: 60,
+    unit: 'חזרות',
+    steps: [
+      'אחזו בחבל בפולי עליון, מרפקים צמודים לצלעות.',
+      'הטו את הגו קלות קדימה ונעלו את המרפקים במקומם.',
+      'פשטו את המרפקים ופתחו את קצות החבל לצדדים.',
+      'חזרו לאט עד כיפוף מלא.',
+    ],
+    cue: 'רק האמה זזה — המרפק נשאר מסומר לצלעות.',
+    mistake: 'טעות נפוצה: רכינה עם כל הגוף כדי לדחוף משקל כבד מדי.',
+    bodyPart: 'arms',
+  },
+  {
+    id: 'x6',
+    he: 'פולי עליון אחיזה צרה',
+    en: 'Close-Grip Lat Pulldown',
+    equip: ['Machine'],
+    muscle: 'רוחב גב · יד קדמית',
+    sets: 4,
+    reps: '10–12',
+    rest: 90,
+    unit: 'חזרות',
+    steps: [
+      'אחזו בידית משולשת באחיזה ניטרלית וצרה.',
+      'שבו זקופים והצמידו את הברכיים מתחת לכרית.',
+      'משכו את הידית אל אמצע החזה, מרפקים לאחור.',
+      'עלו לאט עד מתיחה מלאה של הרחבים.',
+    ],
+    cue: 'משכו את המרפקים אל הכיסים; החזה עולה לפגוש את הידית.',
+    mistake: 'טעות נפוצה: רכינה גדולה לאחור שהופכת את התרגיל לחתירה.',
+    bodyPart: 'back',
+    split: { back: 0.7, arms: 0.3 },
+  },
+  {
+    id: 'x7',
+    he: 'פייס פול בפולי',
+    en: 'Cable Face Pull',
+    equip: ['Machine'],
+    muscle: 'כתף אחורית · טרפז אמצעי',
+    sets: 3,
+    reps: '15',
+    rest: 60,
+    unit: 'חזרות',
+    steps: [
+      'כווננו את הפולי לגובה הפנים ואחזו בחבל בשתי ידיים.',
+      'צעדו אחורה עד שהכבל במתח והידיים מושטות.',
+      'משכו את החבל אל המצח כשהמרפקים גבוהים.',
+      'סובבו את כפות הידיים החוצה וכווצו שכמות.',
+    ],
+    cue: 'המרפקים גבוהים מכפות הידיים לאורך כל המשיכה.',
+    mistake: 'טעות נפוצה: משקל כבד שמוריד את המרפקים והופך את התרגיל לחתירה.',
+    bodyPart: 'shoulders',
+    split: { shoulders: 0.6, back: 0.4 },
+  },
+  {
+    id: 'x8',
+    he: 'הרמת שכמות עם משקולות',
+    en: 'Dumbbell Shrugs',
+    equip: ['Dumbbells'],
+    muscle: 'טרפז עליון',
+    sets: 3,
+    reps: '15–20',
+    rest: 60,
+    unit: 'חזרות',
+    steps: [
+      'עמדו עם משקולות לצידי הגוף וידיים ישרות.',
+      'הרימו את הכתפיים ישר למעלה לכיוון האוזניים.',
+      'עצרו שנייה בכיווץ העליון.',
+      'הורידו לאט עד מתיחה מלאה של הטרפז.',
+    ],
+    cue: 'תנועה אנכית בלבד — בלי סיבוב כתפיים.',
+    mistake: 'טעות נפוצה: כיפוף מרפקים שהופך את התרגיל לחתירה זקופה.',
+    bodyPart: 'back',
+  },
+  {
+    id: 'x9',
+    he: 'פטישים עם משקולות',
+    en: 'Hammer Curls',
+    equip: ['Dumbbells'],
+    muscle: 'יד קדמית · ברכיורדיאליס',
+    sets: 3,
+    reps: '10–12',
+    rest: 60,
+    unit: 'חזרות',
+    steps: [
+      'עמדו עם משקולות באחיזה ניטרלית (אגודלים כלפי מעלה).',
+      'שמרו על מרפקים צמודים לצלעות.',
+      'כופפו מרפקים עד גובה הכתף בלי לסובב את כף היד.',
+      'הורידו לאט ובשליטה מלאה.',
+    ],
+    cue: 'אחיזת פטיש קבועה — כף היד לא מסתובבת בכלל.',
+    mistake: 'טעות נפוצה: נדנוד הגו והנפת המשקולות בתנופה.',
+    bodyPart: 'arms',
+  },
+];
 
-export const DAY_NAMES: Readonly<Record<DayKey, string>> = {
+export const DAY_ORDER: readonly BuiltInDayKey[] = ['A', 'B', 'C'] as const;
+
+export const DAY_NAMES: Readonly<Record<BuiltInDayKey, string>> = {
   A: 'ראשון',
   B: 'שלישי',
   C: 'חמישי',
 };
+
+/** Hebrew weekday names, indexed the way `Date#getDay()` counts (0 = Sunday). */
+export const WEEKDAY_HE: readonly string[] = [
+  'ראשון',
+  'שני',
+  'שלישי',
+  'רביעי',
+  'חמישי',
+  'שישי',
+  'שבת',
+] as const;
+
+/**
+ * One-letter weekday names, same indexing as `WEEKDAY_HE`. Used by the plan
+ * editor's toggle chips, where seven full names would never fit a phone row.
+ */
+export const WEEKDAY_SHORT_HE: readonly string[] = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'] as const;
+
+/**
+ * Weekdays each built-in day is trained on — the exact mapping the app has
+ * always used to pick the default tab (Sun/Mon → A, Tue/Wed → B, Thu–Sat → C).
+ * A plan migrated from v1 inherits these, so the default tab never moves under
+ * anyone who already saved a plan.
+ *
+ * The FIRST weekday of each range is what names the day (`DAY_NAMES`), which is
+ * why `weekdayCaption` reads only that one.
+ */
+export const BUILTIN_WEEKDAYS: Readonly<Record<BuiltInDayKey, readonly number[]>> = {
+  A: [0, 1],
+  B: [2, 3],
+  C: [4, 5, 6],
+};
+
+/**
+ * Training days per week that make a "perfect week" for the built-in program.
+ * Mirrors `BALANCE.streak.daysPerWeek` (asserted in tests/program.test.ts); it
+ * lives here because it is a property of a PROGRAM, and a plan overrides it.
+ */
+export const DEFAULT_WEEKLY_TARGET = 3;
+
+/** Smallest / largest number of workout days a plan may define. */
+export const MIN_PLAN_DAYS = 1;
+export const MAX_PLAN_DAYS = 7;
+
+/** Smallest / largest "perfect week" target a plan may ask for. */
+export const MIN_WEEKLY_TARGET = 1;
+export const MAX_WEEKLY_TARGET = 7;
+
+/** The built-in program in the shape every screen consumes. */
+export const BUILTIN_PROGRAM: ResolvedProgram = {
+  days: DAY_ORDER.map((k) => ({
+    key: k,
+    label: PROGRAM[k].label,
+    weekdays: BUILTIN_WEEKDAYS[k],
+    day: PROGRAM[k],
+  })),
+  weeklyTarget: DEFAULT_WEEKLY_TARGET,
+};
+
+/** One day of a resolved program by key, or `null` when it has no such day. */
+export function programDay(program: ResolvedProgram, key: DayKey): ProgramDay | null {
+  return program.days.find((d) => d.key === key) ?? null;
+}
+
+/** The renderable `Day` of a key, or `null` — the safe replacement of `p[key]`. */
+export function dayOf(program: ResolvedProgram, key: DayKey): Day | null {
+  return programDay(program, key)?.day ?? null;
+}
+
+/** What a day key is called when nothing in the app can resolve it any more. */
+export const UNKNOWN_DAY_LABEL = 'אימון';
+
+/**
+ * The Hebrew label of a day key, for screens that show HISTORY.
+ *
+ * A logged session carries the day key it was trained under, and that key may
+ * have been renamed, removed from the plan, or invented on another device. The
+ * ladder is therefore: the plan's own label → the built-in label when the key is
+ * still one of `A`/`B`/`C` (a session from before the user ever edited the plan)
+ * → a neutral "אימון". A stored key is the user's DATA: it is never coerced into
+ * another day, and it never renders as a raw `d_…` string either.
+ */
+export function dayLabelOf(program: ResolvedProgram, key: DayKey): string {
+  const found = programDay(program, key);
+  if (found) return found.label;
+  if (isBuiltInDayKey(key)) return PROGRAM[key].label;
+  return UNKNOWN_DAY_LABEL;
+}
+
+/** The day keys in tab order. */
+export function programDayKeys(program: ResolvedProgram): DayKey[] {
+  return program.days.map((d) => d.key);
+}
+
+/**
+ * The day the app opens on: the plan day assigned to today's weekday, or the
+ * FIRST day when no day claims it. For the built-in program this reproduces the
+ * legacy `defaultDay()` exactly (Sun/Mon → A, Tue/Wed → B, Thu–Sat → C).
+ */
+export function defaultDayOf(program: ResolvedProgram, now: Date = new Date()): DayKey {
+  const wd = now.getDay(); // 0 = Sunday
+  const match = program.days.find((d) => d.weekdays.includes(wd));
+  return (match ?? program.days[0])?.key ?? 'A';
+}
+
+/** Hebrew caption of a set of weekdays, e.g. `[0, 3]` -> "ראשון · רביעי". */
+export function weekdaysCaption(weekdays: readonly number[]): string {
+  return weekdays
+    .map((w) => WEEKDAY_HE[w] ?? '')
+    .filter((s) => s !== '')
+    .join(' · ');
+}
+
+/**
+ * The single weekday name a day is CALLED after: the first weekday it is
+ * trained on. `[0, 1]` -> "ראשון", which is exactly what `DAY_NAMES` said for
+ * the built-in day A — the reason a migrated v1 plan looks unchanged.
+ */
+export function weekdayCaption(weekdays: readonly number[], fallback: string): string {
+  const first = weekdays[0];
+  return first === undefined ? fallback : (WEEKDAY_HE[first] ?? fallback);
+}
 
 const EQUIP_HE: Readonly<Record<string, string>> = {
   'Smith Machine': 'סמית׳',
@@ -456,17 +831,60 @@ export function equipHe(e: string): string {
   return EQUIP_HE[e] ?? e;
 }
 
+/** True for one of the four reserved (non-day) view keys. */
+export function isReservedViewKey(v: unknown): boolean {
+  return typeof v === 'string' && RESERVED_VIEW_KEYS.includes(v);
+}
+
+/**
+ * True for anything that MAY be a day key.
+ *
+ * Deliberately permissive: this guards untrusted persisted data (`Session.day`,
+ * event payloads), and a day key from another device's plan is a string this
+ * build has never seen. Rejecting it would rewrite the user's history; the
+ * screens fall back gracefully instead.
+ */
 export function isDayKey(v: unknown): v is DayKey {
+  return typeof v === 'string' && v.length > 0 && v.length <= MAX_DAY_KEY_LENGTH && !isReservedViewKey(v);
+}
+
+/** True for a key of the built-in program. */
+export function isBuiltInDayKey(v: unknown): v is BuiltInDayKey {
   return v === 'A' || v === 'B' || v === 'C';
 }
 
-/** Find an exercise definition by id across all days (legacy history lookup). */
+/**
+ * Stricter rule for a key a PLAN may MINT: url/attribute-safe characters only,
+ * so a key can be dropped into `data-day="…"` and a CSS selector unescaped.
+ */
+export function isPlanDayKey(v: unknown): v is DayKey {
+  return isDayKey(v) && /^[A-Za-z0-9_-]+$/.test(v);
+}
+
+/**
+ * Every built-in exercise the app knows: the program's own, in day order, then
+ * the library additions. Deduplicated by id, so an exercise that appears in two
+ * days is listed once — this is the list the editor's add-sheet offers.
+ */
+export function builtInExercises(): Exercise[] {
+  const out: Exercise[] = [];
+  for (const k of DAY_ORDER) {
+    for (const ex of PROGRAM[k].exercises) if (!out.some((e) => e.id === ex.id)) out.push(ex);
+  }
+  for (const ex of EXTRA_EXERCISES) if (!out.some((e) => e.id === ex.id)) out.push(ex);
+  return out;
+}
+
+/**
+ * Find an exercise definition by id across the program AND the library (legacy
+ * history lookup). A row, a session or an event may point at either.
+ */
 export function findExercise(exId: string): Exercise | null {
   for (const k of DAY_ORDER) {
     const found = PROGRAM[k].exercises.find((e) => e.id === exId);
     if (found) return found;
   }
-  return null;
+  return EXTRA_EXERCISES.find((e) => e.id === exId) ?? null;
 }
 
 /**

@@ -28,6 +28,11 @@ export interface SetEntry {
 /**
  * A day's session. Arrays are sparse-tolerant (`null` holes) because the legacy
  * format created set slots on demand — kept as-is so imports are lossless.
+ *
+ * `day` is a PLAN DAY KEY (`DayKey`, i.e. a string): 'A'/'B'/'C' for the
+ * built-in program and for everything logged before plans had their own days,
+ * `d_…` for a day the user created. It is never rewritten on read — a session
+ * whose day no longer exists in the plan keeps saying what it always said.
  */
 export interface Session {
   day: DayKey;
@@ -35,12 +40,13 @@ export interface Session {
 }
 
 /**
- * `A|B|C` = workout days, `CH` = דמות, `BT` = קרב (battle), `H` = היסטוריה,
- * `PL` = תוכנית (the plan editor).
+ * A day key = one workout screen, plus four RESERVED keys: `CH` = דמות,
+ * `BT` = קרב (battle), `H` = היסטוריה, `PL` = תוכנית (the plan editor). A plan
+ * may not use those four as day keys (`isDayKey` refuses them).
  *
- * `PL` deliberately has NO tab in the main nav: six tabs is already the limit
- * of what stays tappable one-handed on a phone. It is reached from the ⚙️
- * button in the workout header and from the plan card on the history screen.
+ * `PL` deliberately has NO tab in the main nav: the day tabs plus דמות / קרב /
+ * היסטוריה already fill the width of a phone. It is reached from the ⚙️ button
+ * in the workout header and from the plan card on the history screen.
  */
 export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL';
 
@@ -76,7 +82,11 @@ export interface StreakState {
   weekStart: string | null;
   /** Distinct workout days logged so far in the current week. */
   daysThisWeek: number;
-  /** Days needed for a "perfect week". */
+  /**
+   * Days needed for a "perfect week" — the ACTIVE plan's `weeklyTarget` (3 for
+   * the built-in program). Past weeks are judged against the target the plan had
+   * back then, which is folded out of the log (`weeklyTargetsFromEvents`).
+   */
   needed: number;
 }
 

@@ -16,28 +16,45 @@
  *      function of the event SET (shuffling the log changes nothing).
  *   5. TOLERANCE. Old blobs, future blobs and corrupt blobs all resolve to
  *      something usable rather than to a broken workout screen.
+ *   6. VARIABLE DAYS (v2). A document defines its OWN days — 1 to 7 of them,
+ *      each with a stable key, a Hebrew label and the weekdays it is trained on
+ *      — plus the weekly target the streak judges a week by. A v1 document
+ *      migrates into that shape without changing a single thing the user sees.
  */
 import { describe, expect, it } from 'vitest';
 
 import {
+  BUILTIN_PROGRAM,
+  BUILTIN_WEEKDAYS,
   DAY_ORDER,
+  EXTRA_EXERCISES,
   PROGRAM,
   bodyPartWeights,
+  dayOf,
   findExercise,
+  programDayKeys,
+  type Day,
   type DayKey,
+  type ResolvedProgram,
 } from '../src/data/program.ts';
-import type { CustomExercise, PlanDoc } from '../src/data/planTypes.ts';
+import type { CustomExercise, PlanDay, PlanDoc } from '../src/data/planTypes.ts';
 import {
+  assignedWeekdays,
   clonePlanDoc,
   customToExercise,
   defaultPlanDoc,
+  deriveWeeklyTarget,
   isDefaultPlan,
   libraryExercises,
+  defaultDay,
   makeResolver,
   newCustomId,
+  newDayKey,
   normalizePlanDoc,
+  planDay,
   planFromEvents,
   planIsDirty,
+  planRows,
   planToRecord,
   resolveProgram,
   savePlan,
@@ -55,6 +72,24 @@ import {
 } from '../src/storage/migrate.ts';
 
 /* --------------------------------------------------------------- fixtures */
+
+/**
+ * `days` is an ORDERED ARRAY from PlanDoc v2 on, so a test that wants "day A"
+ * looks it up by key. Both helpers throw rather than return undefined: a missing
+ * day is always a test bug, never something to assert around.
+ */
+function pday(doc: PlanDoc, key: DayKey): PlanDay {
+  const day = planDay(doc, key);
+  if (!day) throw new Error(`plan has no day ${key}`);
+  return day;
+}
+
+/** The resolved `Day` of a program, by key. */
+function rday(program: ResolvedProgram, key: DayKey): Day {
+  const day = dayOf(program, key);
+  if (!day) throw new Error(`program has no day ${key}`);
+  return day;
+}
 
 function fakeStorage(seed: Record<string, string> = {}): StorageLike {
   const map = new Map<string, string>(Object.entries(seed));
@@ -79,7 +114,7 @@ const CUSTOM: CustomExercise = {
 /** A plan that edits day A: a3 removed, a1 re-numbered, one custom appended. */
 function editedPlan(): PlanDoc {
   const doc = defaultPlanDoc();
-  const a = doc.days.A;
+  const a = pday(doc, 'A');
   a.exercises = a.exercises.filter((r) => r.id !== 'a3');
   const first = a.exercises[0];
   if (!first) throw new Error('no rows');
@@ -100,11 +135,15 @@ function eventOf(type: AppEvent['type'], ts: number, id: string, payload: Record
 describe('defaultPlanDoc', () => {
   it('mirrors PROGRAM exactly — same days, ids, order, sets, reps and rest', () => {
     const doc = defaultPlanDoc();
-    expect(doc.version).toBe(1);
+    expect(doc.version).toBe(2);
     expect(doc.rev).toBe(0);
+    expect(doc.weeklyTarget).toBe(3);
     expect(doc.customExercises).toEqual([]);
+    expect(doc.days.map((d) => d.key)).toEqual(['A', 'B', 'C']);
+    expect(doc.days.map((d) => d.label)).toEqual(DAY_ORDER.map((k) => PROGRAM[k].label));
+    expect(doc.days.map((d) => d.weekdays)).toEqual(DAY_ORDER.map((k) => [...BUILTIN_WEEKDAYS[k]]));
     for (const k of DAY_ORDER) {
-      expect(doc.days[k].exercises).toEqual(
+      expect(planRows(doc, k)).toEqual(
         PROGRAM[k].exercises.map((ex) => ({ id: ex.id, sets: ex.sets, reps: ex.reps, rest: ex.rest })),
       );
     }
@@ -120,29 +159,32 @@ describe('defaultPlanDoc', () => {
   it('clones deeply — mutating a clone never touches the original', () => {
     const a = defaultPlanDoc();
     const b = clonePlanDoc(a);
-    const row = b.days.A.exercises[0];
+    const row = pday(b, 'A').exercises[0];
     if (!row) throw new Error('no rows');
     row.sets = 9;
-    expect(a.days.A.exercises[0]?.sets).not.toBe(9);
+    expect(pday(a, 'A').exercises[0]?.sets).not.toBe(9);
   });
 });
 
 /* -------------------------------------------------------------- resolution */
 
 describe('resolveProgram', () => {
-  it('returns the built-in PROGRAM object REFERENCE-identically for null', () => {
-    // The zero-behaviour-change guarantee of the whole feature.
-    expect(resolveProgram(null)).toBe(PROGRAM);
+  it('returns the built-in program REFERENCE-identically for null', () => {
+    // The zero-behaviour-change guarantee of the whole feature: the same object,
+    // whose days are the PROGRAM day objects themselves.
+    expect(resolveProgram(null)).toBe(BUILTIN_PROGRAM);
+    expect(resolveProgram(null).days.map((d) => d.day)).toEqual(DAY_ORDER.map((k) => PROGRAM[k]));
+    expect(resolveProgram(null).weeklyTarget).toBe(3);
   });
 
   it('returns the built-in Day objects for a plan that changed nothing', () => {
     const resolved = resolveProgram(defaultPlanDoc());
-    for (const k of DAY_ORDER) expect(resolved[k]).toBe(PROGRAM[k]);
+    for (const k of DAY_ORDER) expect(rday(resolved, k)).toBe(PROGRAM[k]);
   });
 
   it('overrides sets / reps / rest of a built-in exercise but keeps its copy', () => {
     const resolved = resolveProgram(editedPlan());
-    const first = resolved.A.exercises[0];
+    const first = rday(resolved, 'A').exercises[0];
     const builtin = PROGRAM.A.exercises[0];
     if (!first || !builtin) throw new Error('missing exercise');
     expect(first.id).toBe(builtin.id);
@@ -157,8 +199,8 @@ describe('resolveProgram', () => {
 
   it('drops a removed exercise and appends the custom one, with empty copy', () => {
     const resolved = resolveProgram(editedPlan());
-    expect(resolved.A.exercises.map((e) => e.id)).not.toContain('a3');
-    const custom = resolved.A.exercises.at(-1);
+    expect(rday(resolved, 'A').exercises.map((e) => e.id)).not.toContain('a3');
+    const custom = rday(resolved, 'A').exercises.at(-1);
     if (!custom) throw new Error('no custom');
     expect(custom.id).toBe(CUSTOM.id);
     expect(custom.he).toBe(CUSTOM.he);
@@ -173,37 +215,37 @@ describe('resolveProgram', () => {
   it('skips rows whose id resolves to nothing at all', () => {
     const doc = defaultPlanDoc();
     // Bypass normalisation: this is the shape a stale/foreign document can have.
-    doc.days.B.exercises.push({ id: 'ghost_exercise', sets: 3, reps: '10', rest: 60 });
+    pday(doc, 'B').exercises.push({ id: 'ghost_exercise', sets: 3, reps: '10', rest: 60 });
     const resolved = resolveProgram(doc);
-    expect(resolved.B.exercises.map((e) => e.id)).not.toContain('ghost_exercise');
-    expect(resolved.B.exercises).toHaveLength(PROGRAM.B.exercises.length);
+    expect(rday(resolved, 'B').exercises.map((e) => e.id)).not.toContain('ghost_exercise');
+    expect(rday(resolved, 'B').exercises).toHaveLength(PROGRAM.B.exercises.length);
   });
 
   it('re-derives the day meta (duration + focus) only for an edited day', () => {
     const resolved = resolveProgram(editedPlan());
-    expect(resolved.A.focus).not.toBe(PROGRAM.A.focus);
+    expect(rday(resolved, 'A').focus).not.toBe(PROGRAM.A.focus);
     // six distinct muscles, capped at five plus a summary word
-    expect(resolved.A.focus.endsWith(' ועוד')).toBe(true);
-    expect(resolved.A.dur).toMatch(/^~\d+ דק׳$/);
+    expect(rday(resolved, 'A').focus.endsWith(' ועוד')).toBe(true);
+    expect(rday(resolved, 'A').dur).toMatch(/^~\d+ דק׳$/);
     // untouched days keep the hand-written copy, character for character
-    expect(resolved.B).toBe(PROGRAM.B);
-    expect(resolved.C).toBe(PROGRAM.C);
+    expect(rday(resolved, 'B')).toBe(PROGRAM.B);
+    expect(rday(resolved, 'C')).toBe(PROGRAM.C);
   });
 
   it('names a short custom day after the muscles it actually trains', () => {
     const doc = defaultPlanDoc();
     doc.customExercises.push({ ...CUSTOM, split: { ...CUSTOM.split } });
-    doc.days.C.exercises = [{ id: CUSTOM.id, sets: 3, reps: '12', rest: 60 }];
+    pday(doc, 'C').exercises = [{ id: CUSTOM.id, sets: 3, reps: '12', rest: 60 }];
     const resolved = resolveProgram(doc);
-    expect(resolved.C.focus).toBe(CUSTOM.muscle);
-    expect(resolved.C.exercises).toHaveLength(1);
+    expect(rday(resolved, 'C').focus).toBe(CUSTOM.muscle);
+    expect(rday(resolved, 'C').exercises).toHaveLength(1);
   });
 
-  it('keeps the fixed A/B/C skeleton and the day names', () => {
+  it('keeps the A/B/C skeleton and the day names of a migrated plan', () => {
     const resolved = resolveProgram(editedPlan());
-    expect(Object.keys(resolved).sort()).toEqual(['A', 'B', 'C']);
-    expect(resolved.A.day).toBe(PROGRAM.A.day);
-    expect(resolved.A.label).toBe(PROGRAM.A.label);
+    expect(programDayKeys(resolved)).toEqual(['A', 'B', 'C']);
+    expect(rday(resolved, 'A').day).toBe(PROGRAM.A.day);
+    expect(rday(resolved, 'A').label).toBe(PROGRAM.A.label);
   });
 });
 
@@ -224,15 +266,17 @@ describe('makeResolver', () => {
     // into a raw id string in the history list.
     const doc = editedPlan();
     const resolve = makeResolver(doc);
-    expect(doc.days.A.exercises.map((r) => r.id)).not.toContain('a3');
+    expect(pday(doc, 'A').exercises.map((r) => r.id)).not.toContain('a3');
     expect(resolve('a3')?.he).toBe(findExercise('a3')?.he);
   });
 
   it('offers every built-in plus the customs in the add-exercise library', () => {
     const lib = libraryExercises(editedPlan()).map((e) => e.id);
     const builtinCount = DAY_ORDER.reduce((n, k) => n + PROGRAM[k].exercises.length, 0);
-    expect(lib).toHaveLength(builtinCount + 1);
+    // the program's own exercises, the library additions, then the customs
+    expect(lib).toHaveLength(builtinCount + EXTRA_EXERCISES.length + 1);
     expect(lib).toContain('a3');
+    expect(lib).toContain(EXTRA_EXERCISES[0]?.id);
     expect(lib).toContain(CUSTOM.id);
   });
 
@@ -298,13 +342,13 @@ describe('validatePlanDoc', () => {
 
   it('rejects an empty day', () => {
     const doc = defaultPlanDoc();
-    doc.days.C.exercises = [];
+    pday(doc, 'C').exercises = [];
     expect(validatePlanDoc(doc).join(' ')).toContain('לפחות תרגיל אחד');
   });
 
   it('rejects sets outside 1–10 and rest outside 15–600', () => {
     const doc = defaultPlanDoc();
-    const row = doc.days.A.exercises[0];
+    const row = pday(doc, 'A').exercises[0];
     if (!row) throw new Error('no row');
     row.sets = 11;
     expect(validatePlanDoc(doc).join(' ')).toContain('הסטים');
@@ -317,15 +361,15 @@ describe('validatePlanDoc', () => {
 
   it('rejects an empty reps field, a duplicate row and a nameless custom', () => {
     const doc = defaultPlanDoc();
-    const row = doc.days.A.exercises[0];
+    const row = pday(doc, 'A').exercises[0];
     if (!row) throw new Error('no row');
     row.reps = '   ';
     expect(validatePlanDoc(doc).join(' ')).toContain('טווח חזרות');
 
     const dup = defaultPlanDoc();
-    const head = dup.days.B.exercises[0];
+    const head = pday(dup, 'B').exercises[0];
     if (!head) throw new Error('no row');
-    dup.days.B.exercises.push({ ...head });
+    pday(dup, 'B').exercises.push({ ...head });
     expect(validatePlanDoc(dup).join(' ')).toContain('פעמיים');
 
     const nameless = editedPlan();
@@ -339,7 +383,7 @@ describe('validatePlanDoc', () => {
     const store = new LocalStore(fakeStorage());
     const before = store.getEvents().length;
     const doc = defaultPlanDoc();
-    doc.days.A.exercises = [];
+    pday(doc, 'A').exercises = [];
     const res = savePlan(store, doc);
     expect(res.ok).toBe(false);
     expect(store.getEvents()).toHaveLength(before);
@@ -365,13 +409,13 @@ describe('normalizePlanDoc', () => {
 
   it('clamps out-of-range numbers instead of rejecting the document', () => {
     const doc = defaultPlanDoc();
-    const row = doc.days.A.exercises[0];
+    const row = pday(doc, 'A').exercises[0];
     if (!row) throw new Error('no row');
     row.sets = 99;
     row.rest = 1;
     const norm = normalizePlanDoc(planToRecord(doc));
-    expect(norm?.days.A.exercises[0]?.sets).toBe(10);
-    expect(norm?.days.A.exercises[0]?.rest).toBe(15);
+    expect(planRows(norm, 'A')[0]?.sets).toBe(10);
+    expect(planRows(norm, 'A')[0]?.rest).toBe(15);
   });
 
   it('drops unresolvable rows, deduplicates, and falls back to the built-in day', () => {
@@ -385,10 +429,10 @@ describe('normalizePlanDoc', () => {
       },
       customExercises: [{ id: 'cx_1', he: '', bodyPart: 'core' }],
     });
-    expect(norm?.days.A.exercises).toHaveLength(1);
+    expect(planRows(norm, 'A')).toHaveLength(1);
     // an empty / unusable day falls back to the built-in day, never to nothing
-    expect(norm?.days.B.exercises).toHaveLength(PROGRAM.B.exercises.length);
-    expect(norm?.days.C.exercises).toHaveLength(PROGRAM.C.exercises.length);
+    expect(planRows(norm, 'B')).toHaveLength(PROGRAM.B.exercises.length);
+    expect(planRows(norm, 'C')).toHaveLength(PROGRAM.C.exercises.length);
     expect(norm?.customExercises).toEqual([]);
     expect(norm?.rev).toBe(3);
   });
@@ -414,7 +458,7 @@ describe('normalizePlanDoc', () => {
 
   it('forgets custom exercises no day references any more', () => {
     const doc = editedPlan();
-    doc.days.A.exercises = doc.days.A.exercises.filter((r) => r.id !== CUSTOM.id);
+    pday(doc, 'A').exercises = pday(doc, 'A').exercises.filter((r) => r.id !== CUSTOM.id);
     const norm = normalizePlanDoc(planToRecord(doc));
     expect(norm?.customExercises).toEqual([]);
   });
@@ -435,8 +479,8 @@ describe('the plan_updated fold', () => {
     expect(payload?.['revision']).toBe(1);
     expect(typeof payload?.['date']).toBe('string');
     expect(store.getState().plan?.rev).toBe(1);
-    expect(store.getState().plan?.days.A.exercises.map((r) => r.id)).toEqual(
-      doc.days.A.exercises.map((r) => r.id),
+    expect(planRows(store.getState().plan, 'A').map((r) => r.id)).toEqual(
+      pday(doc, 'A').exercises.map((r) => r.id),
     );
   });
 
@@ -451,28 +495,28 @@ describe('the plan_updated fold', () => {
   it('is LAST-WRITER-WINS in the (ts, id) order, whatever order the log is in', () => {
     const older = editedPlan();
     const newer = defaultPlanDoc();
-    newer.days.C.exercises = newer.days.C.exercises.slice(0, 2);
+    pday(newer, 'C').exercises = pday(newer, 'C').exercises.slice(0, 2);
 
     const a = eventOf('plan_updated', 1000, 'aaa', { plan: planToRecord(older), revision: 1 });
     const b = eventOf('plan_updated', 2000, 'bbb', { plan: planToRecord(newer), revision: 2 });
 
     for (const log of [[a, b], [b, a]]) {
       const folded = planFromEvents(log);
-      expect(folded?.days.C.exercises).toHaveLength(2);
-      expect(folded?.days.A.exercises).toHaveLength(PROGRAM.A.exercises.length);
+      expect(planRows(folded, 'C')).toHaveLength(2);
+      expect(planRows(folded, 'A')).toHaveLength(PROGRAM.A.exercises.length);
     }
   });
 
   it('breaks a ts TIE by event id, identically in both merge directions', () => {
     const first = editedPlan();
     const second = defaultPlanDoc();
-    second.days.B.exercises = second.days.B.exercises.slice(0, 1);
+    pday(second, 'B').exercises = pday(second, 'B').exercises.slice(0, 1);
     // same ts: the id decides, and 'zzz' > 'aaa'
     const a = eventOf('plan_updated', 5000, 'aaa', { plan: planToRecord(first), revision: 9 });
     const z = eventOf('plan_updated', 5000, 'zzz', { plan: planToRecord(second), revision: 1 });
 
     for (const log of [[a, z], [z, a]]) {
-      expect(planFromEvents(log)?.days.B.exercises).toHaveLength(1);
+      expect(planRows(planFromEvents(log), 'B')).toHaveLength(1);
     }
   });
 
@@ -498,7 +542,7 @@ describe('the plan_updated fold', () => {
     ];
     const state = rebuildFromEvents(log, Date.parse('2025-05-02T10:00:00Z'));
     expect(state.plan).toEqual(planFromEvents(log));
-    expect(state.plan?.days.A.exercises.at(-1)?.id).toBe(CUSTOM.id);
+    expect(planRows(state.plan, 'A').at(-1)?.id).toBe(CUSTOM.id);
   });
 
   it('a data_cleared in the log wipes the plan on replay too', () => {
@@ -541,12 +585,12 @@ describe('the plan_updated fold', () => {
 
 /* ------------------------------------------------------------- persistence */
 
-describe('state schema v3', () => {
-  it('is at version 3 and carries a plan slot', () => {
-    expect(CURRENT_STATE_VERSION).toBe(3);
+describe('state schema v4', () => {
+  it('is at version 4 and carries a plan slot', () => {
+    expect(CURRENT_STATE_VERSION).toBe(4);
     const store = new LocalStore(fakeStorage());
     expect(store.getState().plan).toBeNull();
-    expect(store.getState().schemaVersion).toBe(3);
+    expect(store.getState().schemaVersion).toBe(4);
   });
 
   it('migrates an old v2 blob (no plan field) to v3 with plan: null', () => {
@@ -558,7 +602,7 @@ describe('state schema v3', () => {
       meta: { legacyImported: true, createdAt: 1, updatedAt: 1 },
     };
     const state = migrateState(v2, Date.parse('2025-05-02T10:00:00Z'));
-    expect(state.schemaVersion).toBe(3);
+    expect(state.schemaVersion).toBe(4);
     expect(state.plan).toBeNull();
     expect(state.sessions['2025-01-05']).toBeDefined();
   });
@@ -566,7 +610,7 @@ describe('state schema v3', () => {
   it('validates a persisted plan through normalizePlanDoc instead of trusting it', () => {
     const state = migrateState(
       {
-        schemaVersion: 3,
+        schemaVersion: 4,
         sessions: {},
         ui: { view: 'A', open: {} },
         game: null,
@@ -575,8 +619,8 @@ describe('state schema v3', () => {
       },
       Date.now(),
     );
-    expect(state.plan?.days.A.exercises[0]?.sets).toBe(10);
-    expect(state.plan?.days.B.exercises).toHaveLength(PROGRAM.B.exercises.length);
+    expect(planRows(state.plan, 'A')[0]?.sets).toBe(10);
+    expect(planRows(state.plan, 'B')).toHaveLength(PROGRAM.B.exercises.length);
   });
 
   it('survives a reload: the plan comes back from storage', () => {
@@ -585,8 +629,8 @@ describe('state schema v3', () => {
     savePlan(first, editedPlan());
     const reloaded = new LocalStore(storage);
     expect(reloaded.getState().plan?.rev).toBe(1);
-    expect(reloaded.getState().plan?.days.A.exercises.at(-1)?.id).toBe(CUSTOM.id);
-    expect(resolveProgram(reloaded.getState().plan).A.exercises.at(-1)?.he).toBe(CUSTOM.he);
+    expect(planRows(reloaded.getState().plan, 'A').at(-1)?.id).toBe(CUSTOM.id);
+    expect(rday(resolveProgram(reloaded.getState().plan), 'A').exercises.at(-1)?.he).toBe(CUSTOM.he);
   });
 
   it('rebuilds the plan from the LOG when the game blob is stale', () => {
@@ -606,7 +650,7 @@ describe('state schema v3', () => {
     storage.setItem(STATE_KEY, JSON.stringify(raw));
 
     const reloaded = new LocalStore(storage);
-    expect(reloaded.getState().plan?.days.A.exercises.at(-1)?.id).toBe(CUSTOM.id);
+    expect(planRows(reloaded.getState().plan, 'A').at(-1)?.id).toBe(CUSTOM.id);
     const game = reloaded.getState().game;
     expect(game).not.toBeNull();
     // the custom exercise paid XP into its two body parts, 70/30
@@ -619,9 +663,317 @@ describe('state schema v3', () => {
 /* ------------------------------------------------------- day key coverage */
 
 describe('plan days', () => {
-  it('always has all three days, whatever the input', () => {
+  it('always has all three days when a v1 document brought none', () => {
     const days: DayKey[] = ['A', 'B', 'C'];
     const norm = normalizePlanDoc({ version: 1, days: {}, customExercises: [] });
-    for (const d of days) expect(norm?.days[d].exercises.length).toBeGreaterThan(0);
+    for (const d of days) expect(planRows(norm, d).length).toBeGreaterThan(0);
+  });
+});
+
+/* ------------------------------------------------------ PlanDoc v1 -> v2 */
+
+/** Exactly what a v1 client persisted (and what its `plan_updated` carried). */
+function v1Doc(days: Record<string, unknown> = {}): Record<string, unknown> {
+  return { version: 1, rev: 4, days, customExercises: [] };
+}
+
+/** The motivating case: two workouts, four training days, א/ב alternating. */
+function abPlan(): PlanDoc {
+  return {
+    version: 2,
+    rev: 0,
+    days: [
+      {
+        key: 'd_alef',
+        label: "חלק א'",
+        weekdays: [0, 3],
+        exercises: [
+          { id: 'a1', sets: 3, reps: '8–10', rest: 90 },
+          { id: 'a2', sets: 3, reps: '8–10', rest: 90 },
+        ],
+      },
+      {
+        key: 'd_bet',
+        label: "חלק ב'",
+        weekdays: [2, 4],
+        exercises: [{ id: 'b1', sets: 3, reps: '8–10', rest: 90 }],
+      },
+    ],
+    weeklyTarget: 4,
+    customExercises: [],
+  };
+}
+
+describe('PlanDoc v1 -> v2 migration', () => {
+  it('turns the fixed A/B/C record into the ordered array, losing nothing', () => {
+    const doc = normalizePlanDoc(v1Doc({ A: { exercises: [{ id: 'a1', sets: 4, reps: '6', rest: 100 }] } }));
+    expect(doc?.version).toBe(2);
+    expect(doc?.rev).toBe(4);
+    expect(doc?.days.map((d) => d.key)).toEqual(['A', 'B', 'C']);
+    // the one edited day keeps its edit…
+    expect(planRows(doc, 'A')).toEqual([{ id: 'a1', sets: 4, reps: '6', rest: 100 }]);
+    // …and the days it said nothing about fall back to the built-in ones
+    expect(planRows(doc, 'B')).toHaveLength(PROGRAM.B.exercises.length);
+  });
+
+  it('gives every migrated day the built-in label, weekdays and weekly target', () => {
+    const doc = normalizePlanDoc(v1Doc());
+    for (const k of DAY_ORDER) {
+      const day = pday(doc as PlanDoc, k);
+      expect(day.label).toBe(PROGRAM[k].label);
+      expect(day.weekdays).toEqual([...BUILTIN_WEEKDAYS[k]]);
+    }
+    // v1 had no target — it always meant three days a week.
+    expect(doc?.weeklyTarget).toBe(3);
+  });
+
+  it('treats a document with NO version as v1 (the oldest blobs had none)', () => {
+    const doc = normalizePlanDoc({ days: { A: { exercises: [{ id: 'a1', sets: 3, reps: '8', rest: 60 }] } } });
+    expect(doc?.version).toBe(2);
+    expect(doc?.days.map((d) => d.key)).toEqual(['A', 'B', 'C']);
+  });
+
+  it('changes NOTHING a v1 user could see: it resolves to the built-in days', () => {
+    // The whole point of the migration: same day objects, same tab order, same
+    // default tab on every weekday.
+    const migrated = normalizePlanDoc(planToRecord(defaultPlanDoc()) as unknown as Record<string, unknown>);
+    const fromV1 = normalizePlanDoc({ ...v1Doc(), rev: 0 });
+    expect(fromV1).toEqual(migrated);
+    const resolved = resolveProgram(fromV1);
+    expect(programDayKeys(resolved)).toEqual(['A', 'B', 'C']);
+    for (const k of DAY_ORDER) expect(rday(resolved, k)).toBe(PROGRAM[k]);
+    for (let wd = 0; wd < 7; wd += 1) {
+      const day = new Date(Date.UTC(2025, 0, 5 + wd, 12));
+      expect(defaultDay(fromV1, day)).toBe(defaultDay(null, day));
+    }
+  });
+
+  it('accepts a v2 document unchanged and refuses a FUTURE one', () => {
+    const doc = abPlan();
+    expect(normalizePlanDoc(JSON.parse(JSON.stringify(planToRecord(doc))))).toEqual(doc);
+    expect(normalizePlanDoc({ ...planToRecord(doc), version: 3 })).toBeNull();
+    expect(normalizePlanDoc({ version: 99, days: [] })).toBeNull();
+  });
+
+  it('clamps the weekly target into 1–7 and defaults it to 3', () => {
+    const of = (weeklyTarget: unknown): number | undefined =>
+      normalizePlanDoc({ ...planToRecord(abPlan()), weeklyTarget })?.weeklyTarget;
+    expect(of(4)).toBe(4);
+    expect(of(0)).toBe(1);
+    expect(of(99)).toBe(7);
+    expect(of(2.6)).toBe(3);
+    expect(of('nope')).toBe(3);
+    expect(of(undefined)).toBe(3);
+  });
+
+  it('repairs the day list: bad keys, duplicates, reserved keys and overflow', () => {
+    const doc = normalizePlanDoc({
+      version: 2,
+      days: [
+        { key: 'd_ok', label: 'יום', exercises: [{ id: 'a1', sets: 3, reps: '8', rest: 60 }] },
+        // a reserved view key would hijack a tab — refused
+        { key: 'H', label: 'היסטוריה', exercises: [{ id: 'a2', sets: 3, reps: '8', rest: 60 }] },
+        // a duplicate key would make two tabs the same day — first one wins
+        { key: 'd_ok', label: 'שוב', exercises: [{ id: 'a3', sets: 3, reps: '8', rest: 60 }] },
+        // no resolvable exercise at all, and not a built-in day — dropped
+        { key: 'd_ghost', label: 'רוח', exercises: [{ id: 'nope', sets: 3, reps: '8', rest: 60 }] },
+        // a key that could not be put in a data attribute
+        { key: 'a b', label: 'רווח', exercises: [{ id: 'a4', sets: 3, reps: '8', rest: 60 }] },
+      ],
+      weeklyTarget: 2,
+      customExercises: [],
+    });
+    expect(doc?.days.map((d) => d.key)).toEqual(['d_ok']);
+    expect(planRows(doc, 'd_ok').map((r) => r.id)).toEqual(['a1']);
+  });
+
+  it('caps a document at seven days', () => {
+    const days = Array.from({ length: 12 }, (_, i) => ({
+      key: `d_${i}`,
+      label: `יום ${i}`,
+      exercises: [{ id: 'a1', sets: 3, reps: '8', rest: 60 }],
+    }));
+    const doc = normalizePlanDoc({ version: 2, days, weeklyTarget: 7, customExercises: [] });
+    expect(doc?.days).toHaveLength(7);
+  });
+
+  it('falls back to the built-in days when a v2 document has none left', () => {
+    const doc = normalizePlanDoc({ version: 2, days: [{ key: 'PL', label: 'x', exercises: [] }], customExercises: [] });
+    expect(doc?.days.map((d) => d.key)).toEqual(['A', 'B', 'C']);
+  });
+
+  it('keeps a built-in day that lost all its rows, exactly like v1 did', () => {
+    const doc = normalizePlanDoc({
+      version: 2,
+      days: [{ key: 'B', label: 'אימון B', weekdays: [2], exercises: [{ id: 'ghost', sets: 3, reps: '8', rest: 60 }] }],
+      weeklyTarget: 1,
+      customExercises: [],
+    });
+    expect(doc?.days.map((d) => d.key)).toEqual(['B']);
+    expect(planRows(doc, 'B')).toHaveLength(PROGRAM.B.exercises.length);
+  });
+
+  it('repairs weekdays: out of range, duplicated and unsorted', () => {
+    const doc = normalizePlanDoc({
+      version: 2,
+      days: [{ key: 'd_x', label: 'יום', weekdays: [6, 0, 0, 9, -1, 2.7], exercises: [{ id: 'a1', sets: 3, reps: '8', rest: 60 }] }],
+      weeklyTarget: 2,
+      customExercises: [],
+    });
+    expect(pday(doc as PlanDoc, 'd_x').weekdays).toEqual([0, 2, 6]);
+  });
+
+  it('mints day keys with the d_ prefix and no collisions', () => {
+    const keys = new Set(Array.from({ length: 50 }, () => newDayKey()));
+    expect(keys.size).toBe(50);
+    for (const k of keys) expect(k.startsWith('d_')).toBe(true);
+  });
+});
+
+/* -------------------------------------------------------- variable days */
+
+describe('a plan with its own days', () => {
+  it('renders two tabs, in the plan order, with the plan labels', () => {
+    const resolved = resolveProgram(abPlan());
+    expect(programDayKeys(resolved)).toEqual(['d_alef', 'd_bet']);
+    expect(resolved.days.map((d) => d.label)).toEqual(["חלק א'", "חלק ב'"]);
+    expect(resolved.weeklyTarget).toBe(4);
+    // the header caption is the weekday the day is named after
+    expect(rday(resolved, 'd_alef').day).toBe('ראשון');
+    expect(rday(resolved, 'd_bet').day).toBe('שלישי');
+    expect(rday(resolved, 'd_alef').exercises.map((e) => e.id)).toEqual(['a1', 'a2']);
+  });
+
+  it('validates, saves and replays with non-A/B/C day keys', () => {
+    const store = new LocalStore(fakeStorage());
+    expect(validatePlanDoc(abPlan())).toEqual([]);
+    expect(savePlan(store, abPlan()).ok).toBe(true);
+    const saved = store.getState().plan;
+    expect(saved?.days.map((d) => d.key)).toEqual(['d_alef', 'd_bet']);
+    expect(saved?.weeklyTarget).toBe(4);
+    expect(rebuildFromEvents(store.getEvents(), Date.now()).plan).toEqual(saved);
+  });
+
+  it('refuses a day list that is empty, over-long or keyed on a reserved view', () => {
+    const empty = { ...abPlan(), days: [] };
+    expect(validatePlanDoc(empty).join(' ')).toContain('לפחות יום אימון אחד');
+
+    const reserved = abPlan();
+    const first = reserved.days[0];
+    if (!first) throw new Error('no day');
+    first.key = 'BT';
+    expect(validatePlanDoc(reserved).join(' ')).toContain('מזהה יום לא תקין');
+
+    const nameless = abPlan();
+    const head = nameless.days[0];
+    if (!head) throw new Error('no day');
+    head.label = '  ';
+    expect(validatePlanDoc(nameless).join(' ')).toContain('שם');
+
+    const target = { ...abPlan(), weeklyTarget: 9 };
+    expect(validatePlanDoc(target).join(' ')).toContain('יעד האימונים השבועי');
+  });
+
+  it('is dirty against the built-in program and is not the default plan', () => {
+    expect(isDefaultPlan(abPlan())).toBe(false);
+    expect(planIsDirty(abPlan(), null)).toBe(true);
+    expect(clonePlanDoc(abPlan())).toEqual(abPlan());
+  });
+
+  it('compares documents by VALUE, whichever path built them', () => {
+    // `planIsDirty` compares JSON, and JSON keeps insertion order — so a day
+    // that came back from `normalizePlanDoc` has to be built exactly like one
+    // that came from `defaultPlanDoc`, or the editor would claim unsaved changes
+    // on a plan nobody touched.
+    const round = normalizePlanDoc(planToRecord(defaultPlanDoc()));
+    expect(isDefaultPlan(round)).toBe(true);
+    expect(planIsDirty(clonePlanDoc(defaultPlanDoc()), round)).toBe(false);
+    expect(planIsDirty(clonePlanDoc(abPlan()), normalizePlanDoc(planToRecord(abPlan())))).toBe(false);
+    // and a save of an untouched plan still reads as "the original program"
+    const store = new LocalStore(fakeStorage());
+    savePlan(store, clonePlanDoc(defaultPlanDoc()));
+    expect(isDefaultPlan(store.getState().plan)).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------- defaultDay */
+
+describe('defaultDay', () => {
+  /** Noon UTC on the Sunday..Saturday of one week, so no timezone can shift it. */
+  function weekday(wd: number): Date {
+    const d = new Date(Date.UTC(2025, 0, 5 + wd, 12));
+    expect(d.getDay()).toBe(wd);
+    return d;
+  }
+
+  it('reproduces the legacy mapping for the built-in program', () => {
+    // Sun/Mon -> A, Tue/Wed -> B, Thu/Fri/Sat -> C, exactly as before.
+    const expected = ['A', 'A', 'B', 'B', 'C', 'C', 'C'];
+    for (let wd = 0; wd < 7; wd += 1) expect(defaultDay(null, weekday(wd))).toBe(expected[wd]);
+  });
+
+  it('follows the plan weekday map, and falls back to the FIRST day', () => {
+    const plan = abPlan(); // א on Sun+Wed, ב on Tue+Thu
+    expect(defaultDay(plan, weekday(0))).toBe('d_alef');
+    expect(defaultDay(plan, weekday(3))).toBe('d_alef');
+    expect(defaultDay(plan, weekday(2))).toBe('d_bet');
+    expect(defaultDay(plan, weekday(4))).toBe('d_bet');
+    // rest days: nothing claims them, so the app opens on the first day
+    for (const wd of [1, 5, 6]) expect(defaultDay(plan, weekday(wd))).toBe('d_alef');
+  });
+
+  it('falls back to the first day when a plan assigns no weekdays at all', () => {
+    const plan = abPlan();
+    for (const d of plan.days) delete d.weekdays;
+    for (let wd = 0; wd < 7; wd += 1) expect(defaultDay(plan, weekday(wd))).toBe('d_alef');
+  });
+});
+
+/* -------------------------------------------------- the derived weekly target */
+
+describe('deriveWeeklyTarget', () => {
+  function withWeekdays(...map: number[][]): PlanDay[] {
+    return map.map((weekdays, i) => ({
+      key: `d_${i}`,
+      label: `יום ${i}`,
+      weekdays,
+      exercises: [{ id: 'a1', sets: 3, reps: '8', rest: 60 }],
+    }));
+  }
+
+  it('counts the DISTINCT weekdays a plan claims', () => {
+    // the A/B split this feature exists for: two days, four weekdays, target 4
+    expect(deriveWeeklyTarget(withWeekdays([0, 3], [2, 4]))).toBe(4);
+    expect(assignedWeekdays(withWeekdays([0, 3], [2, 4]))).toEqual([0, 2, 3, 4]);
+    expect(deriveWeeklyTarget(withWeekdays([1], [3], [5]))).toBe(3);
+    expect(deriveWeeklyTarget(withWeekdays([0, 1, 2, 3, 4, 5, 6]))).toBe(7);
+  });
+
+  it('falls back to one workout per day, capped at three, with no schedule', () => {
+    expect(deriveWeeklyTarget(withWeekdays([]))).toBe(1);
+    expect(deriveWeeklyTarget(withWeekdays([], []))).toBe(2);
+    expect(deriveWeeklyTarget(withWeekdays([], [], []))).toBe(3);
+    // a six-day plan with no weekdays assigned still asks for three, not six
+    expect(deriveWeeklyTarget(withWeekdays([], [], [], [], [], []))).toBe(3);
+  });
+
+  it('reads the built-in A/B/C ranges as ROUTING, not as seven training days', () => {
+    // [0,1] / [2,3] / [4,5,6] covers the whole week with three workouts — it is
+    // the map that picks the default tab, and it must keep meaning "3".
+    const doc = defaultPlanDoc();
+    expect(assignedWeekdays(doc.days)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(deriveWeeklyTarget(doc.days)).toBe(3);
+    expect(doc.weeklyTarget).toBe(3);
+    // …but the moment the user edits that map it is a real schedule again
+    const edited = clonePlanDoc(doc);
+    edited.days[0]!.weekdays = [0];
+    expect(deriveWeeklyTarget(edited.days)).toBe(6);
+  });
+
+  it('always lands inside 1–7 and ignores junk weekdays', () => {
+    const days = withWeekdays([0, 0, 9, -2, 3]);
+    expect(deriveWeeklyTarget(days)).toBe(2);
+    expect(assignedWeekdays(days)).toEqual([0, 3]);
+    expect(deriveWeeklyTarget([])).toBe(1);
   });
 });

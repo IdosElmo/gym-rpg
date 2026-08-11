@@ -30,6 +30,7 @@ import {
   computeStreak,
   emptyGame,
   finalizeGame,
+  weeklyTargetsFromEvents,
   type PendingEvent,
   type PurchaseError,
 } from './xp.ts';
@@ -57,13 +58,21 @@ export interface GrantResult {
 
 const EMPTY_RESULT: GrantResult = { xp: 0, parts: [], energy: 0, pr: false, levelUps: [] };
 
-/** Append `pending` to the log and fold it into `state.game`. */
+/**
+ * Append `pending` to the log and fold it into `state.game`.
+ *
+ * The streak is re-derived against the plan history the LOG holds (the events
+ * were appended a line above, so the log is already current) — exactly what
+ * `rebuildGame` does for the same log. That is what keeps a plan's weekly target
+ * meaning the same thing live and on replay.
+ */
 function commit(store: DataStore, pending: readonly PendingEvent[], now: Date): AppEvent[] {
   const appended = pending.map((p) => store.append(p.type, p.payload));
+  const targets = weeklyTargetsFromEvents(store.getEvents());
   store.update((draft) => {
     const game = draft.game ?? emptyGame();
     for (const p of pending) applyGameEvent(game, p.type, p.payload);
-    finalizeGame(game, todayISO(now));
+    finalizeGame(game, todayISO(now), targets);
     draft.game = game;
   });
   return appended;
@@ -239,8 +248,10 @@ export interface StreakRefresh {
 export function refreshStreak(store: DataStore, now: Date = new Date()): StreakRefresh {
   const game = gameOf(store);
   const previous = game.streak.tier;
-  const next = computeStreak(game.workoutDays, todayISO(now));
-  const changed = next.tier !== previous || next.weekStart !== game.streak.weekStart;
+  const targets = weeklyTargetsFromEvents(store.getEvents());
+  const next = computeStreak(game.workoutDays, todayISO(now), targets);
+  const changed =
+    next.tier !== previous || next.weekStart !== game.streak.weekStart || next.needed !== game.streak.needed;
 
   if (changed) {
     if (next.tier !== previous) {
@@ -248,7 +259,8 @@ export function refreshStreak(store: DataStore, now: Date = new Date()): StreakR
     }
     store.update((draft) => {
       const g = draft.game ?? emptyGame();
-      finalizeGame(g, todayISO(now));
+      // `store.append` above may have added an event — read the log again.
+      finalizeGame(g, todayISO(now), weeklyTargetsFromEvents(store.getEvents()));
       draft.game = g;
     });
   }

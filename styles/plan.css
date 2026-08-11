@@ -29,6 +29,41 @@
 .pl-day.active{background:var(--accent); border-color:var(--accent); color:#fff}
 .pl-day.active .pl-day-sub{color:#DBEAFE}
 
+/* Day management -------------------------------------------------------- */
+.pl-days-row{display:flex; align-items:stretch; gap:6px; margin:2px 0 12px}
+.pl-days-row .pl-days{flex:1; margin:0; overflow-x:auto; scrollbar-width:none}
+.pl-days-row .pl-days::-webkit-scrollbar{display:none}
+.pl-days-row .pl-day{min-width:96px}
+.pl-day-add{
+  flex:0 0 auto; width:46px; min-height:46px; border-radius:12px;
+  background:var(--card); border:1px dashed var(--accent); color:var(--accent);
+  font-size:19px; font-weight:800; line-height:1;
+}
+.pl-day-add:disabled{opacity:.35; border-style:solid; color:var(--dim)}
+
+.pl-day-card{
+  background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  padding:11px 12px 9px; margin-bottom:12px;
+}
+.pl-day-head{display:flex; align-items:flex-end; gap:8px}
+.pl-day-name-field{flex:1; min-width:0}
+.pl-day-card .pl-move{padding-bottom:1px}
+
+.pl-wds{display:flex; gap:5px; margin-top:11px}
+.pl-wd{
+  flex:1; min-width:40px; min-height:42px; border-radius:11px;
+  border:1px solid var(--line); background:var(--card-2); color:var(--muted);
+  font-size:14px; font-weight:800; line-height:1; transition:.15s;
+}
+.pl-wd.on{background:var(--accent); border-color:var(--accent); color:#fff}
+.pl-wd-caption{margin:9px 0 0}
+.pl-wd-hint{margin:4px 0 0; color:var(--warn)}
+.pl-target{
+  margin:9px 0 0; padding-top:8px; border-top:1px solid var(--line);
+  color:var(--accent); font-weight:700;
+}
+.pl-empty{margin:12px 0 0; text-align:center}
+
 /* Exercise rows --------------------------------------------------------- */
 .pl-rows{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px}
 .pl-row{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px}
@@ -74,6 +109,7 @@
 .pl-actions .action-btn{min-height:46px}
 .pl-save.dirty{background:var(--accent); border-color:var(--accent); color:#fff}
 .pl-hint{margin:10px 0 4px}
+.pl-presets{width:100%; min-height:44px; margin-top:4px; margin-bottom:8px}
 .pl-reset{width:100%; min-height:44px; margin-top:4px}
 .gc-note.dim{color:var(--dim)}
 
@@ -96,6 +132,8 @@
 .pl-lib b{display:block; font-size:14px; font-weight:700}
 .pl-lib span{display:block; font-size:11px; color:var(--muted)}
 .pl-new-btn{width:100%}
+.pl-preset{min-height:64px}
+.pl-preset span{line-height:1.45; margin-top:2px}
 
 /* New-exercise form ------------------------------------------------------ */
 .pl-new{display:flex; flex-direction:column; gap:11px}

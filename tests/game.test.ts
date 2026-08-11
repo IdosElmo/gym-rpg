@@ -4,11 +4,13 @@
  * out RETROACTIVE XP (fresh legacy import, a Phase-0 user with no game state,
  * a log-less state blob, and JSON import/export round-trips).
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BALANCE } from '../src/core/balance.ts';
 import { gameOf, onSetCompleted, onWorkoutFinished, refreshStreak } from '../src/core/game.ts';
 import { emptyGame } from '../src/core/xp.ts';
+import { savePlan } from '../src/core/plan.ts';
+import type { PlanDoc } from '../src/data/planTypes.ts';
 import { PROGRAM, findExercise, type Exercise } from '../src/data/program.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { AppEvent, GameState, Session } from '../src/storage/DataStore.ts';
@@ -343,5 +345,136 @@ describe('export / import carries the game state', () => {
     expect(parsed?.source).toBe('legacy');
     expect((parsed?.state.game as GameState).totalXp).toBeGreaterThan(0);
     expect((parsed?.state.game as GameState).streak.tier).toBe(0);
+  });
+});
+
+/* ------------------------------------------- the plan's weekly target */
+
+/**
+ * THE STREAK FOLLOWS THE PLAN, LIVE AND ON REPLAY.
+ *
+ * `weeklyTarget` is part of the plan document, the plan document travels in the
+ * log, and both `refreshStreak` (live) and `rebuildGame` (replay) read the
+ * threshold out of that same log. These tests drive the REAL path — savePlan +
+ * onSetCompleted through a LocalStore — and assert the two agree afterwards.
+ */
+describe('the streak follows the plan weekly target', () => {
+  /** Two workouts trained four times a week: א on Sun+Wed, ב on Tue+Thu. */
+  function fourDayPlan(): PlanDoc {
+    return {
+      version: 2,
+      rev: 0,
+      days: [
+        { key: 'd_alef', label: "חלק א'", weekdays: [0, 3], exercises: [{ id: 'a1', sets: 3, reps: '8–10', rest: 90 }] },
+        { key: 'd_bet', label: "חלק ב'", weekdays: [2, 4], exercises: [{ id: 'b1', sets: 3, reps: '8–10', rest: 90 }] },
+      ],
+      weeklyTarget: 4,
+      customExercises: [],
+    };
+  }
+
+  /** Log one set on each date, exactly the way the workout screen does. */
+  function train(store: LocalStore, dates: readonly string[]): void {
+    for (const date of dates) {
+      const now = new Date(`${date}T10:00:00Z`);
+      vi.setSystemTime(now);
+      onSetCompleted(store, { date, day: 'd_alef', ex: ex('a1'), setIndex: 0, w: '40', r: '10' }, now);
+    }
+  }
+
+  /**
+   * Sundays that close exactly one / exactly two of the test weeks. Judging on
+   * a later Sunday would drag an EMPTY week in and drop the tier again, which
+   * is the streak rule working, not the target — so each test stops the clock
+   * the moment the week it cares about has closed.
+   */
+  const AFTER_WEEK1 = new Date('2025-01-12T09:00:00Z');
+  const AFTER_WEEK2 = new Date('2025-01-19T09:00:00Z');
+  const WEEK1 = ['2025-01-05', '2025-01-07', '2025-01-08', '2025-01-09'];
+  const WEEK2 = ['2025-01-12', '2025-01-14', '2025-01-15'];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-01-01T08:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('needs FOUR days for a tier under a 4-day plan, and says so', () => {
+    const store = new LocalStore(fakeStorage());
+    expect(savePlan(store, fourDayPlan(), Date.now()).ok).toBe(true);
+    // the target is live the moment the plan is saved
+    expect(gameOf(store).streak.needed).toBe(4);
+
+    train(store, WEEK1);
+    const res = refreshStreak(store, AFTER_WEEK1);
+    expect(res.tier).toBe(1);
+    expect(gameOf(store).streak.needed).toBe(4);
+  });
+
+  it('drops the tier when the same week is one day short of the target', () => {
+    const store = new LocalStore(fakeStorage());
+    savePlan(store, fourDayPlan(), Date.now());
+    train(store, WEEK1.slice(0, 3));
+    expect(refreshStreak(store, AFTER_WEEK1).tier).toBe(0);
+
+    // …the very same three days are a PERFECT week on the built-in program
+    const builtIn = new LocalStore(fakeStorage());
+    train(builtIn, WEEK1.slice(0, 3));
+    expect(refreshStreak(builtIn, AFTER_WEEK1).tier).toBe(1);
+  });
+
+  it('judges each week against the plan that was active THAT week', () => {
+    const store = new LocalStore(fakeStorage());
+    // week 1 under the built-in program: three days is perfect -> +1
+    train(store, WEEK1.slice(0, 3));
+    // the user switches to the 4-day plan on the Sunday of week 2…
+    vi.setSystemTime(new Date('2025-01-12T08:00:00Z'));
+    savePlan(store, fourDayPlan(), Date.now());
+    // …and trains three days that week, which is no longer enough -> -1
+    train(store, WEEK2);
+    expect(refreshStreak(store, AFTER_WEEK2).tier).toBe(0);
+
+    // Without the switch the same six days would have stacked two tiers.
+    const unchanged = new LocalStore(fakeStorage());
+    train(unchanged, [...WEEK1.slice(0, 3), ...WEEK2]);
+    expect(refreshStreak(unchanged, AFTER_WEEK2).tier).toBe(2);
+  });
+
+  it('replays to the identical streak — live state === rebuildFromEvents', () => {
+    const store = new LocalStore(fakeStorage());
+    savePlan(store, fourDayPlan(), Date.now());
+    train(store, WEEK1.slice(0, 3));
+    vi.setSystemTime(new Date('2025-01-12T08:00:00Z'));
+    savePlan(store, { ...fourDayPlan(), weeklyTarget: 2 }, Date.now());
+    train(store, ['2025-01-12', '2025-01-14']);
+    refreshStreak(store, AFTER_WEEK2);
+
+    const replayed = rebuildFromEvents(store.getEvents(), AFTER_WEEK2.getTime());
+    expect(replayed.game?.streak).toEqual(gameOf(store).streak);
+    expect(replayed.game).toEqual(gameOf(store));
+    // week 1 missed its 4-day target, week 2 met its 2-day one: 0 -> 0 -> +1
+    expect(replayed.game?.streak.tier).toBe(1);
+    expect(replayed.game?.streak.needed).toBe(2);
+  });
+
+  it('goes back to three days a week when the plan is reset or wiped', () => {
+    const store = new LocalStore(fakeStorage());
+    savePlan(store, fourDayPlan(), Date.now());
+    expect(gameOf(store).streak.needed).toBe(4);
+    savePlan(store, null, Date.now());
+    expect(gameOf(store).streak.needed).toBe(BALANCE.streak.daysPerWeek);
+    expect(rebuildFromEvents(store.getEvents(), Date.now()).game?.streak.needed).toBe(
+      BALANCE.streak.daysPerWeek,
+    );
+
+    savePlan(store, fourDayPlan(), Date.now());
+    store.clear();
+    expect(gameOf(store).streak.needed).toBe(BALANCE.streak.daysPerWeek);
+    expect(rebuildFromEvents(store.getEvents(), Date.now()).game?.streak.needed).toBe(
+      BALANCE.streak.daysPerWeek,
+    );
   });
 });

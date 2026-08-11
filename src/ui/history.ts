@@ -7,7 +7,7 @@
  * fills. Import accepts BOTH the new blob and the legacy `{sessions:{…}}` file.
  */
 
-import { DAY_ORDER, isDayKey } from '../data/program.ts';
+import { dayLabelOf, dayOf } from '../data/program.ts';
 import { fmtDate, isSetFilled, todayISO } from '../core/workout.ts';
 import { isDefaultPlan, makeResolver, resolveProgram } from '../core/plan.ts';
 import type { DataStore } from '../storage/DataStore.ts';
@@ -45,7 +45,7 @@ export interface HistoryDeps {
 function planCard(state: ReturnType<DataStore['getState']>): string {
   const custom = !isDefaultPlan(state.plan);
   const program = resolveProgram(state.plan);
-  const counts = DAY_ORDER.map((k) => `${program[k].label}: ${program[k].exercises.length}`).join(' · ');
+  const counts = program.days.map((d) => `${d.label}: ${d.day.exercises.length}`).join(' · ');
   return `
   <section class="game-card plan-card">
     <h3 class="gc-title">תוכנית האימונים
@@ -73,7 +73,7 @@ export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
   </div>
   ${deps.account ? renderAccountCard(deps.account) : ''}
   ${planCard(state)}
-  ${renderFeed(deps.store.getEvents(), 40, resolve)}
+  ${renderFeed(deps.store.getEvents(), 40, resolve, (key) => dayLabelOf(program, key))}
   <h2 class="hist-heading">אימונים מתועדים</h2>`;
 
   const nonEmpty = dates.filter((d) => Object.keys(state.sessions[d]?.ex ?? {}).length > 0);
@@ -84,7 +84,13 @@ export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
       .map((date) => {
         const s = state.sessions[date];
         if (!s) return '';
-        const p = isDayKey(s.day) ? program[s.day] : program.A;
+        // History is shown by DAY KEY, long after a plan may have dropped that
+        // day. `dayLabelOf` names it anyway (the plan's label, then the built-in
+        // one for a legacy A/B/C session, then a neutral "אימון"); the weekday
+        // caption and the focus line only exist while the day itself does, and
+        // are simply left out rather than borrowed from some other day.
+        const p = dayOf(program, s.day);
+        const label = dayLabelOf(program, s.day);
         const exHtml = Object.keys(s.ex)
           .map((exId) => {
             const exDef = resolve(exId);
@@ -97,9 +103,10 @@ export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
           })
           .join('');
         if (!exHtml) return '';
+        const title = ` · ${esc(label)}${p ? ` (יום ${esc(p.day)})` : ''}`;
         return `<div class="hist-day">
-        <h3>${fmtDate(date)} · ${esc(p.label)} (יום ${esc(p.day)})</h3>
-        <div class="sub">${esc(p.focus)}</div>
+        <h3>${fmtDate(date)}${title}</h3>
+        <div class="sub">${p ? esc(p.focus) : ''}</div>
         ${exHtml}
       </div>`;
       })
