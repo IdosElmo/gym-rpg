@@ -17,7 +17,7 @@
  */
 
 import { BODY_PARTS, isDayKey, isReservedViewKey, type BodyPart, type DayKey } from '../data/program.ts';
-import { characterById, isBaseCharacter } from '../data/characters.ts';
+import { characterById, resolveCharacterId, skinOf, type SkinDef } from '../data/characters.ts';
 import { EQUIPMENT_SLOTS, bossById, equipmentById } from '../data/gameContent.ts';
 import {
   defaultDay,
@@ -281,25 +281,30 @@ function normalizeEquipment(raw: unknown): EquipmentState {
 }
 
 /**
- * Phase 5 roster. Same rule as the wardrobe: unknown ids are dropped (the roster
- * is code, the save is data), a base body is never stored as "owned" because it
- * always is, and a `selected` the save cannot actually play falls back to the
- * default hero rather than rendering nothing.
+ * The roster (body × skin). Same rule as the wardrobe: unknown ids are dropped
+ * (the roster is code, the save is data), the free skin is never stored as
+ * "owned" because it always is, and a `selected` the save cannot actually play
+ * falls back to the default hero rather than rendering nothing.
+ *
+ * Both id shapes are tolerated on the way in — `owned` entries are reduced to
+ * their SKIN (`'robot_f'` → `'robot'`) and `selected` is resolved to a
+ * combination (`'robot'` → `'robot_m'`) — so a blob hand-edited, restored from
+ * an old export, or written by another build still lands somewhere playable.
  */
 function normalizeCharacters(raw: unknown): CharactersState {
   const out = emptyCharacters();
   if (!isRecord(raw)) return out;
   const owned = Array.isArray(raw['owned'])
-    ? raw['owned'].filter(
-        (id): id is string => typeof id === 'string' && characterById(id) !== undefined && !isBaseCharacter(id),
-      )
+    ? raw['owned']
+        .map((id) => (typeof id === 'string' ? skinOf(id) : undefined))
+        .filter((skin): skin is SkinDef => skin !== undefined && skin.cost > 0)
+        .map((skin) => skin.id)
     : [];
   out.owned = [...new Set(owned)];
 
-  const selected = raw['selected'];
-  if (typeof selected === 'string' && (isBaseCharacter(selected) || out.owned.includes(selected))) {
-    out.selected = selected;
-  }
+  const selected = typeof raw['selected'] === 'string' ? resolveCharacterId(raw['selected']) : undefined;
+  const def = selected === undefined ? undefined : characterById(selected);
+  if (def && (def.cost === 0 || out.owned.includes(def.skin))) out.selected = def.id;
   return out;
 }
 
@@ -312,9 +317,13 @@ function normalizeCharacters(raw: unknown): CharactersState {
  * `battle.bossesDefeated` and `equipment`; v3 -> v4 added the merge-idempotency
  * ledgers `energyGranted` + `prKeys`, which cannot be inferred from an old blob
  * (it only knows the totals, not which grants produced them); v4 -> v5 added
- * `characters` (the roster), which an old blob simply does not have. An older
- * blob is therefore rejected here and rebuilt from the log, which is lossless
- * because every fact is an event. That rebuild IS the sanctioned migration path.
+ * `characters` (the roster), which an old blob simply does not have; v5 -> v6
+ * turned that roster into a body × skin matrix, where `characters.owned` means
+ * SKINS and `characters.selected` means a combination — the same field names
+ * carrying different ids, which is precisely the case a version number exists
+ * for. An older blob is therefore rejected here and rebuilt from the log, which
+ * is lossless because every fact is an event. That rebuild IS the sanctioned
+ * migration path.
  */
 export function normalizeGame(raw: unknown): GameState | null {
   if (!isRecord(raw)) return null;

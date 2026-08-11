@@ -15,7 +15,17 @@
  */
 
 import { BODY_PARTS, BODY_PART_HE, type BodyPart } from '../data/program.ts';
-import { CHARACTERS, characterById, type CharacterDef } from '../data/characters.ts';
+import {
+  BODY_EMOJI,
+  BODY_GEOMETRIES,
+  BODY_HE,
+  SKINS,
+  characterById,
+  characterId,
+  skinById,
+  type BodyGeometry,
+  type SkinDef,
+} from '../data/characters.ts';
 import {
   EQUIPMENT_SLOTS,
   SLOT_EMOJI,
@@ -27,8 +37,8 @@ import {
   worldById,
   type EquipmentSlot,
 } from '../data/gameContent.ts';
-import { buyCharacter, buyItem, equipItem, gameOf, selectCharacter } from '../core/game.ts';
-import { levelProgress, ownsCharacter, statsOfGame } from '../core/xp.ts';
+import { buyCharacter, buyItem, equipItem, gameOf, selectBody, selectCharacter } from '../core/game.ts';
+import { levelProgress, ownsSkin, selectedBody, selectedCharacter, statsOfGame } from '../core/xp.ts';
 import type { DataStore, GameState } from '../storage/DataStore.ts';
 import { characterSvg, trophyMedallion } from './characterSvg.ts';
 import { esc } from './dom.ts';
@@ -55,13 +65,15 @@ export function queuePartPulse(part: BodyPart): void {
 let openSlot: EquipmentSlot | null = null;
 
 /**
- * The character whose purchase sheet is open, if any. Like `openSlot` this is
- * view state, not game state: nothing is written until the sheet is confirmed.
+ * The SKIN whose purchase sheet is open, if any. Like `openSlot` this is view
+ * state, not game state: nothing is written until the sheet is confirmed.
  */
 let pendingCharacter: string | null = null;
 
 /**
- * THE TRY-ON. The locked character the big drawing is temporarily wearing.
+ * THE TRY-ON. The locked SKIN the big drawing is temporarily wearing — always on
+ * the body the player is actually playing, so a preview answers "what would this
+ * look like on ME".
  *
  * Pure UI, in memory, exactly like `pendingCharacter`: previewing writes NO
  * event, never touches `game.characters`, and is invisible to everything that
@@ -154,36 +166,53 @@ function shopCard(game: GameState): string {
 /* ------------------------------------------------------------- the roster */
 
 /**
- * The "דמויות" strip: one card per roster entry, each drawn with the PLAYER'S
- * OWN body-part levels, so a card is a real preview ("this is what my character
- * looks like as a robot") rather than a stock portrait.
+ * The "דמויות" section: a BODY toggle over a strip of SKIN cards.
  *
- * Tapping an owned card switches character immediately (one tap, the big drawing
- * above changes). Tapping a locked one opens a confirmation sheet — a skin costs
- * real coins, so it never happens on a stray tap, and an unaffordable one says
+ * The two axes are separated because they are bought differently — a body is
+ * free and instant, a skin costs coins — and because separating them is what
+ * makes the matrix legible: pick who you are, then pick what you wear. Every
+ * card is drawn on the CURRENTLY SELECTED BODY with the PLAYER'S OWN body-part
+ * levels, so the strip answers "what does *my* character look like as a robot"
+ * rather than showing a stock portrait; flipping the toggle redraws all of them.
+ *
+ * Tapping an owned skin switches immediately (one tap, the big drawing above
+ * changes). Tapping a locked one opens a confirmation sheet — a skin costs real
+ * coins, so it never happens on a stray tap, and an unaffordable one says
  * exactly how many coins are missing instead of failing silently.
  */
 function rosterCard(game: GameState): string {
-  const selected = game.characters.selected;
   const coins = game.battle.coins;
-  const unlocked = CHARACTERS.filter((c) => ownsCharacter(game, c.id)).length;
+  const body = selectedBody(game);
+  const currentSkin = selectedCharacter(game).skin;
+  const unlocked = SKINS.filter((s) => ownsSkin(game, s.id)).length;
   const preview = previewDefOf(game);
 
-  const cards = CHARACTERS.map((c) => {
-    const owned = ownsCharacter(game, c.id);
-    const isSelected = owned && c.id === selected;
-    const affordable = coins >= c.cost;
-    const previewing = preview?.id === c.id;
-    const tag = previewing ? '👁 בתצוגה' : isSelected ? '● נבחרה' : owned ? '✓ נפתחה' : `🪙 ${c.cost}`;
+  const bodies = BODY_GEOMETRIES.map((b) => {
+    const on = b === body;
+    return `<button class="chr-body ${on ? 'on' : ''}" type="button" data-body-select="${b}"
+      aria-pressed="${on ? 'true' : 'false'}">
+      <span aria-hidden="true">${BODY_EMOJI[b]}</span> ${BODY_HE[b]}
+    </button>`;
+  }).join('');
+
+  const cards = SKINS.map((s) => {
+    const owned = ownsSkin(game, s.id);
+    const isSelected = owned && s.id === currentSkin;
+    const affordable = coins >= s.cost;
+    const previewing = preview?.id === s.id;
+    const id = characterId(s.id, body);
+    const def = characterById(id);
+    const tag = previewing ? '👁 בתצוגה' : isSelected ? '● נבחרה' : owned ? '✓ נפתחה' : `🪙 ${s.cost}`;
     const state =
       (isSelected ? 'selected' : owned ? 'owned' : affordable ? 'locked' : 'locked poor') +
       (previewing ? ' previewing' : '');
+    const he = def ? def.he : s.he;
     return `<li class="chr-item">
-      <button class="chr-card ${state}" type="button" data-character="${c.id}"
+      <button class="chr-card ${state}" type="button" data-skin="${s.id}" data-character="${id}"
         aria-pressed="${isSelected ? 'true' : 'false'}"
-        aria-label="${esc(c.he)}${owned ? '' : ` · ${c.cost} מטבעות`}">
-        <span class="chr-art" aria-hidden="true">${characterSvg(game.parts, { character: c, label: c.he })}</span>
-        <b class="chr-name">${esc(c.he)}</b>
+        aria-label="${esc(he)}${owned ? '' : ` · ${s.cost} מטבעות`}">
+        <span class="chr-art" aria-hidden="true">${characterSvg(game.parts, { character: id, label: he })}</span>
+        <b class="chr-name">${esc(s.he)}</b>
         <span class="chr-tag">${tag}</span>
       </button>
     </li>`;
@@ -191,64 +220,66 @@ function rosterCard(game: GameState): string {
 
   return `
   <section class="game-card" id="charRoster">
-    <h3 class="gc-title">דמויות <span class="gc-sub">${unlocked}/${CHARACTERS.length} נפתחו · 🪙 ${fmtXp(coins)}</span></h3>
+    <h3 class="gc-title">דמויות <span class="gc-sub">${unlocked}/${SKINS.length} נפתחו · 🪙 ${fmtXp(coins)}</span></h3>
+    <div class="chr-bodies" id="chrBodies" role="group" aria-label="בחירת גוף">${bodies}</div>
     <ul class="chr-row">${cards}</ul>
     ${buySheet(game)}
-    <p class="gc-note">שתי דמויות הבסיס פתוחות תמיד וללא עלות. שאר הדמויות הן <b>קוסמטיקה בלבד</b> —
-    הן לא משנות אף סטטיסטיקה, רק את המראה. כל דמות גדלה מאותן שש רמות גוף ולובשת את אותו ציוד.</p>
+    <p class="gc-note">שני הגופים פתוחים תמיד וללא עלות, ו<b>כל מראה שנרכש נפתח בשניהם</b>.
+    כל הדמויות הן <b>קוסמטיקה בלבד</b> — הן לא משנות אף סטטיסטיקה, רק את המראה.
+    כל דמות גדלה מאותן שש רמות גוף ולובשת את אותו ציוד.</p>
   </section>`;
 }
 
 /**
- * The locked character being tried on right now, or `null`.
+ * The locked SKIN being tried on right now, or `null`.
  *
  * Self-healing: a try-on of something that became owned (bought on this device
  * or pulled in from another one) simply ends — you are looking at your own
  * character again, and there is nothing to buy.
  */
-function previewDefOf(game: GameState): CharacterDef | null {
+function previewDefOf(game: GameState): SkinDef | null {
   if (!previewCharacter) return null;
-  const def = characterById(previewCharacter);
-  if (!def || ownsCharacter(game, def.id)) {
+  const skin = skinById(previewCharacter);
+  if (!skin || ownsSkin(game, skin.id)) {
     previewCharacter = null;
     return null;
   }
-  return def;
+  return skin;
 }
 
 /** The confirmation sheet of a pending purchase ('' when nothing is pending). */
 function buySheet(game: GameState): string {
   if (!pendingCharacter) return '';
-  const def = characterById(pendingCharacter);
-  if (!def || ownsCharacter(game, def.id)) return '';
-  const previewing = previewDefOf(game)?.id === def.id;
+  const skin = skinById(pendingCharacter);
+  if (!skin || ownsSkin(game, skin.id)) return '';
+  const previewing = previewDefOf(game)?.id === skin.id;
   const coins = game.battle.coins;
-  const missing = Math.max(0, def.cost - coins);
+  const missing = Math.max(0, skin.cost - coins);
   const affordable = missing === 0;
   return `
     <div class="chr-buy" id="chrBuy" role="group" aria-label="אישור רכישת דמות">
       <div class="chr-buy-head">
-        <b>${esc(def.he)}</b>
-        <span>${esc(def.note)}</span>
+        <b>${esc(skin.he)}</b>
+        <span>${esc(skin.note)}</span>
       </div>
-      <p class="chr-buy-price">מחיר: <b>🪙 ${def.cost}</b> · יש לכם: <b>🪙 ${fmtXp(coins)}</b></p>
+      <p class="chr-buy-price">מחיר: <b>🪙 ${skin.cost}</b> · יש לכם: <b>🪙 ${fmtXp(coins)}</b></p>
       <div class="chr-buy-try">
         ${
           previewing
             ? '<button class="eq-btn on" data-exit-preview="1">↩ חזרה לדמות שלי</button>'
-            : `<button class="eq-btn" data-preview-character="${def.id}">👁 תצוגה מקדימה</button>`
+            : `<button class="eq-btn" data-preview-character="${skin.id}">👁 תצוגה מקדימה</button>`
         }
       </div>
-      <p class="gc-note dim">התצוגה המקדימה מלבישה את הדמות הזו על הרמות והציוד שלכם — בלי לרכוש ובלי לשנות דבר.</p>
+      <p class="gc-note dim">התצוגה המקדימה מלבישה את המראה הזה על הגוף, הרמות והציוד שלכם — בלי לרכוש ובלי לשנות דבר.</p>
       <div class="chr-buy-actions">
-        <button class="eq-btn buy" data-buy-character="${def.id}" ${affordable ? '' : 'disabled'}>
-          ${affordable ? `🪙 ${def.cost} · קנייה` : `חסרים 🪙 ${missing}`}
+        <button class="eq-btn buy" data-buy-character="${skin.id}" ${affordable ? '' : 'disabled'}>
+          ${affordable ? `🪙 ${skin.cost} · קנייה` : `חסרים 🪙 ${missing}`}
         </button>
         <button class="eq-btn off" data-cancel-character="1">ביטול</button>
       </div>
       ${
         affordable
-          ? '<p class="gc-note dim">הדמות תיפתח לתמיד ותיבחר מיד. אין לכך שום השפעה על הסטטיסטיקות.</p>'
+          ? '<p class="gc-note dim">המראה ייפתח לתמיד — בשני הגופים — וייבחר מיד. אין לכך שום השפעה על הסטטיסטיקות.</p>'
           : `<p class="gc-note dim">חסרים ${missing} 🪙 — נצחו עוד גלים או בוס עולם ותחזרו.</p>`
       }
     </div>`;
@@ -316,11 +347,14 @@ export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
   const streakPct = Math.min(100, Math.round((game.streak.daysThisWeek / game.streak.needed) * 100));
   const trophies = game.battle.bossesDefeated.length;
 
-  // THE TRY-ON: while a locked character is being previewed the big drawing —
-  // and ONLY the big drawing — wears it, with the player's real levels and
-  // equipment. Nothing is written; `game.characters.selected` is untouched, so
-  // the arena (and every other reader of the store) still sees the real choice.
+  // THE TRY-ON: while a locked skin is being previewed the big drawing — and
+  // ONLY the big drawing — wears it, on the player's real body, with their real
+  // levels and equipment. Nothing is written; `game.characters.selected` is
+  // untouched, so the arena (and every other reader of the store) still sees the
+  // real choice.
   const preview = previewDefOf(game);
+  const previewId = preview ? characterId(preview.id, selectedBody(game)) : '';
+  const previewHe = previewId ? (characterById(previewId)?.he ?? preview?.he ?? '') : '';
 
   main.innerHTML = `
   <section class="char-card">
@@ -329,8 +363,8 @@ export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
         pulse,
         equipment: game.equipment,
         trophies,
-        character: preview ? preview.id : game.characters.selected,
-        ...(preview ? { label: `תצוגה מקדימה: ${preview.he}` } : {}),
+        character: preview ? previewId : game.characters.selected,
+        ...(preview ? { label: `תצוגה מקדימה: ${previewHe}` } : {}),
       })}
       <div class="char-level" aria-label="רמת דמות">
         <span class="cl-num">${game.level}</span><span class="cl-lbl">רמה</span>
@@ -415,24 +449,38 @@ function wireRoster(main: HTMLElement, deps: CharacterDeps): void {
     else renderCharacter(main, deps);
   };
 
-  main.querySelectorAll<HTMLButtonElement>('.chr-card[data-character]').forEach((btn) => {
+  // THE BODY TOGGLE. Free, instant, and a plain `character_selected` under the
+  // hood: the same skin on the other silhouette. Everything on the screen — the
+  // big drawing, every card preview, the arena next time it opens — follows,
+  // because they all render `selected`.
+  main.querySelectorAll<HTMLButtonElement>('[data-body-select]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const id = btn.dataset['character'];
-      if (!id) return;
+      const body = btn.dataset['bodySelect'] as BodyGeometry | undefined;
+      if (!body) return;
+      selectBody(deps.store, body);
+      refresh();
+    });
+  });
+
+  main.querySelectorAll<HTMLButtonElement>('.chr-card[data-skin]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const skinId = btn.dataset['skin'];
+      if (!skinId) return;
       const game = gameOf(deps.store);
-      if (ownsCharacter(game, id)) {
-        // Owned: switch straight away — the big drawing above is the feedback.
+      if (ownsSkin(game, skinId)) {
+        // Owned: wear it on the body being played — the big drawing is the feedback.
         pendingCharacter = null;
-        previewCharacter = null; // an owned character is worn for real, not tried on
+        previewCharacter = null; // an owned skin is worn for real, not tried on
+        const id = characterId(skinId, selectedBody(game));
         if (selectCharacter(deps.store, id)) toast(`${characterById(id)?.he ?? 'הדמות'} נכנסה לזירה! ✨`);
         refresh();
         return;
       }
       // Locked: never buy on the first tap — open the confirmation sheet.
-      pendingCharacter = id;
-      // Opening ANOTHER locked character's sheet ends the previous try-on, so
-      // the chip and the drawing can never disagree about who is on stage.
-      if (previewCharacter !== id) previewCharacter = null;
+      pendingCharacter = skinId;
+      // Opening ANOTHER locked skin's sheet ends the previous try-on, so the
+      // chip and the drawing can never disagree about who is on stage.
+      if (previewCharacter !== skinId) previewCharacter = null;
       refresh();
     });
   });
@@ -442,7 +490,7 @@ function wireRoster(main: HTMLElement, deps: CharacterDeps): void {
   main.querySelectorAll<HTMLButtonElement>('[data-preview-character]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const id = btn.dataset['previewCharacter'];
-      if (!id || ownsCharacter(gameOf(deps.store), id)) return;
+      if (!id || ownsSkin(gameOf(deps.store), id)) return;
       previewCharacter = id;
       pendingCharacter = id;
       refresh();
@@ -458,9 +506,9 @@ function wireRoster(main: HTMLElement, deps: CharacterDeps): void {
 
   main.querySelectorAll<HTMLButtonElement>('[data-buy-character]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const id = btn.dataset['buyCharacter'];
-      if (!id) return;
-      const res = buyCharacter(deps.store, id);
+      const skinId = btn.dataset['buyCharacter'];
+      if (!skinId) return;
+      const res = buyCharacter(deps.store, skinId);
       if (!res.ok) {
         toast(
           res.error === 'insufficient_coins'
@@ -471,7 +519,7 @@ function wireRoster(main: HTMLElement, deps: CharacterDeps): void {
       }
       pendingCharacter = null;
       previewCharacter = null; // bought: the drawing is the real character now
-      toast(`${characterById(id)?.he ?? 'הדמות'} נרכשה ונכנסה לזירה! 🎭`);
+      toast(`${skinById(skinId)?.he ?? 'הדמות'} נרכשה — בשני הגופים! 🎭`);
       refresh();
     });
   });

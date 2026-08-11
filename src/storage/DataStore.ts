@@ -74,8 +74,13 @@ export interface UiState {
  *
  * v4 (merge-safe core) added the idempotency ledgers `energyGranted` + `prKeys`.
  * v5 (the character roster) added `characters`.
+ * v6 (body × skin) reshaped `characters`: `owned` now holds SKIN ids (one purchase,
+ * both bodies) and `selected` a `<skin>_<body>` combination id. The two shapes
+ * overlap enough to be confusable (`'robot'` was a v5 selection and is a v6
+ * skin id), so the version is bumped rather than sniffed — an old blob is
+ * rejected and rebuilt from the log, which is lossless.
  */
-export const GAME_STATE_VERSION = 5;
+export const GAME_STATE_VERSION = 6;
 
 /** XP pool of one body part. `level` is DERIVED from `xp` (see core/xp.ts). */
 export interface PartProgress {
@@ -127,20 +132,24 @@ export interface BattleProgress {
 }
 
 /**
- * Which character the player is playing, and which SKINS they bought.
+ * Which combination the player is playing, and which SKINS they bought.
  *
- * `owned` holds purchased skins ONLY: the two free base bodies
- * (`data/characters.ts`, `cost: 0`) are owned by definition and are never
+ * `owned` holds purchased SKIN ids ONLY (`'robot'`, `'ninja'`, …) — never a
+ * body-specific id: one purchase unlocks the skin on both bodies. The free base
+ * skin (`data/characters.ts`, `cost: 0`) is owned by definition and is never
  * written to the log — representation is not a purchase, and nothing about
  * choosing a body should depend on an event having survived a merge.
  *
- * `selected` is last-write-wins in the log's `(ts, id)` order, so two devices
- * that both switched character converge on the same one.
+ * `selected` is one combination id, `<skin>_<m|f>` (`'hero_m'`, `'robot_f'`),
+ * last-write-wins in the log's `(ts, id)` order, so two devices that both
+ * switched body or skin converge on the same drawing. Body and skin live in ONE
+ * field on purpose: you always play exactly one pair, and two fields folded from
+ * two events could disagree after a merge.
  */
 export interface CharactersState {
-  /** Ids of the skins bought so far (permanent, like equipment). */
+  /** Ids of the SKINS bought so far (permanent, like equipment). */
   owned: string[];
-  /** The character currently being played — a base body or an owned skin. */
+  /** The body × skin combination currently being played. */
   selected: string;
 }
 
@@ -422,13 +431,19 @@ export interface ItemEquippedPayload extends Record<string, unknown> {
 /* ------------------------------------------------ Phase 5 roster payloads */
 
 /**
- * A character skin was bought. Coins leave the purse and the id joins
- * `characters.owned` — permanently, exactly like an equipment purchase.
+ * A character SKIN was bought. Coins leave the purse and the skin id joins
+ * `characters.owned` — permanently, exactly like an equipment purchase, and for
+ * BOTH bodies at once.
  *
- * The reducer is idempotent by ID (not by event id): two devices that each
+ * `characterId` carries a SKIN id (`'robot'`) — which is exactly what the
+ * single-body roster wrote, so every purchase ever logged still folds into the
+ * right skin. A combination id (`'robot_f'`) is accepted too and reduced to its
+ * skin, so no build of the app can mint an unlock that means something else.
+ *
+ * The reducer is idempotent by SKIN ID (not by event id): two devices that each
  * bought the same skin offline produce two events with different uuids, and the
- * union must charge exactly once. Only base bodies (`cost: 0`) never appear
- * here — they are owned without ever being bought.
+ * union must charge exactly once. Only the free skin (`cost: 0`) never appears
+ * here — it is owned without ever being bought.
  */
 export interface CharacterPurchasedPayload extends Record<string, unknown> {
   date: string;
@@ -437,9 +452,17 @@ export interface CharacterPurchasedPayload extends Record<string, unknown> {
 }
 
 /**
- * The player switched character. Pure LWW in the log's `(ts, id)` order — the
- * last one folded wins — and an id that is unknown or not owned is IGNORED, so
- * a merge can never leave a device playing something it does not have.
+ * The player switched to another body × skin combination — the single event
+ * behind both "wear another skin" and "switch body".
+ *
+ * `characterId` is a combination id (`'hero_f'`, `'robot_m'`). A legacy id from
+ * the single-body roster is resolved on fold: `'hero_m'`/`'hero_f'` already ARE
+ * combination ids, and a bare skin id maps to the body that skin was sold on
+ * (`'robot'` → `'robot_m'`, `'ninja'` → `'ninja_f'`).
+ *
+ * Pure LWW in the log's `(ts, id)` order — the last one folded wins — and an id
+ * that is unknown or whose skin is not owned is IGNORED, so a merge can never
+ * leave a device playing something it does not have.
  */
 export interface CharacterSelectedPayload extends Record<string, unknown> {
   date: string;
