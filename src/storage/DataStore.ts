@@ -40,15 +40,24 @@ export interface Session {
 }
 
 /**
- * A day key = one workout screen, plus four RESERVED keys: `CH` = דמות,
- * `BT` = קרב (battle), `H` = היסטוריה, `PL` = תוכנית (the plan editor). A plan
- * may not use those four as day keys (`isDayKey` refuses them).
+ * A day key = one workout screen, plus five RESERVED keys: `CH` = דמות,
+ * `BT` = קרב (battle), `ST` = הגדרות (settings), `H` = היסטוריה, `PL` = תוכנית
+ * (the plan editor). A plan may not use those as day keys (`isDayKey` refuses
+ * them).
  *
- * `PL` deliberately has NO tab in the main nav: the day tabs plus דמות / קרב /
- * היסטוריה already fill the width of a phone. It is reached from the ⚙️ button
- * in the workout header and from the plan card on the history screen.
+ * The nav is TWO levels (see `ui/nav.ts`): three fixed hubs, each with its own
+ * inner tab row. Every view above belongs to exactly one hub — day keys and
+ * `PL` to אימון, `BT`/`CH` to קרב, `ST`/`H` to הגדרות — so the stored view
+ * alone still decides the whole screen, exactly as it did with one flat bar.
+ *
+ * `PL` deliberately has NO tab of its own: it is reached from the ⚙️ button in
+ * the workout header and from the plan card on the settings screen.
+ *
+ * `ST` is the ONE view id this redesign added. Everything a build ever
+ * persisted — including a bare `'H'` — is still a valid view and still lands on
+ * the screen it always named.
  */
-export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL';
+export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL' | 'ST';
 
 export interface UiState {
   view: ViewKey;

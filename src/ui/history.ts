@@ -1,59 +1,25 @@
 /**
- * ui/history.ts — the history screen: the game-event feed (see ui/feed.ts), the
- * logged-workout history, and JSON export / import / clear-all.
+ * ui/history.ts — the היסטוריה screen (view `H`), second inner tab of the
+ * settings hub: the game-event feed (see ui/feed.ts) and the logged-workout
+ * history, and nothing else.
  *
- * Export writes the NEW blob shape (state + event log + a `sessions` mirror for
- * backwards compatibility), which already carries the `game` slot that Phase 1+
- * fills. Import accepts BOTH the new blob and the legacy `{sessions:{…}}` file.
+ * The account card, the plan card and export / import / clear used to sit on
+ * top of this list. They moved one tab across, to ui/settings.ts — they are
+ * things you PRESS, this is a thing you READ, and the screen was the only place
+ * in the app where those two lived in the same scroll. What is left here is the
+ * record of what actually happened: every workout, newest first, plus the
+ * adventure feed that narrates it.
  */
 
 import { dayLabelOf, dayOf } from '../data/program.ts';
-import { fmtDate, isSetFilled, todayISO } from '../core/workout.ts';
-import { isDefaultPlan, makeResolver, resolveProgram } from '../core/plan.ts';
+import { fmtDate, isSetFilled } from '../core/workout.ts';
+import { makeResolver, resolveProgram } from '../core/plan.ts';
 import type { DataStore } from '../storage/DataStore.ts';
-import { mergeImport } from '../storage/merge.ts';
-import { buildExport, parseImport } from '../storage/migrate.ts';
-import { bindAccountCard, renderAccountCard, type AccountDeps } from '../sync/account.ts';
-import { esc, must } from './dom.ts';
+import { esc } from './dom.ts';
 import { renderFeed } from './feed.ts';
-import { toast } from './toast.ts';
 
 export interface HistoryDeps {
   store: DataStore;
-  rerender: () => void;
-  /** Open the plan editor (the second entry point after the workout header). */
-  editPlan?: () => void;
-  /**
-   * The cloud account, when this build has one. Absent (or reporting
-   * `disabled`) means the offline app: no card, and the destructive
-   * single-device semantics for clear + import.
-   */
-  account?: AccountDeps;
-  /** True while a session is live — changes what מחיקה and ייבוא MEAN. */
-  isSignedIn?: () => boolean;
-  /** Called after an additive import, so the engine can upload what arrived. */
-  onLocalMerge?: () => void;
-}
-
-/**
- * The plan card — the history screen's entry point into the editor.
- *
- * It sits above the data actions because "what am I training" belongs with
- * export/import/clear: they are all things you do to your DATA, not during a
- * workout.
- */
-function planCard(state: ReturnType<DataStore['getState']>): string {
-  const custom = !isDefaultPlan(state.plan);
-  const program = resolveProgram(state.plan);
-  const counts = program.days.map((d) => `${d.label}: ${d.day.exercises.length}`).join(' · ');
-  return `
-  <section class="game-card plan-card">
-    <h3 class="gc-title">תוכנית האימונים
-      <span class="gc-sub">${custom ? `מותאמת אישית · גרסה ${state.plan?.rev ?? 1}` : 'התוכנית המקורית'}</span>
-    </h3>
-    <p class="gc-note">${esc(counts)}</p>
-    <button class="action-btn plan-card-btn" id="btnPlanEdit">⚙️ עריכת התוכנית</button>
-  </section>`;
 }
 
 export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
@@ -66,13 +32,6 @@ export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
   const resolve = makeResolver(state.plan);
 
   let html = `
-  <div class="data-actions">
-    <button class="action-btn" id="btnExport">⬇ ייצוא JSON</button>
-    <button class="action-btn" id="btnImport">⬆ ייבוא JSON</button>
-    <button class="action-btn danger" id="btnClear">🗑 מחיקה</button>
-  </div>
-  ${deps.account ? renderAccountCard(deps.account) : ''}
-  ${planCard(state)}
   ${renderFeed(deps.store.getEvents(), 40, resolve, (key) => dayLabelOf(program, key))}
   <h2 class="hist-heading">אימונים מתועדים</h2>`;
 
@@ -114,110 +73,4 @@ export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
   }
 
   main.innerHTML = html;
-  bind(main, deps);
-}
-
-/**
- * Deleting means something DIFFERENT once there is an account behind the app.
- *
- * Locally it wipes this device. Signed in, the `data_cleared` event syncs like
- * every other event and every device folds it into a wipe — so the copy has to
- * say that out loud before the user taps it.
- */
-export const CLEAR_CONFIRM_LOCAL = 'למחוק את כל היסטוריית האימונים? פעולה זו אינה הפיכה.';
-export const CLEAR_CONFIRM_ACCOUNT =
-  'למחוק את כל הנתונים מהחשבון ומכל המכשירים? פעולה זו אינה הפיכה.';
-
-function bind(main: HTMLElement, deps: HistoryDeps): void {
-  const { store, rerender } = deps;
-  const fileInput = must('importFile') as HTMLInputElement;
-  if (deps.account) bindAccountCard(main, deps.account);
-
-  main.querySelector<HTMLButtonElement>('#btnExport')?.addEventListener('click', () => {
-    exportJSON(store);
-  });
-
-  main.querySelector<HTMLButtonElement>('#btnImport')?.addEventListener('click', () => {
-    fileInput.click();
-  });
-
-  main.querySelector<HTMLButtonElement>('#btnPlanEdit')?.addEventListener('click', () => {
-    deps.editPlan?.();
-  });
-
-  main.querySelector<HTMLButtonElement>('#btnClear')?.addEventListener('click', () => {
-    if (confirm(deps.isSignedIn?.() ? CLEAR_CONFIRM_ACCOUNT : CLEAR_CONFIRM_LOCAL)) {
-      store.clear();
-      rerender();
-      toast('כל הנתונים נמחקו');
-    }
-  });
-}
-
-function exportJSON(store: DataStore): void {
-  const blob = new Blob([JSON.stringify(buildExport(store.getState(), store.getEvents()), null, 2)], {
-    type: 'application/json',
-  });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'workout-backup-' + todayISO() + '.json';
-  a.click();
-  URL.revokeObjectURL(a.href);
-  toast('קובץ הגיבוי ירד למכשיר');
-}
-
-export interface ImportDeps {
-  /** True while a session is live — makes the import ADDITIVE instead of destructive. */
-  isSignedIn?: () => boolean;
-  /** Called after an additive import so the engine can upload what arrived. */
-  onLocalMerge?: () => void;
-}
-
-/**
- * Wire the hidden <input type="file"> once, at boot.
- *
- * IMPORT MEANS TWO DIFFERENT THINGS, and which one is right depends entirely on
- * whether there is an account:
- *
- *  - SIGNED OUT it is a RESTORE. The file replaces what is on the device
- *    (`replaceAll`), because that is what restoring a backup means and there is
- *    nowhere else the data could live.
- *  - SIGNED IN it is a MERGE. The account already holds the union of every
- *    device; replacing the local log would push that truncated log outward and
- *    quietly delete history off the user's other phone. So the file's events are
- *    unioned in (`mergeImport`) and a `data_merged` marker records it.
- */
-export function initImportInput(store: DataStore, rerender: () => void, deps: ImportDeps = {}): void {
-  const input = must('importFile') as HTMLInputElement;
-  input.addEventListener('change', (e) => {
-    const target = e.target as HTMLInputElement;
-    const f = target.files?.[0];
-    if (!f) return;
-    const rd = new FileReader();
-    rd.onload = () => {
-      const parsed = parseImport(typeof rd.result === 'string' ? rd.result : '');
-      if (!parsed) {
-        toast('קובץ לא תקין — הייבוא בוטל');
-        return;
-      }
-      if (deps.isSignedIn?.()) {
-        const res = mergeImport(store, parsed);
-        rerender();
-        deps.onLocalMerge?.();
-        toast(res.added > 0 ? `נוספו ${res.added} רשומות מהגיבוי ✓` : 'הגיבוי כבר קיים בחשבון');
-        return;
-      }
-      store.replaceAll(parsed.state, parsed.events);
-      store.append('data_imported', {
-        source: parsed.source,
-        sessions: parsed.state.sessions,
-        sessionCount: Object.keys(parsed.state.sessions).length,
-      });
-      rerender();
-      toast('הנתונים שוחזרו בהצלחה ✓');
-    };
-    rd.onerror = () => toast('קובץ לא תקין — הייבוא בוטל');
-    rd.readAsText(f);
-    target.value = '';
-  });
 }

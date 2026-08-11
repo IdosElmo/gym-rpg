@@ -74,11 +74,11 @@ export type DayKey = string;
 export type BuiltInDayKey = 'A' | 'B' | 'C';
 
 /**
- * View keys that are NOT workout days: דמות, קרב, היסטוריה and the plan editor.
- * They are reserved: a plan may not name a day after one of them, or tapping the
- * day would open the wrong screen.
+ * View keys that are NOT workout days: דמות, קרב, הגדרות, היסטוריה and the plan
+ * editor. They are reserved: a plan may not name a day after one of them, or
+ * tapping the day would open the wrong screen.
  */
-export const RESERVED_VIEW_KEYS: readonly string[] = ['CH', 'BT', 'H', 'PL'] as const;
+export const RESERVED_VIEW_KEYS: readonly string[] = ['CH', 'BT', 'H', 'PL', 'ST'] as const;
 
 /** Longest day key we accept — long enough for `d_` + a uuid slice. */
 export const MAX_DAY_KEY_LENGTH = 40;
@@ -831,7 +831,7 @@ export function equipHe(e: string): string {
   return EQUIP_HE[e] ?? e;
 }
 
-/** True for one of the four reserved (non-day) view keys. */
+/** True for one of the reserved (non-day) view keys. */
 export function isReservedViewKey(v: unknown): boolean {
   return typeof v === 'string' && RESERVED_VIEW_KEYS.includes(v);
 }

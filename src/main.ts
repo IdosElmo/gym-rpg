@@ -25,7 +25,7 @@ import { syncConfigured } from './sync/config.ts';
 import { SyncEngine, type SyncStatus } from './sync/engine.ts';
 import { createSupabaseSync } from './sync/supabaseBackend.ts';
 import { createApp, type App, type AppHooks } from './ui/app.ts';
-import { initImportInput } from './ui/history.ts';
+import { initImportInput } from './ui/settings.ts';
 import { createRestTimer } from './ui/timer.ts';
 import { initToast } from './ui/toast.ts';
 import { must } from './ui/dom.ts';
@@ -140,7 +140,7 @@ function wireSync(store: DataStore): SyncWiring {
 
   return {
     hooks: {
-      history: {
+      settings: {
         account,
         isSignedIn: () => isSignedIn(status),
         onLocalMerge: () => {

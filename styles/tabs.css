@@ -1,41 +1,72 @@
-nav.tabs{
-  display:flex; gap:6px; padding:12px 16px 4px; position:sticky; top:0; z-index:30;
-  background:linear-gradient(180deg,var(--bg) 75%,transparent);
-}
-.tab{
-  flex:1; border:1px solid var(--line); background:var(--card); color:var(--muted);
-  border-radius:12px; padding:9px 4px; text-align:center; transition:.15s; min-height:44px;
-}
-.tab .d{display:block; font-weight:800; font-size:15px}
-.tab .w{display:block; font-size:11px; margin-top:1px}
-.tab.active{background:var(--accent); border-color:var(--accent); color:#fff}
-.tab.active .w{color:#DBEAFE}
-.tab.hist-tab{flex:.7}
-.tab.hist-tab.active{background:var(--card-2); border-color:var(--accent); color:var(--accent)}
-
 /**
- * A schedule-expanded plan shows one tab per TRAINING DAY of the week (see
- * core/plan.ts#scheduleTabs), so four workout tabs + דמות/קרב/היסטוריה is an
- * ordinary week. Past six tabs the row scrolls sideways instead of squeezing
- * every tab into an untappable sliver; the shell adds `.scroll` from the tab
- * count, so up to six the bar is byte-identical to what it always was.
+ * Two-level navigation (see src/ui/nav.ts and src/ui/app.ts).
  *
- * The scrollbar itself is hidden (a 7px gutter under a 44px row is clutter, and
- * the row is dragged, not scrolled with a wheel) — the partially visible tab at
- * the edge is the affordance. RTL needs no special casing: the flex row lays
- * itself out right-to-left and the browser starts the scroller at its own
- * inline start, which is the right edge.
+ * ROW 1 — the hubs. Exactly three, equal width, ≥44px tall, never scrolling and
+ * never re-ordered: 🏋️ אימון · 🎮 קרב · ⚙️ הגדרות. The active one is filled
+ * with `--accent`, which is the strongest state in the app, because "which part
+ * of the app am I in" is the one thing the bar must answer instantly.
+ *
+ * ROW 2 — the inner tabs of the active hub, at a deliberately LIGHTER weight:
+ * pill-shaped, `--card-2` instead of `--card`, an outlined (not filled) active
+ * state. Same tokens, same language, one step quieter — so the eye reads the
+ * bar as "hub, then choice inside it" rather than as two competing rows.
+ *
+ * Only row 2 can scroll, and only past four inner tabs (a 5–7 day plan). Up to
+ * four — which covers the built-in program and every A/B split — nothing moves
+ * sideways at all. RTL needs no special casing: the flex row lays itself out
+ * right-to-left and the browser starts the scroller at its own inline start,
+ * which is the right edge. The scrollbar is hidden (a 7px gutter under a 40px
+ * row is clutter, and the row is dragged, not wheeled) — the partially visible
+ * tab at the edge is the affordance.
  */
-nav.tabs.scroll{
+nav.tabs{
+  display:flex; flex-direction:column; gap:7px; padding:10px 16px 6px;
+  position:sticky; top:0; z-index:30;
+  background:linear-gradient(180deg,var(--bg) 78%,transparent);
+}
+
+/* ---------- row 1: the three hubs ---------- */
+.hub-row{display:flex; gap:6px}
+.hub{
+  flex:1 1 0; min-width:0; min-height:48px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
+  border:1px solid var(--line); background:var(--card); color:var(--muted);
+  border-radius:13px; padding:6px 4px; transition:.15s;
+}
+.hub .h-icon{font-size:17px; line-height:1.1}
+.hub .h-label{
+  font-size:12.5px; font-weight:800; letter-spacing:-.01em;
+  max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.hub.active{background:var(--accent); border-color:var(--accent); color:#fff}
+
+/* ---------- row 2: the inner tabs ---------- */
+.sub-row{display:flex; gap:6px}
+.tab{
+  flex:1 1 0; min-width:0; min-height:40px;
+  border:1px solid var(--line); background:var(--card-2); color:var(--muted);
+  border-radius:99px; padding:6px 8px; text-align:center; transition:.15s;
+}
+.tab .d{display:block; font-weight:700; font-size:13.5px; line-height:1.25}
+.tab .w{
+  display:block; font-size:10.5px; margin-top:1px; line-height:1.2;
+  max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.tab.active{background:var(--card); border-color:var(--accent); color:var(--accent)}
+.tab.active .d{font-weight:800}
+.tab.active .w{color:var(--muted)}
+
+/* Past four inner tabs the row scrolls instead of squeezing every tab into an
+   untappable sliver; each one keeps a ≥72px target and the shell scrolls the
+   active tab into view on every render. */
+.sub-row.scroll{
   flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden;
   scrollbar-width:none; -ms-overflow-style:none;
   overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch;
   scroll-padding-inline:16px;
 }
-nav.tabs.scroll::-webkit-scrollbar{display:none}
-/* No shrinking once we scroll: every tab keeps a ≥40px touch target. */
-nav.tabs.scroll .tab{flex:0 0 auto; min-width:72px; padding-inline:10px}
-nav.tabs.scroll .tab.hist-tab{flex:0 0 auto}
+.sub-row.scroll::-webkit-scrollbar{display:none}
+.sub-row.scroll .tab{flex:0 0 auto; min-width:76px; padding-inline:12px}
 /* A workout name can be a whole sentence ("חלק א׳ — רגליים, חזה…"): one line,
    elided, so the tab stays a thumb-sized target rather than a paragraph. */
-nav.tabs.scroll .tab .w{max-width:104px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.sub-row.scroll .tab .w{max-width:104px}
