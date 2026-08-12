@@ -40,10 +40,10 @@ export interface Session {
 }
 
 /**
- * A day key = one workout screen, plus five RESERVED keys: `CH` = דמות,
- * `BT` = קרב (battle), `ST` = הגדרות (settings), `H` = היסטוריה, `PL` = תוכנית
- * (the plan editor). A plan may not use those as day keys (`isDayKey` refuses
- * them).
+ * A day key = one workout screen, plus six RESERVED keys: `CH` = דמות,
+ * `BT` = קרב (battle), `ST` = הגדרות (settings), `H` = היסטוריה,
+ * `SS` = סטטיסטיקות (the 📊 screen), `PL` = תוכנית (the plan editor). A plan may
+ * not use those as day keys (`isDayKey` refuses them).
  *
  * The nav is TWO levels (see `ui/nav.ts`): three fixed hubs, each with its own
  * inner tab row. Every view above belongs to exactly one hub — day keys and
@@ -53,11 +53,14 @@ export interface Session {
  * `PL` deliberately has NO tab of its own: it is reached from the ⚙️ button in
  * the workout header and from the plan card on the settings screen.
  *
- * `ST` is the ONE view id this redesign added. Everything a build ever
- * persisted — including a bare `'H'` — is still a valid view and still lands on
- * the screen it always named.
+ * `ST` was the ONE view id the two-level redesign added; `SS` (📊 סטטיסטיקות,
+ * the settings hub's third inner tab) is the one the statistics screen adds.
+ * Everything a build ever persisted — including a bare `'H'` — is still a valid
+ * view and still lands on the screen it always named: view ids are only ever
+ * ADDED, never renamed or reused, which is what makes an install left on any
+ * older screen open on exactly that screen after the update.
  */
-export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL' | 'ST';
+export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL' | 'ST' | 'SS';
 
 export interface UiState {
   view: ViewKey;

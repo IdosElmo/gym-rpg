@@ -1,0 +1,142 @@
+/**
+ * The 📊 סטטיסטיקות screen (src/ui/stats.ts).
+ *
+ * Mobile first and card-stacked like every other screen: nothing here is a
+ * fixed pixel width, the two SVG charts scale to the card and the tables scroll
+ * inside their own box rather than pushing the page sideways.
+ *
+ * COLOUR. One hue per chart. Magnitude is `--accent` getting stronger (the
+ * heatmap's five steps are one blue at five opacities, never five hues), the
+ * area wash under the weekly line is the same blue at 12%, and `--ok` / `--warn`
+ * keep the meanings they already have in this app (good / needs attention) —
+ * they are never recruited as "another series".
+ *
+ * MOTION. The only animation is the sparkline's area fading up on first paint,
+ * and `styles/responsive.css` already switches every animation off under
+ * `prefers-reduced-motion`. It is repeated here explicitly so the rule survives
+ * a future edit of that file: a chart must be fully readable with zero motion.
+ */
+
+/* ---------- 💪 the headline ---------- */
+/* The line stays RTL like the card around it — only the digits are isolated as
+   one LTR run, so "2,284 ק״ג" starts at the right edge like every other line on
+   the screen. Proportional figures on purpose: `tabular-nums` gives every digit
+   the width of a 0, which reads loose at 50px. */
+.stats-hero .hero-num{
+  margin:2px 0 0; line-height:1.05;
+  font-size:clamp(38px,13vw,52px); font-weight:900; letter-spacing:-.03em; color:var(--text);
+}
+.stats-hero .hero-num b{font-weight:900; direction:ltr; unicode-bidi:isolate}
+.stats-hero .hero-unit{font-size:16px; font-weight:800; color:var(--muted); letter-spacing:0}
+.stats-hero .hero-eq{margin:6px 0 0; font-size:14.5px; font-weight:700; color:var(--ok)}
+.stats-hero .hero-eq b{font-weight:900}
+
+.eq-list{
+  list-style:none; margin:12px 0 0; padding:0;
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(88px,1fr)); gap:6px;
+}
+.eq{
+  background:var(--card-2); border:1px solid var(--line); border-radius:11px;
+  padding:7px 4px; text-align:center; opacity:.5;
+}
+.eq.on{opacity:1; border-color:#3B82F644}
+.eq-emoji{display:block; font-size:15px; line-height:1.2}
+.eq-count{display:block; font-size:14px; font-weight:800; direction:ltr}
+.eq-name{display:block; font-size:9.5px; color:var(--muted); line-height:1.25}
+
+/* Nine tiles instead of the character screen's six — the same tile, tighter. */
+.stats-tiles .stat{padding:9px 3px}
+.stats-tiles .stat b{font-size:14.5px; direction:ltr}
+
+/* ---------- charts: shared ---------- */
+.chart{display:block; width:100%; height:auto; overflow:visible}
+/* A chart that cannot shrink any further scrolls inside its own box; the page
+   itself never scrolls sideways. */
+.chart-wrap{overflow-x:auto; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch}
+.chart-wrap::-webkit-scrollbar{height:0}
+.chart-legend{
+  display:flex; flex-wrap:wrap; gap:4px 14px; margin-top:9px;
+  font-size:11px; color:var(--muted);
+}
+/* The caption line is ordinary RTL text: "שיא: 21,343 ק״ג" reads right to left
+   with the digits as one LTR run inside it, which is what bidi already does. */
+.chart-legend b{color:var(--text); font-weight:800}
+.cl-item{display:inline-flex; align-items:center; gap:5px}
+.cl-item.dim{color:var(--dim)}
+.cl-item .dot{width:8px; height:8px; border-radius:50%; background:var(--accent); display:inline-block}
+
+/* ---------- 📈 weekly tonnage sparkline ---------- */
+.spark{margin-top:2px}
+.sp-base{stroke:var(--line); stroke-width:1}
+.sp-area{fill:var(--accent); fill-opacity:.12; animation:sparkIn .5s ease both}
+.sp-line{fill:none; stroke:var(--accent); stroke-width:2; stroke-linejoin:round; stroke-linecap:round}
+/* The live week's end marker: ringed in the card colour so it stays legible
+   wherever the line puts it. */
+.sp-dot{fill:var(--accent); stroke:var(--card); stroke-width:2}
+/* Invisible per-week targets that carry the <title> tooltip. */
+.sp-hit{fill:transparent}
+@keyframes sparkIn{from{opacity:0}to{opacity:1}}
+
+/* ---------- 🗓 calendar heatmap ---------- */
+/* One hue, five steps. Level 0 is the surface one shade up, so a rest day reads
+   as "nothing happened" rather than as the lightest amount of training. */
+.hm-cell{fill:var(--card-2)}
+.hm-cell.l1{fill:var(--accent); fill-opacity:.3}
+.hm-cell.l2{fill:var(--accent); fill-opacity:.52}
+.hm-cell.l3{fill:var(--accent); fill-opacity:.76}
+.hm-cell.l4{fill:var(--accent); fill-opacity:1}
+.hm-cell.future{fill:var(--bg)}
+.hm-day{fill:var(--dim); font-size:8px; font-weight:700}
+.hm-legend .hm-key{
+  width:9px; height:9px; border-radius:2px; display:inline-block;
+  background:var(--card-2); margin-inline-end:2px;
+}
+/* The same three steps, pre-blended over --card: the swatches are HTML, where
+   `fill-opacity` does not exist, and a hard-coded blend keeps them identical to
+   the cells on every engine (no `color-mix` support needed). */
+.hm-legend .hm-key.l1{background:#274271}
+.hm-legend .hm-key.l2{background:#2D569B}
+.hm-legend .hm-key.l3{background:#346CC8}
+.hm-legend .hm-key.l4{background:var(--accent)}
+
+/* ---------- ⚖️ body-part balance ---------- */
+/* The character screen's bar, one hue: this chart is about how much, and the
+   part's identity is already carried by its name at the head of the row. */
+.bal-parts .part-bar span{background:var(--accent)}
+.bal-tag{
+  margin-inline-start:6px; padding:1px 7px; border-radius:99px;
+  font-size:10px; font-weight:800; vertical-align:middle;
+}
+.bal-tag.most{background:#10B98122; color:var(--ok)}
+.bal-tag.least{background:#F59E0B22; color:var(--warn)}
+
+/* ---------- 🥇 per-exercise bests ---------- */
+.table-wrap{overflow-x:auto; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch}
+.stats-table{width:100%; border-collapse:collapse; font-size:12px}
+.stats-table th{
+  text-align:start; font-size:10.5px; font-weight:700; color:var(--dim);
+  padding:0 6px 6px 0; white-space:nowrap;
+}
+.stats-table td{padding:7px 0; border-top:1px dashed var(--line); vertical-align:top}
+.stats-table td:not(:first-child){padding-inline-start:8px}
+.stats-table .ex{font-weight:800; min-width:104px}
+.stats-table .ex-sub{display:block; font-size:10px; font-weight:600; color:var(--dim); margin-top:2px}
+.stats-table .num{color:var(--muted); white-space:nowrap; font-variant-numeric:tabular-nums}
+.stats-table .grow{color:var(--dim); white-space:nowrap; font-weight:700}
+.stats-table .grow.up{color:var(--ok)}
+
+/* ---------- 🎲 the oddballs ---------- */
+.odd-list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px}
+.odd-list li{
+  background:var(--card-2); border:1px solid var(--line); border-radius:11px; padding:8px 10px;
+}
+.odd-k{display:block; font-size:11.5px; color:var(--muted)}
+.odd-list b{display:block; font-size:14.5px; font-weight:800; margin-top:1px}
+.odd-note{display:block; font-size:10.5px; color:var(--dim); margin-top:2px; line-height:1.45}
+
+/* ---------- empty state ---------- */
+.stats-empty .gc-note{font-size:13px}
+
+@media (prefers-reduced-motion:reduce){
+  .sp-area{animation:none}
+}
