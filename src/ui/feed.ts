@@ -223,6 +223,22 @@ export function buildFeed(
         });
         break;
       }
+      /**
+       * A duel. One line, no purse — a duel pays nothing, so quoting coins here
+       * would be quoting a zero.
+       */
+      case 'ghost_duel': {
+        const won = p['won'] === true;
+        const who = str(p['opponentName']) || str(p['opponentHandle']);
+        items.push({
+          ts: ev.ts,
+          date,
+          icon: '⚔️',
+          cls: won ? 'duel win' : 'duel loss',
+          text: won ? `ניצחון על ${esc(who)}!` : `הפסד מול ${esc(who)}`,
+        });
+        break;
+      }
       case 'coins_spent': {
         const item = equipmentById(str(p['itemId']));
         items.push({

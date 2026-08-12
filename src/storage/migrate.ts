@@ -36,6 +36,7 @@ import {
   emptyBattle,
   emptyCharacters,
   emptyDaily,
+  emptyDuels,
   emptyEquipment,
   emptyGame,
   isoToTs,
@@ -43,6 +44,7 @@ import {
   type PendingEvent,
 } from '../core/xp.ts';
 import { clampUpgradeLevel } from '../core/upgrades.ts';
+import { duelKey, normalizeHandle } from '../core/handle.ts';
 import { BALANCE } from '../core/balance.ts';
 import { uuid } from '../util/uuid.ts';
 import {
@@ -56,6 +58,7 @@ import {
   type EventLog,
   type EventType,
   type GameState,
+  type GhostDuelState,
   type PartsProgress,
   type Session,
   type SetEntry,
@@ -357,6 +360,39 @@ function normalizeDaily(raw: unknown): DailyChallengeState {
 }
 
 /**
+ * Same treatment for the duel ledger: only well-formed entries survive, and
+ * every total is left at zero because `finalizeGame` DERIVES them from the
+ * entries. A hand-edited blob can therefore claim a hundred wins and be ignored.
+ *
+ * The key has to be `"<date>|<handle>"` and the handle inside the entry has to
+ * agree with it, or the row is dropped — a mismatched pair would otherwise let
+ * a blob park a duel in a slot that the reducer would never have chosen, and
+ * the ledger's whole idempotency rests on that key meaning exactly one thing.
+ */
+function normalizeDuels(raw: unknown): GhostDuelState {
+  const out = emptyDuels();
+  if (!isRecord(raw)) return out;
+  const runs = raw['runs'];
+  if (!isRecord(runs)) return out;
+  for (const key of Object.keys(runs).sort()) {
+    const run = runs[key];
+    if (!isRecord(run)) continue;
+    const [date, handleFromKey] = key.split('|');
+    if (!date || !handleFromKey || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const opponent = normalizeHandle(run['opponent']);
+    if (!opponent || opponent !== normalizeHandle(handleFromKey)) continue;
+    const won = run['won'] === true;
+    out.runs[duelKey(date, opponent)] = {
+      opponent,
+      won,
+      score: won ? 1 : 0,
+      tiebreak: Math.min(100, Math.max(0, numOr(run['tiebreak'], 0))),
+    };
+  }
+  return out;
+}
+
+/**
  * Validate a persisted `game` blob. Returns `null` for anything missing or from
  * a version we don't know — the caller (`ensureGameState`) then rebuilds it from
  * the event log, which is always authoritative.
@@ -376,7 +412,10 @@ function normalizeDaily(raw: unknown): DailyChallengeState {
  * empty default would be worse than wrong: it would say "you never played", and
  * hand back an attempt the log already recorded as spent. An older blob is
  * therefore rejected here and rebuilt from the log, which is lossless because
- * every fact is an event. That rebuild IS the sanctioned migration path.
+ * every fact is an event. That rebuild IS the sanctioned migration path. v8 ->
+ * v9 (ghost duels) added `duels.runs`, the per-(date, opponent) ledger, for the
+ * third time the same reason: an empty default would hand back a duel the log
+ * already spent.
  */
 export function normalizeGame(raw: unknown): GameState | null {
   if (!isRecord(raw)) return null;
@@ -411,6 +450,7 @@ export function normalizeGame(raw: unknown): GameState | null {
     equipment: normalizeEquipment(raw['equipment']),
     characters: normalizeCharacters(raw['characters']),
     daily: normalizeDaily(raw['daily']),
+    duels: normalizeDuels(raw['duels']),
   };
 }
 

@@ -15,6 +15,10 @@
  *          counter trigger makes safe (see `supabase/schema.sql`).
  *   auth — Google OAuth over PKCE, which is the flow for a static site with no
  *          server and therefore no client secret to keep.
+ *   ghosts — upsert MY one row (`user_id` primary key) and look somebody else
+ *          up by EXACT handle. That table is the ghost-duel sharing mechanism:
+ *          readable by every signed-in user, writable only by its owner, and it
+ *          carries a display name plus game stats — no email, no history.
  *
  * The client is created LAZILY and only when `syncConfigured()` is true: with
  * the placeholder config (or on `file://`) not one line below ever runs, and
@@ -25,7 +29,15 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 import type { AppEvent, Unsubscribe } from '../storage/DataStore.ts';
 import { normalizeEvent, type StorageLike } from '../storage/migrate.ts';
-import { SyncAuthError, type AuthPort, type AuthUser, type PullPage, type SyncBackend } from './backend.ts';
+import {
+  GhostHandleTakenError,
+  SyncAuthError,
+  type AuthPort,
+  type AuthUser,
+  type GhostRow,
+  type PullPage,
+  type SyncBackend,
+} from './backend.ts';
 import { SYNC_CONFIG, syncConfigured, type SyncConfig } from './config.ts';
 
 /** The table every event lands in (see `supabase/schema.sql`). */
@@ -33,6 +45,15 @@ const EVENTS_TABLE = 'events';
 
 /** Columns the client reads. `seq` is the cursor; the rest is the event. */
 const PULL_COLUMNS = 'id,ts,device,type,payload,seq';
+
+/** The ghost-duel presence table — one row per user (see `supabase/schema.sql`). */
+const GHOSTS_TABLE = 'ghosts';
+
+/**
+ * Columns a LOOKUP reads. Deliberately without `user_id`: a handle lookup hands
+ * back a character and a name, never an account identifier.
+ */
+const GHOST_COLUMNS = 'handle,payload,updated_at';
 
 export interface SupabaseSyncOptions {
   /** Where the auth session is persisted (the app's own `localStorage`). */
@@ -165,6 +186,59 @@ export function createSupabaseSync(opts: SupabaseSyncOptions): SupabaseSync | nu
         if (typeof seq === 'number' && seq > lastSeq) lastSeq = seq;
       }
       return { events, lastSeq };
+    },
+
+    /**
+     * Upsert MY ghost row. `onConflict: 'user_id'` makes it "insert or replace
+     * my own row" — the primary key is the user, so a person has exactly one
+     * ghost and publishing again overwrites it rather than accumulating.
+     *
+     * The `handle` column is UNIQUE, so two accounts cannot claim one name; the
+     * database says so with `23505` and we turn that into the one error the UI
+     * can actually act on.
+     */
+    async publishGhost(userId: string, handle: string, payload: Record<string, unknown>): Promise<void> {
+      const { error } = await db()
+        .from(GHOSTS_TABLE)
+        .upsert({ user_id: userId, handle, payload, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      if (!error) return;
+      const code = typeof (error as RemoteError).code === 'string' ? (error as RemoteError).code : '';
+      const message = typeof error.message === 'string' ? error.message : '';
+      if (code === '23505' || /duplicate key|ghosts_handle/i.test(message)) {
+        throw new GhostHandleTakenError(message || 'handle taken');
+      }
+      throw toSyncError(error, 'ghost publish failed');
+    },
+
+    /**
+     * Look somebody up by exact handle. `maybeSingle()` returns `null` rather
+     * than throwing when nobody answers — "not found" is an ordinary answer
+     * here, not a failure.
+     *
+     * Only the three columns below are selected: there is no `user_id` in the
+     * result, so a lookup cannot be turned into an account enumeration even by
+     * a client that asks nicely (the RLS policy allows the select, the query
+     * simply never carries the id out).
+     */
+    async fetchGhost(handle: string): Promise<GhostRow | null> {
+      const { data, error } = await db()
+        .from(GHOSTS_TABLE)
+        .select(GHOST_COLUMNS)
+        .eq('handle', handle)
+        .maybeSingle();
+      if (error) throw toSyncError(error, 'ghost lookup failed');
+      const row = data as { handle?: unknown; payload?: unknown; updated_at?: unknown } | null;
+      if (!row || typeof row.handle !== 'string') return null;
+      const payload =
+        typeof row.payload === 'object' && row.payload !== null && !Array.isArray(row.payload)
+          ? (row.payload as Record<string, unknown>)
+          : {};
+      const updatedAt = typeof row.updated_at === 'string' ? Date.parse(row.updated_at) : NaN;
+      return {
+        handle: row.handle,
+        payload,
+        updatedAt: Number.isFinite(updatedAt) ? updatedAt : null,
+      };
     },
   };
 

@@ -328,3 +328,100 @@
 .bt-card.challenge{border-color:#F59E0B88; box-shadow:0 0 0 1px #F59E0B33}
 .bt-arena.challenge{border-color:#F59E0B88}
 .bt-status.daily{color:var(--warn); font-weight:700}
+
+/* ---------- ghost duel card (⚔️ דו־קרב רפאים) ----------
+   Directly under the daily card, and deliberately the OTHER colour: the daily
+   challenge is amber (the world's own fight), a duel is violet (another
+   person). Seven states, named by `data-state` on the section itself, so the
+   stylesheet and the tests read the same word. Every touch target is ≥44px.
+   The whole card is absent — not disabled — when there is no account.        */
+.gd{
+  background:var(--card-2); border:1px solid #8B5CF644; border-radius:12px;
+  padding:8px 10px 10px; margin-bottom:8px;
+}
+.gd[data-state="locked"]{border-color:var(--line); opacity:.85}
+.gd[data-state="done"]{border-color:#10B98155}
+.gd[data-state="missing"]{border-color:#EF444455}
+.gd[data-state="live"]{border-color:#A78BFA; background:#8B5CF614}
+
+.gd-head{display:flex; align-items:center; gap:6px; flex-wrap:wrap}
+.gd-chip{
+  font-size:11px; font-weight:900; color:#C4B5FD;
+  background:#8B5CF61F; border:1px solid #8B5CF655; border-radius:99px; padding:2px 8px;
+}
+.gd-stats{font-size:10px; color:var(--muted)}
+.gd-me{
+  flex:1; min-width:0; text-align:end; font-size:10px; color:var(--dim);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.gd-me b{color:var(--muted)}
+
+/* The lookup row: a field and one action, both full-height targets. */
+.gd-search{margin-top:6px}
+.gd-label{display:block; font-size:10.5px; color:var(--dim); margin-bottom:4px}
+.gd-row{display:flex; gap:6px}
+.gd-input{
+  flex:1; min-width:0; min-height:44px; padding:0 10px;
+  background:#0B0F1999; border:1px solid var(--line); border-radius:10px;
+  color:var(--text); font-size:14px; font-family:inherit;
+}
+.gd-input:focus{outline:2px solid #8B5CF6; outline-offset:1px}
+.gd-find{
+  flex:0 0 auto; min-height:44px; min-width:44px; padding:0 12px; cursor:pointer;
+  background:var(--card); border:1px solid #8B5CF666; border-radius:10px;
+  color:#C4B5FD; font-size:13px; font-weight:800; font-family:inherit;
+}
+.gd-find:disabled{opacity:.6; cursor:default}
+
+/* The opponent preview: their character, mirrored to face the reader's hero. */
+.gd-foe{display:flex; align-items:center; gap:10px; margin-top:8px}
+.gd-figure{
+  flex:0 0 auto; width:56px; height:76px; display:flex; align-items:center; justify-content:center;
+  background:#0B0F1966; border:1px solid #8B5CF644; border-radius:10px; overflow:hidden;
+}
+.gd-figure svg{width:100%; height:100%; display:block; transform:scaleX(-1)}
+.gd-meta{display:flex; flex-direction:column; gap:2px; min-width:0}
+.gd-name{font-size:15px; font-weight:900; color:var(--text)}
+.gd-level{font-size:11px; color:var(--muted)}
+.gd-record{font-size:11px; color:var(--dim)}
+.gd-record b{color:#C4B5FD; direction:ltr; display:inline-block}
+
+.gd-go{
+  width:100%; min-height:44px; margin-top:8px; cursor:pointer;
+  background:linear-gradient(90deg,#6D28D9,#8B5CF6); border:1px solid #A78BFA; color:#F5F3FF;
+  border-radius:12px; font-size:14px; font-weight:900; font-family:inherit;
+}
+.gd-go.locked{background:var(--card); border-color:var(--line); color:var(--muted)}
+.gd-note{margin:6px 0 0; font-size:10.5px; line-height:1.5; color:var(--dim)}
+.gd-note.warn{color:var(--warn)}
+.gd-foot{margin:6px 0 0; font-size:10px; line-height:1.5; color:var(--dim)}
+
+.gd-live{display:flex; align-items:baseline; gap:8px; min-height:44px}
+.gd-count{font-size:14px; font-weight:900; color:#C4B5FD}
+.gd-live span{font-size:12px; color:var(--muted)}
+
+.gd-result{display:flex; align-items:baseline; gap:8px; min-height:44px; margin-top:8px}
+.gd-result b{font-size:15px; font-weight:900}
+.gd-result.win b{color:var(--ok)}
+.gd-result.loss b{color:var(--danger)}
+.gd-result span{font-size:11px; color:var(--muted)}
+
+/* The arena while a DUEL is on: a violet frame, and both bars named. The
+   opponent's sprite is a CHARACTER, so it is mirrored to face the hero. */
+.bt-card.duel{border-color:#8B5CF688; box-shadow:0 0 0 1px #8B5CF633}
+.bt-arena.duel{border-color:#8B5CF688}
+.bt-status.duel{color:#C4B5FD; font-weight:700}
+.bt-sprite.enemy.ghost svg{transform:scaleX(-1)}
+.bt-hero-name{margin-top:2px; font-size:11px; font-weight:800; color:#C4B5FD; min-height:0}
+.bt-arena.duel .bt-foe-name{color:#C4B5FD}
+
+/* ---------- the שם לוחם editor in the account card ---------- */
+.handle-editor{margin-top:10px}
+.handle-row{display:flex; gap:6px; margin-top:4px}
+.handle-input{
+  flex:1; min-width:0; min-height:44px; padding:0 10px;
+  background:#0B0F1999; border:1px solid var(--line); border-radius:10px;
+  color:var(--text); font-size:14px; font-family:inherit;
+}
+.handle-input:focus{outline:2px solid var(--accent); outline-offset:1px}
+.handle-row .action-btn{flex:0 0 auto; width:auto; min-width:88px; margin:0}

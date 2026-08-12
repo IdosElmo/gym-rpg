@@ -45,7 +45,7 @@ import type { PlanDoc } from '../src/data/planTypes.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import { mergeImport } from '../src/storage/merge.ts';
 import { parseImport, rebuildFromEvents, type StorageLike } from '../src/storage/migrate.ts';
-import type { PullPage, SyncBackend } from '../src/sync/backend.ts';
+import { GhostHandleTakenError, type GhostRow, type PullPage, type SyncBackend } from '../src/sync/backend.ts';
 import { SyncEngine } from '../src/sync/engine.ts';
 import { readSyncMeta } from '../src/sync/meta.ts';
 import { buildFeed } from '../src/ui/feed.ts';
@@ -108,6 +108,21 @@ class MemoryBackend implements SyncBackend {
 
   eventsOf(userId: string): AppEvent[] {
     return this.listOf(userId).map((r) => r.ev);
+  }
+
+  /** The `ghosts` table: one row per user, and a unique handle across all of them. */
+  readonly ghosts = new Map<string, GhostRow>();
+
+  async publishGhost(userId: string, handle: string, payload: Record<string, unknown>): Promise<void> {
+    for (const [owner, row] of this.ghosts) {
+      if (owner !== userId && row.handle === handle) throw new GhostHandleTakenError();
+    }
+    this.ghosts.set(userId, { handle, payload, updatedAt: Date.now() });
+  }
+
+  async fetchGhost(handle: string): Promise<GhostRow | null> {
+    for (const row of this.ghosts.values()) if (row.handle === handle) return row;
+    return null;
   }
 }
 

@@ -165,3 +165,112 @@ create policy events_insert_own on public.events
 -- signed-in user.
 grant usage on schema public to authenticated;
 grant select, insert on public.events to authenticated;
+
+-- =====================================================================
+--  GHOST DUEL (run this block if upgrading)
+--  ---------------------------------------------------------------------
+--  Everything above is the original sync schema. If your project already
+--  has it, paste ONLY this block into the SQL editor and run it — every
+--  statement below is idempotent (`if not exists`, `or replace`, and a
+--  `drop policy if exists` before each `create policy`), so running it on
+--  a fresh project or a second time is equally safe.
+--
+--  WHAT IT IS. A ghost is a SNAPSHOT of one account's character — the six
+--  body-part levels, the streak tier, the equipped gear and its upgrade
+--  levels, the body × skin being played, and a display name. Another
+--  account looks it up by handle and fights it as a deterministic enemy.
+--
+--  THIS TABLE IS NOT THE EVENT LOG, and the difference is deliberate:
+--
+--    * `events` is APPEND-ONLY, private, and the single source of truth
+--      for an account's own state. Nothing here ever folds back into it.
+--    * `ghosts` is PRESENCE DATA: exactly one row per user, overwritten in
+--      place on every publish, readable by everyone. Losing the whole
+--      table costs each user one re-publish and nothing else — no history,
+--      no progress, no coins are stored in it.
+--
+--  ---------------------------------------------------------------------
+--  THE SHARING BOUNDARY — read this before changing the select policy
+--  ---------------------------------------------------------------------
+--  `ghosts_select_all` lets ANY SIGNED-IN USER read ANY row. That is not
+--  an oversight: it IS the sharing mechanism. There is no server here (see
+--  the header of this file), so "let my partner fight my character" has to
+--  be expressible as a row somebody else may select.
+--
+--  What that exposes, in full:
+--    * `handle`  — a display name the user chose and can change;
+--    * `payload` — game stats and cosmetics only (levels, streak tier,
+--                  item ids, upgrade levels, skin/body). The client builds
+--                  it in `src/core/ghost.ts` and it deliberately contains
+--                  NO workout history, NO dates, NO email, NO user id and
+--                  NO coins;
+--    * `updated_at` — when they last played.
+--
+--  What it does NOT expose: `user_id` is never selected by the client (see
+--  GHOST_COLUMNS in `src/sync/supabaseBackend.ts`), and even if it were, it
+--  is an opaque uuid that unlocks nothing — every policy on `events` is
+--  scoped to `auth.uid()`, so knowing somebody's id grants no access to a
+--  single one of their events.
+--
+--  The residual exposure is enumeration: a signed-in client can, in
+--  principle, page through this table and collect handles + stats. That is
+--  the accepted cost of a serverless "fight my friend", and it is bounded
+--  by what a handle IS — a nickname, published on purpose, carrying only
+--  what the game draws. Ordinary use never enumerates: lookups are by
+--  EXACT handle (`.eq('handle', …).maybeSingle()`), so a wrong guess
+--  returns nothing at all.
+--
+--  If you ever want to tighten this, the shape to reach for is a
+--  `friendships` table plus `using (exists (select 1 from friendships …))`
+--  — not a weaker payload, because the payload is already the minimum the
+--  feature needs.
+-- =====================================================================
+
+create table if not exists public.ghosts (
+  -- One row per user: the primary key IS the owner, so publishing is an
+  -- upsert on `user_id` and an account can never accumulate ghosts.
+  user_id    uuid        primary key references auth.users (id) on delete cascade,
+  -- The shareable name, typed by a human. UNIQUE: two accounts cannot
+  -- answer to one handle, which is what makes an exact-match lookup mean
+  -- exactly one character. The client canonicalises it first (trim,
+  -- collapse spaces, lower-case Latin — see `src/core/handle.ts`), so the
+  -- uniqueness here matches the uniqueness a user perceives.
+  handle     text        not null unique,
+  -- The versioned snapshot (`{v: 1, name, body, skin, parts, streakTier,
+  -- equipped, upgrades, characterLevel}`). Stored opaquely on purpose: the
+  -- database never interprets a payload, and the CLIENT treats every field
+  -- of it as hostile input (`normalizeGhost` clamps levels to 1..99,
+  -- upgrade levels to 0..3, and rejects unknown item/skin ids), because a
+  -- row here is written by another client and can say anything.
+  payload    jsonb       not null,
+  updated_at timestamptz not null default now()
+);
+
+-- The only query a lookup ever runs. The unique constraint above already
+-- provides the index; this is a no-op on any project where it does.
+create index if not exists ghosts_handle_idx on public.ghosts (handle);
+
+alter table public.ghosts enable row level security;
+
+-- READ: every signed-in user, any row. This is the sharing mechanism —
+-- see the boundary note above before narrowing or widening it.
+drop policy if exists ghosts_select_all on public.ghosts;
+create policy ghosts_select_all on public.ghosts
+  for select to authenticated using (true);
+
+-- WRITE: your own row, and only ever your own row. `with check` is what
+-- stops a client inserting a ghost under somebody else's id; the `using`
+-- clause on update stops it overwriting one.
+drop policy if exists ghosts_insert_own on public.ghosts;
+create policy ghosts_insert_own on public.ghosts
+  for insert to authenticated with check (auth.uid() = user_id);
+
+drop policy if exists ghosts_update_own on public.ghosts;
+create policy ghosts_update_own on public.ghosts
+  for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- NO DELETE POLICY, like the event log: nothing needs deleting here (a
+-- publish overwrites in place), and deleting the ACCOUNT still removes the
+-- row through `on delete cascade`.
+
+grant select, insert, update on public.ghosts to authenticated;

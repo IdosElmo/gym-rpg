@@ -10,7 +10,10 @@
  * the account, or the whole backend degrades the app to exactly what it was
  * before this file existed: a fast offline app.
  *
- * ONE CYCLE = flush coalesced → push outbox → pull pages → merge.
+ * ONE CYCLE = flush coalesced → push outbox → pull pages → merge → (ghost).
+ * The last step is the ghost-duel snapshot, and it is deliberately last and
+ * deliberately failure-tolerant: a ghost is presence data that lives BESIDE the
+ * log, never in it, so it can never delay or break a backup.
  * Cycles never overlap (`this.cycle`); a request that arrives mid-cycle sets a
  * rerun flag instead of racing.
  *
@@ -48,6 +51,7 @@ import { mergeIntoStore } from '../storage/merge.ts';
 import { ensureDeviceId, type StorageLike } from '../storage/migrate.ts';
 import { isAuthError, type SyncBackend } from './backend.ts';
 import {
+  GHOST_RECENT_MAX,
   clearSyncMeta,
   emptySyncMeta,
   readSyncMeta,
@@ -149,6 +153,29 @@ export interface SyncEngineOptions {
   isVisible?: () => boolean;
   deviceId?: string;
   timing?: Partial<SyncTiming>;
+  /**
+   * The ghost publisher, when this build has ghost duels. Absent = the engine
+   * never touches the `ghosts` table at all.
+   */
+  ghost?: GhostPublisher;
+}
+
+/**
+ * What the engine needs in order to publish a ghost — and no more.
+ *
+ * The engine knows nothing about characters, levels or hashing: it asks for a
+ * snapshot, compares the fingerprint with the one it published last time, and
+ * uploads only when they differ. `main.ts` supplies the function that reads the
+ * game state, so this module stays free of the game layer.
+ */
+export interface GhostPublisher {
+  /**
+   * The snapshot to publish under `handle`, or `null` when there is nothing to
+   * publish (no game state worth sharing yet).
+   */
+  snapshot(handle: string): { payload: Record<string, unknown>; hash: string } | null;
+  /** A handle to use when the device has not chosen one (derived from the account). */
+  defaultHandle(userId: string): string;
 }
 
 type TimerId = ReturnType<typeof setTimeout>;
@@ -187,6 +214,7 @@ export class SyncEngine {
   private readonly doc: EngineTarget | null;
   private readonly isOnline: () => boolean;
   private readonly isVisible: () => boolean;
+  private readonly ghost: GhostPublisher | null;
 
   private meta: SyncMeta;
   /**
@@ -248,6 +276,7 @@ export class SyncEngine {
     this.doc = opts.doc === undefined ? (globalThis.document ?? null) : opts.doc;
     this.isOnline = opts.isOnline ?? defaultOnline;
     this.isVisible = opts.isVisible ?? defaultVisible;
+    this.ghost = opts.ghost ?? null;
 
     // The device id belongs to the INSTALL, not to the engine: it already sits
     // in this same storage (`LocalStore` minted it), so the notebook records the
@@ -465,6 +494,10 @@ export class SyncEngine {
     try {
       await this.pushOutbox(userId);
       await this.pullAll(userId);
+      // The ghost rides at the END of a successful cycle, and its failures are
+      // its own (see `publishGhost`): the backup must never be held hostage to a
+      // vanity snapshot.
+      await this.publishGhost(userId);
       this.failures = 0;
       this.message = undefined;
       this.meta.lastSyncAt = this.now();
@@ -587,6 +620,82 @@ export class SyncEngine {
     const res = mergeIntoStore(this.store, incoming, this.now());
     for (const ev of incoming) this.knownIds.add(ev.id);
     if (res.added > 0) this.remoteCb();
+  }
+
+  /* --------------------------------------------------------- ghost duels */
+
+  /**
+   * Publish MY ghost — but only when it actually changed.
+   *
+   * The snapshot's fingerprint is compared with the one in the notebook, so an
+   * ordinary cycle on a character that has not trained, re-equipped or renamed
+   * itself makes NO request at all. That is the whole reason the hash is
+   * persisted: the ghosts table would otherwise take a write every sync tick,
+   * for ever, for nothing.
+   *
+   * FAILURE IS FREE. A ghost is presence data, not history — the log is already
+   * safely on the server by the time this runs — so a rejected or failed publish
+   * is swallowed and simply leaves the stored hash alone, which makes the next
+   * cycle try again. Nothing about the user's data depends on it.
+   */
+  private async publishGhost(userId: string): Promise<void> {
+    const ghost = this.ghost;
+    if (!ghost) return;
+    const handle = this.meta.ghostHandle ?? ghost.defaultHandle(userId);
+    const snap = ghost.snapshot(handle);
+    if (!snap) return;
+    if (this.meta.ghostHandle === handle && this.meta.ghostHash === snap.hash) return;
+    try {
+      await this.backend.publishGhost(userId, handle, snap.payload);
+      this.meta.ghostHandle = handle;
+      this.meta.ghostHash = snap.hash;
+      this.persist();
+    } catch {
+      /* taken handle, offline, RLS — try again next cycle; nothing is lost */
+    }
+  }
+
+  /** The handle this device publishes under, or `''` when none was chosen yet. */
+  getGhostHandle(): string {
+    return this.meta.ghostHandle ?? '';
+  }
+
+  /**
+   * Claim a handle. Returns false when the backend says somebody else owns it,
+   * in which case NOTHING is stored — the old name keeps working.
+   *
+   * This is the one ghost call that is not fire-and-forget: the user is standing
+   * in front of the settings card waiting for an answer, so the result (and the
+   * Hebrew error behind it) has to come back to them.
+   */
+  async setGhostHandle(handle: string): Promise<boolean> {
+    const ghost = this.ghost;
+    const userId = this.meta.userId;
+    if (!ghost || !userId || !handle) return false;
+    const snap = ghost.snapshot(handle);
+    if (!snap) return false;
+    try {
+      await this.backend.publishGhost(userId, handle, snap.payload);
+    } catch {
+      return false;
+    }
+    this.meta.ghostHandle = handle;
+    this.meta.ghostHash = snap.hash;
+    this.persist();
+    return true;
+  }
+
+  /** Opponents fought recently, newest first. */
+  getRecentOpponents(): readonly string[] {
+    return [...this.meta.ghostRecent];
+  }
+
+  /** Remember an opponent (moves an existing one back to the front). */
+  rememberOpponent(handle: string): void {
+    if (!handle) return;
+    const next = [handle, ...this.meta.ghostRecent.filter((h) => h !== handle)];
+    this.meta.ghostRecent = next.slice(0, GHOST_RECENT_MAX);
+    this.persist();
   }
 
   /* -------------------------------------------------------------- timers */

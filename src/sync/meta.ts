@@ -40,10 +40,47 @@ export interface SyncMeta {
   userId: string | null;
   /** ms epoch of the last fully successful cycle, for the account card. */
   lastSyncAt: number | null;
+
+  /* ------------------------------------------------------- ghost duels */
+  /**
+   * THE שם לוחם this device publishes under, or `null` for "not chosen yet"
+   * (the engine then derives one from the account).
+   *
+   * DEVICE-LOCAL ON PURPOSE, and this is the load-bearing part of the whole
+   * ghost design: a ghost is EPHEMERAL PRESENCE DATA — a snapshot that is
+   * overwritten in place and means nothing after it is replaced — while the
+   * event log is the single source of truth for the account's own state.
+   * Putting the handle in the log would make a cosmetic, revocable, externally
+   * unique name a permanent historical fact that every device must replay and
+   * agree on, for something no game rule ever reads. It lives here instead, next
+   * to the cursor, where a lost blob costs one re-publish and nothing else.
+   */
+  ghostHandle: string | null;
+  /**
+   * Fingerprint (`ghostHash`) of the snapshot that was last published. The
+   * publisher compares against it and uploads nothing when it matches, so an
+   * ordinary sync cycle on an unchanged character makes no ghost request at all.
+   */
+  ghostHash: string | null;
+  /** Handles fought recently, newest first — the duel card's shortlist. */
+  ghostRecent: string[];
 }
 
+/** How many opponents the duel card remembers. */
+export const GHOST_RECENT_MAX = 6;
+
 export function emptySyncMeta(deviceId = ''): SyncMeta {
-  return { v: SYNC_META_VERSION, deviceId, cursor: 0, outbox: [], userId: null, lastSyncAt: null };
+  return {
+    v: SYNC_META_VERSION,
+    deviceId,
+    cursor: 0,
+    outbox: [],
+    userId: null,
+    lastSyncAt: null,
+    ghostHandle: null,
+    ghostHash: null,
+    ghostRecent: [],
+  };
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -70,6 +107,15 @@ export function normalizeSyncMeta(raw: unknown, deviceId = ''): SyncMeta {
     ? raw['outbox'].filter((id): id is string => typeof id === 'string' && id.length > 0)
     : [];
   const storedDevice = typeof raw['deviceId'] === 'string' ? raw['deviceId'] : '';
+  // The three ghost fields are read TOLERANTLY rather than behind a version
+  // bump: a blob written before ghost duels existed simply has none of them, and
+  // "no handle, nothing published yet, no recent opponents" is exactly the right
+  // reading of that. Resetting the whole notebook (and with it the cursor and
+  // the outbox) to add three optional fields would have been a real cost — a
+  // full re-push and re-pull — for no gain.
+  const recent = Array.isArray(raw['ghostRecent'])
+    ? raw['ghostRecent'].filter((h): h is string => typeof h === 'string' && h.length > 0)
+    : [];
   return {
     v: SYNC_META_VERSION,
     deviceId: storedDevice || deviceId,
@@ -80,6 +126,9 @@ export function normalizeSyncMeta(raw: unknown, deviceId = ''): SyncMeta {
     lastSyncAt: typeof raw['lastSyncAt'] === 'number' && Number.isFinite(raw['lastSyncAt'])
       ? raw['lastSyncAt']
       : null,
+    ghostHandle: typeof raw['ghostHandle'] === 'string' && raw['ghostHandle'] ? raw['ghostHandle'] : null,
+    ghostHash: typeof raw['ghostHash'] === 'string' && raw['ghostHash'] ? raw['ghostHash'] : null,
+    ghostRecent: [...new Set(recent)].slice(0, GHOST_RECENT_MAX),
   };
 }
 

@@ -40,6 +40,20 @@
  *     nothing at all: the attempt is not spent, the coins are not paid, the run
  *     is simply gone. Backgrounding the tab only PAUSES, exactly like a campaign
  *     battle.
+ *
+ * THE GHOST DUEL (Phase 8) rides on the very same swap, one card lower: a
+ * looked-up opponent becomes a one-wave challenge run (`ghostRun`), the arena
+ * turns violet instead of amber, and both HP bars are labelled by NAME because
+ * both sides are now people. Everything above still holds — one event, written
+ * once, when the duel ends however it ends — with three differences worth
+ * naming here:
+ *   - the opponent is DRAWN, not sprited: the run carries their character SVG
+ *     (built in this file, mirrored by the stylesheet), while `core/ghost.ts`
+ *     owns every number behind it;
+ *   - the fetched payload is normalised before it can reach the engine, so a
+ *     hostile row cannot influence a single stat;
+ *   - a duel pays no coins at all, so there is no purse to float and nothing to
+ *     leak — leaving mid-duel simply records the loss.
  */
 
 import { BALANCE } from '../core/balance.ts';
@@ -71,13 +85,34 @@ import {
   type SkillView,
 } from '../core/combat.ts';
 import { dailyChallenge, dailyRun } from '../core/daily.ts';
-import { dailyStatus, gameOf, onBossDefeated, onDailyChallenge, onWaveCleared } from '../core/game.ts';
+import { ghostHash, ghostRun, normalizeGhost, type GhostPayload } from '../core/ghost.ts';
+import { checkHandle } from '../core/handle.ts';
+import {
+  dailyStatus,
+  gameOf,
+  ghostDuelStatus,
+  onBossDefeated,
+  onDailyChallenge,
+  onGhostDuel,
+  onWaveCleared,
+} from '../core/game.ts';
 import { statsOfGame } from '../core/xp.ts';
 import { todayISO } from '../core/workout.ts';
 import { BODY_PART_HE, BODY_PARTS, type BodyPart } from '../data/program.ts';
 import { SKILLS, WORLDS, WORLD_COUNT, worldById, worldBossOf, type SkillId } from '../data/gameContent.ts';
 import type { DataStore, GameState } from '../storage/DataStore.ts';
 import { characterSvg } from './characterSvg.ts';
+import {
+  GHOST_BAD_PAYLOAD_HE,
+  GHOST_LOOKUP_FAILED_HE,
+  GHOST_NO_HANDLE_HE,
+  emptyGhostView,
+  ghostCard,
+  ghostFigure,
+  ghostMissingHe,
+  type GhostCardView,
+  type GhostDuelDeps,
+} from './ghost.ts';
 import { esc } from './dom.ts';
 import { toast } from './toast.ts';
 import { fmtXp } from './xpfx.ts';
@@ -86,6 +121,12 @@ export interface BattleDeps {
   store: DataStore;
   /** Re-render the shell (the header energy pill follows the battle). */
   refreshHeader: () => void;
+  /**
+   * The ghost-duel plumbing, when this build has an account behind it. Absent
+   * (offline build, `file://`, signed out) means the duel card is not rendered
+   * at all — the same gating the account card uses.
+   */
+  ghost?: GhostDuelDeps;
   /**
    * Rebuild the whole arena. Called after a world boss falls, because the world,
    * the enemy roster and the gate card all change at once.
@@ -141,6 +182,14 @@ function reducedMotion(): boolean {
     return false;
   }
 }
+
+/** Hebrew for every way a typed handle can be wrong. */
+const HANDLE_ERROR_HE: Readonly<Record<'empty' | 'too_short' | 'too_long' | 'bad_chars', string>> = {
+  empty: 'הקלידו את שם הלוחם של היריב.',
+  too_short: 'שם לוחם הוא לפחות 3 תווים.',
+  too_long: 'שם לוחם הוא עד 20 תווים.',
+  bad_chars: 'שם לוחם יכול לכלול אותיות בעברית או באנגלית, ספרות ו־ _ . -',
+};
 
 /* ------------------------------------------------------------- animation */
 
@@ -208,6 +257,8 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
 
     <div class="dc-slot" id="btDaily">${dailyCard(game, todayISO(), null)}</div>
 
+    <div class="gd-slot" id="btGhost"></div>
+
     <div class="bt-arena" id="btArena" style="--w-accent:${world.accent};--w-bg1:${world.bg[0]};--w-bg2:${world.bg[1]}">
       <div class="bt-fx" id="btFx" aria-hidden="true"></div>
 
@@ -220,6 +271,9 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
         })}</div>
         <div class="bt-bar hp"><span id="btHeroHp" style="width:100%"></span></div>
         <div class="bt-hp-txt" id="btHeroHpTxt">${Math.round(stats.maxHp)} / ${Math.round(stats.maxHp)}</div>
+        <!-- Empty except in a duel, where both HP bars are labelled by NAME:
+             "who is losing" has to be readable when both sides are people. -->
+        <div class="bt-hero-name" id="btHeroName"></div>
       </div>
 
       <div class="bt-vs" id="btVs">VS</div>
@@ -601,6 +655,8 @@ function start(main: HTMLElement, deps: BattleDeps): void {
   const bossesEl = el('btBosses');
   const buffsEl = el('btBuffs');
   const dailyEl = el('btDaily');
+  const ghostEl = el('btGhost');
+  const heroName = el('btHeroName');
   if (!arena) return;
 
   /** The six skill slots, by id — looked up once, repainted every frame. */
@@ -743,8 +799,17 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     sprite.style.setProperty('--en-bob', `${bobDuration(e.id)}ms`);
     sprite.classList.toggle('mini-boss', e.miniBoss);
     sprite.classList.toggle('world-boss', e.worldBoss);
+    // A ghost is a CHARACTER, not a sprite: the class mirrors it so the two
+    // fighters face each other instead of both looking the same way.
+    sprite.classList.toggle('ghost', e.ghost === true);
     arena?.classList.toggle('boss-fight', e.worldBoss);
-    foeName.textContent = e.worldBoss ? `🏛 ${e.he}` : e.miniBoss ? `👑 ${e.he}` : e.he;
+    foeName.textContent = e.ghost
+      ? `⚔️ ${e.he}`
+      : e.worldBoss
+        ? `🏛 ${e.he}`
+        : e.miniBoss
+          ? `👑 ${e.he}`
+          : e.he;
     paintEnemy();
   }
 
@@ -773,10 +838,13 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     }
     if (waveEl) {
       const run = state.challenge;
-      // In a challenge the counter is "3/10" — a gauntlet, not a world position.
-      waveEl.textContent = run
-        ? `${Math.min(run.index + 1, run.waves.length)}/${run.waves.length}`
-        : String(state.wave);
+      // In a gauntlet the counter is "3/10" — a position in the run, not in the
+      // world. A duel is a single fight, so it says so instead of "1/1".
+      waveEl.textContent = !run
+        ? String(state.wave)
+        : run.kind === 'ghost'
+          ? '⚔️'
+          : `${Math.min(run.index + 1, run.waves.length)}/${run.waves.length}`;
     }
   }
 
@@ -855,6 +923,20 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     // A challenge run speaks for itself — it has no energy, no gate and no
     // knock-out recovery, so none of the campaign's lines apply to it.
     const run = state.challenge;
+    if (run && run.kind === 'ghost') {
+      const name = run.opponent?.name ?? '';
+      if (state.status === 'finished') {
+        text =
+          run.cleared > 0
+            ? `🏆 ניצחתם את ${name}! הדו־קרב נרשם.`
+            : `💀 ${name} ניצח הפעם — מחר יש הזדמנות חדשה.`;
+      } else {
+        text = `⚔️ דו־קרב מול ${name} — הוא נלחם בסטטיסטיקות האמיתיות שלו. הקישו ושחררו מיומנויות!`;
+      }
+      statusEl.textContent = text;
+      statusEl.className = 'bt-status duel';
+      return;
+    }
     if (run) {
       const total = run.waves.length;
       if (state.status === 'finished') {
@@ -925,16 +1007,26 @@ function start(main: HTMLElement, deps: BattleDeps): void {
   /** Repaint the card from the store + the live run, and re-wire its button. */
   function paintDaily(): void {
     if (!dailyEl) return;
-    dailyEl.innerHTML = dailyCard(gameOf(store), today, state.challenge);
+    // Only a DAILY run belongs to this card: a duel is somebody else's fight,
+    // and passing it here would light the gauntlet's "live" state by mistake.
+    const run = state.challenge;
+    dailyEl.innerHTML = dailyCard(gameOf(store), today, run && run.kind === 'daily' ? run : null);
     dailyEl
       .querySelector<HTMLButtonElement>('#btDailyGo')
       ?.addEventListener('click', startDaily);
   }
 
-  /** Frame (or unframe) the arena as a challenge run. */
-  function setChallengeSkin(on: boolean): void {
-    arena?.classList.toggle('challenge', on);
-    card?.classList.toggle('challenge', on);
+  /**
+   * Frame the arena for the context on screen: amber for the daily gauntlet,
+   * violet for a duel, nothing for the campaign. The two are separate classes so
+   * a test (and a reader) can tell which fight this is at a glance.
+   */
+  function setChallengeSkin(kind: 'daily' | 'ghost' | null): void {
+    arena?.classList.toggle('challenge', kind === 'daily');
+    card?.classList.toggle('challenge', kind === 'daily');
+    arena?.classList.toggle('duel', kind === 'ghost');
+    card?.classList.toggle('duel', kind === 'ghost');
+    if (heroName) heroName.textContent = kind === 'ghost' ? 'אתם' : '';
   }
 
   /**
@@ -945,7 +1037,10 @@ function start(main: HTMLElement, deps: BattleDeps): void {
    * explains itself in Hebrew.
    */
   function startDaily(): void {
-    if (state.challenge) return;
+    if (state.challenge) {
+      if (state.challenge.kind === 'ghost') toast('⚔️ סיימו קודם את הדו־קרב — זירה אחת, קרב אחד.');
+      return;
+    }
     const status = dailyStatus(store, today);
     if (!status.ok) {
       const waves = BALANCE.daily.waves;
@@ -963,7 +1058,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     // The SAME state machine, a different context: no second loop, no second
     // renderer, and `wave_cleared` is not emitted while this is on screen.
     state = createChallengeBattle({ run: dailyRun(today), stats, energy: g.energy });
-    setChallengeSkin(true);
+    setChallengeSkin('daily');
     buffSig = '';
     toast(`🎲 אתגר יומי — ${BALANCE.daily.waves} גלים, ריצה אחת. בהצלחה!`);
     paintDaily();
@@ -1006,7 +1101,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
       gateOpen: gateOpenFor(g),
       defeatedBosses: g.battle.bossesDefeated,
     });
-    setChallengeSkin(false);
+    setChallengeSkin(null);
     if (arena) {
       const world = worldById(g.battle.world);
       arena.style.setProperty('--w-accent', world.accent);
@@ -1015,18 +1110,204 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     }
     buffSig = '';
     paintDaily();
+    paintGhost();
     consume(advance(state, BALANCE.combat.tickMs, stats));
+  }
+
+  /* ---------------------------------------------------------- ghost duel */
+
+  /**
+   * The duel card's own little state: who is in the input, who was looked up,
+   * and what went wrong. It is UI state, deliberately not persisted — a lookup
+   * is a question, not a fact about the account.
+   */
+  let ghostView: GhostCardView = emptyGhostView(deps.ghost?.myHandle() ?? '', deps.ghost?.recent() ?? []);
+  /** The payload actually being fought — its hash goes into the record. */
+  let duelGhost: GhostPayload | null = null;
+
+  /** Repaint the duel card from the store + the live run, and re-wire it. */
+  function paintGhost(): void {
+    if (!ghostEl) return;
+    // No account, no duel: the card is ABSENT, not disabled (same rule as the
+    // account card — see `sync/account.ts`).
+    if (!deps.ghost || !deps.ghost.signedIn()) {
+      ghostEl.innerHTML = '';
+      return;
+    }
+    const run = state.challenge;
+    ghostView = {
+      ...ghostView,
+      myHandle: deps.ghost.myHandle(),
+      recent: deps.ghost.recent(),
+      live: run !== null && run.kind === 'ghost' && run.outcome === 'running',
+    };
+    ghostEl.innerHTML = ghostCard(
+      gameOf(store),
+      ghostView,
+      today,
+      run && run.kind === 'ghost' ? { cleared: run.cleared } : null,
+    );
+    const input = ghostEl.querySelector<HTMLInputElement>('#gdHandle');
+    input?.addEventListener('input', () => {
+      // Typing invalidates the opponent on the card: the preview must never
+      // describe somebody other than the name in the field.
+      ghostView = { ...ghostView, query: input.value, opponent: null, error: '' };
+    });
+    input?.addEventListener('keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'Enter') void findOpponent(input.value);
+    });
+    ghostEl.querySelector<HTMLButtonElement>('#gdFind')?.addEventListener('click', () => {
+      void findOpponent(input?.value ?? ghostView.query);
+    });
+    ghostEl.querySelector<HTMLButtonElement>('#gdFight')?.addEventListener('click', startDuel);
+  }
+
+  /**
+   * Look an opponent up.
+   *
+   * Everything a hostile or broken row could do stops here: the handle is
+   * validated before the request, and the answer goes through `normalizeGhost`,
+   * which either returns a payload inside every legal bound or `null`. Nothing
+   * else in the arena ever sees the raw row.
+   */
+  async function findOpponent(raw: string): Promise<void> {
+    const port = deps.ghost;
+    if (!port) return;
+    const check = checkHandle(raw);
+    if (!check.ok) {
+      ghostView = { ...ghostView, query: raw, opponent: null, error: HANDLE_ERROR_HE[check.error ?? 'empty'] };
+      paintGhost();
+      return;
+    }
+    if (check.handle === port.myHandle()) {
+      ghostView = { ...ghostView, query: raw, opponent: null, error: 'זה אתם — חפשו את השם של מישהו אחר.' };
+      paintGhost();
+      return;
+    }
+    ghostView = { ...ghostView, query: check.handle, opponent: null, error: '', searching: true };
+    paintGhost();
+
+    let row: { handle: string; payload: Record<string, unknown> } | null = null;
+    try {
+      row = await port.fetch(check.handle);
+    } catch {
+      if (disposed) return;
+      ghostView = { ...ghostView, searching: false, error: GHOST_LOOKUP_FAILED_HE };
+      paintGhost();
+      return;
+    }
+    if (disposed) return;
+    const ghost = row ? normalizeGhost(row.payload) : null;
+    if (!row) {
+      ghostView = { ...ghostView, searching: false, error: ghostMissingHe(check.handle) };
+    } else if (!ghost) {
+      ghostView = { ...ghostView, searching: false, error: GHOST_BAD_PAYLOAD_HE };
+    } else {
+      ghostView = {
+        ...ghostView,
+        searching: false,
+        error: '',
+        opponent: { handle: check.handle, ghost },
+      };
+      port.remember(check.handle);
+    }
+    paintGhost();
+  }
+
+  /**
+   * Enter the duel.
+   *
+   * The gate is asked BEFORE anything is created (`ghostDuelStatus`), so a
+   * refused duel — already fought today, or not enough ⚡ — writes nothing at all
+   * and only explains itself in Hebrew. The opponent's SVG is built here, in the
+   * UI, and handed to the run: `core/ghost.ts` owns the numbers, this file owns
+   * the drawing.
+   */
+  function startDuel(): void {
+    const port = deps.ghost;
+    const opponent = ghostView.opponent;
+    if (!port || !opponent) return;
+    // One fight at a time: the arena holds exactly one challenge context.
+    if (state.challenge) {
+      toast('🎲 סיימו קודם את האתגר היומי — זירה אחת, קרב אחד.');
+      return;
+    }
+    const myHandle = port.myHandle();
+    if (!myHandle) {
+      toast(GHOST_NO_HANDLE_HE);
+      return;
+    }
+    const status = ghostDuelStatus(store, today, opponent.handle);
+    if (!status.ok) {
+      toast(
+        status.error === 'already_dueled'
+          ? `⚔️ כבר נלחמתם היום מול ${opponent.ghost.name} — ${status.record?.won ? 'ניצחתם' : 'הפסדתם'}. מחר אפשר שוב!`
+          : `⚡ צריך ${status.energyCost} אנרגיה לדו־קרב. לכו להתאמן!`,
+      );
+      paintGhost();
+      return;
+    }
+    const g = gameOf(store);
+    stats = statsOf(g);
+    levels = partLevels(g);
+    duelGhost = opponent.ghost;
+    state = createChallengeBattle({
+      run: ghostRun({
+        myHandle,
+        opponentHandle: opponent.handle,
+        ghost: opponent.ghost,
+        date: today,
+        svg: ghostFigure(opponent.ghost),
+      }),
+      stats,
+      energy: g.energy,
+    });
+    setChallengeSkin('ghost');
+    buffSig = '';
+    toast(`⚔️ דו־קרב מול ${opponent.ghost.name} — בהצלחה!`);
+    paintGhost();
+    consume(advance(state, BALANCE.combat.tickMs, stats));
+  }
+
+  /** Persist a finished duel (however it ended). One write, no coins, ever. */
+  function saveDuel(result: ChallengeResult): { duplicate: boolean } {
+    const hash = duelGhost ? ghostHash(duelGhost) : '';
+    return onGhostDuel(store, result, hash);
+  }
+
+  /** The duel is over: record it, say how it went, hand the arena back. */
+  function endDuel(result: ChallengeResult): void {
+    const save = saveDuel(result);
+    setEnergy(state, gameOf(store).energy);
+    paintTotals();
+    deps.refreshHeader();
+    paintGhost();
+    const name = result.opponent?.name ?? '';
+    if (save.duplicate) {
+      toast('⚔️ הדו־קרב הזה כבר נרשם היום — אין תשלום כפול.');
+    } else {
+      toast(result.won ? `🏆 ניצחתם את ${name}!` : `💀 ${name} ניצח הפעם. מחר יש הזדמנות חדשה.`);
+    }
+    setTimeout(() => {
+      if (!disposed) restoreCampaign();
+    }, 2200);
   }
 
   /**
    * Give up a run that is still on screen — called when the arena goes away.
-   * The attempt is spent and the waves that WERE cleared are paid; nothing
-   * partial, nothing twice (`buildDailyChallenge` refuses a second write).
+   *
+   * The attempt is spent either way, and which EVENT it becomes follows the run
+   * itself: a daily gauntlet pays for the waves it cleared, a duel is recorded
+   * as a loss (leaving a fight is not a draw). Neither can be written twice —
+   * both builders refuse once their ledger slot is taken.
    */
   function commitForfeit(): void {
-    if (!state.challenge || state.challenge.outcome !== 'running') return;
+    const run = state.challenge;
+    if (!run || run.outcome !== 'running') return;
     const result = forfeitChallenge(state);
-    if (result) onDailyChallenge(store, result);
+    if (!result) return;
+    if (result.kind === 'ghost') saveDuel(result);
+    else onDailyChallenge(store, result);
   }
 
   /* --------------------------------------------------------------- events */
@@ -1068,6 +1349,12 @@ function start(main: HTMLElement, deps: BattleDeps): void {
         case 'regen':
           paintHero();
           if (ev.amount > 0) float(`+${fmtXp(ev.amount)}`, 'heal', 'hero');
+          break;
+        case 'enemy_regen':
+          // Only a ghost ever heals — its owner trained a Core, and the number
+          // has to be visible or the fight looks broken.
+          paintEnemy();
+          if (ev.amount > 0) float(`+${fmtXp(ev.amount)}`, 'heal', 'enemy');
           break;
         case 'wave_cleared': {
           // The enemy is already gone from the state; the sprite plays out its
@@ -1114,18 +1401,22 @@ function start(main: HTMLElement, deps: BattleDeps): void {
           arena?.style.setProperty('--w-bg2', world.bg[1]);
           if (ev.wave.miniBoss) shake(true);
           paintDaily();
+          paintGhost();
           break;
         }
         case 'challenge_wave':
           anim(sprite, 'anim-die', ANIM.die);
           // NOTHING is persisted per wave: the coins are banked in the run and
           // paid by the single event written when the run ends.
-          float(`+${ev.wave.coins} 🪙`, 'coin', 'enemy');
+          // A duel wave pays nothing, so there is no coin to float for one.
+          if (ev.wave.coins > 0) float(`+${ev.wave.coins} 🪙`, 'coin', 'enemy');
           paintDaily();
+          paintGhost();
           break;
         case 'challenge_over':
           anim(heroSprite, ev.result.complete ? 'anim-victory' : 'anim-hurt', ANIM.victory);
-          endDaily(ev.result);
+          if (ev.result.kind === 'ghost') endDuel(ev.result);
+          else endDaily(ev.result);
           break;
         case 'defeat':
           paintHero();
@@ -1277,6 +1568,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
   // spawns the wave's enemy (or goes straight to "rest" when there is no ⚡).
   consume(advance(state, BALANCE.combat.tickMs, stats));
   paintDaily();
+  paintGhost();
   paintHero();
   paintMeters();
   paintSkills();

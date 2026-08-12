@@ -127,6 +127,91 @@ function cardText(): string {
   return document.getElementById(ACCOUNT_CARD_ID)?.textContent ?? '';
 }
 
+/* --------------------------------------------------- the שם לוחם editor */
+
+describe('the שם לוחם editor', () => {
+  /** An account that also has ghost duels — i.e. a handle it can rename. */
+  function withHandle(taken: readonly string[] = []): FakeAccount & { handle: string; saves: string[] } {
+    const acc = fakeAccount() as FakeAccount & { handle: string; saves: string[] };
+    acc.handle = 'rotem';
+    acc.saves = [];
+    acc.getHandle = () => acc.handle;
+    acc.setHandle = async (handle: string) => {
+      acc.saves.push(handle);
+      if (taken.includes(handle)) return false;
+      acc.handle = handle;
+      return true;
+    };
+    return acc;
+  }
+
+  const field = (): HTMLInputElement | null => document.querySelector<HTMLInputElement>('#ghostHandle');
+  const msg = (): string => document.getElementById('handleMsg')?.textContent ?? '';
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+  };
+
+  it('is absent on a build without ghost duels, and while signed out', () => {
+    mount(fakeAccount());
+    expect(field()).toBeNull();
+    document.body.innerHTML = BODY.replace(/<script[\s\S]*?<\/script>/gi, '');
+    const acc = withHandle();
+    acc.state = status({ kind: 'signedOut' });
+    mount(acc);
+    expect(field()).toBeNull();
+  });
+
+  it('shows the current name and saves a new one', async () => {
+    const acc = withHandle();
+    mount(acc);
+    expect(field()?.value).toBe('rotem');
+
+    const input = field() as HTMLInputElement;
+    input.value = '  Dana  ';
+    click('#btnSaveHandle');
+    await settle();
+    // Canonicalised before it ever leaves the screen.
+    expect(acc.saves).toEqual(['dana']);
+    expect(msg()).toContain('נשמר');
+    expect(msg()).toContain('dana');
+  });
+
+  it('refuses an impossible name locally, without asking the server', async () => {
+    const acc = withHandle();
+    mount(acc);
+    const input = field() as HTMLInputElement;
+
+    input.value = 'x';
+    click('#btnSaveHandle');
+    await settle();
+    expect(msg()).toContain('3 תווים');
+
+    input.value = 'dana🔥';
+    click('#btnSaveHandle');
+    await settle();
+    expect(msg()).toContain('אותיות');
+
+    input.value = 'a'.repeat(30);
+    click('#btnSaveHandle');
+    await settle();
+    expect(msg()).toContain('20 תווים');
+
+    expect(acc.saves).toEqual([]);
+  });
+
+  it('says so in Hebrew when the name is taken, and keeps the old one', async () => {
+    const acc = withHandle(['yossi']);
+    mount(acc);
+    const input = field() as HTMLInputElement;
+    input.value = 'yossi';
+    click('#btnSaveHandle');
+    await settle();
+    expect(acc.saves).toEqual(['yossi']);
+    expect(msg()).toContain('תפוס');
+    expect(acc.handle).toBe('rotem');
+  });
+});
+
 /* ------------------------------------------------------------ card states */
 
 describe('the account card', () => {

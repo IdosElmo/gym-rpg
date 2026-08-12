@@ -16,7 +16,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { AppEvent } from '../src/storage/DataStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
-import { SyncAuthError, type PullPage, type SyncBackend } from '../src/sync/backend.ts';
+import {
+  GhostHandleTakenError,
+  SyncAuthError,
+  type GhostRow,
+  type PullPage,
+  type SyncBackend,
+} from '../src/sync/backend.ts';
 import { SYNC_CONFIG, syncConfigured } from '../src/sync/config.ts';
 import { SyncEngine, backoffDelay, type SyncStatus } from '../src/sync/engine.ts';
 import { SYNC_META_KEY, readSyncMeta } from '../src/sync/meta.ts';
@@ -97,6 +103,29 @@ class MemoryBackend implements SyncBackend {
 
   eventsOf(userId: string): AppEvent[] {
     return this.listOf(userId).map((r) => r.ev);
+  }
+
+  /* --------------------------------------------------------- the ghosts */
+
+  /**
+   * The `ghosts` table: one row per user (its primary key) plus the UNIQUE
+   * index on the handle — the two constraints `supabase/schema.sql` declares
+   * and the only ones any caller relies on.
+   */
+  readonly ghosts = new Map<string, GhostRow>();
+  ghostPublishes = 0;
+
+  async publishGhost(userId: string, handle: string, payload: Record<string, unknown>): Promise<void> {
+    this.ghostPublishes += 1;
+    for (const [owner, row] of this.ghosts) {
+      if (owner !== userId && row.handle === handle) throw new GhostHandleTakenError();
+    }
+    this.ghosts.set(userId, { handle, payload, updatedAt: START });
+  }
+
+  async fetchGhost(handle: string): Promise<GhostRow | null> {
+    for (const row of this.ghosts.values()) if (row.handle === handle) return row;
+    return null;
   }
 }
 

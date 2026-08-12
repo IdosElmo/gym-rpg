@@ -87,8 +87,13 @@ export interface UiState {
  * reasoning again: a v7 blob has no such field, and an empty ledger would mean
  * "never attempted anything", which would hand back an attempt the log says was
  * already spent. Rejected and replayed, which restores every run exactly.
+ * v9 (ghost duels) added `duels` — the per-(date, opponent) ledger of fights
+ * against other accounts' characters. Same reasoning a third time: a v8 blob has
+ * no such field, an empty ledger would say "you never fought anyone today" and
+ * hand back a duel the log already recorded as spent, so it is rejected and
+ * replayed instead.
  */
-export const GAME_STATE_VERSION = 8;
+export const GAME_STATE_VERSION = 9;
 
 /** XP pool of one body part. `level` is DERIVED from `xp` (see core/xp.ts). */
 export interface PartProgress {
@@ -185,6 +190,52 @@ export interface DailyChallengeState {
 }
 
 /**
+ * The ONE counted duel of one (date, opponent) pair.
+ *
+ * `score` is 0 or 1 — a duel is a single wave, so "cleared it" IS "won" — and
+ * `tiebreak` the HP percentage the fight ended on, which is the only honest
+ * measure of how close it was. There are no coins in here because a duel pays
+ * none (see `BALANCE.duel`).
+ */
+export interface GhostDuelRecord {
+  /** The opponent's handle — also the second half of the ledger key. */
+  opponent: string;
+  won: boolean;
+  score: number;
+  tiebreak: number;
+}
+
+/** Lifetime record against one opponent — derived, never folded. */
+export interface GhostDuelTally {
+  wins: number;
+  losses: number;
+  duels: number;
+}
+
+/**
+ * Ghost-duel progress — the ledger and everything derived from it.
+ *
+ * `runs` is the ONLY folded field: `"<date>|<handle>"` -> the one duel that
+ * counted for that pair. That key is exactly the semantic key the reducer is
+ * idempotent on, so two devices that both fought the same opponent on the same
+ * day converge on one record and one fee, in either merge order.
+ *
+ * Everything else is DERIVED in `finalizeGame`, exactly like the daily
+ * challenge's totals and body-part levels: a derived field cannot disagree with
+ * the log after a merge.
+ */
+export interface GhostDuelState {
+  /** "date|opponentHandle" -> the one duel counted for that pair. */
+  runs: Record<string, GhostDuelRecord>;
+  /** Derived: lifetime totals across every opponent. */
+  duels: number;
+  wins: number;
+  losses: number;
+  /** Derived: the same tallies, per opponent handle. */
+  byOpponent: Record<string, GhostDuelTally>;
+}
+
+/**
  * Which combination the player is playing, and which SKINS they bought.
  *
  * `owned` holds purchased SKIN ids ONLY (`'robot'`, `'ninja'`, …) — never a
@@ -268,6 +319,8 @@ export interface GameState {
   characters: CharactersState;
   /** Phase 7 — the daily challenge: one attempt per calendar date. */
   daily: DailyChallengeState;
+  /** Phase 8 — ghost duels: one fight per opponent per calendar date. */
+  duels: GhostDuelState;
 }
 
 export interface AppMeta {
@@ -329,6 +382,8 @@ export type EventType =
   | 'item_upgraded'
   // Phase 7 — the daily challenge. ONE event per run, idempotent per DATE.
   | 'daily_challenge'
+  // Phase 8 — ghost duels. ONE event per duel, idempotent per (DATE, OPPONENT).
+  | 'ghost_duel'
   // Phase 5 — the cosmetic character roster
   | 'character_purchased'
   | 'character_selected'
@@ -566,6 +621,49 @@ export interface DailyChallengePayload extends Record<string, unknown> {
   /** ⚡ charged for the ATTEMPT — once, never per wave. */
   energySpent: number;
   complete: boolean;
+  outcome: 'complete' | 'defeated' | 'forfeit';
+  durationMs: number;
+}
+
+/* -------------------------------------------------- Phase 8 duel payload */
+
+/**
+ * ONE ghost duel — the only event the feature writes, and the only place a duel
+ * leaves a trace at all.
+ *
+ * IDEMPOTENT PER (DATE, OPPONENT), the daily challenge's idiom one field wider:
+ * the reducer derives `"<date>|<handle>"` from the payload and applies the event
+ * only while that slot is empty. So one duel per opponent per day, the fee is
+ * charged once, and two devices that both fought the same person offline
+ * converge — in EITHER merge order — on the run that comes first in the log's
+ * `(ts, id)` order, because that order is a property of the event SET.
+ *
+ * WHAT IS AND IS NOT IN HERE. The result is authoritative (`won`, `score`,
+ * `tiebreak`), so a REPLAY never re-simulates the fight: the opponent's ghost
+ * will look different tomorrow, and history must not change with it. The
+ * `snapshotHash` records WHICH version of their character was fought — enough to
+ * tell two duels apart forensically, and not enough to reconstruct anything. And
+ * there are NO COINS, on purpose: a duel pays nothing but the record.
+ */
+export interface GhostDuelPayload extends Record<string, unknown> {
+  /** Calendar date of the duel (YYYY-MM-DD) — half the idempotency key. */
+  date: string;
+  /** The opponent's handle, canonical form — the other half. */
+  opponentHandle: string;
+  /** Their display name at the time (cosmetic; the handle is the identity). */
+  opponentName: string;
+  /** Did the ghost go down? */
+  won: boolean;
+  /** 1 when the ghost fell, 0 otherwise — the same "waves cleared" number. */
+  score: number;
+  /** Remaining HP % at the end (0 after a knock-out) — how close it was. */
+  tiebreak: number;
+  /** The duel's seed: `hash('duel|<sorted handles>|<date>')`. */
+  seed: number;
+  /** ⚡ charged for the duel — once, when it is recorded. */
+  energySpent: number;
+  /** Fingerprint of the ghost payload that was actually fought. */
+  snapshotHash: string;
   outcome: 'complete' | 'defeated' | 'forfeit';
   durationMs: number;
 }

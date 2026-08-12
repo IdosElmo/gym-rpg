@@ -18,6 +18,7 @@ import type {
   DailyChallengeState,
   DataStore,
   GameState,
+  GhostDuelState,
   WaveClearedPayload,
 } from '../storage/DataStore.ts';
 import type { BossResult, ChallengeResult, WaveResult } from './combat.ts';
@@ -30,17 +31,20 @@ import {
   buildCharacterSelect,
   buildDailyChallenge,
   buildEquip,
+  buildGhostDuel,
   buildPurchase,
   buildSetGrant,
   buildUpgrade,
   buildWorkoutCompletionGrant,
   computeStreak,
   dailyEntryStatus,
+  duelEntryStatus,
   emptyGame,
   finalizeGame,
   weeklyTargetsFromEvents,
   type CharacterPurchaseError,
   type DailyEntryStatus,
+  type DuelEntryStatus,
   type PendingEvent,
   type PurchaseError,
   type UpgradeError,
@@ -249,6 +253,48 @@ export function onDailyChallenge(
  */
 export function dailyStatus(store: DataStore, date: string): DailyEntryStatus {
   return dailyEntryStatus(gameOf(store), date);
+}
+
+/* ------------------------------------------------------------ ghost duel */
+
+export interface GhostDuelSave {
+  ok: boolean;
+  /** Set when nothing was written: that opponent was already fought today. */
+  duplicate: boolean;
+  duels: GhostDuelState;
+}
+
+/**
+ * Persist ONE finished ghost duel — the only write the feature makes.
+ *
+ * Called for every ending, exactly like the daily challenge: the ghost went
+ * down, the player was knocked out, or the player walked out of the arena
+ * mid-duel (a forfeit, which counts as a loss — leaving is not a draw). All
+ * three spend the fee and none of them pays a single coin.
+ *
+ * `snapshotHash` is the fingerprint of the ghost that was actually fought, so
+ * the record says WHICH version of that character this was, and a replay never
+ * has to go and look at today's version of them.
+ */
+export function onGhostDuel(
+  store: DataStore,
+  result: ChallengeResult,
+  snapshotHash: string,
+  now: Date = new Date(),
+): GhostDuelSave {
+  const pending = buildGhostDuel(gameOf(store), result, snapshotHash, now.getTime());
+  if (pending.length === 0) return { ok: false, duplicate: true, duels: gameOf(store).duels };
+  commit(store, pending, now);
+  return { ok: true, duplicate: false, duels: gameOf(store).duels };
+}
+
+/**
+ * Can this opponent be fought on this date? A thin store-level wrapper over the
+ * pure rule in `core/xp.ts` — the UI asks BEFORE it creates a run, so a refused
+ * duel writes nothing at all.
+ */
+export function ghostDuelStatus(store: DataStore, date: string, opponentHandle: string): DuelEntryStatus {
+  return duelEntryStatus(gameOf(store), date, opponentHandle);
 }
 
 /* ------------------------------------------------------------------ shop */

@@ -16,6 +16,7 @@
  * nothing about Supabase. It reads a `SyncStatus` and calls back.
  */
 
+import { checkHandle, type HandleError } from '../core/handle.ts';
 import { esc } from '../ui/dom.ts';
 import type { SyncStatus } from './engine.ts';
 
@@ -30,6 +31,22 @@ export interface AccountDeps {
   signOut(): void;
   /** Injected for tests; the card shows relative times. */
   now?: () => number;
+
+  /* -------------------------------------------------------- ghost duels */
+  /**
+   * The שם לוחם this account publishes under (`''` when none is known yet).
+   * Absent (with `setHandle`) means this build has no ghost duels, and the
+   * editor below is not rendered at all.
+   */
+  getHandle?: () => string;
+  /**
+   * Claim a handle. Resolves false when somebody else already owns it — the
+   * card then says so in Hebrew and keeps the old name, because the only thing
+   * a failed rename may not do is leave the user nameless.
+   */
+  setHandle?: (handle: string) => Promise<boolean>;
+  /** Repaint after an async rename settles. */
+  refresh?: () => void;
 }
 
 /** Kinds that mean "there is a session": everything except these three. */
@@ -109,8 +126,45 @@ export function renderAccountCard(deps: AccountDeps): string {
     <h3 class="gc-title">☁️ סנכרון בענן <span class="gc-sub">${esc(pendingLine(status))}</span></h3>
     <p class="gc-note">מחובר כ־<b>${esc(email ?? 'משתמש Google')}</b></p>
     <p class="gc-note dim">${esc(stateLine(status, now))}</p>
+    ${handleEditor(deps)}
     <button class="action-btn" id="btnSignOut">התנתקות</button>
   </section>`;
+}
+
+/* ---------------------------------------------------------- שם לוחם */
+
+/** Hebrew for every way a typed handle can be refused. */
+const HANDLE_ERROR_HE: Readonly<Record<HandleError, string>> = {
+  empty: 'צריך שם.',
+  too_short: 'לפחות 3 תווים.',
+  too_long: 'עד 20 תווים.',
+  bad_chars: 'אותיות בעברית או באנגלית, ספרות ו־ _ . - בלבד.',
+};
+
+/** Hebrew for "somebody else got there first" — the only server-side refusal. */
+export const HANDLE_TAKEN_HE = 'השם הזה כבר תפוס — נסו שם אחר.';
+
+/**
+ * The שם לוחם editor, or `''` on a build without ghost duels.
+ *
+ * It sits inside the account card because that is what it IS: the public half
+ * of the same account. The name is device-local bookkeeping (see
+ * `sync/meta.ts`), not an event, so changing it rewrites no history — it simply
+ * republishes the snapshot under the new name.
+ */
+function handleEditor(deps: AccountDeps): string {
+  if (!deps.getHandle || !deps.setHandle) return '';
+  const handle = deps.getHandle();
+  return `
+    <div class="handle-editor">
+      <label class="gc-note" for="ghostHandle">שם לוחם <span class="dim">— השם שיריבים מקלידים כדי להילחם בכם</span></label>
+      <div class="handle-row">
+        <input class="handle-input" id="ghostHandle" type="text" maxlength="20" autocomplete="off"
+          value="${esc(handle)}" placeholder="לדוגמה: יוסי" aria-label="שם לוחם">
+        <button class="action-btn" id="btnSaveHandle" type="button">שמירה</button>
+      </div>
+      <p class="gc-note dim" id="handleMsg" role="status"></p>
+    </div>`;
 }
 
 /* ----------------------------------------------------------------- bind */
@@ -118,11 +172,46 @@ export function renderAccountCard(deps: AccountDeps): string {
 /** Wire the card's buttons. Call after every render of the card. */
 export function bindAccountCard(root: ParentNode, deps: AccountDeps): void {
   root.querySelector<HTMLButtonElement>('#btnSignIn')?.addEventListener('click', () => deps.signIn());
+  bindHandleEditor(root, deps);
   root.querySelector<HTMLButtonElement>('#btnSignOut')?.addEventListener('click', () => {
     // The wording is the whole point of the confirm: people expect "sign out"
     // to mean "delete my stuff off this phone", and here it emphatically does
     // not. Saying so is cheaper than an undo.
     if (confirm('להתנתק מהחשבון? הנתונים יישארו במכשיר; הסנכרון ייפסק.')) deps.signOut();
+  });
+}
+
+/**
+ * Wire the שם לוחם editor: validate locally first (so an obviously bad name
+ * never reaches the network), then let the backend have the last word on
+ * uniqueness. Every outcome is one Hebrew line under the field.
+ */
+function bindHandleEditor(root: ParentNode, deps: AccountDeps): void {
+  const input = root.querySelector<HTMLInputElement>('#ghostHandle');
+  const btn = root.querySelector<HTMLButtonElement>('#btnSaveHandle');
+  const msg = root.querySelector<HTMLElement>('#handleMsg');
+  const save = deps.setHandle;
+  if (!input || !btn || !save) return;
+
+  btn.addEventListener('click', () => {
+    const check = checkHandle(input.value);
+    if (!check.ok) {
+      if (msg) msg.textContent = HANDLE_ERROR_HE[check.error ?? 'empty'];
+      return;
+    }
+    btn.disabled = true;
+    if (msg) msg.textContent = 'שומר…';
+    void save(check.handle).then(
+      (ok) => {
+        btn.disabled = false;
+        if (msg) msg.textContent = ok ? `נשמר ✓ יריבים יכולים להילחם ב"${check.handle}"` : HANDLE_TAKEN_HE;
+        if (ok) deps.refresh?.();
+      },
+      () => {
+        btn.disabled = false;
+        if (msg) msg.textContent = HANDLE_TAKEN_HE;
+      },
+    );
   });
 }
 
