@@ -484,3 +484,124 @@ describe('fighting a ghost', () => {
     expect(options).toContain(FOE);
   });
 });
+
+/* ------------------------------------------------------------- both kits */
+
+/**
+ * A DUEL IS TWO DRESSED CHARACTERS.
+ *
+ * The player's half is the same `#btHeroSprite` every other mode uses (drawn
+ * from `game.equipment` — swept in `tests/arena.dom.test.ts`), so what is worth
+ * pinning here is that a duel does not undress either side: MY gear is on me,
+ * THEIR gear — from their published snapshot, not from my save — is on them, in
+ * the preview card and in the arena, and a hostile row's invented items put
+ * nothing on anybody.
+ */
+describe('a duel dresses both fighters', () => {
+  /** Publish a ghost wearing `equipped`, at the given upgrade levels. */
+  function dressedGhost(level: number, equipped: Record<string, string>, upgrades: Record<string, number> = {}): GhostPayload {
+    const game: GameState = emptyGame();
+    for (const p of BODY_PARTS) {
+      game.parts[p].xp = totalXpToReach(level) + 1;
+      game.parts[p].level = level;
+    }
+    game.equipment = {
+      owned: Object.values(equipped),
+      equipped: equipped as GameState['equipment']['equipped'],
+      upgrades,
+    };
+    return buildGhost(game, FOE);
+  }
+
+  /** Put gear on MY character. */
+  function wear(store: LocalStore, equipped: Record<string, string>, upgrades: Record<string, number> = {}): void {
+    store.update((d) => {
+      const g = d.game ?? emptyGame();
+      g.equipment = {
+        owned: Object.values(equipped),
+        equipped: equipped as GameState['equipment']['equipped'],
+        upgrades,
+      };
+      d.game = g;
+    });
+  }
+
+  const group = (host: string, slot: string): Element | null =>
+    document.querySelector(`${host} .ch-equip[data-slot="${slot}"]`);
+
+  it('shows the opponent’s items on the preview card — theirs, not mine', async () => {
+    const port = new FakeGhosts();
+    port.publish(FOE, dressedGhost(7, { gloves: 'gloves_3', cape: 'cape_1' }, { gloves_3: 2 }));
+    const store = battleStore(6, 5);
+    wear(store, { belt: 'belt_1' });
+    mount(store, port);
+    await search(FOE);
+
+    expect(cardState()).toBe('ready');
+    expect(group('#btGhost .gd-figure', 'gloves')?.childElementCount).toBeGreaterThan(0);
+    expect(group('#btGhost .gd-figure', 'cape')?.childElementCount).toBeGreaterThan(0);
+    // MY belt is not on THEIR body: the drawing reads their snapshot only.
+    expect(group('#btGhost .gd-figure', 'belt')?.childElementCount).toBe(0);
+    // Their +2 gloves glow on the card, with the item's own accent.
+    const gloves = group('#btGhost .gd-figure', 'gloves');
+    expect(gloves?.classList.contains('up-2')).toBe(true);
+    expect(gloves?.querySelector('.ch-spark')).not.toBeNull();
+    // The card counts the pieces it drew, so the two agree.
+    expect(card()?.textContent).toContain('2 פריטי ציוד');
+  });
+
+  it('puts both kits in the arena: mine on me, theirs on them', async () => {
+    const port = new FakeGhosts();
+    port.publish(FOE, dressedGhost(6, { shoes: 'shoes_2' }, { shoes_2: 3 }));
+    const store = battleStore(6, 6);
+    wear(store, { belt: 'belt_3', gloves: 'gloves_1' }, { belt_3: 1 });
+    mount(store, port);
+    await search(FOE);
+    click(fightBtn());
+
+    expect(cardState()).toBe('live');
+    // MY half of the arena.
+    expect(group('#btHeroSprite', 'belt')?.childElementCount).toBeGreaterThan(0);
+    expect(group('#btHeroSprite', 'gloves')?.childElementCount).toBeGreaterThan(0);
+    expect(group('#btHeroSprite', 'belt')?.classList.contains('up-1')).toBe(true);
+    expect(group('#btHeroSprite', 'shoes')?.childElementCount).toBe(0);
+    // THEIR half — their shoes, at their +3, and none of my belt or gloves.
+    expect(group('#btEnemySprite', 'shoes')?.childElementCount).toBeGreaterThan(0);
+    expect(group('#btEnemySprite', 'shoes')?.classList.contains('up-3')).toBe(true);
+    expect(group('#btEnemySprite', 'shoes')?.querySelector('.ch-up-badge')).not.toBeNull();
+    expect(group('#btEnemySprite', 'belt')?.childElementCount).toBe(0);
+    expect(group('#btEnemySprite', 'gloves')?.childElementCount).toBe(0);
+    // Both fighters are drawn on the same stage — the arena only scales them.
+    for (const host of ['#btHeroSprite', '#btEnemySprite']) {
+      expect(document.querySelector(`${host} svg.ch-svg`)?.getAttribute('viewBox')).toBe('0 0 200 320');
+    }
+  });
+
+  it('draws no phantom gear for a hostile row’s invented items', async () => {
+    const port = new FakeGhosts();
+    const honest = dressedGhost(6, { belt: 'belt_1' });
+    // A row can say anything: an unknown id, a number, and — the interesting
+    // one — a real item worn in the WRONG slot.
+    port.rows.set(FOE, {
+      ...honest,
+      equipped: { cape: 'gloves_1', belt: 'belt_9000', gloves: 42, shoes: '' },
+      upgrades: { belt_9000: 99, gloves_1: 7 },
+    } as unknown as Record<string, unknown>);
+    mount(battleStore(6, 6), port);
+    await search(FOE);
+
+    expect(cardState()).toBe('ready');
+    for (const slot of ['cape', 'belt', 'gloves', 'shoes']) {
+      expect(group('#btGhost .gd-figure', slot)?.childElementCount).toBe(0);
+      expect(group('#btGhost .gd-figure', slot)?.classList.contains('upgraded')).toBe(false);
+    }
+    // …and the card says so: nothing was worn, so nothing is counted.
+    expect(card()?.textContent).not.toContain('פריטי ציוד');
+
+    // The same is true once the fight starts.
+    click(fightBtn());
+    for (const slot of ['cape', 'belt', 'gloves', 'shoes']) {
+      expect(group('#btEnemySprite', slot)?.childElementCount).toBe(0);
+    }
+  });
+});

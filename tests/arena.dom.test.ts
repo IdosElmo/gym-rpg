@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * The arena's two new surfaces:
+ * The arena's surfaces:
  *
  *   1. MOTION — the battle loop toggles short-lived classes on the hero and the
  *      enemy sprite (`.anim-attack`, `.anim-hit`, `.anim-hurt`, `.anim-die`,
@@ -11,6 +11,9 @@
  *      reduced-motion path leaves the DOM harmless rather than different.
  *   2. THE WORLD STRIP — the four worlds as nodes, with locked / current /
  *      boss-ready / champion states and the current world's wave progress.
+ *   3. THE HERO'S GEAR — the fighter wears what the דמות screen shows, in every
+ *      mode the arena can be in, and the equipment layers are the same markup
+ *      on the same 200×320 stage rather than a second, smaller drawing.
  *
  * DRIVING TIME. The loop prefers `requestAnimationFrame` and falls back to
  * `setTimeout(…, tickMs)`. These tests delete rAF so the timer path runs, then
@@ -22,13 +25,14 @@ import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BALANCE } from '../src/core/balance.ts';
-import { onSetCompleted } from '../src/core/game.ts';
+import { gameOf, onSetCompleted } from '../src/core/game.ts';
 import { emptyGame, totalXpToReach } from '../src/core/xp.ts';
 import { findExercise, type BodyPart, type Exercise } from '../src/data/program.ts';
-import { WORLDS, WORLD_BOSSES } from '../src/data/gameContent.ts';
+import { EQUIPMENT_SLOTS, WORLDS, WORLD_BOSSES, type EquipmentSlot } from '../src/data/gameContent.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
 import { createApp } from '../src/ui/app.ts';
+import { characterSvg } from '../src/ui/characterSvg.ts';
 import { RestTimer } from '../src/ui/timer.ts';
 
 function fakeStorage(): StorageLike {
@@ -355,5 +359,177 @@ describe('world progress strip', () => {
     // behind the app it renders EMPTY, so it collapses to zero height and the
     // arena is exactly where it always was.
     expect(document.getElementById('btGhost')?.innerHTML).toBe('');
+  });
+});
+
+/* ------------------------------------------------------- the hero's gear */
+
+/**
+ * THE HERO IN THE ARENA WEARS WHAT THE דמות SCREEN SHOWS.
+ *
+ * The arena draws the character ONCE, when the screen mounts, and every mode —
+ * campaign waves, a mini-boss, a world boss, champion mode, the daily gauntlet,
+ * a ghost duel — reuses that same `#btHeroSprite`, because a challenge swaps the
+ * battle's CONTEXT and never the sprite. So the property to pin is not "gear
+ * shows up in six places", it is "the one place is drawn from `game.equipment`",
+ * plus the two mode swaps that could plausibly redraw it (they do not).
+ *
+ * `data-slot` / `ch-equip` are the contract between the drawing and the
+ * stylesheet, so the tests assert exactly those, and the SCALE story with them:
+ * the arena SVG is the same 200×320 stage as the דמות one, shrunk by CSS, so a
+ * piece of gear cannot be positioned differently here — it is the identical
+ * markup, and the module's "no stroke thinner than 2 user units" rule is what
+ * keeps it readable at ~90px.
+ */
+describe('the hero in the arena', () => {
+  /** Put `equipped` on the character, at the given upgrade levels. */
+  function wear(
+    store: LocalStore,
+    equipped: Partial<Record<EquipmentSlot, string>>,
+    upgrades: Record<string, number> = {},
+  ): void {
+    store.update((d) => {
+      const g = d.game ?? emptyGame();
+      g.equipment = { owned: Object.values(equipped) as string[], equipped: { ...equipped }, upgrades };
+      d.game = g;
+    });
+  }
+
+  const heroSvg = (): SVGSVGElement | null =>
+    document.querySelector<SVGSVGElement>('#btHeroSprite svg.ch-svg');
+  const slotGroup = (slot: EquipmentSlot): Element | null =>
+    document.querySelector(`#btHeroSprite .ch-equip[data-slot="${slot}"]`);
+
+  it('draws the equipped items on the fighter, and empty groups for bare slots', () => {
+    const store = battleStore();
+    wear(store, { belt: 'belt_2', gloves: 'gloves_1' });
+    mount(store);
+
+    // Every slot is a group, always — that is what the stylesheet targets.
+    for (const slot of EQUIPMENT_SLOTS) expect(slotGroup(slot)).not.toBeNull();
+    // The worn ones carry an actual drawing…
+    expect(slotGroup('belt')?.childElementCount).toBeGreaterThan(0);
+    expect(slotGroup('gloves')?.childElementCount).toBeGreaterThan(0);
+    // …and the bare ones are still empty, exactly as an unequipped hero was.
+    expect(slotGroup('cape')?.childElementCount).toBe(0);
+    expect(slotGroup('shoes')?.childElementCount).toBe(0);
+  });
+
+  it('is the same drawing the דמות screen shows — same stage, same gear', () => {
+    const store = battleStore();
+    wear(store, { cape: 'cape_3', shoes: 'shoes_2' }, { cape_3: 1 });
+    mount(store);
+
+    const game = gameOf(store);
+    const onCharacterScreen = characterSvg(game.parts, {
+      character: game.characters.selected,
+      equipment: game.equipment,
+    });
+
+    // The arena hero is drawn on the SAME 200×320 stage: the arena only makes it
+    // smaller in CSS, so nothing about the gear's anchoring can differ.
+    expect(heroSvg()?.getAttribute('viewBox')).toBe('0 0 200 320');
+    const stage = /viewBox="([^"]+)"/.exec(onCharacterScreen)?.[1];
+    expect(heroSvg()?.getAttribute('viewBox')).toBe(stage);
+
+    // …and the equipment layers are the same markup, slot for slot (parsed on
+    // both sides, so this compares drawings and not serialisation quirks).
+    const host = document.createElement('div');
+    host.innerHTML = onCharacterScreen;
+    for (const slot of EQUIPMENT_SLOTS) {
+      const there = host.querySelector(`.ch-equip[data-slot="${slot}"]`);
+      expect(slotGroup(slot)?.innerHTML.trim()).toBe(there?.innerHTML.trim());
+      expect(slotGroup(slot)?.getAttribute('class')).toBe(there?.getAttribute('class'));
+    }
+    // The cape is the one layer that hangs BEHIND the body — its position in the
+    // draw order travels with it into the arena.
+    const kids = [...(heroSvg()?.children ?? [])].map((c) => c.getAttribute('data-slot') ?? c.tagName);
+    expect(kids.indexOf('cape')).toBeLessThan(kids.indexOf('shoes'));
+  });
+
+  it('carries the upgrade flair — the glow class, the glints and the +3 badge', () => {
+    const store = battleStore();
+    wear(store, { belt: 'belt_3', gloves: 'gloves_2' }, { belt_3: 3, gloves_2: 1 });
+    mount(store);
+
+    const belt = slotGroup('belt');
+    expect(belt?.classList.contains('upgraded')).toBe(true);
+    expect(belt?.classList.contains('up-3')).toBe(true);
+    expect(belt?.getAttribute('data-upgrade')).toBe('3');
+    // The glow colour has to reach CSS as the ITEM's accent.
+    expect(belt?.getAttribute('style')).toContain('--up-glow');
+    expect(belt?.querySelector('.ch-spark')).not.toBeNull();
+    // +3 is the only level that pins a star badge.
+    expect(belt?.querySelector('.ch-up-badge')).not.toBeNull();
+
+    const gloves = slotGroup('gloves');
+    expect(gloves?.classList.contains('up-1')).toBe(true);
+    expect(gloves?.querySelector('.ch-spark')).not.toBeNull();
+    expect(gloves?.querySelector('.ch-up-badge')).toBeNull();
+  });
+
+  it('keeps every gear stroke readable at arena scale', () => {
+    const store = battleStore();
+    wear(store, { belt: 'belt_1', gloves: 'gloves_3', shoes: 'shoes_1', cape: 'cape_2' }, { cape_2: 3 });
+    mount(store);
+
+    // The arena draws the stage at ~90px, i.e. ≈0.45px per user unit: the
+    // equipment module's rule is that nothing relies on a stroke thinner than 2
+    // user units, and this is where that rule is actually cashed in.
+    let strokes = 0;
+    for (const slot of EQUIPMENT_SLOTS) {
+      for (const node of slotGroup(slot)?.querySelectorAll('[stroke-width]') ?? []) {
+        strokes += 1;
+        expect(Number(node.getAttribute('stroke-width'))).toBeGreaterThanOrEqual(1.4);
+      }
+    }
+    expect(strokes).toBeGreaterThan(0);
+  });
+
+  it('wears the gear in every campaign mode: waves, mini-boss, world boss, champion', () => {
+    // `miniBossEvery` waves in, the boss wave, and the endless endgame — four
+    // states of the same screen, one drawing.
+    const states: Array<[label: string, apply: (g: ReturnType<typeof emptyGame>) => void]> = [
+      ['wave 1', () => undefined],
+      ['mini-boss', (g) => void (g.battle.wave = BALANCE.combat.miniBossEvery)],
+      ['world boss', (g) => void (g.battle.wave = BALANCE.combat.wavesPerWorld + 1)],
+      [
+        'champion',
+        (g) => {
+          g.battle.world = WORLDS.length;
+          g.battle.wave = 73;
+          g.battle.bossesDefeated = WORLD_BOSSES.map((b) => b.id);
+        },
+      ],
+    ];
+    for (const [label, apply] of states) {
+      document.body.innerHTML = BODY.replace(/<script[\s\S]*?<\/script>/gi, '');
+      const store = battleStore(60, 40);
+      wear(store, { belt: 'belt_2', cape: 'cape_1' }, { belt_2: 3 });
+      store.update((d) => {
+        const g = d.game ?? emptyGame();
+        apply(g);
+        d.game = g;
+      });
+      mount(store);
+      expect(`${label}:${(slotGroup('belt')?.childElementCount ?? 0) > 0}`).toBe(`${label}:true`);
+      expect(slotGroup('cape')?.childElementCount).toBeGreaterThan(0);
+      expect(slotGroup('belt')?.classList.contains('up-3')).toBe(true);
+    }
+  });
+
+  it('keeps the gear on through a daily-challenge run', () => {
+    useSteerableClock();
+    const store = battleStore(12, 6);
+    wear(store, { belt: 'belt_2' }, { belt_2: 2 });
+    mount(store);
+    expect(slotGroup('belt')?.childElementCount).toBeGreaterThan(0);
+
+    document.getElementById('btDailyGo')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    vi.advanceTimersByTime(2_000);
+    // The gauntlet is on screen — and the fighter in it is still dressed.
+    expect(document.getElementById('btArena')?.classList.contains('challenge')).toBe(true);
+    expect(slotGroup('belt')?.childElementCount).toBeGreaterThan(0);
+    expect(slotGroup('belt')?.classList.contains('up-2')).toBe(true);
   });
 });

@@ -295,8 +295,17 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
         <div class="bt-buffs" id="btBuffs" aria-live="off"></div>
         <div class="bt-sprite hero" id="btHeroSprite">${characterSvg(game.parts, {
           label: 'הדמות שלך בקרב',
-          // The arena fights with whoever the דמות screen selected.
+          // The arena fights with whoever the דמות screen selected…
           character: game.characters.selected,
+          // …WEARING what that screen shows them wearing. `GameState['equipment']`
+          // IS an `EquipmentView` (equipped + upgrades), so the arena hero and the
+          // דמות stage are drawn from one and the same wardrobe — buy a belt, put
+          // it on, and it is on the fighter, upgrade flair included. This is the
+          // only place the hero is drawn: the daily gauntlet and the ghost duel
+          // swap the battle's CONTEXT, never the sprite, so passing it here covers
+          // campaign waves, mini-bosses, world bosses, champion mode, the daily
+          // run and a duel alike.
+          equipment: game.equipment,
         })}</div>
         <div class="bt-bar hp"><span id="btHeroHp" style="width:100%"></span></div>
         <div class="bt-hp-txt" id="btHeroHpTxt">${Math.round(stats.maxHp)} / ${Math.round(stats.maxHp)}</div>
@@ -340,7 +349,7 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
       <div class="cm-item"><b id="btMinis">${game.battle.miniBossesCleared}</b><span>מיני־בוסים</span></div>
       <div class="cm-item"><b id="btBosses">${game.battle.bossesDefeated.length}</b><span>בוסי עולם</span></div>
     </div>
-    <p class="gc-note">המטבעות נקנים לציוד בלשונית 🦸 דמות — הציוד מתווסף לסטטיסטיקות ונראה על הדמות.</p>
+    <p class="gc-note">המטבעות נקנים לציוד בלשונית 🦸 דמות — הציוד מתווסף לסטטיסטיקות ונראה על הדמות, גם כאן בזירה.</p>
   </section>
 
   <section class="game-card">
