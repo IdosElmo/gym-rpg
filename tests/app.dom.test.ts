@@ -83,6 +83,20 @@ function clickView(viewId: string): void {
   el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 }
 
+/**
+ * Tap a date bubble on the היסטוריה screen and return the card it expanded.
+ * The log is a bubble row now (`ui/history.ts`), so the day's details exist
+ * only while its bubble is open — everything inside the card is unchanged.
+ */
+function openDay(date: string): HTMLElement {
+  const b = document.querySelector<HTMLElement>(`#main .day-bubble[data-date="${date}"]`);
+  if (!b) throw new Error(`no history bubble for ${date}`);
+  b.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const card = document.querySelector<HTMLElement>('#main .day-panel .hist-day');
+  if (!card) throw new Error(`bubble ${date} opened no card`);
+  return card;
+}
+
 describe('workout screen', () => {
   it('renders the 3 hubs + the 3 day tabs of the built-in plan, and the day exercise cards', () => {
     const { store } = mount();
@@ -333,8 +347,11 @@ describe('history screen', () => {
       d.sessions['2025-01-05'] = { day: 'A', ex: { a1: [{ w: '40', r: '10', done: true }] } };
     });
     render();
-    expect(document.querySelector('#main .hist-day h3')?.textContent).toContain('05.01.2025');
-    expect(document.querySelector('#main .hist-sets')?.textContent).toContain('40kg×10✓');
+    // one bubble for the logged day, and the day itself behind a tap
+    expect(document.querySelector('#main .day-bubble .db-date')?.textContent).toBe('5.1');
+    const card = openDay('2025-01-05');
+    expect(card.querySelector('h3')?.textContent).toContain('05.01.2025');
+    expect(card.querySelector('.hist-sets')?.textContent).toContain('40kg×10✓');
   });
 });
 
@@ -486,12 +503,13 @@ describe('the settings hub', () => {
     expect(document.getElementById('btnPlanEdit')).not.toBeNull();
     expect(document.querySelector('#main .app-info')?.textContent).toContain('אופליין');
     // …and none of the log
+    expect(document.querySelector('#main .day-bubble')).toBeNull();
     expect(document.querySelector('#main .hist-day')).toBeNull();
     expect(document.querySelector('#main .feed')).toBeNull();
 
     clickView('H');
     // היסטוריה: the log and the adventure feed, and none of the buttons
-    expect(document.querySelector('#main .hist-day h3')?.textContent).toContain('05.01.2025');
+    expect(openDay('2025-01-05').querySelector('h3')?.textContent).toContain('05.01.2025');
     expect(document.querySelector('#main .hist-heading')?.textContent).toContain('אימונים מתועדים');
     expect(document.getElementById('btnExport')).toBeNull();
     expect(document.getElementById('btnClear')).toBeNull();
