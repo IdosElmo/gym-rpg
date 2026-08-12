@@ -442,8 +442,11 @@ export function renderFeed(
     </li>`,
     )
     .join('');
+  // The lines scroll INSIDE the card (`.scroll-pane`, styles/history.css): forty
+  // events are metres of page, and the card's own header — which says how many
+  // there are — has to stay on screen while you read them.
   return `<section class="game-card">
     <h3 class="gc-title">יומן הרפתקה <span class="gc-sub">${items.length} אירועים אחרונים</span></h3>
-    <ul class="feed">${rows}</ul>
+    <div class="scroll-pane feed-scroll"><ul class="feed">${rows}</ul></div>
   </section>`;
 }

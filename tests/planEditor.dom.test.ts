@@ -89,6 +89,25 @@ function planEvents(store: LocalStore): readonly { payload: Record<string, unkno
   return store.getEvents().filter((e) => e.type === 'plan_updated');
 }
 
+/**
+ * Tap a date bubble on the היסטוריה screen and return the card it expanded.
+ * The log is a bubble row now (`ui/history.ts`) and only one day is open at a
+ * time, so a test that wants two days reads them one tap after the other.
+ */
+function openDay(date: string): HTMLElement {
+  const b = document.querySelector<HTMLElement>(`#main .day-bubble[data-date="${date}"]`);
+  if (!b) throw new Error(`no history bubble for ${date}`);
+  b.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const card = document.querySelector<HTMLElement>('#main .day-panel .hist-day');
+  if (!card) throw new Error(`bubble ${date} opened no card`);
+  return card;
+}
+
+/** The title line of an expanded day. */
+function dayTitle(date: string): string {
+  return openDay(date).querySelector('h3')?.textContent ?? '';
+}
+
 /* ------------------------------------------------------------ entry points */
 
 describe('plan editor entry points', () => {
@@ -846,7 +865,7 @@ describe('history with a custom plan', () => {
       d.ui.view = 'H';
     });
     render();
-    expect(document.querySelector('#main .hist-ex b')?.textContent).toBe('מתח באחיזה צרה');
+    expect(openDay('2025-01-05').querySelector('.hist-ex b')?.textContent).toBe('מתח באחיזה צרה');
     // the plan card moved one inner tab across, to הגדרות
     store.update((d) => {
       d.ui.view = 'ST';
@@ -867,7 +886,7 @@ describe('history with a custom plan', () => {
       d.ui.view = 'H';
     });
     render();
-    const titles = [...document.querySelectorAll<HTMLElement>('.hist-day h3')].map((h) => h.textContent ?? '');
+    const titles = [dayTitle('2025-01-05'), dayTitle('2025-01-06')];
     expect(titles.some((t) => t.includes('יום הרגליים'))).toBe(true);
     expect(titles.some((t) => t.includes(PROGRAM.B.label))).toBe(true);
   });
@@ -885,7 +904,7 @@ describe('history with a custom plan', () => {
       d.ui.view = 'H';
     });
     render();
-    const titles = [...document.querySelectorAll<HTMLElement>('.hist-day h3')].map((h) => h.textContent ?? '');
+    const titles = [dayTitle('2025-01-05'), dayTitle('2025-01-06')];
     // the built-in label survives for A, and the unknown key gets a neutral name
     expect(titles.some((t) => t.includes(PROGRAM.A.label))).toBe(true);
     expect(titles.some((t) => t.includes('אימון') && !t.includes('d_gone'))).toBe(true);
@@ -930,7 +949,7 @@ describe('history with a custom plan', () => {
       d.ui.view = 'H';
     });
     render();
-    expect(document.querySelector('#main .hist-ex b')?.textContent).toBe('cx_gone');
+    expect(openDay('2025-01-05').querySelector('.hist-ex b')?.textContent).toBe('cx_gone');
   });
 });
 
