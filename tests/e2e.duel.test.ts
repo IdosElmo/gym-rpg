@@ -41,6 +41,7 @@ import { SyncEngine } from '../src/sync/engine.ts';
 const DATE = '2025-05-04';
 const START = Date.parse('2025-05-04T09:00:00.000Z');
 const FEE = BALANCE.duel.entryEnergy;
+const LOSS_COINS = BALANCE.duel.lossCoins;
 
 function fakeStorage(): StorageLike {
   const map = new Map<string, string>();
@@ -181,7 +182,7 @@ afterEach(() => {
 /* ------------------------------------------------------------ the story */
 
 describe('two accounts, one duel', () => {
-  it('publishes, looks up, fights and records — with no coins and one fee', async () => {
+  it('publishes, looks up, fights and records — one fee, one purse', async () => {
     const backend = new MemoryBackend();
     // Rotem has trained a lot more than Yossi.
     const rotem = makePerson('user-rotem', 'rotem', backend, 24);
@@ -231,13 +232,14 @@ describe('two accounts, one duel', () => {
     const save = onGhostDuel(yossi.store, result, ghostHash(ghost));
     expect(save.ok).toBe(true);
 
-    /* 4. Exactly one record, one fee, no coins — and only on Yossi's side. */
+    /* 4. Exactly one record, one fee, one purse — and only on Yossi's side. */
     const yossiGame = gameOf(yossi.store);
     expect(yossiGame.duels.duels).toBe(1);
     expect(yossiGame.duels.losses).toBe(1);
     expect(yossiGame.duels.byOpponent['rotem']).toEqual({ wins: 0, losses: 1, duels: 1 });
     expect(yossiGame.energy).toBe(energyBefore - FEE);
-    expect(yossiGame.battle.coins).toBe(0);
+    // He lost, and losing still pays — once, from HIS event.
+    expect(yossiGame.battle.coins).toBe(LOSS_COINS);
 
     await yossi.engine.sync();
     await rotem.engine.sync();
@@ -319,7 +321,10 @@ describe('two accounts, one duel', () => {
     expect(JSON.stringify(backward.duels)).toBe(JSON.stringify(forward.duels));
     expect(backward.energy).toBe(forward.energy);
     expect(forward.duels.runs[duelKey(DATE, 'rotem')]).toBeDefined();
+    // …and ONE purse: the union of two devices' duels pays exactly what the one
+    // device that recorded it already paid, in either order.
     expect(forward.battle.coins).toBe(gameOf(yossi.store).battle.coins);
+    expect(backward.battle.coins).toBe(forward.battle.coins);
   });
 
   it('gives both sides the same fight, whoever starts it', async () => {

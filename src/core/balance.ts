@@ -222,12 +222,24 @@ export const BALANCE = {
   /**
    * GHOST DUEL — one fight against another account's character (`core/ghost.ts`).
    *
-   * ECONOMY, in one line: it costs ⚡ and pays NOTHING. Coins from a duel would
-   * make two accounts in one household a coin faucet — fight each other twice a
-   * day, for ever, without training — so the only thing a duel produces is the
-   * record, and the record is the reward. The fee is real (`entryEnergy`, two
-   * ordinary waves) so the duel is still gated by having trained, exactly like
-   * every other button in the game.
+   * ECONOMY, in one line: it costs ⚡, a win pays `winCoins` and even a loss pays
+   * `lossCoins` — showing up is worth something, winning is worth much more.
+   *
+   * WHY THIS IS NOT A FAUCET. The bound is not the price, it is the LEDGER: one
+   * counted duel per (date, opponent), enforced by the reducer's idempotency key
+   * and not by the UI. Two accounts in one household can therefore trade at most
+   * one duel a day, for 20 ⚡ each — energy that only real training produces —
+   * so the ceiling on "farming" is one `winCoins` per day per person you know,
+   * which is deliberately less than a single daily-challenge run pays:
+   *
+   *   perfect daily gauntlet   675 🪙 for 30 ⚡   (22.5 🪙 per ⚡)
+   *   duel won                 150 🪙 for 20 ⚡   ( 7.5 🪙 per ⚡)
+   *   duel lost                 30 🪙 for 20 ⚡   ( 1.5 🪙 per ⚡)
+   *
+   * The reducer additionally CLAMPS whatever a `ghost_duel` event claims to
+   * `max(winCoins, lossCoins)`, so a crafted or replayed event cannot overpay
+   * however it was written — the payload is authoritative about the RESULT, the
+   * balance is authoritative about the CEILING.
    *
    * DIFFICULTY is not tuned here at all, and that is the point: the opponent's
    * numbers come from `deriveStats` over ITS OWN levels, streak and gear, the
@@ -242,8 +254,10 @@ export const BALANCE = {
   duel: {
     /** ⚡ charged once per duel, when the result is recorded. */
     entryEnergy: 20,
-    /** Coins a duel pays. Zero — see above. Never make this non-zero. */
-    coins: 0,
+    /** Coins for putting the opponent's ghost down. */
+    winCoins: 150,
+    /** Coins for turning up and losing (a forfeit is a loss — see `core/xp.ts`). */
+    lossCoins: 30,
     /** Breather before the opponent walks on (the arena's own beat). */
     spawnDelayMs: 400,
     /** Hard ceiling on a FETCHED streak tier (≈4 years of perfect weeks). */

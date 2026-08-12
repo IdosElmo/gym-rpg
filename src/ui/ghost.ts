@@ -28,6 +28,7 @@
 
 import { BALANCE } from '../core/balance.ts';
 import { ghostCharacterId, type GhostPayload } from '../core/ghost.ts';
+import { duelCoins } from '../core/xp.ts';
 import type { GameState, GhostDuelRecord, PartsProgress } from '../storage/DataStore.ts';
 import { BODY_PARTS } from '../data/program.ts';
 import { characterSvg } from './characterSvg.ts';
@@ -228,7 +229,9 @@ export function ghostCard(game: GameState, view: GhostCardView, date: string, ru
     ${
       phase === 'live'
         ? ''
-        : `<p class="gd-foot">${fee} ⚡ לדו־קרב · בלי מטבעות, רק כבוד · דו־קרב אחד ליום מול כל יריב.</p>`
+        : `<p class="gd-foot">${fee} ⚡ לדו־קרב · ניצחון ${duelCoins(true)} 🪙, הפסד ${duelCoins(
+            false,
+          )} 🪙 · דו־קרב אחד ליום מול כל יריב.</p>`
     }
   </section>`;
 }
@@ -236,10 +239,13 @@ export function ghostCard(game: GameState, view: GhostCardView, date: string, ru
 /** The button (or the verdict) under a previewed opponent. */
 function resultLine(phase: GhostPhase, record: GhostDuelRecord | null, fee: number, energy: number): string {
   if (phase === 'done' && record) {
+    // The purse is quoted from the OUTCOME, not stored on the record: `won`
+    // already says which of the two prices was paid, and this line only ever
+    // describes TODAY's duel — so today's balance is the right one to read.
     return `
       <div class="gd-result ${record.won ? 'win' : 'loss'}">
         <b>${record.won ? '🏆 ניצחתם' : '💀 הפסדתם'}</b>
-        <span>הדו־קרב של היום מולו כבר נוצל — מחר אפשר שוב.</span>
+        <span>‏+${duelCoins(record.won)} 🪙 · הדו־קרב של היום מולו כבר נוצל — מחר אפשר שוב.</span>
       </div>`;
   }
   if (phase === 'locked') {
@@ -247,6 +253,8 @@ function resultLine(phase: GhostPhase, record: GhostDuelRecord | null, fee: numb
       <button class="gd-go locked" id="gdFight" type="button">🔒 חסרה אנרגיה · ${fee} ⚡</button>
       <p class="gd-note">יש לכם ${fmtXp(energy)} ⚡ מתוך ${fee}. לכו להתאמן — כל סט מסומן שווה ${BALANCE.energy.perSet} ⚡.</p>`;
   }
+  // The prize is on the FOOT line (one place, every phase) — the button stays a
+  // button.
   return `<button class="gd-go" id="gdFight" type="button">⚔️ צאו לדו־קרב · ${fee} ⚡</button>`;
 }
 

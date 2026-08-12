@@ -199,8 +199,12 @@ export interface DailyChallengeState {
  *
  * `score` is 0 or 1 — a duel is a single wave, so "cleared it" IS "won" — and
  * `tiebreak` the HP percentage the fight ended on, which is the only honest
- * measure of how close it was. There are no coins in here because a duel pays
- * none (see `BALANCE.duel`).
+ * measure of how close it was.
+ *
+ * A duel's coins are NOT kept here. They went into the one purse the game has
+ * (`battle.coins`) the moment the event folded, and `won` already says which of
+ * the two `BALANCE.duel` prices was paid — storing the number a second time
+ * would be a field that can disagree with the log after a merge.
  */
 export interface GhostDuelRecord {
   /** The opponent's handle — also the second half of the ledger key. */
@@ -699,11 +703,17 @@ export interface DailyChallengePayload extends Record<string, unknown> {
  * `(ts, id)` order, because that order is a property of the event SET.
  *
  * WHAT IS AND IS NOT IN HERE. The result is authoritative (`won`, `score`,
- * `tiebreak`), so a REPLAY never re-simulates the fight: the opponent's ghost
- * will look different tomorrow, and history must not change with it. The
+ * `tiebreak`, `coins`), so a REPLAY never re-simulates the fight: the opponent's
+ * ghost will look different tomorrow, and history must not change with it — and
+ * a retune of `BALANCE.duel` never rewrites what yesterday's duel paid. The
  * `snapshotHash` records WHICH version of their character was fought — enough to
- * tell two duels apart forensically, and not enough to reconstruct anything. And
- * there are NO COINS, on purpose: a duel pays nothing but the record.
+ * tell two duels apart forensically, and not enough to reconstruct anything.
+ *
+ * THE COINS ARE CAPPED ON THE WAY IN. Authoritative does not mean believed: the
+ * reducer clamps `coins` to `max(BALANCE.duel.winCoins, lossCoins)` and pays it
+ * only when the ledger slot was still free, so neither a crafted event nor a
+ * duplicated one can overpay. An event written before duels paid at all has no
+ * `coins` field and folds as zero — which is exactly what it was worth.
  */
 export interface GhostDuelPayload extends Record<string, unknown> {
   /** Calendar date of the duel (YYYY-MM-DD) — half the idempotency key. */
@@ -718,6 +728,8 @@ export interface GhostDuelPayload extends Record<string, unknown> {
   score: number;
   /** Remaining HP % at the end (0 after a knock-out) — how close it was. */
   tiebreak: number;
+  /** Coins this duel paid: `winCoins` when it was won, `lossCoins` otherwise. */
+  coins: number;
   /** The duel's seed: `hash('duel|<sorted handles>|<date>')`. */
   seed: number;
   /** ⚡ charged for the duel — once, when it is recorded. */

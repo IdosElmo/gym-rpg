@@ -2,8 +2,10 @@
  * @vitest-environment jsdom
  *
  * The ghost duel ON SCREEN: the card's states, the lookup, the preview, the
- * fight, the result — and the one state that matters most, ABSENT, because
- * there is no account behind the app.
+ * fight, the result (verdict AND purse) — and the one state that matters most,
+ * ABSENT, because there is no account behind the app. The last block is the
+ * duel's own drawing rule: both fighters wear their own gear, and a hostile
+ * row's invented items dress nobody.
  *
  * NOTHING HERE TOUCHES A NETWORK. The `GhostDuelDeps` port is implemented over
  * a `Map`, exactly the way `main.ts` implements it over the sync engine, so the
@@ -28,10 +30,13 @@ import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { AppEvent, GameState } from '../src/storage/DataStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
 import { createApp } from '../src/ui/app.ts';
+import { buildFeed } from '../src/ui/feed.ts';
 import type { GhostDuelDeps, GhostLookupRow } from '../src/ui/ghost.ts';
 import { RestTimer } from '../src/ui/timer.ts';
 
 const FEE = BALANCE.duel.entryEnergy;
+const WIN_COINS = BALANCE.duel.winCoins;
+const LOSS_COINS = BALANCE.duel.lossCoins;
 const FOE = 'yossi';
 
 function fakeStorage(): StorageLike {
@@ -324,7 +329,7 @@ describe('fighting a ghost', () => {
     expect(document.querySelector('#btEnemySprite svg')?.getAttribute('data-character')).toBe('hero_m');
   });
 
-  it('records ONE event when it ends, charges the fee and pays no coins', async () => {
+  it('records ONE event when it ends, charges the fee and pays the win purse', async () => {
     vi.useFakeTimers();
     const port = new FakeGhosts();
     const ghost = ghostAt(2);
@@ -342,6 +347,7 @@ describe('fighting a ghost', () => {
     const p = events[0]?.payload ?? {};
     expect(Object.keys(p).sort()).toEqual(
       [
+        'coins',
         'date',
         'durationMs',
         'energySpent',
@@ -359,23 +365,34 @@ describe('fighting a ghost', () => {
     expect(p['opponentHandle']).toBe(FOE);
     expect(p['won']).toBe(true);
     expect(p['energySpent']).toBe(FEE);
+    expect(p['coins']).toBe(WIN_COINS);
     // The snapshot that was actually fought is named in the record.
     expect(p['snapshotHash']).toBe(ghostHash(ghost));
 
     const game = gameOf(store);
     expect(game.energy).toBe(energyBefore - FEE);
-    expect(game.battle.coins).toBe(coinsBefore);
+    expect(game.battle.coins).toBe(coinsBefore + WIN_COINS);
     expect(game.duels.wins).toBe(1);
     expect(game.duels.byOpponent[FOE]).toEqual({ wins: 1, losses: 0, duels: 1 });
     // The campaign was not touched.
     expect(game.battle.wavesCleared).toBe(0);
     expect(store.getEvents().some((e) => e.type === 'wave_cleared')).toBe(false);
 
-    // The card shows the verdict…
+    // The card shows the verdict and the purse…
     expect(cardState()).toBe('done');
     expect(card()?.textContent).toContain('ניצחתם');
+    expect(card()?.textContent).toContain(`+${WIN_COINS} 🪙`);
     expect(card()?.textContent).toContain('מחר');
-    expect(document.getElementById('toast')?.textContent).toContain('ניצחתם');
+    // …the toast says what was won and what it paid…
+    const toastText = document.getElementById('toast')?.textContent ?? '';
+    expect(toastText).toContain(`ניצחון על ${FOE}`);
+    expect(toastText).toContain(`+${WIN_COINS} 🪙`);
+    // …the arena's own result line agrees…
+    expect(document.getElementById('btStatus')?.textContent).toContain(`+${WIN_COINS} 🪙`);
+    // …and so does the feed line the log produced.
+    const duelLine = buildFeed(store.getEvents()).find((i) => i.cls.startsWith('duel'));
+    expect(duelLine?.text).toContain(`ניצחון על ${FOE}`);
+    expect(duelLine?.text).toContain(`+${WIN_COINS} 🪙`);
     expect(fightBtn()).toBeNull();
     // …and a beat later the arena is the ordinary battle again.
     vi.advanceTimersByTime(4_000);
@@ -396,9 +413,14 @@ describe('fighting a ghost', () => {
     const p = duelEvents(store)[0]?.payload ?? {};
     expect(p['won']).toBe(false);
     expect(p['outcome']).toBe('defeated');
+    expect(p['coins']).toBe(LOSS_COINS);
     expect(gameOf(store).duels.losses).toBe(1);
-    expect(gameOf(store).battle.coins).toBe(0);
+    // Showing up pays — less than winning, and only once.
+    expect(gameOf(store).battle.coins).toBe(LOSS_COINS);
+    expect(LOSS_COINS).toBeLessThan(WIN_COINS);
     expect(card()?.textContent).toContain('הפסדתם');
+    expect(card()?.textContent).toContain(`+${LOSS_COINS} 🪙`);
+    expect(document.getElementById('toast')?.textContent).toContain(`+${LOSS_COINS} 🪙`);
   });
 
   it('refuses a second duel with the same opponent today, and says why', async () => {
@@ -442,7 +464,9 @@ describe('fighting a ghost', () => {
     expect(events[0]?.payload['won']).toBe(false);
     expect(events[0]?.payload['energySpent']).toBe(FEE);
     expect(gameOf(store).duels.losses).toBe(1);
-    expect(gameOf(store).battle.coins).toBe(0);
+    // A forfeit IS a loss, so it is paid as one — no more, no less.
+    expect(events[0]?.payload['coins']).toBe(LOSS_COINS);
+    expect(gameOf(store).battle.coins).toBe(LOSS_COINS);
 
     // And the duel is spent: coming back offers no rematch today.
     click(document.querySelector('#tabs .tab[data-view="BT"]'));
@@ -482,5 +506,126 @@ describe('fighting a ghost', () => {
     // The shortlist is on the card as a datalist, not as a leaderboard.
     const options = [...document.querySelectorAll('#gdRecent option')].map((o) => o.getAttribute('value'));
     expect(options).toContain(FOE);
+  });
+});
+
+/* ------------------------------------------------------------- both kits */
+
+/**
+ * A DUEL IS TWO DRESSED CHARACTERS.
+ *
+ * The player's half is the same `#btHeroSprite` every other mode uses (drawn
+ * from `game.equipment` — swept in `tests/arena.dom.test.ts`), so what is worth
+ * pinning here is that a duel does not undress either side: MY gear is on me,
+ * THEIR gear — from their published snapshot, not from my save — is on them, in
+ * the preview card and in the arena, and a hostile row's invented items put
+ * nothing on anybody.
+ */
+describe('a duel dresses both fighters', () => {
+  /** Publish a ghost wearing `equipped`, at the given upgrade levels. */
+  function dressedGhost(level: number, equipped: Record<string, string>, upgrades: Record<string, number> = {}): GhostPayload {
+    const game: GameState = emptyGame();
+    for (const p of BODY_PARTS) {
+      game.parts[p].xp = totalXpToReach(level) + 1;
+      game.parts[p].level = level;
+    }
+    game.equipment = {
+      owned: Object.values(equipped),
+      equipped: equipped as GameState['equipment']['equipped'],
+      upgrades,
+    };
+    return buildGhost(game, FOE);
+  }
+
+  /** Put gear on MY character. */
+  function wear(store: LocalStore, equipped: Record<string, string>, upgrades: Record<string, number> = {}): void {
+    store.update((d) => {
+      const g = d.game ?? emptyGame();
+      g.equipment = {
+        owned: Object.values(equipped),
+        equipped: equipped as GameState['equipment']['equipped'],
+        upgrades,
+      };
+      d.game = g;
+    });
+  }
+
+  const group = (host: string, slot: string): Element | null =>
+    document.querySelector(`${host} .ch-equip[data-slot="${slot}"]`);
+
+  it('shows the opponent’s items on the preview card — theirs, not mine', async () => {
+    const port = new FakeGhosts();
+    port.publish(FOE, dressedGhost(7, { gloves: 'gloves_3', cape: 'cape_1' }, { gloves_3: 2 }));
+    const store = battleStore(6, 5);
+    wear(store, { belt: 'belt_1' });
+    mount(store, port);
+    await search(FOE);
+
+    expect(cardState()).toBe('ready');
+    expect(group('#btGhost .gd-figure', 'gloves')?.childElementCount).toBeGreaterThan(0);
+    expect(group('#btGhost .gd-figure', 'cape')?.childElementCount).toBeGreaterThan(0);
+    // MY belt is not on THEIR body: the drawing reads their snapshot only.
+    expect(group('#btGhost .gd-figure', 'belt')?.childElementCount).toBe(0);
+    // Their +2 gloves glow on the card, with the item's own accent.
+    const gloves = group('#btGhost .gd-figure', 'gloves');
+    expect(gloves?.classList.contains('up-2')).toBe(true);
+    expect(gloves?.querySelector('.ch-spark')).not.toBeNull();
+    // The card counts the pieces it drew, so the two agree.
+    expect(card()?.textContent).toContain('2 פריטי ציוד');
+  });
+
+  it('puts both kits in the arena: mine on me, theirs on them', async () => {
+    const port = new FakeGhosts();
+    port.publish(FOE, dressedGhost(6, { shoes: 'shoes_2' }, { shoes_2: 3 }));
+    const store = battleStore(6, 6);
+    wear(store, { belt: 'belt_3', gloves: 'gloves_1' }, { belt_3: 1 });
+    mount(store, port);
+    await search(FOE);
+    click(fightBtn());
+
+    expect(cardState()).toBe('live');
+    // MY half of the arena.
+    expect(group('#btHeroSprite', 'belt')?.childElementCount).toBeGreaterThan(0);
+    expect(group('#btHeroSprite', 'gloves')?.childElementCount).toBeGreaterThan(0);
+    expect(group('#btHeroSprite', 'belt')?.classList.contains('up-1')).toBe(true);
+    expect(group('#btHeroSprite', 'shoes')?.childElementCount).toBe(0);
+    // THEIR half — their shoes, at their +3, and none of my belt or gloves.
+    expect(group('#btEnemySprite', 'shoes')?.childElementCount).toBeGreaterThan(0);
+    expect(group('#btEnemySprite', 'shoes')?.classList.contains('up-3')).toBe(true);
+    expect(group('#btEnemySprite', 'shoes')?.querySelector('.ch-up-badge')).not.toBeNull();
+    expect(group('#btEnemySprite', 'belt')?.childElementCount).toBe(0);
+    expect(group('#btEnemySprite', 'gloves')?.childElementCount).toBe(0);
+    // Both fighters are drawn on the same stage — the arena only scales them.
+    for (const host of ['#btHeroSprite', '#btEnemySprite']) {
+      expect(document.querySelector(`${host} svg.ch-svg`)?.getAttribute('viewBox')).toBe('0 0 200 320');
+    }
+  });
+
+  it('draws no phantom gear for a hostile row’s invented items', async () => {
+    const port = new FakeGhosts();
+    const honest = dressedGhost(6, { belt: 'belt_1' });
+    // A row can say anything: an unknown id, a number, and — the interesting
+    // one — a real item worn in the WRONG slot.
+    port.rows.set(FOE, {
+      ...honest,
+      equipped: { cape: 'gloves_1', belt: 'belt_9000', gloves: 42, shoes: '' },
+      upgrades: { belt_9000: 99, gloves_1: 7 },
+    } as unknown as Record<string, unknown>);
+    mount(battleStore(6, 6), port);
+    await search(FOE);
+
+    expect(cardState()).toBe('ready');
+    for (const slot of ['cape', 'belt', 'gloves', 'shoes']) {
+      expect(group('#btGhost .gd-figure', slot)?.childElementCount).toBe(0);
+      expect(group('#btGhost .gd-figure', slot)?.classList.contains('upgraded')).toBe(false);
+    }
+    // …and the card says so: nothing was worn, so nothing is counted.
+    expect(card()?.textContent).not.toContain('פריטי ציוד');
+
+    // The same is true once the fight starts.
+    click(fightBtn());
+    for (const slot of ['cape', 'belt', 'gloves', 'shoes']) {
+      expect(group('#btEnemySprite', slot)?.childElementCount).toBe(0);
+    }
   });
 });

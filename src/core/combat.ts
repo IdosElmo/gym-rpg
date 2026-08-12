@@ -594,6 +594,14 @@ export interface ChallengeRun {
   energyCost: number;
   /** Coins added on top for clearing every wave. */
   completionBonus: number;
+  /**
+   * Coins paid when the run ended SHORT — the duel's "showing up pays something"
+   * rule, expressed as data so the state machine still has no idea what a duel
+   * is. Zero for the daily gauntlet, whose partial runs are already paid wave by
+   * wave; a duel's single wave banks nothing, so its whole payout is this field
+   * or `completionBonus`, never both.
+   */
+  consolationCoins: number;
   healOnWaveClear: number;
   spawnDelayMs: number;
   outcome: ChallengeOutcome;
@@ -897,9 +905,9 @@ function spawnChallenge(state: BattleState, run: ChallengeRun, out: CombatEvent[
  * One gauntlet wave fell: bank its coins IN MEMORY and move on.
  *
  * Nothing is persisted here — no `wave_cleared`, no energy, no coins in the
- * purse. The run's whole payout rides on the single `daily_challenge` event
- * written when it ends, which is what makes "leaving mid-run leaks no coins" a
- * property of the design rather than of the UI.
+ * purse. The run's whole payout rides on the single `daily_challenge` /
+ * `ghost_duel` event written when it ends, which is what makes "leaving mid-run
+ * leaks no coins" a property of the design rather than of the UI.
  */
 function clearChallengeWave(state: BattleState, run: ChallengeRun, out: CombatEvent[]): void {
   const wave = run.waves[run.index] as GauntletWave;
@@ -947,7 +955,7 @@ function finishChallenge(
     // The tiebreak is the health the run ENDED on — 0 after a knock-out, which
     // is exactly the honest reading of "how comfortably did you get here".
     tiebreak: state.maxHp > 0 ? Math.round(Math.max(0, state.playerHp / state.maxHp) * 100) : 0,
-    coins: run.coins + (complete ? run.completionBonus : 0),
+    coins: run.coins + (complete ? run.completionBonus : run.consolationCoins),
     energySpent: run.energyCost,
     complete,
     outcome,

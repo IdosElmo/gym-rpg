@@ -241,8 +241,10 @@ export function buildFeed(
         break;
       }
       /**
-       * A duel. One line, no purse — a duel pays nothing, so quoting coins here
-       * would be quoting a zero.
+       * A duel. One line with the purse it paid — read from the EVENT, like
+       * every other coin line, so a line always quotes what that day actually
+       * paid rather than what a duel would pay today. A duel logged before duels
+       * paid anything carries no `coins` and quotes a zero, which is honest.
        */
       case 'ghost_duel': {
         const won = p['won'] === true;
@@ -252,7 +254,7 @@ export function buildFeed(
           date,
           icon: '⚔️',
           cls: won ? 'duel win' : 'duel loss',
-          text: won ? `ניצחון על ${esc(who)}!` : `הפסד מול ${esc(who)}`,
+          text: `${won ? `ניצחון על ${esc(who)}!` : `הפסד מול ${esc(who)}`} ‏+${num(p['coins'])} 🪙`,
         });
         break;
       }
