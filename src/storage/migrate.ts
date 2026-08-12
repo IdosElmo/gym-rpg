@@ -415,7 +415,10 @@ function normalizeDuels(raw: unknown): GhostDuelState {
  * every fact is an event. That rebuild IS the sanctioned migration path. v8 ->
  * v9 (ghost duels) added `duels.runs`, the per-(date, opponent) ledger, for the
  * third time the same reason: an empty default would hand back a duel the log
- * already spent.
+ * already spent. v9 -> v10 (dev mode) added `devUsed` + `devKeys` + `devCycles`,
+ * for the fourth: an empty default would say "this account never used a dev
+ * grant" — dropping the 🛠 flag off the published ghost — and would hand back a
+ * daily/duel reset cycle the log already opened.
  */
 export function normalizeGame(raw: unknown): GameState | null {
   if (!isRecord(raw)) return null;
@@ -451,7 +454,21 @@ export function normalizeGame(raw: unknown): GameState | null {
     characters: normalizeCharacters(raw['characters']),
     daily: normalizeDaily(raw['daily']),
     duels: normalizeDuels(raw['duels']),
+    devUsed: raw['devUsed'] === true,
+    devKeys: normalizeFlagMap(raw['devKeys']),
+    devCycles: normalizeCycleMap(raw['devCycles']),
   };
+}
+
+/** Dev reset cycles: whole numbers ≥ 1 only — a cycle is a high-water mark. */
+function normalizeCycleMap(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!isRecord(raw)) return out;
+  for (const key of Object.keys(raw).sort()) {
+    const n = Math.floor(numOr(raw[key], 0));
+    if (n >= 1) out[key] = n;
+  }
+  return out;
 }
 
 /**

@@ -92,8 +92,13 @@ export interface UiState {
  * no such field, an empty ledger would say "you never fought anyone today" and
  * hand back a duel the log already recorded as spent, so it is rejected and
  * replayed instead.
+ * v10 (dev mode) added `devUsed` + the two dev ledgers `devKeys` / `devCycles`.
+ * A fourth time the same argument: a v9 blob has no such fields, and inventing
+ * empty ones would say "this account never used a dev grant" — which would drop
+ * the 🛠 flag off the published ghost and hand back a daily/duel reset the log
+ * already recorded. Rejected and replayed, which is lossless.
  */
-export const GAME_STATE_VERSION = 9;
+export const GAME_STATE_VERSION = 10;
 
 /** XP pool of one body part. `level` is DERIVED from `xp` (see core/xp.ts). */
 export interface PartProgress {
@@ -321,6 +326,34 @@ export interface GameState {
   daily: DailyChallengeState;
   /** Phase 8 — ghost duels: one fight per opponent per calendar date. */
   duels: GhostDuelState;
+  /**
+   * Phase 9 — DEV MODE. True while this save carries at least one dev grant
+   * that a `dev_purge` has not covered.
+   *
+   * It is folded like everything else, but the fold only ever SEES dev events
+   * that survived the purge pre-pass (`liveEvents` in core/xp.ts), so the flag
+   * means exactly "an uncovered dev grant exists" — which is why a purge (or a
+   * `data_cleared`) puts it back to false, and why the published ghost's 🛠
+   * marker disappears with it.
+   */
+  devUsed: boolean;
+  /**
+   * Keys (`dev|<uuid>`) of every dev GRANT already applied — the idempotency
+   * ledger for dev XP and dev coins, exactly like `energyGranted` is for energy
+   * (dev energy grants ride that existing ledger, since `energy_gained` already
+   * has a `key` guard). Two devices folding the union of their logs pay a dev
+   * grant once, in either order.
+   */
+  devKeys: Record<string, true>;
+  /**
+   * `"<scope>|<date>"` -> the highest `dev_reset` CYCLE applied for it.
+   *
+   * A HIGH-WATER MARK, exactly like `equipment.upgrades`: the event names the
+   * cycle it opens and the reducer applies it only while the ledger is below it,
+   * so two devices that both opened "cycle 1" for the same date converge on one
+   * extra attempt in either merge order — never two.
+   */
+  devCycles: Record<string, number>;
 }
 
 export interface AppMeta {
@@ -387,6 +420,11 @@ export type EventType =
   // Phase 5 — the cosmetic character roster
   | 'character_purchased'
   | 'character_selected'
+  // Phase 9 — dev mode. Real events, marked `dev: true`, through the normal
+  // pipeline: they sync, they replay and they can be taken back (`dev_purge`).
+  | 'coins_granted'
+  | 'dev_reset'
+  | 'dev_purge'
   // Phase 4 — editable plans and multi-device merges (declared here so an older
   // build can already round-trip them; both reducers ignore what they don't know)
   | 'plan_updated'
@@ -431,8 +469,15 @@ export interface SessionImportedPayload extends Record<string, unknown> {
 
 /* ------------------------------------------------ Phase 1 game payloads */
 
-/** Where an XP grant came from. */
-export type XpSource = 'set' | 'workout_complete';
+/**
+ * Where an XP (or energy) grant came from.
+ *
+ * `'dev'` is the dev panel — a grant that did not come from training. It is a
+ * source rather than a separate event type on purpose: the payload shape is
+ * identical, so replay, merge and every consumer keep working unchanged, and the
+ * one thing that IS different (this XP is not training) is said in one word.
+ */
+export type XpSource = 'set' | 'workout_complete' | 'dev';
 
 /**
  * THE authoritative XP record: replaying these rebuilds `GameState` exactly.
@@ -453,6 +498,14 @@ export interface XpGainedPayload extends Record<string, unknown> {
   factor?: number;
   pr?: boolean;
   retro: boolean;
+  /**
+   * Dev grants only. `dev: true` marks the event everywhere (feed, ghost flag,
+   * purge) and `key` is its idempotency unit — a dev grant has no
+   * (date, exercise, set) slot to be guarded by, so it carries `dev|<uuid>` and
+   * the reducer folds it through `game.devKeys`.
+   */
+  dev?: true;
+  key?: string;
 }
 
 export interface EnergyGainedPayload extends Record<string, unknown> {
@@ -464,8 +517,13 @@ export interface EnergyGainedPayload extends Record<string, unknown> {
    * Idempotency key: `date|exId|setIndex` for a set, `bonus|<date>` for the
    * workout-completion bonus. Optional ONLY for backward compatibility with
    * logs written before v4 — every new event carries one.
+   *
+   * A dev grant reuses this exact guard with a `dev|<uuid>` key: unique per
+   * grant, so the ⚡ arrives once however many times the event is merged.
    */
   key?: string;
+  /** Dev mode: this energy did not come from training. */
+  dev?: true;
 }
 
 export interface PrAchievedPayload extends Record<string, unknown> {
@@ -483,6 +541,8 @@ export interface LevelUpPayload extends Record<string, unknown> {
   from: number;
   to: number;
   retro: boolean;
+  /** Dev mode: the level came from a dev grant, not from training. */
+  dev?: true;
 }
 
 export interface StreakChangedPayload extends Record<string, unknown> {
@@ -707,6 +767,74 @@ export interface CharacterPurchasedPayload extends Record<string, unknown> {
 export interface CharacterSelectedPayload extends Record<string, unknown> {
   date: string;
   characterId: string;
+}
+
+/* ----------------------------------------------- Phase 9 dev-mode payloads */
+
+/**
+ * Coins granted OUTSIDE the battle economy — today, only the dev panel mints
+ * one. It exists because there is no other honest way to pay coins: every
+ * existing coin payer (`wave_cleared`, `boss_defeated`, `daily_challenge`) also
+ * carries a fight, and pretending a dev grant cleared a wave would put a lie in
+ * the log and in the feed.
+ *
+ * IDEMPOTENT BY `key` — the same rule as `energy_gained`, and the reason the
+ * field is REQUIRED here rather than optional: an unkeyed grant would double-pay
+ * the moment two devices merged, so the reducer refuses to pay one at all.
+ */
+export interface CoinsGrantedPayload extends Record<string, unknown> {
+  date: string;
+  amount: number;
+  /** `dev|<uuid>` — unique per grant, the idempotency unit. */
+  key: string;
+  source: 'dev';
+  dev: true;
+}
+
+/** What a dev reset re-opens: today's daily challenge, or today's duels. */
+export type DevResetScope = 'daily' | 'duels';
+
+/**
+ * Re-open one day's ledger so it can be played again.
+ *
+ * It does NOT refund anything and it does not touch history: it clears exactly
+ * the entries the "one per day" rule reads (`daily.runs[date]`, or every
+ * `"<date>|…"` duel), so the rule keeps holding — one attempt per RESET CYCLE.
+ *
+ * CONVERGENCE, the `item_upgraded` idiom: `cycle` is the cycle this event OPENS
+ * (current + 1) and the reducer applies it only while `devCycles["<scope>|<date>"]`
+ * is below it. Two devices that each pressed "reset" while offline both write
+ * cycle 1; folding the union in EITHER order opens one cycle, i.e. one extra
+ * attempt — never two — and both devices land on the same ledger.
+ */
+export interface DevResetPayload extends Record<string, unknown> {
+  date: string;
+  scope: DevResetScope;
+  /** The cycle this reset opens (1, 2, 3 …) — a high-water mark. */
+  cycle: number;
+  key: string;
+  dev: true;
+}
+
+/**
+ * TAKE BACK every dev grant — the undo of the whole feature.
+ *
+ * It carries no numbers because it is not a counter-grant: folding the log in
+ * the `(ts, id)` total order, every `dev: true` GRANT that sorts BEFORE a purge
+ * is simply skipped (`liveEvents` in core/xp.ts), so the state that comes out is
+ * byte-identical to the state of a log that never had them — which is what makes
+ * it exact rather than approximate, and what makes it idempotent (a second purge
+ * covers the same nothing).
+ *
+ * Dev grants written AFTER the purge apply normally: purge, then keep testing.
+ *
+ * WHAT IT DOES NOT UNDO: real events that happened while the grants were in
+ * force. Coins won in a battle that only ran because dev energy paid for it stay
+ * won. A purge reverts GRANTS, not history — the log is still the log.
+ */
+export interface DevPurgePayload extends Record<string, unknown> {
+  date: string;
+  dev: true;
 }
 
 /* ------------------------------------------- Phase 4 plan / merge payloads */

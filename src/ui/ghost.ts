@@ -139,7 +139,15 @@ function preview(game: GameState, opponent: GhostOpponentView): string {
     <div class="gd-foe">
       <div class="gd-figure" aria-hidden="true">${ghostFigure(ghost)}</div>
       <div class="gd-meta">
-        <b class="gd-name">${esc(ghost.name)}</b>
+        <b class="gd-name">${esc(ghost.name)}${
+          // The 🛠 says this character was partly HANDED OUT, not trained (see
+          // `GhostPayload.dev`). Small, next to the name, with the explanation
+          // on the tooltip: enough to know what you are fighting, not a scarlet
+          // letter.
+          ghost.dev === true
+            ? ` <span class="gd-dev" title="${esc(GHOST_DEV_HE)}" aria-label="${esc(GHOST_DEV_HE)}">🛠</span>`
+            : ''
+        }</b>
         <span class="gd-level">רמה ${ghost.characterLevel}${
           ghost.streakTier > 0 ? ` · 🔥 רצף ${ghost.streakTier}` : ''
         }${gear > 0 ? ` · ${gear} פריטי ציוד` : ''}</span>
@@ -243,6 +251,9 @@ function resultLine(phase: GhostPhase, record: GhostDuelRecord | null, fee: numb
 }
 
 /* ------------------------------------------------------------------ copy */
+
+/** Hebrew for the 🛠 next to a dev-flagged opponent's name. */
+export const GHOST_DEV_HE = 'הדמות הזו קיבלה הענקות במצב מפתח (לא רק אימונים אמיתיים)';
 
 /** Hebrew for "nobody answers to that name". */
 export function ghostMissingHe(handle: string): string {

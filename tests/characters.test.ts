@@ -675,9 +675,10 @@ describe('the adventure feed', () => {
 describe('the game blob version', () => {
   it('carries the roster at the CURRENT version', () => {
     // v6 introduced the roster; v7 (equipment upgrades), v8 (the daily
-    // challenge ledger) and v9 (ghost duels) ride on the same blob.
-    expect(GAME_STATE_VERSION).toBe(9);
-    expect(emptyGame().version).toBe(9);
+    // challenge ledger), v9 (ghost duels) and v10 (dev mode) ride on the same
+    // blob.
+    expect(GAME_STATE_VERSION).toBe(10);
+    expect(emptyGame().version).toBe(10);
     expect(emptyGame().characters).toEqual({ owned: [], selected: 'hero_m' });
   });
 

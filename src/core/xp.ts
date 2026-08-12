@@ -395,6 +395,9 @@ export function emptyGame(): GameState {
     characters: emptyCharacters(),
     daily: emptyDaily(),
     duels: emptyDuels(),
+    devUsed: false,
+    devKeys: {},
+    devCycles: {},
   };
 }
 
@@ -512,8 +515,25 @@ function isEquipmentSlot(v: string): v is EquipmentSlot {
  *   `energy_gained`   -> game.energyGranted[payload.key]
  * An `energy_gained` without a `key` predates v4 and is applied unguarded — old
  * single-device logs replay exactly as they always did.
+ *
+ * DEV GRANTS (Phase 9)
+ * --------------------
+ * A `dev: true` payload is an ordinary event that happens to have come from the
+ * dev panel rather than from training. Three rules cover all of them:
+ *   1. it marks the save (`devUsed`) — that is the ghost's 🛠 flag;
+ *   2. it is idempotent by its own `dev|<uuid>` key (`devKeys`, or the existing
+ *      `energyGranted` ledger for energy), because it has no natural slot;
+ *   3. it never adds a workout day — a grant is not training, and the streak is
+ *      the one number that has to keep meaning "I turned up".
+ * Purged grants never reach this function at all (see `liveEvents`), which is
+ * what makes `devUsed` mean "an UNCOVERED dev grant exists".
  */
 export function applyGameEvent(game: GameState, type: EventType, payload: Record<string, unknown>): void {
+  // A dev GRANT marks the save. `dev_purge` is dev-marked too (the feed shows it
+  // as one), but it is a removal, not a grant: it must not flag what it clears.
+  if (payload['dev'] === true && type !== 'dev_purge') game.devUsed = true;
+  const devKey = payload['dev'] === true && typeof payload['key'] === 'string' ? payload['key'] : '';
+
   switch (type) {
     case 'xp_gained': {
       const date = typeof payload['date'] === 'string' ? payload['date'] : '';
@@ -525,6 +545,11 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
       // Already paid for this slot / this date: a duplicate from another device.
       if (key && game.granted[key]) break;
       if (bonus && date && game.bonusDays[date]) break;
+      // A dev grant has no slot of its own — its key IS the slot.
+      if (devKey) {
+        if (game.devKeys[devKey]) break;
+        game.devKeys[devKey] = true;
+      }
 
       const parts = payload['parts'];
       if (isRecord(parts)) {
@@ -542,7 +567,9 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
       if (exId && volume > 0) game.best[exId] = Math.max(game.best[exId] ?? 0, volume);
 
       if (bonus && date) game.bonusDays[date] = true;
-      if (payload['retro'] !== true && date && !game.workoutDays.includes(date)) {
+      // Retro XP never fed the streak, and neither does dev XP: a grant is not
+      // a day you turned up for.
+      if (payload['retro'] !== true && payload['dev'] !== true && date && !game.workoutDays.includes(date)) {
         game.workoutDays.push(date);
         game.workoutDays.sort();
       }
@@ -781,6 +808,57 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
       game.characters.selected = id;
       break;
     }
+    /**
+     * Coins from outside the battle economy — today, only a dev grant.
+     *
+     * The `key` is REQUIRED, not optional: it is the only thing that keeps the
+     * purse right after a merge, so an unkeyed grant pays nothing at all rather
+     * than paying twice.
+     */
+    case 'coins_granted': {
+      const key = typeof payload['key'] === 'string' ? payload['key'] : '';
+      if (!key || game.devKeys[key]) break;
+      game.devKeys[key] = true;
+      const amount = Math.max(0, toNumber(payload['amount']));
+      if (amount > 0) game.battle.coins = round2(game.battle.coins + amount);
+      break;
+    }
+    /**
+     * Re-open one day's ledger (the daily challenge, or the duels) so it can be
+     * played again — the dev panel's "אפס" buttons.
+     *
+     * HIGH-WATER BY CYCLE, exactly like `item_upgraded`: the event names the
+     * cycle it opens and it applies only while the ledger is below it. Two
+     * devices that each opened cycle 1 offline therefore converge on ONE extra
+     * attempt in either merge order, and the "one attempt per cycle" rule keeps
+     * holding — the entry a later run writes simply lands in the empty slot.
+     */
+    case 'dev_reset': {
+      const date = typeof payload['date'] === 'string' ? payload['date'] : '';
+      const scope = payload['scope'];
+      if (!date || (scope !== 'daily' && scope !== 'duels')) break;
+      const cycle = Math.floor(toNumber(payload['cycle']));
+      if (cycle < 1) break;
+      const ledgerKey = `${scope}|${date}`;
+      if ((game.devCycles[ledgerKey] ?? 0) >= cycle) break;
+      game.devCycles[ledgerKey] = cycle;
+      if (scope === 'daily') {
+        delete game.daily.runs[date];
+      } else {
+        for (const key of Object.keys(game.duels.runs)) {
+          if (key.startsWith(`${date}|`)) delete game.duels.runs[key];
+        }
+      }
+      break;
+    }
+    /**
+     * A purge changes nothing HERE. It works by omission: `liveEvents` drops
+     * every dev grant that sorts before it, so by the time the fold runs there
+     * is nothing left to undo. Folding it is a no-op on purpose — that is what
+     * makes "purged" and "never granted" the same state, byte for byte.
+     */
+    case 'dev_purge':
+      break;
     case 'data_cleared': {
       const fresh = emptyGame();
       Object.assign(game, fresh);
@@ -892,6 +970,34 @@ export function compareEvents(a: AppEvent, b: AppEvent): number {
 }
 
 /**
+ * THE PURGE PRE-PASS: the events that still count, in fold order.
+ *
+ * A `dev_purge` takes back every dev GRANT that sorts before it in the total
+ * `(ts, id)` order — so the fold simply never sees them, and the state that
+ * comes out is byte-identical to the state of a log that never had them. That
+ * is the whole implementation of "undo my dev grants", and it is why the undo is
+ * exact rather than an approximate counter-grant:
+ *
+ *   - only the LAST purge matters (an earlier one covers a subset);
+ *   - a dev grant written AFTER it applies normally — purge, then keep testing;
+ *   - it is idempotent (a second purge covers the same nothing) and it converges
+ *     under a union merge, because "before" is a property of the event SET;
+ *   - real events are never touched, wherever they sit. Coins won in a battle
+ *     that dev energy paid for stay won: this reverts grants, not history.
+ *
+ * `input` may be in any order; the returned array is sorted.
+ */
+export function liveEvents(input: readonly AppEvent[]): AppEvent[] {
+  const ordered = [...input].sort(compareEvents);
+  let lastPurge = -1;
+  for (let i = 0; i < ordered.length; i += 1) {
+    if (ordered[i]?.type === 'dev_purge') lastPurge = i;
+  }
+  if (lastPurge < 0) return ordered;
+  return ordered.filter((ev, i) => i > lastPurge || ev.payload['dev'] !== true);
+}
+
+/**
  * Deterministically rebuild the whole game layer from the event log.
  *
  * The plan events are folded here TOO (as the weekly-target history), because
@@ -900,7 +1006,7 @@ export function compareEvents(a: AppEvent, b: AppEvent): number {
  */
 export function rebuildGame(events: readonly AppEvent[], today: string): GameState {
   const game = emptyGame();
-  const ordered = [...events].sort(compareEvents);
+  const ordered = liveEvents(events);
   for (const ev of ordered) applyGameEvent(game, ev.type, ev.payload);
   finalizeGame(game, today, weeklyTargetsFromEvents(ordered));
   return game;
@@ -915,10 +1021,18 @@ export interface PendingEvent {
   ts: number;
 }
 
-function levelUpEvents(
+/**
+ * The `level_up` markers for a batch of part gains — informational events the
+ * feed reads (levels themselves are always DERIVED from XP).
+ *
+ * Exported because the dev grants (`core/dev.ts`) celebrate a level exactly like
+ * a real set does; `dev: true` is carried through so the feed can say where the
+ * level came from.
+ */
+export function levelUpEvents(
   before: PartsProgress,
   parts: Partial<Record<BodyPart, number>>,
-  meta: { date: string; retro: boolean; ts: number },
+  meta: { date: string; retro: boolean; ts: number; dev?: true },
 ): PendingEvent[] {
   const out: PendingEvent[] = [];
   let offset = 0;
@@ -930,7 +1044,7 @@ function levelUpEvents(
     if (to > from) {
       out.push({
         type: 'level_up',
-        payload: { date: meta.date, part, from, to, retro: meta.retro },
+        payload: { date: meta.date, part, from, to, retro: meta.retro, ...(meta.dev ? { dev: true } : {}) },
         ts: meta.ts + offset,
       });
       offset += 1;

@@ -99,7 +99,15 @@ import {
 import { statsOfGame } from '../core/xp.ts';
 import { todayISO } from '../core/workout.ts';
 import { BODY_PART_HE, BODY_PARTS, type BodyPart } from '../data/program.ts';
-import { SKILLS, WORLDS, WORLD_COUNT, worldById, worldBossOf, type SkillId } from '../data/gameContent.ts';
+import {
+  SKILLS,
+  SKILL_IDS,
+  WORLDS,
+  WORLD_COUNT,
+  worldById,
+  worldBossOf,
+  type SkillId,
+} from '../data/gameContent.ts';
 import type { DataStore, GameState } from '../storage/DataStore.ts';
 import { characterSvg } from './characterSvg.ts';
 import {
@@ -141,9 +149,30 @@ interface Runtime {
 /** Only one battle can be live at a time; the app stops it on every tab switch. */
 let active: Runtime | null = null;
 
+/**
+ * The dev panel's one reach into the arena: zero the skill cooldowns of the
+ * battle that is CURRENTLY on screen. Set while an arena is mounted, cleared
+ * when it is torn down.
+ *
+ * Cooldowns are in-memory runtime (`core/combat.ts`), never persisted, so this
+ * writes NO event — there is nothing about a screen for the log to remember. It
+ * also means the useful call site is the console during a fight: leaving the
+ * arena already resets them, which is why "no battle running" is an honest
+ * answer rather than a failure.
+ */
+let cooldownReset: (() => void) | null = null;
+
 export function stopBattle(): void {
   active?.stop();
   active = null;
+  cooldownReset = null;
+}
+
+/** Zero the live battle's skill cooldowns. False when no battle is on screen. */
+export function devResetCooldowns(): boolean {
+  if (!cooldownReset) return false;
+  cooldownReset();
+  return true;
 }
 
 function statsOf(game: GameState): CombatStats {
@@ -1550,6 +1579,12 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     if (res.accepted) anim(heroSprite, 'anim-super', ANIM.super);
     consume(res.events);
   });
+
+  // The dev panel's cooldown reset, live only while this arena is mounted.
+  cooldownReset = (): void => {
+    for (const id of SKILL_IDS) state.skills.cd[id] = 0;
+    paintSkills();
+  };
 
   active = {
     stop: () => {
