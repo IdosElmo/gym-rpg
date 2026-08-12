@@ -8,7 +8,8 @@
  *     so the thing you press to change context never moves under your thumb.
  *   * the INNER row — the tabs OF the active hub, at a lighter visual weight:
  *     the plan's workout occurrences for אימון (`scheduleTabs`, see
- *     core/plan.ts), קרב/דמות for the game, הגדרות/היסטוריה for settings.
+ *     core/plan.ts), קרב/דמות for the game, הגדרות/היסטוריה/📊 סטטיסטיקות for
+ *     settings.
  *     Only this row can ever scroll, and only when a plan defines more workout
  *     occurrences than fit.
  *
@@ -67,6 +68,7 @@ import {
 } from './nav.ts';
 import { renderPlanEditor, resetPlanDraft } from './planEditor.ts';
 import { renderSettings, type SettingsDeps } from './settings.ts';
+import { renderStats } from './stats.ts';
 import { renderWorkout } from './workout.ts';
 import { fmtXp } from './xpfx.ts';
 
@@ -126,9 +128,9 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     if (isRememberableInner(v)) lastInner[hubOf(v)] = v;
   }
 
-  /** True for the five screens that are not a workout day. */
+  /** True for the six screens that are not a workout day. */
   function isScreen(v: ViewKey): boolean {
-    return v === 'CH' || v === 'BT' || v === 'H' || v === 'PL' || v === 'ST';
+    return v === 'CH' || v === 'BT' || v === 'H' || v === 'PL' || v === 'ST' || v === 'SS';
   }
 
   /**
@@ -288,6 +290,11 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       <p class="day-meta">כל אימון שתועד, והחדש ביותר למעלה</p>${energyPill()}`;
       return;
     }
+    if (view === 'SS') {
+      headerEl.innerHTML = `<h1 class="app-title">סטטיסטיקות <span class="en">Stats</span></h1>
+      <p class="day-meta">כל מה שהאימונים שלכם מסתכמים אליו</p>${energyPill()}`;
+      return;
+    }
     if (view === 'PL') {
       const custom = !isDefaultPlan(state.plan);
       headerEl.innerHTML = `<h1 class="app-title">עריכת תוכנית <span class="en">Plan</span></h1>
@@ -375,6 +382,8 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       renderSettings(mainEl, { store, rerender: render, editPlan: () => setView('PL'), ...hooks.settings });
     } else if (view === 'H') {
       renderHistory(mainEl, { store });
+    } else if (view === 'SS') {
+      renderStats(mainEl, { store });
     } else if (view === 'PL') {
       renderPlanEditor(mainEl, { store, rerender: renderPlanScreen, close: () => setView(returnView) });
     } else if (view === 'CH') {

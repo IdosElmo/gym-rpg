@@ -15,7 +15,8 @@
  *                 from a tab of its own.
  *   🎮 קרב     — the game hub: קרב (`BT`) and דמות (`CH`).
  *   ⚙️ הגדרות  — the settings hub: הגדרות (`ST` — account, plan card, data
- *                 actions) and היסטוריה (`H` — the workout log + the feed).
+ *                 actions), היסטוריה (`H` — the workout log + the feed) and
+ *                 📊 סטטיסטיקות (`SS` — what that log adds up to).
  *
  * THE STORE DID NOT CHANGE. There is no `hub` in `UiState`: the hub is DERIVED
  * from `ui.view` by `hubOf`, which is a total function over every view id the
@@ -62,16 +63,22 @@ export const GAME_TABS: readonly InnerTab[] = [
 ] as const;
 
 /**
- * The settings hub's inner row — settings FIRST.
+ * The settings hub's inner row — settings FIRST, then the two READING screens.
  *
  * History is not a setting, but it is the other thing that lives outside a
  * workout and outside the game, and burying it in a fourth main tab would undo
  * the point of having exactly three. Settings leads because the hub's own name
  * promises it.
+ *
+ * 📊 סטטיסטיקות joins it for exactly the same reason, and sits AFTER history on
+ * purpose: history is the record ("what did I do on the 4th"), statistics is
+ * what that record adds up to. Reading the raw thing before its summary is the
+ * order the two screens were built in and the order they make sense in.
  */
 export const SETTINGS_TABS: readonly InnerTab[] = [
   { viewId: 'ST', title: 'הגדרות', subtitle: '' },
   { viewId: 'H', title: 'היסטוריה', subtitle: '' },
+  { viewId: 'SS', title: '📊 סטטיסטיקות', subtitle: '' },
 ] as const;
 
 /**
@@ -82,7 +89,7 @@ export const SETTINGS_TABS: readonly InnerTab[] = [
  */
 export function hubOf(view: string): HubId {
   if (view === 'BT' || view === 'CH') return 'GM';
-  if (view === 'ST' || view === 'H') return 'SE';
+  if (view === 'ST' || view === 'H' || view === 'SS') return 'SE';
   return 'TR'; // every day view, and the plan editor
 }
 

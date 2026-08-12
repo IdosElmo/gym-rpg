@@ -397,6 +397,7 @@ describe('the three-hub navigation', () => {
     expect(of('CH')).toBe('GM');
     expect(of('ST')).toBe('SE');
     expect(of('H')).toBe('SE');
+    expect(of('SS')).toBe('SE');
   });
 
   it('gives each hub its own inner tabs', () => {
@@ -409,9 +410,10 @@ describe('the three-hub navigation', () => {
     expect(innerTabs()[1]?.textContent).toContain('דמות');
 
     clickHub('SE');
-    expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['ST', 'H']);
+    expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['ST', 'H', 'SS']);
     expect(innerTabs()[0]?.textContent).toContain('הגדרות');
     expect(innerTabs()[1]?.textContent).toContain('היסטוריה');
+    expect(innerTabs()[2]?.textContent).toContain('סטטיסטיקות');
   });
 
   it('opens each hub on its home screen and remembers the inner tab per hub', () => {

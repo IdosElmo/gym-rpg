@@ -74,11 +74,18 @@ export type DayKey = string;
 export type BuiltInDayKey = 'A' | 'B' | 'C';
 
 /**
- * View keys that are NOT workout days: דמות, קרב, הגדרות, היסטוריה and the plan
- * editor. They are reserved: a plan may not name a day after one of them, or
- * tapping the day would open the wrong screen.
+ * View keys that are NOT workout days: דמות, קרב, הגדרות, היסטוריה,
+ * סטטיסטיקות and the plan editor. They are reserved: a plan may not name a day
+ * after one of them, or tapping the day would open the wrong screen.
+ *
+ * The list only ever GROWS. `SS` (the statistics screen) is the newest entry,
+ * and adding it takes nothing away: every key a build has ever persisted is
+ * still exactly as valid as it was, and a plan that had already minted a day
+ * called `SS` is impossible — `isDayKey` has refused reserved keys since day
+ * one, and a key that arrives from another device is tolerated rather than
+ * coerced (see below).
  */
-export const RESERVED_VIEW_KEYS: readonly string[] = ['CH', 'BT', 'H', 'PL', 'ST'] as const;
+export const RESERVED_VIEW_KEYS: readonly string[] = ['CH', 'BT', 'H', 'PL', 'ST', 'SS'] as const;
 
 /** Longest day key we accept — long enough for `d_` + a uuid slice. */
 export const MAX_DAY_KEY_LENGTH = 40;

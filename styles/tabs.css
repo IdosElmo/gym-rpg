@@ -47,7 +47,14 @@ nav.tabs{
   border:1px solid var(--line); background:var(--card-2); color:var(--muted);
   border-radius:99px; padding:6px 8px; text-align:center; transition:.15s;
 }
-.tab .d{display:block; font-weight:700; font-size:13.5px; line-height:1.25}
+/* One line, always. A three-tab settings hub ("הגדרות · היסטוריה ·
+   📊 סטטיסטיקות") puts a long caption in a narrow pill, and a title that wraps
+   makes one tab taller than its neighbours; it elides instead, exactly like the
+   subtitle below it has always done. */
+.tab .d{
+  display:block; font-weight:700; font-size:13.5px; line-height:1.25;
+  max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
 .tab .w{
   display:block; font-size:10.5px; margin-top:1px; line-height:1.2;
   max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
