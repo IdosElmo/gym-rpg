@@ -1,3 +1,33 @@
+/* ---------- Fixed-height panes (both records on the היסטוריה screen) ----------
+   The adventure feed and the training log each scroll INSIDE their own pane, so
+   their headers stay on screen and the page itself barely moves. The height is
+   `min(<viewport share>, <cap>)`: a share so a tall phone shows more, a cap so a
+   tablet does not turn the pane back into the page-long list it replaced.
+
+   The edge hint is a MASK, not a painted gradient: it fades the content to
+   transparent and lets whatever is behind it show through, so the pane keeps
+   working over --card (the feed, inside a game-card) and over --bg (the log,
+   directly on the page) without either colour being hardcoded here. */
+.scroll-pane{
+  max-height:var(--pane-h,320px);
+  overflow-y:auto; overflow-x:hidden;
+  overscroll-behavior-y:contain; -webkit-overflow-scrolling:touch;
+  /* A thin, quiet scrollbar rather than a hidden one: this pane sits in the
+     middle of a page, and something has to say "there is more below". */
+  scrollbar-width:thin; scrollbar-color:var(--line) transparent;
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 10px,#000 calc(100% - 14px),transparent 100%);
+  mask-image:linear-gradient(to bottom,transparent 0,#000 10px,#000 calc(100% - 14px),transparent 100%);
+  /* The pane's own padding is what the fade eats at rest, so a pane scrolled to
+     the top does not look like it is dissolving its first row. */
+  padding-block:8px 10px;
+}
+.scroll-pane::-webkit-scrollbar{width:6px}
+.scroll-pane::-webkit-scrollbar-track{background:transparent}
+.scroll-pane::-webkit-scrollbar-thumb{background:var(--line); border-radius:99px}
+.scroll-pane::-webkit-scrollbar-thumb:active{background:var(--dim)}
+.feed-scroll{--pane-h:min(40vh,320px)}
+.log-scroll{--pane-h:min(44vh,360px)}
+
 /* ---------- History ---------- */
 .hist-day{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); margin-bottom:12px; padding:12px 14px}
 .hist-day h3{margin:0 0 2px; font-size:15px}
@@ -5,6 +35,45 @@
 .hist-ex{font-size:13px; padding:5px 0; border-top:1px dashed var(--line)}
 .hist-ex b{font-weight:700}
 .hist-sets{color:var(--muted); direction:ltr; display:inline-block}
+
+/* ---------- Date bubbles (the training log) ----------
+   The log is a lookup ("what did I lift on the 4th"), not a story, so it is a
+   wrap of compact date pills — newest first, which in RTL means the top-right —
+   and the day you tap expands underneath them. 56px tall and ≥58px wide clears
+   the 44px touch target with room for two lines of text. */
+.day-bubbles{display:flex; flex-wrap:wrap; gap:8px; padding-bottom:2px}
+.day-bubble{
+  position:relative; flex:0 0 auto;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
+  min-width:58px; min-height:56px; padding:6px 10px;
+  background:var(--card-2); border:1px solid var(--line); border-radius:15px;
+  color:var(--text); font-family:inherit; transition:.15s;
+}
+.db-date{
+  font-size:14px; font-weight:800; line-height:1.15;
+  direction:ltr; font-variant-numeric:tabular-nums;
+}
+.db-chip{
+  font-size:10.5px; font-weight:700; line-height:1.2; color:var(--muted);
+  max-width:64px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+/* A completed workout gets a corner tick and a green hairline — the same "done"
+   colour the set checkboxes use, quiet enough to scan past. */
+.day-bubble.done{border-color:#10B98155}
+.day-bubble.done .db-tick{
+  position:absolute; top:4px; inset-inline-end:6px;
+  font-size:9px; line-height:1; color:var(--ok);
+}
+.day-bubble.open{
+  border-color:var(--accent); background:#3B82F61F; box-shadow:0 0 0 2px #3B82F633;
+}
+.day-bubble.open .db-chip{color:var(--text)}
+/* The expanded day. `:empty` keeps the closed pane from reserving a gap. */
+.day-panel:empty{display:none}
+.day-panel{margin-top:8px}
+.day-panel .hist-day{margin-bottom:0; border-color:#3B82F644}
+.hist-hint{font-size:11.5px; font-weight:600; color:var(--dim); margin-inline-start:6px}
+
 /* Export / import / clear, grouped inside the "הנתונים שלי" card on הגדרות. */
 .data-actions{display:flex; gap:10px; margin:12px 0 0}
 .action-btn{
