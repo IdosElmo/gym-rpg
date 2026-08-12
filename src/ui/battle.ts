@@ -52,8 +52,10 @@
  *     owns every number behind it;
  *   - the fetched payload is normalised before it can reach the engine, so a
  *     hostile row cannot influence a single stat;
- *   - a duel pays no coins at all, so there is no purse to float and nothing to
- *     leak — leaving mid-duel simply records the loss.
+ *   - the purse depends on the OUTCOME, not on the waves: a duel banks nothing
+ *     per wave, and the single event written when it ends pays `winCoins` or
+ *     `lossCoins` (leaving mid-duel records the loss, and is paid as one). The
+ *     one-duel-per-opponent-per-day ledger is what bounds it.
  */
 
 import { BALANCE } from '../core/balance.ts';
@@ -96,7 +98,7 @@ import {
   onGhostDuel,
   onWaveCleared,
 } from '../core/game.ts';
-import { statsOfGame } from '../core/xp.ts';
+import { duelCoins, statsOfGame } from '../core/xp.ts';
 import { todayISO } from '../core/workout.ts';
 import { BODY_PART_HE, BODY_PARTS, type BodyPart } from '../data/program.ts';
 import {
@@ -964,10 +966,13 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     if (run && run.kind === 'ghost') {
       const name = run.opponent?.name ?? '';
       if (state.status === 'finished') {
-        text =
-          run.cleared > 0
-            ? `🏆 ניצחתם את ${name}! הדו־קרב נרשם.`
-            : `💀 ${name} ניצח הפעם — מחר יש הזדמנות חדשה.`;
+        // A duel's purse is decided by how it ended, and the status line is the
+        // first place the player reads it — the toast and the feed say the same
+        // number because all three ask `duelCoins`.
+        const won = run.cleared > 0;
+        text = won
+          ? `🏆 ניצחתם את ${name}! הדו־קרב נרשם · ‏+${duelCoins(true)} 🪙`
+          : `💀 ${name} ניצח הפעם — מחר יש הזדמנות חדשה · ‏+${duelCoins(false)} 🪙`;
       } else {
         text = `⚔️ דו־קרב מול ${name} — הוא נלחם בסטטיסטיקות האמיתיות שלו. הקישו ושחררו מיומנויות!`;
       }
@@ -1307,7 +1312,11 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     consume(advance(state, BALANCE.combat.tickMs, stats));
   }
 
-  /** Persist a finished duel (however it ended). One write, no coins, ever. */
+  /**
+   * Persist a finished duel (however it ended) — ONE write, and the only one the
+   * feature makes. The coins ride in the event and are paid by the reducer, so a
+   * duplicate pays nothing a second time.
+   */
   function saveDuel(result: ChallengeResult): { duplicate: boolean } {
     const hash = duelGhost ? ghostHash(duelGhost) : '';
     return onGhostDuel(store, result, hash);
@@ -1324,7 +1333,14 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     if (save.duplicate) {
       toast('⚔️ הדו־קרב הזה כבר נרשם היום — אין תשלום כפול.');
     } else {
-      toast(result.won ? `🏆 ניצחתם את ${name}!` : `💀 ${name} ניצח הפעם. מחר יש הזדמנות חדשה.`);
+      const coins = duelCoins(result.won === true);
+      toast(
+        result.won
+          ? `⚔️ ניצחון על ${name}! ‏+${coins} 🪙`
+          : `💀 ${name} ניצח הפעם · ‏+${coins} 🪙. מחר יש הזדמנות חדשה.`,
+      );
+      // The purse moved — show it landing, exactly like a cleared wave does.
+      if (coins > 0) float(`+${coins} 🪙`, 'coin', 'hero');
     }
     setTimeout(() => {
       if (!disposed) restoreCampaign();
@@ -1446,7 +1462,9 @@ function start(main: HTMLElement, deps: BattleDeps): void {
           anim(sprite, 'anim-die', ANIM.die);
           // NOTHING is persisted per wave: the coins are banked in the run and
           // paid by the single event written when the run ends.
-          // A duel wave pays nothing, so there is no coin to float for one.
+          // A duel wave carries no coins of its own (the whole purse depends on
+          // how the single fight ended), so there is nothing to float for one —
+          // `endDuel` floats the payout instead.
           if (ev.wave.coins > 0) float(`+${ev.wave.coins} 🪙`, 'coin', 'enemy');
           paintDaily();
           paintGhost();

@@ -27,7 +27,9 @@
  * the real +0…+3 curve, and the skin/body must be real roster values. The
  * character level is DERIVED from the clamped levels rather than believed, so a
  * row cannot advertise a level its own stats do not back up. Nothing a hostile
- * row can say makes the game grant anything: a duel pays no coins at all.
+ * row can say makes the game grant anything EXTRA either: a duel's purse comes
+ * from `BALANCE.duel` and the outcome alone (`ghostRun` below), never from a
+ * number in somebody else's row, and the reducer clamps it again on the way in.
  *
  * THE SAME FIGHT FOR BOTH SIDES
  * -----------------------------
@@ -103,9 +105,10 @@ export interface GhostPayload {
    * It is here for one reason: an opponent has the right to know that the
    * character they are about to fight was partly handed out rather than trained.
    * The duel card shows a small 🛠 next to their name. It is a LABEL and nothing
-   * else — it changes no stat, no seed and no reward (a duel pays nothing
-   * anyway), so an honest client that hides it gains nothing by hiding it. It
-   * disappears by itself once the owner purges their grants.
+   * else — it changes no stat, no seed and no reward (the purse depends on the
+   * OUTCOME and on `BALANCE.duel`, never on who was fought), so an honest client
+   * that hides it gains nothing by hiding it. It disappears by itself once the
+   * owner purges their grants.
    */
   dev?: true;
 }
@@ -306,12 +309,13 @@ export interface GhostWaveArgs {
 /**
  * The ghost as ONE gauntlet wave.
  *
- * `coins: 0` is the economy, in a single field: two accounts in one household
- * could otherwise farm each other for ever, so a duel pays exactly nothing but
- * the record. The defensive stats ride along on the wave (`def`, `critChance`,
- * `critMultiplier`, `regen`), which is what makes the ghost a CHARACTER rather
- * than a hit-point bag — see `core/combat.ts`, where an enemy without them
- * behaves byte-for-byte as it always did.
+ * `coins: 0` because a duel is not paid PER WAVE: the whole payout is decided by
+ * how the single fight ended, and it rides on the run (`completionBonus` for a
+ * win, `consolationCoins` for a loss) so that leaving mid-duel can never bank a
+ * partial purse. The defensive stats ride along on the wave (`def`,
+ * `critChance`, `critMultiplier`, `regen`), which is what makes the ghost a
+ * CHARACTER rather than a hit-point bag — see `core/combat.ts`, where an enemy
+ * without them behaves byte-for-byte as it always did.
  */
 export function ghostWave(a: GhostWaveArgs): GauntletWave {
   const stats = ghostStats(a.ghost);
@@ -357,9 +361,15 @@ export function ghostOpponent(handle: string, ghost: GhostPayload): ChallengeOpp
 /**
  * The shape `createChallengeBattle` wants — a duel as a battle context.
  *
- * One wave, no completion bonus, no healing between waves (there is no between),
- * and the challenge's `date` is the duel's date: together with the opponent
- * handle it is the idempotency key of the single `ghost_duel` event.
+ * One wave, no healing between waves (there is no between), and the challenge's
+ * `date` is the duel's date: together with the opponent handle it is the
+ * idempotency key of the single `ghost_duel` event.
+ *
+ * THE PURSE, as two numbers rather than a rule: putting the ghost down clears
+ * the run's only wave, so a win pays `completionBonus`; anything else — a
+ * knock-out, or walking out of the arena — pays `consolationCoins`. Neither is
+ * banked until the run ends, and the event that ends it is clamped by the
+ * reducer, so no path here can pay twice or overpay.
  */
 export function ghostRun(
   a: GhostRunArgs,
@@ -370,7 +380,8 @@ export function ghostRun(
     seed: duelSeed(a.myHandle, a.opponentHandle, a.date),
     waves: [ghostWave({ ghost: a.ghost, ...(a.svg === undefined ? {} : { svg: a.svg }) })],
     energyCost: BALANCE.duel.entryEnergy,
-    completionBonus: 0,
+    completionBonus: BALANCE.duel.winCoins,
+    consolationCoins: BALANCE.duel.lossCoins,
     healOnWaveClear: 0,
     spawnDelayMs: BALANCE.duel.spawnDelayMs,
     opponent: ghostOpponent(a.opponentHandle, a.ghost),

@@ -16,15 +16,24 @@
  *   4. ONE DUEL PER OPPONENT PER DAY. The reducer is idempotent on
  *      (date, opponent), not on the event id: two devices converge — in BOTH
  *      merge orders — on one counted duel and one fee.
- *   5. THE ECONOMY. The fee is real, refused BEFORE anything is written when it
- *      cannot be paid, and a duel NEVER pays a coin, however the event is
- *      shaped or crafted.
+ *   5. THE ECONOMY. The fee is real and is refused BEFORE anything is written
+ *      when it cannot be paid; a duel pays `winCoins` for a win and `lossCoins`
+ *      for turning up and losing — ONCE per (date, opponent), in either merge
+ *      order — and however a `ghost_duel` event is shaped or crafted it can
+ *      never pay more than `duelCoinCap()`.
  *   6. THE BLOB. v9 carries the ledger; a v8 blob is rebuilt from the log.
  */
 import { describe, expect, it } from 'vitest';
 
 import { BALANCE } from '../src/core/balance.ts';
-import { advance, createChallengeBattle, simulate, type ChallengeResult, type CombatStats } from '../src/core/combat.ts';
+import {
+  advance,
+  createChallengeBattle,
+  forfeitChallenge,
+  simulate,
+  type ChallengeResult,
+  type CombatStats,
+} from '../src/core/combat.ts';
 import {
   GHOST_VERSION,
   buildGhost,
@@ -42,6 +51,8 @@ import { gameOf, ghostDuelStatus, onGhostDuel, onSetCompleted } from '../src/cor
 import {
   applyGameEvent,
   compareEvents,
+  duelCoinCap,
+  duelCoins,
   duelEntryStatus,
   emptyDuels,
   emptyGame,
@@ -64,6 +75,8 @@ import { buildFeed } from '../src/ui/feed.ts';
 const DATE = '2025-05-04';
 const NOW = Date.parse('2025-05-04T18:00:00.000Z');
 const FEE = BALANCE.duel.entryEnergy;
+const WIN_COINS = BALANCE.duel.winCoins;
+const LOSS_COINS = BALANCE.duel.lossCoins;
 const ME = 'רותם';
 const FOE = 'yossi';
 
@@ -151,6 +164,7 @@ function duelEvent(result: ChallengeResult, ts: number, id: string, hash = 'h1')
       won: result.won === true,
       score: result.won === true ? 1 : 0,
       tiebreak: result.tiebreak,
+      coins: result.coins,
       seed: result.seed,
       energySpent: result.energySpent,
       snapshotHash: hash,
@@ -373,10 +387,12 @@ describe('a payload from a hostile client', () => {
     expect(wave.hp).toBeGreaterThan(0);
     expect(Number.isFinite(wave.hp)).toBe(true);
     expect(Number.isFinite(wave.atk)).toBe(true);
-    // And it pays nothing, like every ghost.
+    // The WAVE still pays nothing: a duel is never paid per wave, so nothing a
+    // crafted row could do can bank a coin mid-fight.
     expect(wave.coins).toBe(0);
     const { result } = duel(9, g);
-    expect(result.coins).toBe(0);
+    // The purse is the OUTCOME's price, from BALANCE — not from the row.
+    expect(result.coins).toBe(result.won === true ? WIN_COINS : LOSS_COINS);
     expect(['complete', 'defeated']).toContain(result.outcome);
   });
 });
@@ -402,7 +418,11 @@ describe('the duel seed', () => {
     expect(run.kind).toBe('ghost');
     expect(run.waves).toHaveLength(1);
     expect(run.energyCost).toBe(FEE);
-    expect(run.completionBonus).toBe(0);
+    // The duel's whole purse is these two numbers: clearing the single wave pays
+    // the bonus, ending it any other way pays the consolation.
+    expect(run.completionBonus).toBe(WIN_COINS);
+    expect(run.consolationCoins).toBe(LOSS_COINS);
+    expect(run.waves[0]?.coins).toBe(0);
     expect(run.opponent?.handle).toBe(FOE);
     const { result } = duel(5, ghost);
     expect(result.seed).toBe(run.seed);
@@ -460,30 +480,56 @@ describe('the duel itself', () => {
     expect(plain.def).toBeUndefined();
   });
 
-  it('never pays a coin, whoever wins', () => {
+  it('pays the outcome its price, whoever wins — and charges one fee either way', () => {
+    let sawWin = false;
+    let sawLoss = false;
     for (const level of [2, 6, 12]) {
       const { result } = duel(6, buildGhost(gameAt(level), FOE));
-      expect(result.coins).toBe(0);
+      expect(result.coins).toBe(result.won === true ? WIN_COINS : LOSS_COINS);
       expect(result.energySpent).toBe(FEE);
+      sawWin ||= result.won === true;
+      sawLoss ||= result.won !== true;
     }
+    // Both halves of the rule were actually exercised by that sweep.
+    expect(sawWin).toBe(true);
+    expect(sawLoss).toBe(true);
+    // …and the two prices ARE the two the rest of the app quotes.
+    expect(duelCoins(true)).toBe(WIN_COINS);
+    expect(duelCoins(false)).toBe(LOSS_COINS);
+    // Turning up and walking out is a loss, and a loss still pays.
+    const stats = combatStats(gameAt(6));
+    const state = createChallengeBattle({
+      run: ghostRun({ myHandle: ME, opponentHandle: FOE, ghost: buildGhost(gameAt(12), FOE), date: DATE }),
+      stats,
+      energy: 500,
+    });
+    advance(state, BALANCE.combat.tickMs, stats);
+    const quit = forfeitChallenge(state);
+    expect(quit?.outcome).toBe('forfeit');
+    expect(quit?.won).toBe(false);
+    expect(quit?.coins).toBe(LOSS_COINS);
   });
 });
 
 /* ------------------------------------------------------------ the ledger */
 
 describe('the duel ledger', () => {
-  it('records one duel, charges the fee once and pays nothing', () => {
+  it('records one duel, charges the fee once and pays the win purse', () => {
     const store = trainedStore(10);
     const before = gameOf(store);
     const energyBefore = before.energy;
     const coinsBefore = before.battle.coins;
     const { result } = duel(9, buildGhost(gameAt(3), FOE));
+    expect(result.won).toBe(true);
 
     const save = onGhostDuel(store, result, 'hash-1', new Date(NOW));
     expect(save.ok).toBe(true);
     const game = gameOf(store);
     expect(game.energy).toBe(energyBefore - FEE);
-    expect(game.battle.coins).toBe(coinsBefore);
+    expect(game.battle.coins).toBe(coinsBefore + WIN_COINS);
+    // The event carries the purse, so a replay pays exactly the same thing.
+    expect(store.getEvents().find((e) => e.type === 'ghost_duel')?.payload['coins']).toBe(WIN_COINS);
+    expect(rebuildGame(store.getEvents(), DATE).battle.coins).toBe(game.battle.coins);
     expect(game.duels.duels).toBe(1);
     expect(game.duels.wins).toBe(1);
     expect(game.duels.byOpponent[FOE]).toEqual({ wins: 1, losses: 0, duels: 1 });
@@ -498,11 +544,14 @@ describe('the duel ledger', () => {
     const { result } = duel(9, buildGhost(gameAt(3), FOE));
     onGhostDuel(store, result, 'h', new Date(NOW));
     const energyAfterFirst = gameOf(store).energy;
+    const coinsAfterFirst = gameOf(store).battle.coins;
 
     const again = onGhostDuel(store, result, 'h', new Date(NOW));
     expect(again.ok).toBe(false);
     expect(again.duplicate).toBe(true);
     expect(gameOf(store).energy).toBe(energyAfterFirst);
+    // The rematch pays nothing: one purse per (date, opponent).
+    expect(gameOf(store).battle.coins).toBe(coinsAfterFirst);
     expect(store.getEvents().filter((e) => e.type === 'ghost_duel')).toHaveLength(1);
 
     const status = ghostDuelStatus(store, DATE, FOE);
@@ -545,19 +594,38 @@ describe('the duel ledger', () => {
     expect(forward.duels.runs[duelKey(DATE, FOE)]?.won).toBe(mine.won);
     // And the fee was charged exactly once, in both orders.
     expect(backward.energy).toBe(forward.energy);
+    // …as was the PURSE: two events, one payout, whichever arrived first. The
+    // two devices even disagree about the result (one won, one lost), so the
+    // number itself has to come from the event that claimed the slot.
+    expect(mine.won).not.toBe(theirs.won);
+    expect(forward.battle.coins).toBe(WIN_COINS);
+    expect(backward.battle.coins).toBe(forward.battle.coins);
   });
 
-  it('charges the fee exactly once however many duplicates arrive', () => {
+  it('pays the loser exactly once too, in both merge orders', () => {
+    const lost = duel(3, buildGhost(gameAt(14), FOE)).result;
+    expect(lost.won).toBe(false);
+    const a = duelEvent(lost, NOW, 'aaaa-1', 'hash-a');
+    const b = duelEvent(lost, NOW + 5_000, 'bbbb-2', 'hash-b');
+    const forward = rebuildGame([a, b], DATE);
+    const backward = rebuildGame([b, a], DATE);
+    expect(forward.battle.coins).toBe(LOSS_COINS);
+    expect(backward.battle.coins).toBe(LOSS_COINS);
+    expect(forward.duels.duels).toBe(1);
+  });
+
+  it('charges the fee and pays the purse exactly once however many duplicates arrive', () => {
     const result = duel(9, buildGhost(gameAt(3), FOE)).result;
     const game = emptyGame();
     game.energy = 100;
     const ev = duelEvent(result, NOW, 'x-1');
     for (let i = 0; i < 5; i += 1) applyGameEvent(game, 'ghost_duel', ev.payload as Record<string, unknown>);
     expect(game.energy).toBe(100 - FEE);
+    expect(game.battle.coins).toBe(WIN_COINS);
     expect(Object.keys(game.duels.runs)).toHaveLength(1);
   });
 
-  it('cannot be made to pay coins by any payload', () => {
+  it('clamps a crafted purse to one duel’s honest maximum', () => {
     const game = emptyGame();
     game.energy = 100;
     applyGameEvent(game, 'ghost_duel', {
@@ -568,10 +636,52 @@ describe('the duel ledger', () => {
       energySpent: -50,
       tiebreak: 999,
     });
-    expect(game.battle.coins).toBe(0);
+    // The cap is `max(winCoins, lossCoins)` — a crafted event buys one duel's
+    // best price and not a coin more.
+    expect(duelCoinCap()).toBe(Math.max(WIN_COINS, LOSS_COINS));
+    expect(game.battle.coins).toBe(duelCoinCap());
     // A negative fee cannot refund energy either.
     expect(game.energy).toBe(100);
     expect(game.duels.runs[duelKey(DATE, FOE)]?.tiebreak).toBe(100);
+  });
+
+  it('refuses to pay a negative, missing or nonsense purse', () => {
+    for (const coins of [undefined, -5_000, 'lots', Number.NaN, Number.POSITIVE_INFINITY]) {
+      const game = emptyGame();
+      game.energy = 100;
+      applyGameEvent(game, 'ghost_duel', {
+        date: DATE,
+        opponentHandle: FOE,
+        won: true,
+        energySpent: FEE,
+        ...(coins === undefined ? {} : { coins }),
+      });
+      // A pre-reward event (no `coins` at all) folds as zero — no migration —
+      // and so does anything that is not a finite number.
+      expect(game.battle.coins).toBe(0);
+      expect(Object.keys(game.duels.runs)).toHaveLength(1);
+    }
+  });
+
+  it('pays a duplicate NOTHING even when it claims a bigger purse', () => {
+    const honest = duel(9, buildGhost(gameAt(3), FOE)).result;
+    const first = duelEvent(honest, NOW, 'aaaa-1');
+    const greedy: AppEvent = {
+      ...duelEvent(honest, NOW + 1_000, 'bbbb-2'),
+      payload: { ...duelEvent(honest, NOW + 1_000, 'bbbb-2').payload, coins: 999_999 },
+    };
+    for (const log of [
+      [first, greedy],
+      [greedy, first],
+    ]) {
+      const game = rebuildGame(log, DATE);
+      // Whichever came first in (ts, id) order claimed the slot; the other paid
+      // nothing at all, and neither could exceed the cap.
+      expect(game.battle.coins).toBeLessThanOrEqual(duelCoinCap());
+      expect(game.duels.duels).toBe(1);
+    }
+    // The honest event is first here, so the honest price is what was paid.
+    expect(rebuildGame([first, greedy], DATE).battle.coins).toBe(WIN_COINS);
   });
 
   it('ignores an event with nothing to key on', () => {
@@ -696,7 +806,7 @@ describe('the v8 -> v9 blob bump', () => {
 /* -------------------------------------------------------------- the feed */
 
 describe('the adventure log', () => {
-  it('gives every duel one line, and never a purse', () => {
+  it('gives every duel one line, with the purse that duel paid', () => {
     const store = trainedStore(10);
     onGhostDuel(store, duel(9, buildGhost(gameAt(3), FOE)).result, 'h', new Date(NOW));
     onGhostDuel(
@@ -709,10 +819,27 @@ describe('the adventure log', () => {
     expect(lines).toHaveLength(2);
     expect(lines.some((l) => l.text.includes(`ניצחון על ${FOE}`))).toBe(true);
     expect(lines.some((l) => l.text.includes('הפסד מול dana'))).toBe(true);
-    for (const line of lines) {
-      expect(line.icon).toBe('⚔️');
-      expect(line.text).not.toContain('🪙');
-    }
+    // Each line quotes ITS OWN purse — the win's and the loss's, not one price.
+    expect(lines.some((l) => l.text.includes(`+${WIN_COINS} 🪙`))).toBe(true);
+    expect(lines.some((l) => l.text.includes(`+${LOSS_COINS} 🪙`))).toBe(true);
+    for (const line of lines) expect(line.icon).toBe('⚔️');
+  });
+
+  it('quotes what the EVENT paid, not what a duel would pay today', () => {
+    // A duel logged before duels paid anything: no `coins` field at all. The
+    // line folds it as a zero rather than inventing today's price.
+    const legacy: AppEvent = {
+      id: 'old-1',
+      ts: NOW,
+      type: 'ghost_duel',
+      payload: { date: DATE, opponentHandle: FOE, opponentName: FOE, won: true, score: 1, tiebreak: 40 },
+    };
+    const line = buildFeed([legacy]).find((i) => i.cls.startsWith('duel'));
+    expect(line?.text).toContain(`ניצחון על ${FOE}`);
+    expect(line?.text).toContain('+0 🪙');
+    // …and it pays nothing on replay either.
+    expect(rebuildGame([legacy], DATE).battle.coins).toBe(0);
+    expect(rebuildGame([legacy], DATE).duels.wins).toBe(1);
   });
 });
 

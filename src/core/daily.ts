@@ -161,6 +161,7 @@ export function dailyRun(date: string): {
   waves: readonly GauntletWave[];
   energyCost: number;
   completionBonus: number;
+  consolationCoins: number;
   healOnWaveClear: number;
   spawnDelayMs: number;
 } {
@@ -172,6 +173,9 @@ export function dailyRun(date: string): {
     waves: g.waves,
     energyCost: g.energyCost,
     completionBonus: g.completionBonus,
+    // A short gauntlet is already paid wave by wave — there is nothing to
+    // console. (A duel is the opposite: see `core/ghost.ts`.)
+    consolationCoins: 0,
     healOnWaveClear: g.healOnWaveClear,
     spawnDelayMs: g.spawnDelayMs,
   };

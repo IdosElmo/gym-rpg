@@ -729,9 +729,13 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
      * a total no-op, and two devices that both fought the same person offline
      * converge on the run that comes FIRST in the log's `(ts, id)` order.
      *
-     * NO COINS. Not "zero coins in the payload" — the branch does not read a
-     * coin field at all, so no version of this event, however it was written or
-     * crafted, can ever add to the purse. Two accounts cannot farm each other.
+     * THE COINS ARE PAID HERE, ONCE, AND CAPPED. The payload says what the duel
+     * was worth (so a retune never rewrites history), but it is believed only up
+     * to `duelCoinCap()` — `max(winCoins, lossCoins)` — and only on the same
+     * branch that claims the ledger slot. So: one payout per (date, opponent) in
+     * either merge order, nothing at all for a duplicate, and no crafted event
+     * can mint more than one duel's honest maximum. A pre-reward event carries
+     * no `coins` field and folds as 0, which is what it was worth.
      *
      * The result is authoritative: a replay reproduces the record from the
      * event, never by re-simulating a fight whose opponent has since retrained.
@@ -745,7 +749,9 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
       if (d.runs[key]) break;
 
       const spent = Math.max(0, toNumber(payload['energySpent']));
+      const coins = clamp(toNumber(payload['coins']), 0, duelCoinCap());
       game.energy = round2(Math.max(0, game.energy - spent));
+      game.battle.coins = round2(game.battle.coins + coins);
       d.runs[key] = {
         opponent,
         won: payload['won'] === true,
@@ -1514,6 +1520,29 @@ export function buildDailyChallenge(
 /** Why a duel cannot start — the UI turns this into Hebrew. */
 export type DuelEntryError = 'no_opponent' | 'already_dueled' | 'insufficient_energy';
 
+/**
+ * What one duel pays: `winCoins` for putting the ghost down, `lossCoins` for
+ * turning up and losing (a forfeit is a loss).
+ *
+ * ONE function for the whole feature — the run builder (`core/ghost.ts`) prices
+ * the fight through it, the card quotes it before the fight and the result
+ * quotes it after, so the number on the button is by construction the number in
+ * the purse.
+ */
+export function duelCoins(won: boolean): number {
+  return won ? BALANCE.duel.winCoins : BALANCE.duel.lossCoins;
+}
+
+/**
+ * The most a single `ghost_duel` event may EVER pay — the reducer's ceiling.
+ *
+ * It is a `max`, not the win price, so raising either half of the reward tunes
+ * the cap with it and no ordinary duel is ever clipped by its own guard.
+ */
+export function duelCoinCap(): number {
+  return Math.max(BALANCE.duel.winCoins, BALANCE.duel.lossCoins);
+}
+
 export interface DuelEntryStatus {
   ok: boolean;
   error?: DuelEntryError;
@@ -1571,6 +1600,10 @@ export function buildGhostDuel(
     won: result.won === true,
     score: result.won === true ? 1 : 0,
     tiebreak: result.tiebreak,
+    // What the run actually paid (`ghostRun` prices it from `BALANCE.duel` and
+    // the outcome — never from anything the opponent's row said), capped at the
+    // ceiling here and capped again by the reducer.
+    coins: clamp(result.coins, 0, duelCoinCap()),
     seed: result.seed,
     energySpent: result.energySpent,
     snapshotHash,

@@ -2,8 +2,10 @@
  * @vitest-environment jsdom
  *
  * The ghost duel ON SCREEN: the card's states, the lookup, the preview, the
- * fight, the result — and the one state that matters most, ABSENT, because
- * there is no account behind the app.
+ * fight, the result (verdict AND purse) — and the one state that matters most,
+ * ABSENT, because there is no account behind the app. The last block is the
+ * duel's own drawing rule: both fighters wear their own gear, and a hostile
+ * row's invented items dress nobody.
  *
  * NOTHING HERE TOUCHES A NETWORK. The `GhostDuelDeps` port is implemented over
  * a `Map`, exactly the way `main.ts` implements it over the sync engine, so the
@@ -28,10 +30,13 @@ import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { AppEvent, GameState } from '../src/storage/DataStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
 import { createApp } from '../src/ui/app.ts';
+import { buildFeed } from '../src/ui/feed.ts';
 import type { GhostDuelDeps, GhostLookupRow } from '../src/ui/ghost.ts';
 import { RestTimer } from '../src/ui/timer.ts';
 
 const FEE = BALANCE.duel.entryEnergy;
+const WIN_COINS = BALANCE.duel.winCoins;
+const LOSS_COINS = BALANCE.duel.lossCoins;
 const FOE = 'yossi';
 
 function fakeStorage(): StorageLike {
@@ -324,7 +329,7 @@ describe('fighting a ghost', () => {
     expect(document.querySelector('#btEnemySprite svg')?.getAttribute('data-character')).toBe('hero_m');
   });
 
-  it('records ONE event when it ends, charges the fee and pays no coins', async () => {
+  it('records ONE event when it ends, charges the fee and pays the win purse', async () => {
     vi.useFakeTimers();
     const port = new FakeGhosts();
     const ghost = ghostAt(2);
@@ -342,6 +347,7 @@ describe('fighting a ghost', () => {
     const p = events[0]?.payload ?? {};
     expect(Object.keys(p).sort()).toEqual(
       [
+        'coins',
         'date',
         'durationMs',
         'energySpent',
@@ -359,23 +365,34 @@ describe('fighting a ghost', () => {
     expect(p['opponentHandle']).toBe(FOE);
     expect(p['won']).toBe(true);
     expect(p['energySpent']).toBe(FEE);
+    expect(p['coins']).toBe(WIN_COINS);
     // The snapshot that was actually fought is named in the record.
     expect(p['snapshotHash']).toBe(ghostHash(ghost));
 
     const game = gameOf(store);
     expect(game.energy).toBe(energyBefore - FEE);
-    expect(game.battle.coins).toBe(coinsBefore);
+    expect(game.battle.coins).toBe(coinsBefore + WIN_COINS);
     expect(game.duels.wins).toBe(1);
     expect(game.duels.byOpponent[FOE]).toEqual({ wins: 1, losses: 0, duels: 1 });
     // The campaign was not touched.
     expect(game.battle.wavesCleared).toBe(0);
     expect(store.getEvents().some((e) => e.type === 'wave_cleared')).toBe(false);
 
-    // The card shows the verdict…
+    // The card shows the verdict and the purse…
     expect(cardState()).toBe('done');
     expect(card()?.textContent).toContain('ניצחתם');
+    expect(card()?.textContent).toContain(`+${WIN_COINS} 🪙`);
     expect(card()?.textContent).toContain('מחר');
-    expect(document.getElementById('toast')?.textContent).toContain('ניצחתם');
+    // …the toast says what was won and what it paid…
+    const toastText = document.getElementById('toast')?.textContent ?? '';
+    expect(toastText).toContain(`ניצחון על ${FOE}`);
+    expect(toastText).toContain(`+${WIN_COINS} 🪙`);
+    // …the arena's own result line agrees…
+    expect(document.getElementById('btStatus')?.textContent).toContain(`+${WIN_COINS} 🪙`);
+    // …and so does the feed line the log produced.
+    const duelLine = buildFeed(store.getEvents()).find((i) => i.cls.startsWith('duel'));
+    expect(duelLine?.text).toContain(`ניצחון על ${FOE}`);
+    expect(duelLine?.text).toContain(`+${WIN_COINS} 🪙`);
     expect(fightBtn()).toBeNull();
     // …and a beat later the arena is the ordinary battle again.
     vi.advanceTimersByTime(4_000);
@@ -396,9 +413,14 @@ describe('fighting a ghost', () => {
     const p = duelEvents(store)[0]?.payload ?? {};
     expect(p['won']).toBe(false);
     expect(p['outcome']).toBe('defeated');
+    expect(p['coins']).toBe(LOSS_COINS);
     expect(gameOf(store).duels.losses).toBe(1);
-    expect(gameOf(store).battle.coins).toBe(0);
+    // Showing up pays — less than winning, and only once.
+    expect(gameOf(store).battle.coins).toBe(LOSS_COINS);
+    expect(LOSS_COINS).toBeLessThan(WIN_COINS);
     expect(card()?.textContent).toContain('הפסדתם');
+    expect(card()?.textContent).toContain(`+${LOSS_COINS} 🪙`);
+    expect(document.getElementById('toast')?.textContent).toContain(`+${LOSS_COINS} 🪙`);
   });
 
   it('refuses a second duel with the same opponent today, and says why', async () => {
@@ -442,7 +464,9 @@ describe('fighting a ghost', () => {
     expect(events[0]?.payload['won']).toBe(false);
     expect(events[0]?.payload['energySpent']).toBe(FEE);
     expect(gameOf(store).duels.losses).toBe(1);
-    expect(gameOf(store).battle.coins).toBe(0);
+    // A forfeit IS a loss, so it is paid as one — no more, no less.
+    expect(events[0]?.payload['coins']).toBe(LOSS_COINS);
+    expect(gameOf(store).battle.coins).toBe(LOSS_COINS);
 
     // And the duel is spent: coming back offers no rematch today.
     click(document.querySelector('#tabs .tab[data-view="BT"]'));
