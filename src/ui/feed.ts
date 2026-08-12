@@ -64,6 +64,23 @@ interface WaveRun {
   coins: number;
 }
 
+/**
+ * Which parts a dev XP grant went into, in Hebrew: one part by name, all six as
+ * "every body part", anything between as a count — a six-name list would be
+ * longer than the line it sits on.
+ */
+function devPartsHe(raw: unknown): string {
+  if (typeof raw !== 'object' || raw === null) return '';
+  const parts = Object.keys(raw as Record<string, unknown>).filter((k): k is BodyPart =>
+    Object.prototype.hasOwnProperty.call(BODY_PART_HE, k),
+  );
+  const first = parts[0];
+  if (parts.length === 1 && first) return `ל${BODY_PART_HE[first]}`;
+  if (parts.length >= Object.keys(BODY_PART_HE).length) return 'לכל חלקי הגוף';
+  if (parts.length > 1) return `ל־${parts.length} חלקי גוף`;
+  return '';
+}
+
 /** Names the workout day of a `workout_finished` event ('' = leave it unnamed). */
 export type DayNamer = (dayKey: string) => string;
 
@@ -236,6 +253,76 @@ export function buildFeed(
           icon: '⚔️',
           cls: won ? 'duel win' : 'duel loss',
           text: won ? `ניצחון על ${esc(who)}!` : `הפסד מול ${esc(who)}`,
+        });
+        break;
+      }
+      /**
+       * DEV MODE — the 🛠 lines.
+       *
+       * Ordinary `xp_gained` / `energy_gained` events are NOT feed lines (a real
+       * workout writes dozens of them and the feed would be nothing else), so
+       * these two cases render only the dev-marked ones. That asymmetry is the
+       * point: a grant that did not come from training has to be visible, and
+       * the feed is where this app explains itself.
+       */
+      case 'energy_gained': {
+        if (p['dev'] !== true) break;
+        items.push({
+          ts: ev.ts,
+          date,
+          icon: '🛠',
+          cls: 'dev',
+          text: `אנרגיה: +${num(p['amount'])} ⚡ (מצב מפתח)`,
+        });
+        break;
+      }
+      case 'xp_gained': {
+        if (p['dev'] !== true) break;
+        items.push({
+          ts: ev.ts,
+          date,
+          icon: '🛠',
+          cls: 'dev',
+          text: `XP: +${num(p['total'])} ${esc(devPartsHe(p['parts']))} (מצב מפתח)`,
+        });
+        break;
+      }
+      case 'coins_granted': {
+        items.push({
+          ts: ev.ts,
+          date,
+          icon: '🛠',
+          cls: 'dev',
+          text: `מטבעות: +${num(p['amount'])} 🪙 (מצב מפתח)`,
+        });
+        break;
+      }
+      case 'dev_reset': {
+        const scope = str(p['scope']);
+        items.push({
+          ts: ev.ts,
+          date,
+          icon: '🛠',
+          cls: 'dev',
+          text:
+            scope === 'duels'
+              ? `דו־קרבות היום אופסו — אפשר להילחם שוב (מצב מפתח)`
+              : `האתגר היומי אופס — אפשר לשחק שוב (מצב מפתח)`,
+        });
+        break;
+      }
+      /**
+       * The purge stays a line of its own and the grants it took back stay
+       * where they are: the feed is a projection of the LOG, and those grants
+       * really did happen. This line is what explains why the numbers dropped.
+       */
+      case 'dev_purge': {
+        items.push({
+          ts: ev.ts,
+          date,
+          icon: '🛠',
+          cls: 'dev',
+          text: 'הענקות מצב המפתח בוטלו — הדמות חזרה לאימונים האמיתיים בלבד',
         });
         break;
       }

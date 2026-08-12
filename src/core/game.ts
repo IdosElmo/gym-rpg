@@ -41,6 +41,7 @@ import {
   duelEntryStatus,
   emptyGame,
   finalizeGame,
+  rebuildGame,
   weeklyTargetsFromEvents,
   type CharacterPurchaseError,
   type DailyEntryStatus,
@@ -80,8 +81,12 @@ const EMPTY_RESULT: GrantResult = { xp: 0, parts: [], energy: 0, pr: false, leve
  * were appended a line above, so the log is already current) — exactly what
  * `rebuildGame` does for the same log. That is what keeps a plan's weekly target
  * meaning the same thing live and on replay.
+ *
+ * EXPORTED because it is THE write path: the dev grants (`dev/actions.ts`) go
+ * through this same function rather than round their own way to the store, which
+ * is what makes a dev grant an ordinary event in an ordinary log.
  */
-function commit(store: DataStore, pending: readonly PendingEvent[], now: Date): AppEvent[] {
+export function commit(store: DataStore, pending: readonly PendingEvent[], now: Date = new Date()): AppEvent[] {
   const appended = pending.map((p) => store.append(p.type, p.payload));
   const targets = weeklyTargetsFromEvents(store.getEvents());
   store.update((draft) => {
@@ -89,6 +94,31 @@ function commit(store: DataStore, pending: readonly PendingEvent[], now: Date): 
     for (const p of pending) applyGameEvent(game, p.type, p.payload);
     finalizeGame(game, todayISO(now), targets);
     draft.game = game;
+  });
+  return appended;
+}
+
+/**
+ * Append `pending` and then REBUILD the game state from the whole log.
+ *
+ * The incremental path above can only ADD an event's effect, which is exactly
+ * right for every event that grants something — and exactly wrong for
+ * `dev_purge`, whose effect is that a set of events already folded must now be
+ * unfolded. Un-applying them one by one would mean writing a second, inverse
+ * reducer and keeping the two in step for ever; replaying instead reuses the one
+ * reducer we already trust, and lands on the same state a fresh device would
+ * reach from the same log. It is the identical move `ensureGameState` makes when
+ * the cached blob cannot be trusted: the log is the source of truth, so when in
+ * doubt, ask it.
+ *
+ * The cost is a full fold of the log — a few milliseconds, on a button that is
+ * pressed by hand and re-renders the screen anyway.
+ */
+export function commitRebuild(store: DataStore, pending: readonly PendingEvent[], now: Date = new Date()): AppEvent[] {
+  const appended = pending.map((p) => store.append(p.type, p.payload));
+  const rebuilt = rebuildGame(store.getEvents(), todayISO(now));
+  store.update((draft) => {
+    draft.game = rebuilt;
   });
   return appended;
 }

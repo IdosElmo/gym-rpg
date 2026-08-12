@@ -96,6 +96,18 @@ export interface GhostPayload {
   upgrades: Record<string, number>;
   /** Derived from `parts`; carried so a preview needs no arithmetic. */
   characterLevel: number;
+  /**
+   * DEV MODE, declared. Present (and always `true`) while the owner's save
+   * carries a dev grant that has not been purged — see `GameState.devUsed`.
+   *
+   * It is here for one reason: an opponent has the right to know that the
+   * character they are about to fight was partly handed out rather than trained.
+   * The duel card shows a small 🛠 next to their name. It is a LABEL and nothing
+   * else — it changes no stat, no seed and no reward (a duel pays nothing
+   * anyway), so an honest client that hides it gains nothing by hiding it. It
+   * disappears by itself once the owner purges their grants.
+   */
+  dev?: true;
 }
 
 function clampInt(v: unknown, lo: number, hi: number, fallback: number): number {
@@ -150,6 +162,10 @@ export function buildGhost(game: GameState, handle: string): GhostPayload {
     equipped,
     upgrades,
     characterLevel: characterLevel(partsProgressOf(parts)),
+    // Declared only while it is TRUE, so a save that never used dev mode
+    // publishes exactly the payload it always did — and a purge removes the
+    // field again, which `ghostHash` notices and republishes.
+    ...(game.devUsed ? { dev: true as const } : {}),
   };
 }
 
@@ -209,6 +225,9 @@ export function normalizeGhost(raw: unknown): GhostPayload | null {
     // DERIVED, never believed: the row may not claim a level its levels do not
     // add up to.
     characterLevel: characterLevel(partsProgressOf(parts)),
+    // A row may only ever ADD this flag to itself; there is nothing to gain by
+    // lying in either direction, and nothing downstream reads it but a label.
+    ...(raw['dev'] === true ? { dev: true as const } : {}),
   };
 }
 
@@ -256,6 +275,10 @@ export function ghostHash(ghost: GhostPayload): string {
     `t${ghost.streakTier}`,
     equipped,
     upgrades,
+    // The 🛠 flag is part of the snapshot's identity: turning it on (a first dev
+    // grant) or off (a purge) has to republish, or opponents would keep seeing
+    // yesterday's label.
+    ghost.dev === true ? 'dev' : '',
   ].join('|');
   return hashString(canonical).toString(36);
 }
