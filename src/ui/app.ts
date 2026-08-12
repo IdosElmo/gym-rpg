@@ -80,8 +80,11 @@ export interface App {
  * offline shell it has always been, and everything cloudy arrives as data.
  */
 export interface AppHooks {
-  /** The account card + the signed-in meanings of מחיקה / ייבוא. */
-  settings?: Pick<SettingsDeps, 'account' | 'isSignedIn' | 'onLocalMerge'>;
+  /**
+   * The account card, the signed-in meanings of מחיקה / ייבוא — and the 🛠 dev
+   * panel, which `main.ts` supplies only for the owner's session.
+   */
+  settings?: Pick<SettingsDeps, 'account' | 'isSignedIn' | 'onLocalMerge' | 'dev'>;
   /**
    * The ghost-duel plumbing for the קרב screen. Absent = the duel card is not
    * rendered at all, which is the offline app's normal state.

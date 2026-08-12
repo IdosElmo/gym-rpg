@@ -39,6 +39,9 @@
 .feed-item.shop .fi-icon{filter:saturate(1.2)}
 .feed-item.import{border-color:#10B98144}
 .feed-item.daily{border-color:#F59E0B66}
+/* A dev grant. Dashed, because the line is honest about not being training. */
+.feed-item.dev{border-style:dashed; border-color:#94A3B866}
+.feed-item.dev .fi-text{color:var(--muted)}
 
 /* ---------- Account / cloud sync card ---------- */
 /* Sits above the plan card: "who am I and is it backed up" belongs with the
@@ -47,6 +50,25 @@
 .account-card{margin-bottom:12px}
 .account-card .gc-sub.warn{color:var(--warn)}
 .account-card .action-btn{width:100%; margin-top:10px}
+
+/* ---------- 🛠 Dev panel (owner account only, see src/dev/gate.ts) ----------
+   Last card on הגדרות, and visually the quietest: a dashed border and a muted
+   title say "this is a workbench, not part of the game". Every control is a
+   full-width ≥44px target like the rest of the screen — a dev panel that is
+   fiddly to tap on a phone is a dev panel that gets used on a desktop only. */
+.dev-card{margin-top:12px; border-style:dashed; border-color:#94A3B855}
+.dev-card .gc-title{color:var(--muted)}
+.dev-actions{display:flex; flex-wrap:wrap; gap:8px; margin-top:12px}
+.dev-actions .action-btn{flex:1 1 46%; min-height:44px; padding:11px 8px; font-size:13px}
+.dev-xp{margin-top:12px}
+.dev-xp-row{display:flex; gap:8px; align-items:stretch; margin-top:6px}
+.dev-xp-row .action-btn{flex:0 0 auto; min-width:96px; min-height:44px}
+.dev-select{
+  flex:1; min-width:0; min-height:44px; padding:0 10px;
+  background:var(--card-2); border:1px solid var(--line); border-radius:12px;
+  color:var(--text); font-size:14px; font-weight:700; font-family:inherit;
+}
+.dev-card .action-btn.danger{width:100%; margin-top:12px; min-height:44px}
 
 /* ---------- Settings screen ---------- */
 /* The quiet last line of הגדרות: what this app is, and the offline promise the

@@ -8,7 +8,10 @@
  *   1. the cloud/account card — "am I backed up, as whom" (see sync/account.ts);
  *   2. the plan card + ⚙️ — the second entry point into the plan editor;
  *   3. data actions — export / import / clear;
- *   4. one quiet app-info line.
+ *   4. the 🛠 dev panel — ONLY on the owner's session (see dev/gate.ts). For
+ *      everybody else it is not rendered at all, so the screen above is
+ *      byte-identical to what it has always been;
+ *   5. one quiet app-info line.
  *
  * The workout LOG lives next door on the היסטוריה inner tab (ui/history.ts).
  * The split is the whole point of the hub: history is something you browse,
@@ -25,6 +28,7 @@ import type { AppState, DataStore } from '../storage/DataStore.ts';
 import { mergeImport } from '../storage/merge.ts';
 import { buildExport, parseImport } from '../storage/migrate.ts';
 import { bindAccountCard, renderAccountCard, type AccountDeps } from '../sync/account.ts';
+import { bindDevPanel, devPanelCard, type DevPanelDeps } from './devPanel.ts';
 import { esc, must } from './dom.ts';
 import { toast } from './toast.ts';
 
@@ -50,6 +54,12 @@ export interface SettingsDeps {
   isSignedIn?: () => boolean;
   /** Called after an additive import, so the engine can upload what arrived. */
   onLocalMerge?: () => void;
+  /**
+   * The 🛠 dev panel, when this session passed the owner gate (`dev/gate.ts`).
+   * Absent for everybody else, which is the whole feature: no card, no DOM, no
+   * hint that there is one — the same rule the account card follows.
+   */
+  dev?: DevPanelDeps;
 }
 
 /** The plan card — the settings screen's entry point into the editor. */
@@ -87,6 +97,7 @@ export function renderSettings(main: HTMLElement, deps: SettingsDeps): void {
   ${deps.account ? renderAccountCard(deps.account) : ''}
   ${planCard(state)}
   ${dataCard()}
+  ${deps.dev ? devPanelCard() : ''}
   <p class="app-info">Gym RPG · גרסה ${esc(APP_VERSION)}<br>💪 האפליקציה עובדת 100% אופליין · הנתונים נשמרים במכשיר בלבד</p>`;
   bind(main, deps);
 }
@@ -106,6 +117,7 @@ function bind(main: HTMLElement, deps: SettingsDeps): void {
   const { store, rerender } = deps;
   const fileInput = must('importFile') as HTMLInputElement;
   if (deps.account) bindAccountCard(main, deps.account);
+  if (deps.dev) bindDevPanel(main, deps.dev);
 
   main.querySelector<HTMLButtonElement>('#btnExport')?.addEventListener('click', () => {
     exportJSON(store);

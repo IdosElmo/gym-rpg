@@ -22,11 +22,17 @@ import type { DataStore } from './storage/DataStore.ts';
 import { gameOf, refreshStreak } from './core/game.ts';
 import { buildGhost, ghostHash } from './core/ghost.ts';
 import { defaultHandle } from './core/handle.ts';
+import { defaultDay } from './core/plan.ts';
+import { createDevApi } from './dev/actions.ts';
+import { devGateOpen } from './dev/gate.ts';
+import { attachDevApi, detachDevApi } from './dev/window.ts';
+import { devResetCooldowns } from './ui/battle.ts';
 import { isSignedIn, refreshAccountCard, type AccountDeps } from './sync/account.ts';
 import { syncConfigured } from './sync/config.ts';
 import { SyncEngine, type SyncStatus } from './sync/engine.ts';
 import { createSupabaseSync } from './sync/supabaseBackend.ts';
 import { createApp, type App, type AppHooks } from './ui/app.ts';
+import type { SettingsDeps } from './ui/settings.ts';
 import type { GhostDuelDeps, GhostLookupRow } from './ui/ghost.ts';
 import { initImportInput } from './ui/settings.ts';
 import { createRestTimer } from './ui/timer.ts';
@@ -172,17 +178,56 @@ function wireSync(store: DataStore): SyncWiring {
     app?.render(); // `onRender` below clears the flag
   }
 
+  /**
+   * The settings hooks are MUTABLE on purpose: the dev panel appears (and
+   * disappears) with the session, long after the app was created, and `ui/app.ts`
+   * spreads this object on every render — so assigning `dev` here is enough for
+   * the next paint to have the card, and deleting it is enough for the card to
+   * be gone. No re-wiring, no second hook channel.
+   */
+  const settingsHooks: Pick<SettingsDeps, 'account' | 'isSignedIn' | 'onLocalMerge' | 'dev'> = {
+    account,
+    isSignedIn: () => isSignedIn(status),
+    onLocalMerge: () => {
+      // An import arrived through `replaceAll`, which the engine cannot see.
+      engine.enqueueAll();
+      void engine.sync();
+    },
+  };
+
+  /**
+   * THE DEV PANEL — built once, handed out only while the gate is open.
+   *
+   * The API itself is harmless to construct (it is a closure over the store), so
+   * the gate governs exactly two things: whether the settings screen is given
+   * `dev`, and whether `window.gymDev` exists. Both are re-evaluated on every
+   * auth change, which is what makes signing out take the panel away.
+   */
+  const devApi = createDevApi({
+    store,
+    day: () => defaultDay(store.getState().plan),
+    resetCooldowns: devResetCooldowns,
+    onChange: () => app?.render(),
+  });
+  let devOpen = false;
+
+  async function refreshDevMode(): Promise<void> {
+    const open = await devGateOpen({ email, protocol: location.protocol });
+    if (open === devOpen) return;
+    devOpen = open;
+    if (open) {
+      settingsHooks.dev = { api: devApi };
+      attachDevApi(window as unknown as Record<string, unknown>, devApi);
+    } else {
+      delete settingsHooks.dev;
+      detachDevApi(window as unknown as Record<string, unknown>);
+    }
+    app?.render();
+  }
+
   return {
     hooks: {
-      settings: {
-        account,
-        isSignedIn: () => isSignedIn(status),
-        onLocalMerge: () => {
-          // An import arrived through `replaceAll`, which the engine cannot see.
-          engine.enqueueAll();
-          void engine.sync();
-        },
-      },
+      settings: settingsHooks,
       ghost,
       onRender: () => {
         deferred = false;
@@ -196,6 +241,7 @@ function wireSync(store: DataStore): SyncWiring {
         userId = user?.id ?? null;
         if (user) void engine.onSignedIn(user.id);
         else engine.stop();
+        void refreshDevMode();
         if (!refreshAccountCard(account)) app?.render();
       });
       // The session restored on load (or completed from an OAuth redirect).
@@ -203,6 +249,7 @@ function wireSync(store: DataStore): SyncWiring {
         if (!user) return;
         email = user.email;
         userId = user.id;
+        void refreshDevMode();
         void engine.onSignedIn(user.id);
       });
     },
