@@ -53,6 +53,7 @@ import {
   type CharacterHair,
 } from '../data/characters.ts';
 import {
+  EQUIPMENT_SLOTS,
   equipmentById,
   type BossDef,
   type EquipmentDef,
@@ -405,12 +406,58 @@ function starBadge(x: number, y: number, r: number, fill: string, stroke: string
 }
 
 /**
+ * THE GLOW, and why it is an SVG filter rather than a CSS one.
+ *
+ * It used to be `filter:drop-shadow(0 0 Npx var(--up-glow))` in
+ * `styles/character.css`, with the colour handed over as a custom property.
+ * Two things about that are unsafe outside a desktop Chrome, and a Galaxy S24
+ * showed both at once: a `var()` inside a `filter` function is resolved by a
+ * path Samsung's renderer gets wrong on SVG children — an unresolved colour
+ * falls back to BLACK, which is exactly the dark blob the screenshot showed
+ * under an upgraded shoe — and the +3 rule stacked TWO drop-shadows, which
+ * compound into a floodlight rather than reading as a glint.
+ *
+ * So: one `<feDropShadow>` per upgraded item, with the item's own accent baked
+ * in as an explicit `flood-color` (it is known at render time — there is
+ * nothing to resolve), a small `stdDeviation` and a bounded `flood-opacity`.
+ * One filter per group, never two, so nothing compounds; and because the id is
+ * derived from the item and its level, the same definition emitted twice on a
+ * page (the roster strip and the stage draw the same character) is
+ * byte-identical, which is the one case where a repeated id is harmless.
+ *
+ * The blur is in USER UNITS — the stage is 200×320 — so the glow is the same
+ * fraction of the drawing at 220px (דמות), 90px (arena) and 62px (a card).
+ */
+const GLOW: Readonly<Record<number, { readonly blur: number; readonly opacity: number }>> = {
+  2: { blur: 1.1, opacity: 0.5 },
+  3: { blur: 1.7, opacity: 0.68 },
+};
+
+/** Deterministic id, so two copies of one item on a page share one definition. */
+function glowId(itemId: string, level: number): string {
+  return `chUp-${itemId}-${level}`;
+}
+
+/** The `<filter>` for one upgraded item ('' below +2, where nothing glows). */
+function glowFilter(item: EquipmentDef, level: number): string {
+  const g = GLOW[level];
+  if (!g) return '';
+  // A generous filter region: the default (-10%…120%) clips a glow off a thin
+  // shape such as a belt strap, and a clipped glow reads as a hard edge.
+  return `<filter id="${glowId(item.id, level)}" x="-35%" y="-35%" width="170%" height="170%"
+      color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="0" stdDeviation="${n(g.blur)}" flood-color="${item.accent}"
+        flood-opacity="${g.opacity}"/>
+    </filter>`;
+}
+
+/**
  * The visual treatment of an upgrade — SYSTEMATIC, one rule for all 12 items:
  *   +1  one glint on the item's primary point (subtle: nothing else changes);
- *   +2  a glint on EVERY point of the item, plus a coloured glow (CSS filter,
- *       driven by `--up-glow` so the glow is always the item's own accent);
- *   +3  the same glints with a stronger glow, plus a small star badge pinned
- *       just outside the item.
+ *   +2  a glint on EVERY point of the item, plus a coloured glow (the SVG
+ *       filter above, always in the item's own accent);
+ *   +3  the same glints with a slightly stronger glow, plus a small star badge
+ *       pinned just outside the item.
  *
  * Everything is placed from `flairSpots`, i.e. from the character's own anchors,
  * so it fits every body × skin pair and every level without a special case. The
@@ -454,30 +501,51 @@ export function equipmentLayer(
   return SLOT_DRAW[slot](geo, anchors, item) + upgradeFlair(slot, anchors, item, upgrades[id] ?? 0);
 }
 
+/** The worn item of a slot and the upgrade level it is actually at (0 = none). */
+function wornUpgrade(
+  slot: EquipmentSlot,
+  equipment: EquipmentView | undefined,
+): { item: EquipmentDef; level: number } | null {
+  const id = equipment?.equipped?.[slot];
+  const item = id ? equipmentById(id) : undefined;
+  if (!item || item.slot !== slot) return null;
+  return { item, level: clampUpgradeLevel(equipment?.upgrades?.[item.id] ?? 0) };
+}
+
 /**
  * One whole equipment `<g>`, upgrade flair included.
  *
  * A slot that is empty or at +0 renders EXACTLY the group it always did
  * (`<g class="ch-equip" data-slot="…">`), so nothing about an un-upgraded
  * character's markup changes. An upgraded one additionally carries
- * `upgraded up-N`, `data-upgrade="N"` and the item's accent as `--up-glow`,
- * which is all `styles/character.css` needs to paint the glow — the colour has
- * to come from the item, and a filter has to come from CSS, so the custom
- * property is the seam between them.
+ * `upgraded up-N` + `data-upgrade="N"` — the hooks the shop and the tests read
+ * — and, from +2 up, a `filter` pointing at its own `<feDropShadow>` (see
+ * {@link glowFilter}; the definitions are collected into the drawing's single
+ * `<defs>` by {@link upgradeGlowDefs}).
  */
 export function equipmentGroup(
   slot: EquipmentSlot,
   geo: CharacterGeometry,
   equipment: EquipmentView | undefined,
 ): string {
-  const equipped = equipment?.equipped ?? {};
-  const upgrades = equipment?.upgrades ?? {};
-  const id = equipped[slot];
-  const item = id ? equipmentById(id) : undefined;
-  const lv = item && item.slot === slot ? clampUpgradeLevel(upgrades[item.id] ?? 0) : 0;
+  const worn = wornUpgrade(slot, equipment);
+  const lv = worn?.level ?? 0;
+  const glow = worn && GLOW[lv] ? ` filter="url(#${glowId(worn.item.id, lv)})"` : '';
   const attrs =
-    lv > 0 ? ` upgraded up-${lv}" data-slot="${slot}" data-upgrade="${lv}" style="--up-glow:${item?.accent ?? ''}"` : `" data-slot="${slot}"`;
-  return `<g class="ch-equip${attrs}>${equipmentLayer(slot, geo, equipped, upgrades)}</g>`;
+    lv > 0 ? ` upgraded up-${lv}" data-slot="${slot}" data-upgrade="${lv}"${glow}` : `" data-slot="${slot}"`;
+  const contents = equipmentLayer(slot, geo, equipment?.equipped ?? {}, equipment?.upgrades ?? {});
+  return `<g class="ch-equip${attrs}>${contents}</g>`;
+}
+
+/**
+ * Every glow definition the drawing needs, in slot order — '' when nothing worn
+ * is upgraded past +1, which is the overwhelmingly common case.
+ */
+export function upgradeGlowDefs(equipment: EquipmentView | undefined): string {
+  return EQUIPMENT_SLOTS.map((slot) => {
+    const worn = wornUpgrade(slot, equipment);
+    return worn ? glowFilter(worn.item, worn.level) : '';
+  }).join('');
 }
 
 /* -------------------------------------------------------------- trophies */
@@ -642,15 +710,38 @@ const EMPTY_HAIR: HairLayers = { behind: '', front: '', cascade: '' };
  *      sits behind the torso (and over a cape, which is drawn before it —
  *      hair rests on a cape, it does not vanish under one).
  *   3. `front` — the hairline that frames the face, its two accent highlights,
- *      and ONE strand per side falling over the shoulder. Drawn last of all, so
- *      the length still reads at any level: a very wide back can swallow the
+ *      and one strand per side falling over the shoulder. Drawn last of all, so
+ *      the hair still reads at any level: a very wide back can swallow the
  *      cascade, it can never swallow these.
  *
- * Nothing here scales with a body-part level, so no amount of chest or shoulder
- * growth can push a curl outside the 200×320 stage: the widest point is
- * ±2.05·r from the centre line and the lowest is ≈4.9·r below the head centre.
+ * TWO KEEP-OUTS, both learned from a real screenshot (a Galaxy S24 at a high
+ * level, where the hair had eaten the character):
+ *
+ *   - THE FACE. Every curl of the `front` layer clears a circle around the
+ *     features — the hairline frames the face from outside it, and no side curl
+ *     may sit on a cheek or an eye. (The `behind` crown may overlap freely: it
+ *     is drawn under the skull.)
+ *   - THE CHEST. The `front` strands STOP at the shoulder line. They used to
+ *     fall to y≈118 at a fixed x, which is inside the torso from about level 5
+ *     up — a dark bib straight across both pecs. The LENGTH of this hair is the
+ *     `cascade`, and the cascade is drawn BEFORE the body, so the length can
+ *     never land on the chest no matter how wide the character grows.
+ *
+ * The strand tip is the one part of the cloud that reads the geometry: it tracks
+ * the shoulder point, landing just inside the deltoid cap, so the strands HUG
+ * the silhouette at every level instead of crossing it (a fixed tip stops
+ * hugging anything the moment the shoulders outgrow it). It is CLAMPED to
+ * [1.05·r, 2.2·r], which is what keeps the old "no level can push a curl off
+ * the 200×320 stage" property true: the widest curl is ≈2.4·r from the centre
+ * line and the lowest ≈5.0·r below the head centre, at every level.
  */
-function curlCloudLayers(cy: number, r: number, h: CharacterHair, tattered = false): HairLayers {
+function curlCloudLayers(
+  cy: number,
+  r: number,
+  h: CharacterHair,
+  geo: CharacterGeometry,
+  tattered = false,
+): HairLayers {
   const curl = (x: number, y: number, rad: number, fill: string): string =>
     `<circle class="ch-curl" cx="${n(x)}" cy="${n(y)}" r="${n(rad)}" fill="${fill}"/>`;
   // Tattered hair is the same cloud with pieces missing and thinner curls — the
@@ -698,19 +789,25 @@ function curlCloudLayers(cy: number, r: number, h: CharacterHair, tattered = fal
 
   const cascade =
     // the outer fall — the widest part of the silhouette, ending at chest height
-    column(6, [1.16, 1.68], [0.78, 4.68], [0.5, 0.36], h.main) +
+    column(6, [1.12, 1.58], [0.78, 4.68], [0.46, 0.33], h.main) +
     // …and a narrower pair right behind the neck, so the mass is not a ring
-    column(5, [0.42, 0.76], [1.05, 4.2], [0.56, 0.44], h.main) +
+    column(5, [0.42, 0.76], [1.05, 4.2], [0.52, 0.42], h.main) +
     // two highlight curls high on the fall keep it from reading as one flat blob
-    column(2, [1.02, 1.24], [1.5, 2.35], [0.2, 0.17], h.accent);
+    column(2, [1.0, 1.2], [1.5, 2.35], [0.2, 0.17], h.accent);
 
-  // The hairline stops well above the eyes (they are drawn last, but an eye
-  // sitting IN the hair reads as a mistake at card size).
+  // WHERE THE FRONT STRANDS END: on the shoulder, just inside the deltoid cap,
+  // and never below it. Clamped, so the widest body cannot drag a curl off the
+  // stage and the narrowest cannot pull one onto the face.
+  const tipX = clamp(geo.shoulderHalf - geo.deltoidR * 0.45, r * 1.05, r * 2.2) / r;
+  const tipY = (SHOULDER_Y + 4 - cy) / r;
+
+  // The hairline frames the face from OUTSIDE it: it rides a wider ring than the
+  // skull and stops short of the temples, so no curl reaches an eye or a cheek.
   const front =
-    ring(r * 0.86, r * 0.34, 148, 32, 6, h.main) +
-    ring(r * 1.0, r * 0.2, 138, 112, 2, h.accent) +
+    ring(r * 0.94, r * 0.29, 158, 22, 6, h.main) +
+    ring(r * 1.02, r * 0.18, 142, 116, 2, h.accent) +
     // the strands worn over the shoulders — always visible, at every level
-    column(6, [0.92, 1.64], [0.35, 4.5], [0.42, 0.28], h.main);
+    column(5, [1.02, tipX], [0.55, tipY], [0.33, 0.19], h.main);
 
   return { behind, front, cascade };
 }
@@ -727,11 +824,13 @@ function tiedHairLayers(cy: number, r: number, h: CharacterHair): HairLayers {
   return { behind, front, cascade: '' };
 }
 
-const HAIR_DRAW: Readonly<Record<CharacterHair['kind'], (cy: number, r: number, h: CharacterHair) => HairLayers>> = {
+const HAIR_DRAW: Readonly<
+  Record<CharacterHair['kind'], (cy: number, r: number, h: CharacterHair, geo: CharacterGeometry) => HairLayers>
+> = {
   none: () => EMPTY_HAIR,
-  curls: (cy, r, h) => curlCloudLayers(cy, r, h),
+  curls: (cy, r, h, geo) => curlCloudLayers(cy, r, h, geo),
   /** The undead cloud: same curls, a third of them torn away. */
-  ragged: (cy, r, h) => curlCloudLayers(cy, r, h, true),
+  ragged: (cy, r, h, geo) => curlCloudLayers(cy, r, h, geo, true),
   tied: (cy, r, h) => tiedHairLayers(cy, r, h),
 };
 
@@ -811,7 +910,7 @@ const DECOR_DRAW: Readonly<Record<CharacterDecor['kind'], (cy: number, r: number
  */
 function lookLayers(geo: CharacterGeometry, char: CharacterDef): HairLayers {
   const r = geo.headR;
-  const hair = HAIR_DRAW[char.hair.kind](HEAD_CY, r, char.hair);
+  const hair = HAIR_DRAW[char.hair.kind](HEAD_CY, r, char.hair, geo);
   const decor = DECOR_DRAW[char.decor.kind](HEAD_CY, r, char.decor);
   const out: HairLayers = {
     behind: hair.behind + decor.behind,
@@ -926,7 +1025,7 @@ export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {
     <linearGradient id="${grad}" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="${p.torsoTop}"/>
       <stop offset="100%" stop-color="${p.torsoBottom}"/>
-    </linearGradient>
+    </linearGradient>${upgradeGlowDefs(opts.equipment)}
   </defs>
   <ellipse class="ch-shadow" cx="100" cy="306" rx="${n(geo.hipHalf + 16)}" ry="7"/>
 

@@ -281,13 +281,15 @@ describe('roster artwork', () => {
       expect(doc.querySelectorAll('.ch-decor.front .ch-curl').length).toBeGreaterThanOrEqual(10);
       expect(doc.querySelector('.ch-decor.back ellipse')).not.toBeNull(); // the crown mass
 
-      // …and it is LONG: curls fall past the shoulder line and reach the chest,
-      // both behind the body and over it.
+      // …and it is LONG: curls fall past the shoulder line and reach the chest.
+      // The LENGTH is the cascade's job — it is drawn before the body, so it can
+      // be as long as it likes without ever landing ON the character. The front
+      // strands stop at the shoulder (see the keep-out test below).
       const below = (sel: string, y: number): number =>
         [...doc.querySelectorAll(sel)].filter((c) => Number(c.getAttribute('cy')) > y).length;
       expect(below('.ch-curl', 84), `L${level} past the shoulders`).toBeGreaterThanOrEqual(10);
       expect(below('.ch-hair.back .ch-curl', 100), `L${level} cascade at chest height`).toBeGreaterThanOrEqual(4);
-      expect(below('.ch-decor.front .ch-curl', 100), `L${level} strands at chest height`).toBeGreaterThanOrEqual(2);
+      expect(below('.ch-decor.front .ch-curl', 82), `L${level} strands over the shoulder`).toBeGreaterThanOrEqual(2);
       const lowest = Math.max(...curls.map((c) => Number(c.getAttribute('cy')) + Number(c.getAttribute('r'))));
       expect(lowest, `L${level} reaches the chest`).toBeGreaterThan(110);
 
@@ -309,6 +311,84 @@ describe('roster artwork', () => {
       // the face is never covered by the hairline
       expect(doc.querySelectorAll('.ch-eye')).toHaveLength(2);
       expect(doc.querySelector('.ch-mouth')).not.toBeNull();
+    }
+  });
+
+  /**
+   * THE TWO KEEP-OUTS — the bug an S24 screenshot showed and this test now
+   * forbids: at a high level the front strands used to fall straight down the
+   * middle of the chest (a dark bib over both pecs) and the hairline curls sat
+   * on the cheeks. Both are geometric properties, so both are checked as
+   * geometry, on both curly skins, across the whole growth curve:
+   *
+   *   FACE  — no curl of the FRONT layer may touch a circle around the
+   *           features. (The crown may overlap it freely: it is drawn behind
+   *           the skull, so it cannot cover anything.)
+   *   CHEST — no front curl may reach the pec/bust pair AT THIS LEVEL's
+   *           proportions. The length lives in the cascade, which is drawn
+   *           before the body and is therefore always behind it.
+   */
+  it('keeps the front hair off the face and off the chest, at every level', () => {
+    for (const id of ['hero_f', 'zombie_f']) {
+      for (const level of [1, 5, 10, 25, 99]) {
+        const parts = partsAt(level);
+        const geo = characterGeometry(parts, 'female');
+        const r = geo.headR;
+        const doc = parser.parseFromString(characterSvg(parts, { character: id }), 'image/svg+xml');
+        const front = [...doc.querySelectorAll('.ch-decor.front .ch-curl')];
+        expect(front.length, `${id} L${level} front curls`).toBeGreaterThanOrEqual(10);
+
+        // the features: eyes at ±0.39r / −0.11r, mouth at +0.39…+0.67r
+        const faceCy = 42 + r * 0.15;
+        const faceR = r * 0.62;
+        // the top of the bust, which MOVES with the chest level
+        const pecTop = geo.pecY - geo.pecRy;
+
+        for (const c of front) {
+          const cx = Number(c.getAttribute('cx'));
+          const cy = Number(c.getAttribute('cy'));
+          const cr = Number(c.getAttribute('r'));
+          expect(
+            Math.hypot(cx - 100, cy - faceCy),
+            `${id} L${level}: a front curl at (${cx},${cy}) r${cr} sits on the face`,
+          ).toBeGreaterThan(faceR + cr);
+          expect(
+            cy + cr,
+            `${id} L${level}: a front curl reaches the chest (bust starts at ${pecTop})`,
+          ).toBeLessThan(pecTop);
+          // …and it hugs the shoulder line (y=84) rather than crossing the body
+          expect(cy + cr, `${id} L${level}: a front curl past the shoulder`).toBeLessThan(96);
+        }
+      }
+    }
+  });
+
+  /**
+   * PAINT ORDER, asserted at every level rather than once: the cascade is only
+   * "behind the torso" because of where it sits in the document, and a refactor
+   * that moved that group would silently put a curtain of hair over the body.
+   */
+  it('draws cape → cascade → torso → head → front strands, at every level', () => {
+    for (const level of [1, 5, 10, 25, 99]) {
+      const svg = characterSvg(partsAt(level), {
+        character: 'hero_f',
+        equipment: { owned: ['cape_3'], equipped: { cape: 'cape_3' } },
+      });
+      const at = (needle: string): number => {
+        const i = svg.indexOf(needle);
+        expect(i, `L${level}: missing ${needle}`).toBeGreaterThan(-1);
+        return i;
+      };
+      const order = [
+        at('data-slot="cape"'),
+        at('class="ch-hair back"'),
+        at('ch-torso-group'),
+        at('class="ch-head"'),
+        at('class="ch-decor front"'),
+      ];
+      expect([...order].sort((a, b) => a - b), `L${level} draw order`).toEqual(order);
+      // the front decor is inside the head group, after the skull it frames
+      expect(at('class="ch-skin"'), `L${level}`).toBeLessThan(at('class="ch-decor front"'));
     }
   });
 

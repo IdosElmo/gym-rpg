@@ -28,7 +28,13 @@ import { BALANCE } from '../src/core/balance.ts';
 import { gameOf, onSetCompleted } from '../src/core/game.ts';
 import { emptyGame, totalXpToReach } from '../src/core/xp.ts';
 import { findExercise, type BodyPart, type Exercise } from '../src/data/program.ts';
-import { EQUIPMENT_SLOTS, WORLDS, WORLD_BOSSES, type EquipmentSlot } from '../src/data/gameContent.ts';
+import {
+  EQUIPMENT_SLOTS,
+  WORLDS,
+  WORLD_BOSSES,
+  equipmentById,
+  type EquipmentSlot,
+} from '../src/data/gameContent.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
 import { createApp } from '../src/ui/app.ts';
@@ -456,8 +462,17 @@ describe('the hero in the arena', () => {
     expect(belt?.classList.contains('upgraded')).toBe(true);
     expect(belt?.classList.contains('up-3')).toBe(true);
     expect(belt?.getAttribute('data-upgrade')).toBe('3');
-    // The glow colour has to reach CSS as the ITEM's accent.
-    expect(belt?.getAttribute('style')).toContain('--up-glow');
+    // The glow colour has to reach the RENDERER as the item's own accent, and
+    // it travels as an SVG <feDropShadow> rather than a CSS var() (which some
+    // Android renderers fail to resolve — see ui/characterSvg.ts).
+    const ref = belt?.getAttribute('filter') ?? '';
+    expect(ref).toMatch(/^url\(#[\w-]+\)$/);
+    // (a type selector cannot name `feDropShadow` in an HTML document — the
+    // parser keeps the camel case, the selector engine lowercases it — so the
+    // definition is reached through the filter it lives in.)
+    const filter = heroSvg()?.querySelector(`defs filter[id="${ref.slice(5, -1)}"]`);
+    expect(filter?.children).toHaveLength(1);
+    expect(filter?.firstElementChild?.getAttribute('flood-color')).toBe(equipmentById('belt_3')?.accent);
     expect(belt?.querySelector('.ch-spark')).not.toBeNull();
     // +3 is the only level that pins a star badge.
     expect(belt?.querySelector('.ch-up-badge')).not.toBeNull();

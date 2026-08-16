@@ -12,6 +12,22 @@
  *     audio files, nothing fetched;
  *   - vibration pattern, and an audio-context unlock on the first touch/click
  *     (mobile autoplay requirement).
+ *
+ * …plus three things that port got wrong on a real phone, all three reported
+ * from the same set of screenshots (a bar stuck at "0:00 · המשך" over the
+ * character screen's stat tiles):
+ *   - it AUTO-HIDES {@link AUTO_HIDE_MS} after the countdown ends, so a bar
+ *     nobody closed stops floating over the next screen forever. Touching it
+ *     cancels that outright — if the player is still using it, it stays;
+ *   - it toggles `body.timer-open`, which is what reserves the bottom room
+ *     under EVERY screen (the legacy padding was a constant that only ever
+ *     matched the workout screen — see `styles/base.css`);
+ *   - in the finished state there is nothing to CONTINUE, so the pause control
+ *     leaves the row instead of offering "המשך" over a 0:00 clock. איפוס and ✕
+ *     stay, because both still do something.
+ * None of it animates anything new, so `prefers-reduced-motion` needs no
+ * special case: hiding rides the same transform transition the global rule
+ * already switches off, and a bar that vanishes instantly is exactly right.
  */
 
 interface TimerElements {
@@ -102,12 +118,21 @@ export function fmtClock(s: number): string {
 
 /* ------------------------------------------------------------- the timer */
 
+/**
+ * How long the FINISHED bar stays on screen before it hides itself.
+ *
+ * Long enough to be read and acted on between two sets, short enough that a
+ * "0:00" bar is never still sitting over the character screen minutes later.
+ */
+export const AUTO_HIDE_MS = 20_000;
+
 export class RestTimer {
   private total = 90;
   private left = 90;
   private running = false;
   private iv: ReturnType<typeof setInterval> | null = null;
   private lastTick: number | null = null;
+  private hideTo: ReturnType<typeof setTimeout> | null = null;
   private readonly el: TimerElements;
 
   constructor(el: TimerElements) {
@@ -117,22 +142,28 @@ export class RestTimer {
     this.el.pause.addEventListener('click', () => this.togglePause());
     this.el.reset.addEventListener('click', () => this.reset());
     this.el.close.addEventListener('click', () => this.close());
+    // Touching the bar AT ALL means the player is still using it — the
+    // auto-hide is a courtesy for a bar nobody came back to, not a deadline.
+    this.el.bar.addEventListener('pointerdown', () => this.cancelAutoHide());
     this.updateUI();
   }
 
   /** Auto-called when a set is checked. */
   start(seconds: number, label?: string): void {
+    this.cancelAutoHide();
     this.total = seconds;
     this.left = seconds;
     this.running = true;
     this.el.title.textContent = label ?? 'מנוחה';
     this.el.bar.classList.add('show');
     this.el.bar.classList.remove('flash');
+    this.setOpen(true);
     this.restartInterval();
     this.updateUI();
   }
 
   add(seconds: number): void {
+    this.cancelAutoHide();
     this.left += seconds;
     this.total = Math.max(this.total, this.left);
     if (!this.running && this.left > 0) {
@@ -144,6 +175,7 @@ export class RestTimer {
   }
 
   sub(seconds: number): void {
+    this.cancelAutoHide();
     this.left = Math.max(0, this.left - seconds);
     if (this.left === 0 && this.running) {
       this.running = false;
@@ -154,6 +186,7 @@ export class RestTimer {
   }
 
   togglePause(): void {
+    this.cancelAutoHide();
     if (this.left <= 0) return;
     this.running = !this.running;
     this.lastTick = null;
@@ -162,6 +195,7 @@ export class RestTimer {
   }
 
   reset(): void {
+    this.cancelAutoHide();
     this.left = this.total;
     this.running = true;
     this.restartInterval();
@@ -170,9 +204,36 @@ export class RestTimer {
   }
 
   close(): void {
+    this.cancelAutoHide();
     this.running = false;
     this.stopInterval();
-    this.el.bar.classList.remove('show', 'flash');
+    this.el.bar.classList.remove('show', 'flash', 'zero');
+    this.setOpen(false);
+  }
+
+  /* ------------------------------------------------------------ auto-hide */
+
+  /** Hide the finished bar unless the player comes back to it first. */
+  private armAutoHide(): void {
+    this.cancelAutoHide();
+    this.hideTo = setTimeout(() => {
+      this.hideTo = null;
+      this.close();
+    }, AUTO_HIDE_MS);
+  }
+
+  private cancelAutoHide(): void {
+    if (this.hideTo !== null) clearTimeout(this.hideTo);
+    this.hideTo = null;
+  }
+
+  /**
+   * The seam between the bar and the page: while it is up, every screen gets
+   * the bottom padding that keeps the bar off its content.
+   */
+  private setOpen(open: boolean): void {
+    const body: HTMLElement | null = this.el.bar.ownerDocument.body;
+    if (body) body.classList.toggle('timer-open', open);
   }
 
   private restartInterval(): void {
@@ -211,13 +272,20 @@ export class RestTimer {
     chime();
     vibrate([200, 100, 200, 100, 400]);
     this.el.title.textContent = 'המנוחה הסתיימה — לסט הבא! 💪';
+    this.armAutoHide();
   }
 
   private updateUI(): void {
+    const finished = this.left <= 0;
     this.el.time.textContent = fmtClock(this.left);
     this.el.prog.style.width = (this.total ? (this.left / this.total) * 100 : 0) + '%';
     this.el.pause.textContent = this.running ? 'השהה' : 'המשך';
-    this.el.bar.classList.toggle('zero', this.left <= 0);
+    // "0:00 · המשך" offers to continue something that is over. In the finished
+    // state the control leaves the row entirely (and is disabled, so it is out
+    // of the tab order too); איפוס starts the rest again, ✕ puts the bar away.
+    this.el.pause.hidden = finished;
+    (this.el.pause as HTMLElement & { disabled?: boolean }).disabled = finished;
+    this.el.bar.classList.toggle('zero', finished);
   }
 }
 

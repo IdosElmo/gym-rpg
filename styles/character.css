@@ -194,12 +194,16 @@
 .eq-item.upgraded{border-color:#A78BFA55}
 .eq-item.up-3{border-color:#F59E0B77}
 
-/* THE FLAIR ON THE DRAWING. The colour is the item's own accent, handed over as
-   `--up-glow` by `ui/characterSvg.ts` (a filter belongs in CSS, a palette
-   belongs to the item — the custom property is the seam). +1 is the bare glint
-   the SVG already drew; +2 adds a glow, +3 a stronger one under the star. */
-.ch-equip.up-2{filter:drop-shadow(0 0 2.5px var(--up-glow, #FDE68A))}
-.ch-equip.up-3{filter:drop-shadow(0 0 3px var(--up-glow, #FDE68A)) drop-shadow(0 0 7px var(--up-glow, #FDE68A))}
+/* THE FLAIR ON THE DRAWING lives entirely in the SVG now — see the GLOW block
+   in `ui/characterSvg.ts`. This used to be
+   `.ch-equip.up-2{filter:drop-shadow(0 0 2.5px var(--up-glow))}` plus a +3 rule
+   that stacked two shadows, and both halves of that turned out to be wrong on
+   Android/Samsung: a `var()` inside a `filter` function is unreliable on SVG
+   children there (an unresolved colour falls back to BLACK — the dark blob in
+   the bug report), and two stacked drop-shadows compound into a floodlight.
+   An `<feDropShadow>` with an explicit `flood-color` has nothing to resolve and
+   is bounded by construction, so the rules are GONE rather than re-tuned: the
+   only thing left here is the opacity of the glint marks themselves. */
 .ch-spark{opacity:.95}
 .ch-up-badge{opacity:.98}
 

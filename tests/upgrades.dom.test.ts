@@ -192,18 +192,82 @@ describe('upgrade flair on the character', () => {
     }
   });
 
-  it('paints the glow in the ITEM\'s own accent, and only from +2 up', () => {
+  /**
+   * THE GLOW IS SVG, NOT CSS — and this is the test that keeps it that way.
+   *
+   * It used to be `filter:drop-shadow(0 0 Npx var(--up-glow))` in
+   * `styles/character.css`. On a Galaxy S24 that rendered as a black blob: a
+   * `var()` inside a `filter` function is not reliably resolved there, and an
+   * unresolved colour falls back to black. So the colour is now baked into an
+   * `<feDropShadow>` at render time — the item's accent, spelled out — and the
+   * assertions below are exactly the three properties that bug violated:
+   * an explicit colour, ONE shadow per item (two compound into a floodlight),
+   * and a small radius.
+   */
+  it('glows from an SVG filter in the ITEM\'s own accent, and only from +2 up', () => {
     for (const item of EQUIPMENT) {
-      const at = (level: number): Element | null =>
-        parser
-          .parseFromString(draw('hero_f', item.id, level, 6), 'image/svg+xml')
-          .querySelector(`[data-slot="${item.slot}"]`);
-      expect(at(1)?.getAttribute('style')).toContain(item.accent);
-      expect(at(2)?.classList.contains('up-2')).toBe(true);
-      expect(at(3)?.classList.contains('up-3')).toBe(true);
-      // …and the glow is a CSS filter, so no absolute pixel ever enters the SVG
+      const doc = (level: number): Document =>
+        parser.parseFromString(draw('hero_f', item.id, level, 6), 'image/svg+xml');
+      const group = (level: number): Element | null =>
+        doc(level).querySelector(`[data-slot="${item.slot}"]`);
+
+      // +1 is the bare glint: nothing is filtered at all.
+      expect(group(1)?.getAttribute('filter'), `${item.id} +1`).toBeNull();
+      expect(draw('hero_f', item.id, 1, 6)).not.toContain('feDropShadow');
+
+      for (const level of [2, 3]) {
+        const d = doc(level);
+        const worn = d.querySelector(`[data-slot="${item.slot}"]`);
+        expect(worn?.classList.contains(`up-${level}`), `${item.id} +${level}`).toBe(true);
+        const ref = worn?.getAttribute('filter') ?? '';
+        expect(ref, `${item.id} +${level} filter`).toMatch(/^url\(#[\w-]+\)$/);
+        expect(ref).not.toContain('var(');
+
+        // …and the reference resolves, inside this very drawing, to ONE shadow
+        // whose colour is the item's accent spelled out in full.
+        const id = ref.slice(5, -1);
+        const filter = d.getElementById(id) ?? d.querySelector(`filter[id="${id}"]`);
+        expect(filter, `${item.id} +${level}: no <filter id="${id}">`).not.toBeNull();
+        const shadows = [...(filter?.children ?? [])];
+        expect(shadows).toHaveLength(1); // never stacked — a glint, not a floodlight
+        expect(shadows[0]?.tagName).toBe('feDropShadow');
+        expect(shadows[0]?.getAttribute('flood-color')).toBe(item.accent);
+        expect(shadows[0]?.getAttribute('flood-color')).not.toContain('var(');
+        // bounded: a small blur in user units, at a moderate opacity
+        expect(Number(shadows[0]?.getAttribute('stdDeviation'))).toBeGreaterThan(0);
+        expect(Number(shadows[0]?.getAttribute('stdDeviation'))).toBeLessThanOrEqual(2);
+        expect(Number(shadows[0]?.getAttribute('flood-opacity'))).toBeLessThanOrEqual(0.7);
+      }
+
+      // The stronger level is stronger — but only by a little.
+      const blur = (level: number): number =>
+        Number(doc(level).querySelector('feDropShadow')?.getAttribute('stdDeviation'));
+      expect(blur(3)).toBeGreaterThan(blur(2));
+      expect(blur(3)).toBeLessThan(blur(2) * 2);
+
+      // …and the whole drawing still carries no absolute pixel: the glow is in
+      // user units, so it is the same fraction of the body at 220px and at 62px.
       expect(draw('hero_f', item.id, 3, 6)).not.toMatch(/\d(px|pt|em)/);
     }
+  });
+
+  /** Two upgraded slots are two groups, so nothing can compound into a blob. */
+  it('gives each upgraded slot its own bounded filter, never a shared stack', () => {
+    const svg = characterSvg(partsAt(9), {
+      equipment: {
+        owned: ['belt_3', 'gloves_2', 'shoes_1'],
+        equipped: { belt: 'belt_3', gloves: 'gloves_2', shoes: 'shoes_1' },
+        upgrades: { belt_3: 3, gloves_2: 2, shoes_1: 1 },
+      },
+    });
+    const doc = parser.parseFromString(svg, 'image/svg+xml');
+    const refs = [...doc.querySelectorAll('[data-slot]')].map((g) => g.getAttribute('filter'));
+    expect(refs.filter(Boolean)).toHaveLength(2); // +3 and +2; the +1 shoe glows not
+    expect(new Set(refs.filter(Boolean)).size).toBe(2); // and never the same one twice
+    expect(doc.querySelectorAll('feDropShadow')).toHaveLength(2);
+    // every definition lives in the drawing's single <defs>, next to the gradient
+    expect(doc.querySelectorAll('defs')).toHaveLength(1);
+    expect(doc.querySelectorAll('defs feDropShadow')).toHaveLength(2);
   });
 
   it('leaves an un-upgraded character byte-identical to what it always drew', () => {
