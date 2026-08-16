@@ -240,13 +240,26 @@ export function characterGeometry(parts: PartsProgress, body: BodyGeometry = 'ma
 export interface CharacterAnchors {
   belt: { x: number; y: number; halfWidth: number };
   gloves: Array<{ x: number; y: number; r: number }>;
-  shoes: Array<{ x: number; y: number; halfWidth: number }>;
+  /**
+   * ONE ANCHOR PER FOOT, in [left, right] order.
+   *
+   * `x` is the leg's OWN ankle point — the very expression `legGroup` ends its
+   * calf stroke at (`hipHalf · 0.58 · legSpread`), so a shoe cannot drift off
+   * the leg it is worn on: thicker legs stand wider and the shoe travels with
+   * them, on either body geometry. `y` is the ankle joint, `halfWidth` is half
+   * the shoe's width across it (always a little wider than the calf, so the
+   * footwear CONTAINS the leg's end rather than being covered by it), and `dir`
+   * is the direction the foot points — outward from the centre line, which is
+   * what makes the pair mirror each other like a person standing.
+   */
+  shoes: Array<{ x: number; y: number; halfWidth: number; dir: -1 | 1 }>;
   cape: { x: number; y: number; halfWidth: number };
 }
 
 export function characterAnchors(geo: CharacterGeometry): CharacterAnchors {
   const armX = CX + geo.shoulderHalf - 2;
-  const legX = CX + geo.hipHalf * 0.55 * geo.legSpread;
+  const legX = CX + geo.hipHalf * 0.58 * geo.legSpread;
+  const shoeHalf = geo.calfW * 0.6 + 3;
   return {
     belt: { x: CX, y: HIP_Y - 8, halfWidth: geo.waistHalf + 2 },
     gloves: [
@@ -254,8 +267,8 @@ export function characterAnchors(geo: CharacterGeometry): CharacterAnchors {
       { x: armX + 2, y: HAND_Y, r: geo.armW * 0.55 },
     ],
     shoes: [
-      { x: CX * 2 - legX, y: ANKLE_Y + 6, halfWidth: geo.calfW * 0.8 },
-      { x: legX, y: ANKLE_Y + 6, halfWidth: geo.calfW * 0.8 },
+      { x: CX * 2 - legX, y: ANKLE_Y, halfWidth: shoeHalf, dir: -1 },
+      { x: legX, y: ANKLE_Y, halfWidth: shoeHalf, dir: 1 },
     ],
     cape: { x: CX, y: SHOULDER_Y - 4, halfWidth: geo.shoulderHalf },
   };
@@ -334,23 +347,90 @@ function glovesLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: Equipme
     .join('');
 }
 
+/**
+ * A PAIR OF SHOES — two mirrored sneakers, one per foot.
+ *
+ * The old drawing was a flat wedge pinned under each leg: it pointed sideways,
+ * had no collar, and at any real leg thickness it read as a green flipper
+ * floating below the character rather than as footwear. This is a proper shoe
+ * silhouette, and every one of its points is expressed as an OUTWARD OFFSET
+ * from the leg's own ankle (`px(t)` below) — so:
+ *
+ *   - the pair is mirror-symmetric about the centre line by construction: the
+ *     two anchors are `CX ± legX` with opposite `dir`, and the shape is a
+ *     function of `(ankle, dir, w)` alone. There is no left-shoe drawing and no
+ *     right-shoe drawing, there is one shoe drawn twice;
+ *   - it tracks the leg at every level: `x` IS the calf stroke's ankle point and
+ *     the width grows out of `calfW`, so from level 1 to 99, on the male body
+ *     and on the female one (whose `legSpread` stands the legs closer in), the
+ *     shoe stays centred on the leg and always a little wider than it.
+ *
+ * FOUR PARTS, in draw order — bold enough to survive 62px on a roster card:
+ *   1. the ankle COLLAR, a rounded cuff centred on the ankle. Drawn first, so
+ *      the upper covers its lower half and what is left reads as a collar the
+ *      leg goes INTO — the detail that stops a shoe from looking detached;
+ *   2. the UPPER: a rounded heel, a vamp sloping down to a fat rounded toe box
+ *      that points outward-forward, like a person standing;
+ *   3. the SOLE: a strip in a darkened shade of the item's own colour, drawn
+ *      over the upper's bottom edge so the two never separate;
+ *   4. one LACE hint (two parallel diagonals, the same read as the shop icon)
+ *      and, on the winged tier, a small wing above the ankle.
+ *
+ * Absolute path commands only, no `h`/`v`/`a`: the sweeps in
+ * `tests/characters.dom.test.ts` read the coordinates straight out of `d`.
+ */
 function shoesLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: EquipmentDef): string {
+  const soleColor = darken(item.color, 0.42);
   return a.shoes
-    .map((s, i) => {
-      const side = i === 0 ? -1 : 1;
-      const w = s.halfWidth + 2 + item.tier;
-      const toe = side * (w * 0.9);
-      const body = `<path d="M ${n(s.x - w)} ${n(s.y - 8)} h ${n(w * 2)} q ${n(toe)} 3 ${n(toe)} 9
-        h ${n(-w * 2 - Math.abs(toe))} Z" fill="${item.color}" stroke="${item.accent}" stroke-width="2"
-        stroke-linejoin="round"/>`;
-      const sole = `<rect x="${n(Math.min(s.x - w, s.x - w + toe))}" y="${n(s.y + 1)}"
-        width="${n(w * 2 + Math.abs(toe))}" height="4" rx="2" fill="${item.accent}"/>`;
+    .map((s) => {
+      const w = s.halfWidth + item.tier * 0.6;
+      /** x of a point `t` units OUTWARD from this leg's ankle (mirrors itself). */
+      const px = (t: number): number => s.x + s.dir * t;
+      // The foot runs ~2.5·w heel to toe (`w` being HALF its width across the
+      // ankle) and stands inside the leg's own stance: the heel may never reach
+      // the centre line, or the two shoes would meet in the middle at a high
+      // leg level, where the legs are thick but stand barely wider.
+      const toe = w * 1.6 + item.tier * 0.2;
+      const y = s.y;
+      const yTop = y - 7; // where the upper meets the collar, at the heel
+      const yInstep = y - 5;
+      const yToe = y - 1.5; // top of the toe box: lower than the heel counter
+      const ySole = y + 6.5;
+      const soleH = 4.2 + item.tier * 0.4;
+
+      // The collar is a touch WIDER than the calf at every level (the width is
+      // grown from `calfW`), which is what makes the leg end inside the shoe.
+      const collarH = 9 + item.tier;
+      const collar = `<rect x="${n(s.x - w * 0.72)}" y="${n(y - 2 - collarH)}" width="${n(w * 1.44)}"
+        height="${n(collarH)}" rx="4" fill="${item.accent}"/>`;
+      const upper = `<path d="M ${n(px(-w * 0.75))} ${n(yTop)}
+        C ${n(px(-w * 0.95))} ${n(yTop + 5)} ${n(px(-w * 0.95))} ${n(ySole - 4)} ${n(px(-w * 0.75))} ${n(ySole)}
+        L ${n(px(toe - w * 0.4))} ${n(ySole)}
+        Q ${n(px(toe))} ${n(ySole)} ${n(px(toe))} ${n(ySole - 4)}
+        Q ${n(px(toe))} ${n(yToe - 1.2)} ${n(px(toe - w * 0.45))} ${n(yToe)}
+        C ${n(px(toe - w))} ${n(yToe - 1)} ${n(px(w * 0.3))} ${n(yInstep)} ${n(px(-w * 0.75))} ${n(yTop)}
+        Z" fill="${item.color}" stroke="${item.accent}" stroke-width="2" stroke-linejoin="round"/>`;
+      const heel = px(-w * 0.95);
+      const tip = px(toe);
+      const sole = `<rect x="${n(Math.min(heel, tip))}" y="${n(ySole - 1)}" width="${n(Math.abs(tip - heel))}"
+        height="${n(soleH + 1)}" rx="${n(soleH / 2)}" fill="${soleColor}"/>`;
+      const laces = [0, 1]
+        .map(
+          (i) =>
+            `M ${n(px(w * (0.15 + i * 0.4)))} ${n(ySole - 1.5)} L ${n(px(w * (0.45 + i * 0.4)))} ${n(y + 1)}`,
+        )
+        .join(' ');
+      const lace = `<path d="${laces}" stroke="${item.accent}" stroke-width="2.2" stroke-linecap="round"
+        fill="none"/>`;
+      // The winged tier's ankle wing: rooted IN the collar (its base starts
+      // inside it) and sweeping outward-up, away from the other foot's.
       const wing =
         item.tier === 3
-          ? `<path d="M ${n(s.x - side * w * 0.6)} ${n(s.y - 9)} q ${n(-side * 9)} -8 ${n(-side * 2)} -10
-             q 1 7 ${n(side * 8)} 8 Z" fill="${item.accent}"/>`
+          ? `<path d="M ${n(px(w * 0.35))} ${n(y - 6)} Q ${n(px(w * 1.25))} ${n(y - 9)} ${n(px(w * 1.5))} ${n(y - 16)}
+             Q ${n(px(w * 0.95))} ${n(y - 11)} ${n(px(w * 0.3))} ${n(y - 10)} Z" fill="${item.accent}"
+             stroke="${item.color}" stroke-width="1.6" stroke-linejoin="round"/>`
           : '';
-      return `${body}${sole}${wing}`;
+      return `<g class="ch-shoe">${collar}${upper}${sole}${lace}${wing}</g>`;
     })
     .join('');
 }
@@ -379,7 +459,13 @@ function flairSpots(slot: EquipmentSlot, a: CharacterAnchors): Array<{ x: number
     case 'gloves':
       return a.gloves.map((g) => ({ x: g.x, y: g.y, r: Math.max(7, g.r + 2) }));
     case 'shoes':
-      return a.shoes.map((s) => ({ x: s.x, y: s.y - 3, r: Math.max(7, s.halfWidth + 2) }));
+      // The toe boxes: the part of a shoe an eye lands on, and the only part of
+      // it that is never behind the leg or the sole.
+      return a.shoes.map((s) => ({
+        x: s.x + s.dir * s.halfWidth * 1.35,
+        y: s.y - 1,
+        r: Math.max(7, s.halfWidth * 0.8),
+      }));
     case 'belt':
       return [{ x: a.belt.x, y: a.belt.y, r: 8 }];
     case 'cape':
@@ -586,6 +672,28 @@ export function trophyMedallion(boss: BossDef, worldHe: string): string {
 /** Round to 1 decimal — keeps the markup small and the tests readable. */
 function n(v: number): string {
   return String(Math.round(v * 10) / 10);
+}
+
+/**
+ * A DARKER SHADE of one of an item's own two colours, mixed at render time.
+ *
+ * A sole has to be darker than the shoe it belongs to, and an item declares
+ * only a colour and an accent — inventing a third literal per item would put
+ * the palette in two places and let a new tier ship without one. `f` is how far
+ * towards black to go (0 = unchanged, 1 = black). Anything that is not a plain
+ * `#rrggbb` is handed back untouched, so a bad value can never emit `undefined`
+ * or `NaN` into the markup.
+ */
+function darken(hex: string, f: number): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return hex;
+  const v = Number.parseInt(m[1] as string, 16);
+  const k = clamp(1 - f, 0, 1);
+  const channel = (shift: number): string =>
+    Math.round(((v >> shift) & 0xff) * k)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${channel(16)}${channel(8)}${channel(0)}`;
 }
 
 function torsoPath(geo: CharacterGeometry): string {

@@ -66,6 +66,48 @@ describe('Android text autosizing', () => {
   });
 });
 
+/* ---------------------------------------------------- forced dark mode */
+
+/**
+ * FORCED DARK MODE — the other thing a Samsung phone did to this app.
+ *
+ * Samsung Internet ships "dark pages" and Chrome ships auto-dark: both re-map
+ * the colours of a page they take for a light one. This app has exactly one
+ * palette and it is already dark, so that pass has nothing to fix and plenty to
+ * break — a user reported the whole thing looking wrong (the character art
+ * included, since the drawing is inline SVG in the page's own colours) until
+ * they turned the browser feature off.
+ *
+ * The declaration that opts out is `color-scheme: dark`, and it is stated in
+ * BOTH places a renderer looks: a `<meta>` in the head, which lands before any
+ * CSS is parsed, and the root rule of the stylesheet the build inlines. Neither
+ * has anything jsdom can measure, so — exactly like the `text-size-adjust`
+ * cases above — they are asserted as the source they are.
+ */
+describe('forced dark mode', () => {
+  const HEAD = /<head>([\s\S]*?)<\/head>/i.exec(SHELL)?.[1] ?? '';
+
+  it('declares the page dark in the head, before a single style is parsed', () => {
+    expect(HEAD).toMatch(/<meta\s+name="color-scheme"\s+content="dark"\s*\/?>/);
+  });
+
+  it('declares it again at the root of the stylesheet the build inlines', () => {
+    expect(ruleOf(sheet('base.css'), 'html')).toContain('color-scheme:dark');
+    expect(sheet('index.css')).toContain("@import './base.css'");
+  });
+
+  it('keeps the installed app dark too — one background colour, everywhere', () => {
+    const manifest = JSON.parse(readFileSync(resolve(process.cwd(), 'public', 'manifest.webmanifest'), 'utf8'));
+    const bg = /--bg:(#[0-9a-f]{6})/i.exec(sheet('tokens.css'))?.[1];
+    expect(bg, 'no --bg token').toBeTruthy();
+    // the splash screen, the address bar and the page all agree; a light
+    // background_color here is the one thing that can still flash white.
+    expect(manifest.background_color).toBe(bg);
+    expect(manifest.theme_color).toBe(bg);
+    expect(HEAD).toContain(`<meta name="theme-color" content="${bg}">`);
+  });
+});
+
 /* --------------------------------------------------- the bar's layout */
 
 describe('the rest timer bar on a narrow phone', () => {

@@ -27,7 +27,7 @@ import type { BodyPart } from '../src/data/program.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
 import { createApp } from '../src/ui/app.ts';
-import { characterGeometry, characterSvg, resolveCharacter } from '../src/ui/characterSvg.ts';
+import { characterAnchors, characterGeometry, characterSvg, resolveCharacter } from '../src/ui/characterSvg.ts';
 import { resetCharacterSheet } from '../src/ui/character.ts';
 import { RestTimer } from '../src/ui/timer.ts';
 
@@ -502,6 +502,227 @@ describe('roster artwork', () => {
     expect(resolveCharacter('robot').id).toBe('robot_m');
     expect(resolveCharacter('ninja').id).toBe('ninja_f');
     expect(characterSvg(parts, { character: 'robot' })).toBe(characterSvg(parts, { character: 'robot_m' }));
+  });
+});
+
+/* ------------------------------------------------------------- the shoes */
+
+/**
+ * A PAIR OF SHOES, ONE PER FOOT.
+ *
+ * The old drawing was two flat wedges pinned under the legs at a share of the
+ * hip width that was NOT the one the legs themselves stand at — so they pointed
+ * sideways and floated under a character whose legs had grown past them. The
+ * replacement is one shoe shape drawn twice, mirrored, each from its own leg's
+ * ankle point, and these are the properties that keeps true:
+ *
+ *   - the anchor IS the leg: the same expression `legGroup` ends its calf
+ *     stroke at, read back out of the drawn leg path rather than recomputed;
+ *   - the pair mirrors about the centre line, point for point;
+ *   - the shoe CONTAINS the leg end — wider than the calf, with a collar that
+ *     starts above the ankle — and points its toe outward, like a person
+ *     standing;
+ * over every level of the growth curve and BOTH bodies, i.e. both `legSpread`
+ * values that ship (the female legs stand closer in under wider hips).
+ */
+describe('the shoes', () => {
+  const parser = new DOMParser();
+  const ANKLE_Y = 292;
+  const SHOES = EQUIPMENT.filter((i) => i.slot === 'shoes');
+  const LEVELS = [1, 3, 7, 15, 99];
+
+  function partsAt(level: number): ReturnType<typeof emptyGame>['parts'] {
+    const parts = emptyGame().parts;
+    for (const p of Object.keys(parts) as BodyPart[]) parts[p].level = level;
+    return parts;
+  }
+
+  function draw(characterId: string, itemId: string, level: number, upgrade = 0): Document {
+    return parser.parseFromString(
+      characterSvg(partsAt(level), {
+        character: characterId,
+        equipment: { owned: [itemId], equipped: { shoes: itemId }, upgrades: { [itemId]: upgrade } },
+      }),
+      'image/svg+xml',
+    );
+  }
+
+  /** Where the two LEGS actually end, straight out of the drawn calf strokes. */
+  function drawnAnkles(doc: Document): number[] {
+    return [...doc.querySelectorAll('[data-part="legs"] path')]
+      .map((p) => /L (-?[\d.]+) 292/.exec(p.getAttribute('d') ?? '')?.[1])
+      .filter((v): v is string => v !== undefined)
+      .map(Number)
+      .sort((a, b) => a - b);
+  }
+
+  /**
+   * Every point one shoe element draws at. The shoe paths are authored in
+   * ABSOLUTE commands only, which is what makes this reading honest: the
+   * numbers in `d` are x,y pairs and nothing else.
+   */
+  function pointsOf(el: Element): Array<[number, number]> {
+    if (el.tagName === 'rect') {
+      const at = (a: string): number => Number(el.getAttribute(a));
+      // all four corners: a rect flipped about the centre line maps its corner
+      // SET onto the other one's, which is what the mirror test compares
+      return [
+        [at('x'), at('y')],
+        [at('x') + at('width'), at('y')],
+        [at('x'), at('y') + at('height')],
+        [at('x') + at('width'), at('y') + at('height')],
+      ];
+    }
+    const d = el.getAttribute('d') ?? '';
+    expect(d, 'a shoe path uses a relative command').not.toMatch(/[hvasHVAS]/);
+    const raw = (d.match(/-?\d+(\.\d+)?/g) ?? []).map(Number);
+    expect(raw.length % 2, `odd coordinate count in ${d}`).toBe(0);
+    return Array.from({ length: raw.length / 2 }, (_, i) => [raw[i * 2] as number, raw[i * 2 + 1] as number]);
+  }
+
+  function box(g: Element): { minX: number; maxX: number; minY: number; maxY: number } {
+    const pts = [...g.children].flatMap(pointsOf);
+    expect(pts.length).toBeGreaterThan(8);
+    return {
+      minX: Math.min(...pts.map((p) => p[0])),
+      maxX: Math.max(...pts.map((p) => p[0])),
+      minY: Math.min(...pts.map((p) => p[1])),
+      maxY: Math.max(...pts.map((p) => p[1])),
+    };
+  }
+
+  it('stands each shoe on its own leg — at every level, on both bodies', () => {
+    for (const c of ['hero_m', 'hero_f']) {
+      for (const level of LEVELS) {
+        const parts = partsAt(level);
+        const geo = characterGeometry(parts, c === 'hero_f' ? 'female' : 'male');
+        const anchors = characterAnchors(geo);
+        for (const item of SHOES) {
+          const doc = draw(c, item.id, level);
+          const where = `${c} + ${item.id} @L${level}`;
+
+          // THE ANCHOR IS THE LEG. Not "about where the leg is" — the very x the
+          // calf stroke ends at, on both sides.
+          const ankles = drawnAnkles(doc);
+          expect(ankles, where).toHaveLength(2);
+          const anchored = anchors.shoes.map((s) => s.x).sort((a, b) => a - b);
+          expect(anchored[0], where).toBeCloseTo(ankles[0] as number, 1);
+          expect(anchored[1], where).toBeCloseTo(ankles[1] as number, 1);
+          // …and the pair is centred on the character, whatever the legSpread
+          expect(anchors.shoes[0]?.x ?? 0, where).toBeCloseTo(200 - (anchors.shoes[1]?.x ?? 0), 6);
+          expect(anchors.shoes.map((s) => s.dir)).toEqual([-1, 1]);
+
+          const shoes = [...doc.querySelectorAll('[data-slot="shoes"] .ch-shoe')];
+          expect(shoes, where).toHaveLength(2);
+          shoes.forEach((shoe, i) => {
+            const b = box(shoe);
+            const ankle = ankles[i] as number;
+            const dir = i === 0 ? -1 : 1;
+            const outward = dir === 1 ? b.maxX - ankle : ankle - b.minX;
+            const inward = dir === 1 ? ankle - b.minX : b.maxX - ankle;
+
+            // it CONTAINS the end of the leg: wider than the calf on both sides…
+            expect(b.minX, `${where} left of the leg`).toBeLessThan(ankle - geo.calfW / 2);
+            expect(b.maxX, `${where} right of the leg`).toBeGreaterThan(ankle + geo.calfW / 2);
+            // …and its collar starts well ABOVE the ankle, over the leg itself
+            expect(b.minY, `${where} collar`).toBeLessThan(ANKLE_Y - 6);
+            // the toe points OUTWARD-forward: most of the foot is on that side
+            expect(outward, `${where} toe`).toBeGreaterThan(inward * 1.4);
+            // neither shoe crosses the centre line onto the other foot
+            expect(dir === 1 ? b.minX : b.maxX, `${where} crosses the middle`).toBeGreaterThan(
+              dir === 1 ? 100 : -Infinity,
+            );
+            if (dir === -1) expect(b.maxX, `${where} crosses the middle`).toBeLessThan(100);
+            // it stands ON the ground shadow (cy 306) rather than through it
+            expect(b.maxY, `${where} sinks into the ground`).toBeLessThan(306);
+            expect(b.minX, where).toBeGreaterThan(0);
+            expect(b.maxX, where).toBeLessThan(200);
+          });
+        }
+      }
+    }
+  });
+
+  it('draws the two shoes as mirror images, point for point', () => {
+    for (const c of ['hero_m', 'hero_f']) {
+      for (const level of LEVELS) {
+        for (const item of SHOES) {
+          const doc = draw(c, item.id, level);
+          const [left, right] = [...doc.querySelectorAll('[data-slot="shoes"] .ch-shoe')];
+          const l = [...(left?.children ?? [])];
+          const r = [...(right?.children ?? [])];
+          expect(l.length, `${c} ${item.id}`).toBe(r.length);
+          expect(l.length).toBeGreaterThanOrEqual(4); // collar · upper · sole · lace
+          l.forEach((el, i) => {
+            const there = r[i] as Element;
+            expect(el.tagName).toBe(there.tagName);
+            // the LEFT shape, flipped about x=100, is the right one — compared
+            // as point SETS, since flipping a rect swaps which corner is which
+            const order = (pts: Array<[number, number]>): Array<[number, number]> =>
+              [...pts].sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+            const a = order(pointsOf(el).map(([x, y]) => [200 - x, y]));
+            const b = order(pointsOf(there));
+            expect(a.length).toBe(b.length);
+            a.forEach(([x, y], k) => {
+              const [bx, by] = b[k] as [number, number];
+              // (0.1 is the rounding the markup is emitted at)
+              expect(Math.abs(x - bx), `${c} ${item.id} x`).toBeLessThanOrEqual(0.11);
+              expect(y, `${c} ${item.id} y`).toBeCloseTo(by, 5);
+            });
+          });
+        }
+      }
+    }
+  });
+
+  it('reads as footwear: a collar, a bold upper, a darker sole and a lace', () => {
+    const lum = (hex: string): number => {
+      const v = Number.parseInt(hex.slice(1), 16);
+      return ((v >> 16) & 0xff) * 0.3 + ((v >> 8) & 0xff) * 0.59 + (v & 0xff) * 0.11;
+    };
+    for (const item of SHOES) {
+      const shoe = draw('hero_m', item.id, 9).querySelector('.ch-shoe');
+      const fills = [...(shoe?.children ?? [])].map((el) => el.getAttribute('fill') ?? '');
+      // the item's own palette dresses it — the tiers stay told apart
+      expect(fills, item.id).toContain(item.color);
+      expect(fills, item.id).toContain(item.accent);
+      // …plus the sole, mixed DOWN from the item's colour rather than declared
+      const sole = fills.find((f) => f !== item.color && f !== item.accent && f !== 'none');
+      expect(sole, `${item.id} has no sole`).toMatch(/^#[0-9a-f]{6}$/);
+      expect(lum(sole as string), `${item.id} sole is not darker`).toBeLessThan(lum(item.color));
+      // nothing in a shoe leans on a stroke the roster card cannot resolve
+      for (const el of shoe?.querySelectorAll('[stroke-width]') ?? []) {
+        expect(Number(el.getAttribute('stroke-width')), item.id).toBeGreaterThanOrEqual(1.6);
+      }
+    }
+    // the three tiers are still three different pairs of shoes
+    expect(new Set(SHOES.map((i) => `${i.color}${i.accent}`)).size).toBe(SHOES.length);
+  });
+
+  it('pins the upgrade flair to the toe boxes, one per foot', () => {
+    for (const c of ['hero_m', 'hero_f']) {
+      for (const level of [1, 99]) {
+        const doc = draw(c, 'shoes_3', level, 2);
+        const ankles = drawnAnkles(doc);
+        const shoes = [...doc.querySelectorAll('[data-slot="shoes"] .ch-shoe')].map(box);
+        const sparks = [...doc.querySelectorAll('[data-slot="shoes"] .ch-spark')].map(
+          (s) => (pointsOf(s)[0] as [number, number])[0],
+        );
+        expect(sparks, `${c} @L${level}`).toHaveLength(2);
+        const sorted = [...sparks].sort((a, b) => a - b);
+        // mirrored, like the shoes they sit on
+        expect((sorted[0] as number) + (sorted[1] as number)).toBeCloseTo(200, 0);
+        sorted.forEach((x, i) => {
+          const ankle = ankles[i] as number;
+          const b = shoes[i] as ReturnType<typeof box>;
+          // OUTWARD of the ankle — on the toe box, never over the leg…
+          expect(Math.abs(x - 100), `${c} flair is not on the toe`).toBeGreaterThan(Math.abs(ankle - 100));
+          // …and still on the shoe rather than floating away from it
+          expect(x).toBeGreaterThan(b.minX - 8);
+          expect(x).toBeLessThan(b.maxX + 8);
+        });
+      }
+    }
   });
 });
 
