@@ -1,11 +1,42 @@
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
 html,body{margin:0; padding:0}
+
+/**
+ * ANDROID FONT BOOSTING — the one line that keeps this app the same size on
+ * every phone.
+ *
+ * Chrome and Samsung Internet on Android run a "text autosizing" pass that
+ * inflates the font of any block they decide is the page's main text. A Galaxy
+ * S24 reported the header title at roughly double its size (five wrapped lines)
+ * and every nav label broken across two rows, while a Pixel rendered the same
+ * build correctly — that difference IS font boosting, and it fires precisely
+ * because the app is one long column of Hebrew text in a small viewport.
+ *
+ * The page is already mobile-first and responsive, so the boost has nothing to
+ * fix and everything to break: opt out at the root, in both the prefixed and
+ * the standard spelling (Samsung Internet still wants `-webkit-`). Every
+ * `font-size` below this line is therefore the size that actually renders.
+ * NOTE: this does NOT block the user's own browser/system font scaling — only
+ * the automatic, per-block inflation the app never asked for.
+ */
+html{-webkit-text-size-adjust:100%; text-size-adjust:100%}
+
 body{
   background:var(--bg); color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Heebo","Noto Sans Hebrew",Arial,sans-serif;
   font-size:16px; line-height:1.5;
   padding-bottom:110px; /* room for floating timer */
+  overflow-x:hidden; /* nothing may push the RTL column sideways */
 }
+/**
+ * ROOM FOR THE BAR, ON EVERY SCREEN. The 110px above is the resting gutter; the
+ * floating rest timer is taller than that once its controls wrap on a narrow
+ * phone, and it is `position:fixed`, so it overlays whatever screen happens to
+ * be open — the character screen's stat tiles, the arena, the settings list.
+ * `ui/timer.ts` toggles this class in show/hide, so the padding follows the bar
+ * instead of being a constant that only ever fit the workout screen.
+ */
+body.timer-open{padding-bottom:calc(150px + env(safe-area-inset-bottom))}
 button{font-family:inherit; cursor:pointer}
 input{font-family:inherit}
 
@@ -14,12 +45,17 @@ header{
   padding:18px 16px 10px;
   background:linear-gradient(180deg,#16203245,transparent);
 }
+/* The two header lines are the app's biggest text, which makes them the first
+   casualty of any font inflation. Both are `clamp()`ed: a hard ceiling (the
+   size they were designed at) and a floor that keeps a 320px-wide phone from
+   wrapping the title, with the viewport unit only ever moving between them. */
 .app-title{
   display:flex; align-items:baseline; gap:8px; margin:0 0 2px;
-  font-size:20px; font-weight:800; letter-spacing:-.02em;
+  font-size:clamp(17px,5vw,20px); font-weight:800; letter-spacing:-.02em;
+  min-width:0;
 }
 .app-title .en{font-size:11px; font-weight:600; color:var(--dim); letter-spacing:.14em; text-transform:uppercase}
-.day-meta{color:var(--muted); font-size:13.5px; margin:2px 0 0}
+.day-meta{color:var(--muted); font-size:clamp(12px,3.4vw,13.5px); margin:2px 0 0}
 .day-meta b{color:var(--text); font-weight:700}
 .last-log{font-size:12.5px; color:var(--dim); margin-top:2px}
 .last-log .val{color:var(--accent)}
