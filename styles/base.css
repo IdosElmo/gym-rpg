@@ -19,7 +19,22 @@ html,body{margin:0; padding:0}
  * NOTE: this does NOT block the user's own browser/system font scaling — only
  * the automatic, per-block inflation the app never asked for.
  */
-html{-webkit-text-size-adjust:100%; text-size-adjust:100%}
+/**
+ * FORCED DARK MODE — the second thing a Samsung phone did to this app.
+ *
+ * The app ships one palette and it is a dark one. Samsung Internet's "dark
+ * pages" and Chrome's auto-dark-mode assume a page is light unless told
+ * otherwise: they then re-map its colours themselves, which recoloured the
+ * design tokens and, worse, the inline character SVG — a user reported the
+ * whole palette looking wrong until they turned the browser feature off.
+ *
+ * `color-scheme:dark` is the declaration those engines look for: it says the
+ * page already renders dark, so there is nothing to invert. It also gives the
+ * form controls, scrollbars and the canvas behind the page their dark UA
+ * styling for free. `index.html` states the same thing in a `<meta
+ * name="color-scheme">`, which lands before any stylesheet does.
+ */
+html{color-scheme:dark; -webkit-text-size-adjust:100%; text-size-adjust:100%}
 
 body{
   background:var(--bg); color:var(--text);
