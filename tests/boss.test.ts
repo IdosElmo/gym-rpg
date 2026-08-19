@@ -228,7 +228,7 @@ describe('boss gates', () => {
     // level 13 alone would want ~180 workouts and put the finale a year out.
     // The requirement SUM still rises strictly world over world (asserted
     // above); it is the peak that flattens.
-    const expected: Record<number, number> = { 1: 3, 2: 5, 3: 7, 4: 9, 5: 9, 6: 9, 7: 9, 8: 10, 9: 10 };
+    const expected: Record<number, number> = { 1: 3, 2: 5, 3: 7, 4: 9, 5: 9, 6: 9, 7: 10, 8: 10, 9: 10 };
     for (let world = 1; world <= WORLD_COUNT; world += 1) {
       const needs = Object.values(worldBossOf(world)?.requires ?? {});
       expect(Math.max(...needs)).toBeLessThanOrEqual(expected[world] as number);

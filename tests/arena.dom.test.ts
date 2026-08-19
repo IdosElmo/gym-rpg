@@ -9,8 +9,11 @@
  *      tests below drive the real loop and assert the classes, because the class
  *      is the contract between the loop and the stylesheet; and they assert the
  *      reduced-motion path leaves the DOM harmless rather than different.
- *   2. THE WORLD STRIP — the four worlds as nodes, with locked / current /
- *      boss-ready / champion states and the current world's wave progress.
+ *   2. THE WORLD STRIP — the NINE worlds as nodes, with locked / current /
+ *      boss-ready / champion states and the current world's own wave progress.
+ *      Nine nodes do not fit a phone side by side, so the row scrolls; the CSS
+ *      that makes that work is asserted here as source, since jsdom has no
+ *      layout and a layout-free assertion that lies is worse than none.
  *   3. THE HERO'S GEAR — the fighter wears what the דמות screen shows, in every
  *      mode the arena can be in, and the equipment layers are the same markup
  *      on the same 200×320 stage rather than a second, smaller drawing.
@@ -352,6 +355,53 @@ describe('world progress strip', () => {
     expect(toast?.textContent).toContain('חזה');
     // the gate card it points at is the one that already lists every requirement
     expect(document.querySelector('.bt-gate .bt-reqs')).not.toBeNull();
+  });
+
+  it('scrolls instead of squeezing, once there are nine of them', () => {
+    mount(battleStore());
+    expect(nodes()).toHaveLength(9);
+
+    // The row is a horizontally scrolling flex line with a FIXED node width —
+    // nine equal grid columns would be ~34px on a 360px phone, under the app's
+    // 44px touch floor and far too narrow for a Hebrew world name.
+    const css = readFileSync(resolve(process.cwd(), 'styles', 'battle.css'), 'utf8');
+    const strip = css.slice(css.indexOf('.wp-strip{'), css.indexOf('}', css.indexOf('.wp-strip{')));
+    expect(strip).toContain('display:flex');
+    expect(strip).toContain('overflow-x:auto');
+    const node = css.slice(css.indexOf('.wp-node{'), css.indexOf('}', css.indexOf('.wp-node{')));
+    expect(node).toMatch(/flex:0 0 \d+px/);
+    // …and the page itself must never scroll sideways because of it
+    expect(strip).toContain('overflow-y:hidden');
+  });
+
+  it('marks the current node so the strip can open on the player', () => {
+    const store = battleStore(12);
+    store.update((d) => {
+      const g = d.game ?? emptyGame();
+      g.battle.world = 6;
+      g.battle.wave = 12;
+      g.battle.bossesDefeated = ['boss_w1', 'boss_w2', 'boss_w3', 'boss_w4', 'boss_w5'];
+      d.game = g;
+    });
+    mount(store);
+    const current = document.querySelectorAll('#btWorlds .wp-node[data-current="1"]');
+    expect(current).toHaveLength(1);
+    expect(current[0]?.querySelector('.wp-name')?.textContent).toBe(WORLDS[5]?.he);
+  });
+
+  it('counts each world against ITS OWN wave total, not a global 50', () => {
+    const store = battleStore(12);
+    store.update((d) => {
+      const g = d.game ?? emptyGame();
+      g.battle.world = 9;
+      g.battle.wave = 64;
+      g.battle.bossesDefeated = WORLD_BOSSES.slice(0, 8).map((b) => b.id);
+      d.game = g;
+    });
+    mount(store);
+    const last = nodes()[8];
+    expect(last?.className).toContain('current');
+    expect(last?.querySelector('.wp-meta')?.textContent).toBe(`גל 64/${wavesInWorld(9)}`);
   });
 
   it('does not push the arena off the first screen', () => {

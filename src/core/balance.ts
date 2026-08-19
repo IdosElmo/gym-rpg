@@ -248,7 +248,7 @@ export const BALANCE = {
        * to be fought in fully upgraded tier-3 gear, and there is room left for
        * the slots the wardrobe is about to grow.
        */
-      base: 5, perWave: 1, worldMult: 1.6, lateWorldMult: 1.25, miniBossMult: 4,
+      base: 5, perWave: 1, worldMult: 1.6, lateWorldMult: 1.2, miniBossMult: 4,
     },
     tap: {
       /** Tap damage as a fraction of ATK. */
