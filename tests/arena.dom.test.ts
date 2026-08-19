@@ -32,6 +32,8 @@ import {
   EQUIPMENT_SLOTS,
   WORLDS,
   WORLD_BOSSES,
+  bossWaveOf,
+  wavesInWorld,
   equipmentById,
   type EquipmentSlot,
 } from '../src/data/gameContent.ts';
@@ -216,7 +218,7 @@ describe('battle animations', () => {
     const store = battleStore(60, 40);
     store.update((d) => {
       const g = d.game ?? emptyGame();
-      g.battle.wave = BALANCE.combat.wavesPerWorld + 1;
+      g.battle.wave = bossWaveOf(1);
       d.game = g;
     });
     mount(store);
@@ -271,7 +273,7 @@ describe('world progress strip', () => {
     expect(list[0]?.className).toContain('current');
     expect(list[0]?.className).toContain('gated');
     expect(list[0]?.querySelector('.wp-glyph')?.textContent).toBe('🔒');
-    expect(list[0]?.querySelector('.wp-meta')?.textContent).toBe(`גל 1/${BALANCE.combat.wavesPerWorld}`);
+    expect(list[0]?.querySelector('.wp-meta')?.textContent).toBe(`גל 1/${wavesInWorld(1)}`);
     expect(list[0]?.querySelector('button')?.getAttribute('aria-current')).toBe('step');
     for (const node of list.slice(1)) {
       expect(node.className).toContain('locked');
@@ -294,7 +296,7 @@ describe('world progress strip', () => {
     const first = nodes()[0];
     expect(first?.className).toContain('ready');
     expect(first?.querySelector('.wp-glyph')?.textContent).toBe('✓');
-    expect(first?.querySelector('.wp-meta')?.textContent).toBe(`גל 23/${BALANCE.combat.wavesPerWorld}`);
+    expect(first?.querySelector('.wp-meta')?.textContent).toBe(`גל 23/${wavesInWorld(1)}`);
   });
 
   it('trophies the worlds behind the player and locks the ones ahead', () => {
@@ -507,7 +509,7 @@ describe('the hero in the arena', () => {
     const states: Array<[label: string, apply: (g: ReturnType<typeof emptyGame>) => void]> = [
       ['wave 1', () => undefined],
       ['mini-boss', (g) => void (g.battle.wave = BALANCE.combat.miniBossEvery)],
-      ['world boss', (g) => void (g.battle.wave = BALANCE.combat.wavesPerWorld + 1)],
+      ['world boss', (g) => void (g.battle.wave = bossWaveOf(1))],
       [
         'champion',
         (g) => {

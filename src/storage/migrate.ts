@@ -43,6 +43,7 @@ import {
   rebuildGame,
   type PendingEvent,
 } from '../core/xp.ts';
+import { derivedProgress } from '../core/combat.ts';
 import { clampUpgradeLevel } from '../core/upgrades.ts';
 import { duelKey, normalizeHandle } from '../core/handle.ts';
 import { BALANCE } from '../core/balance.ts';
@@ -252,13 +253,24 @@ function normalizeBattle(raw: unknown): BattleProgress {
   const bosses = Array.isArray(raw['bossesDefeated'])
     ? raw['bossesDefeated'].filter((id): id is string => typeof id === 'string' && bossById(id) !== undefined)
     : [];
-  return {
+  const bossesDefeated = [...new Set(bosses)];
+  // The world/wave markers are DERIVED from the trophy shelf, exactly as they
+  // are at the end of a fold (`finalizeBattleProgress`). Doing it here too is
+  // what lets an existing, still-valid v10 blob pick up the nine-world unlock
+  // without a version bump: the shape did not change, only what the same shape
+  // means once world 4 stopped being the last world.
+  const at = derivedProgress({
     world: Math.max(1, Math.floor(numOr(raw['world'], b.world))),
     wave: Math.max(1, Math.floor(numOr(raw['wave'], b.wave))),
+    bossesDefeated,
+  });
+  return {
+    world: at.world,
+    wave: at.wave,
     coins: Math.max(0, numOr(raw['coins'], 0)),
     wavesCleared: Math.max(0, Math.floor(numOr(raw['wavesCleared'], 0))),
     miniBossesCleared: Math.max(0, Math.floor(numOr(raw['miniBossesCleared'], 0))),
-    bossesDefeated: [...new Set(bosses)],
+    bossesDefeated,
   };
 }
 

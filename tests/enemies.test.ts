@@ -18,7 +18,16 @@
 import { describe, expect, it } from 'vitest';
 
 import { BALANCE } from '../src/core/balance.ts';
-import { createBattle, simulate, waveSpec, type CombatStats } from '../src/core/combat.ts';
+import {
+  createBattle,
+  simulate,
+  waveSpec,
+  waveStretch,
+  worldAtkFactor,
+  worldCoinFactor,
+  worldHpFactor,
+  type CombatStats,
+} from '../src/core/combat.ts';
 import { deriveStats, emptyGame } from '../src/core/xp.ts';
 import {
   ENEMIES,
@@ -32,8 +41,6 @@ import {
 import { BODY_PARTS } from '../src/data/program.ts';
 import { rebuildFromEvents } from '../src/storage/migrate.ts';
 import type { AppEvent } from '../src/storage/DataStore.ts';
-
-const PER_WORLD = BALANCE.combat.wavesPerWorld;
 
 /** Stats of a character whose six parts are all at `level` (mirrors combat.test). */
 function statsAt(level: number): CombatStats {
@@ -164,18 +171,85 @@ describe('flavour multipliers', () => {
     for (const w of WORLDS) {
       let actual = 0;
       let pure = 0;
-      for (let wave = 1; wave <= PER_WORLD; wave += 1) {
+      for (let wave = 1; wave <= w.waves; wave += 1) {
         const spec = waveSpec(w.id, wave);
         actual += spec.hp;
         pure +=
           e.hpBase *
-          Math.pow(e.hpGrowth, wave - 1) *
-          Math.pow(e.worldHpMult, w.id - 1) *
+          // the STRETCHED exponent: a world of n waves walks the same 50-wave
+          // curve in n steps (see `waveStretch`), which is exactly what keeps a
+          // longer world longer instead of harder.
+          Math.pow(e.hpGrowth, (wave - 1) * waveStretch(w.id)) *
+          worldHpFactor(w.id) *
           (spec.miniBoss ? e.miniBossHpMult : 1);
       }
       // The roster may wobble a world's total HP, never move it.
       expect(actual / pure, `world ${w.id} total HP drift`).toBeGreaterThan(0.95);
       expect(actual / pure, `world ${w.id} total HP drift`).toBeLessThan(1.05);
+    }
+  });
+
+  /**
+   * THE PROMISE OF THE STRETCH, stated as an equation rather than a feeling:
+   * every world's LAST wave — and its boss — stands exactly where the old
+   * 50-wave-per-world curve put wave 50 of that world. Longer worlds therefore
+   * cost more energy and more time and not one point of extra difficulty.
+   */
+  it('lands every world’s FINAL wave on the old wave-50 difficulty, exactly', () => {
+    const e = BALANCE.combat.enemy;
+    for (const w of WORLDS) {
+      const legacyStep = BALANCE.combat.wavesFirstWorld - 1;
+      const hp50 = e.hpBase * Math.pow(e.hpGrowth, legacyStep) * worldHpFactor(w.id);
+      const atk50 = e.atkBase * Math.pow(e.atkGrowth, legacyStep) * worldAtkFactor(w.id);
+
+      const last = waveSpec(w.id, w.waves);
+      const hp = last.hp / ((last.enemy.hpMult ?? 1) * (last.miniBoss ? e.miniBossHpMult : 1));
+      const atk = last.atk / ((last.enemy.atkMult ?? 1) * (last.miniBoss ? e.miniBossAtkMult : 1));
+
+      expect(hp / hp50, `world ${w.id} final HP`).toBeCloseTo(1, 2);
+      expect(atk / atk50, `world ${w.id} final ATK`).toBeCloseTo(1, 2);
+      // …and so does the purse: the last wave pays what wave 50 used to pay.
+      const coins50 = Math.round(
+        (BALANCE.combat.coins.base + BALANCE.combat.coins.perWave * legacyStep) *
+          worldCoinFactor(w.id),
+      );
+      const coins = last.coins / (last.miniBoss ? BALANCE.combat.coins.miniBossMult : 1);
+      expect(coins / coins50, `world ${w.id} final coins`).toBeCloseTo(1, 1);
+    }
+  });
+
+  it('leaves worlds 1–4 on the exact multipliers they shipped with', () => {
+    // The taper starts at `lateWorldFrom`; everything before it is the shipped
+    // 1.6× / 1.25× / 1.6× ladder, to the last decimal. This is the assertion
+    // that says "the existing campaign did not move".
+    const e = BALANCE.combat.enemy;
+    for (let world = 1; world <= 4; world += 1) {
+      expect(worldHpFactor(world), `world ${world} hp`).toBeCloseTo(Math.pow(e.worldHpMult, world - 1), 6);
+      expect(worldAtkFactor(world), `world ${world} atk`).toBeCloseTo(Math.pow(e.worldAtkMult, world - 1), 6);
+      expect(worldCoinFactor(world), `world ${world} coins`).toBeCloseTo(
+        Math.pow(BALANCE.combat.coins.worldMult, world - 1),
+        6,
+      );
+    }
+    // …and from world 5 on the step is gentler than 1.6, or the late game would
+    // outrun a player whose gate levels were deliberately compressed.
+    for (let world = 5; world <= WORLDS.length; world += 1) {
+      expect(worldHpFactor(world) / worldHpFactor(world - 1)).toBeLessThan(e.worldHpMult);
+      expect(worldHpFactor(world) / worldHpFactor(world - 1)).toBeGreaterThan(1);
+    }
+  });
+
+  it('keeps world 1 arithmetically untouched — the stretch is exactly 1 there', () => {
+    expect(waveStretch(1)).toBe(1);
+    for (const wave of [1, 7, 13, 20, 33, 49, 50]) {
+      const e = BALANCE.combat.enemy;
+      const spec = waveSpec(1, wave);
+      const pure =
+        e.hpBase *
+        Math.pow(e.hpGrowth, wave - 1) *
+        (spec.miniBoss ? e.miniBossHpMult : 1) *
+        (spec.enemy.hpMult ?? 1);
+      expect(spec.hp).toBe(Math.max(1, Math.round(pure)));
     }
   });
 

@@ -73,8 +73,10 @@ import {
   SKILLS,
   SKILL_IDS,
   WORLD_COUNT,
+  bossWaveOf,
   enemyForWave,
   skillById,
+  wavesInWorld,
   worldBossOf,
   bossGateStatus,
   type BossDef,
@@ -163,9 +165,62 @@ export function isMiniBossWave(wave: number): boolean {
  * True once a world's waves are exhausted — this is where the world boss waits.
  * Whether the fight actually STARTS additionally depends on the body-part gate
  * (`worldGate`) and on whether that boss has already fallen (see `bossStanding`).
+ *
+ * PER-WORLD since Phase 9: the answer comes from that world's own `waves` count
+ * (`wavesInWorld`), which is why the world has to be passed in.
  */
-export function isWorldBossWave(wave: number): boolean {
-  return wave > BALANCE.combat.wavesPerWorld;
+export function isWorldBossWave(world: number, wave: number): boolean {
+  return wave > wavesInWorld(world);
+}
+
+/**
+ * THE WAVE STRETCH — how a world of `n` waves reuses the 50-wave curve.
+ *
+ * `waveSpec` and `bossSpec` do not raise the growth factor to `wave − 1`; they
+ * raise it to `(wave − 1) × (wavesFirstWorld − 1) / (waves(world) − 1)`. World 1
+ * (50 waves) multiplies by exactly 1 and is therefore untouched; a 110-wave
+ * world advances 0.45 of a "classic wave" per wave, so it ENDS on precisely the
+ * difficulty the old 50-wave curve produced at its wave 50 and merely takes
+ * longer to get there. See the PHASE 9 note in `core/balance.ts`.
+ */
+export function waveStretch(world: number): number {
+  const span = wavesInWorld(world) - 1;
+  return span > 0 ? (BALANCE.combat.wavesFirstWorld - 1) / span : 1;
+}
+
+/**
+ * The world's own multiplier on the curve — `early^(world−1)` for the first four
+ * worlds and then a gentler `late` step per world after that. See the LATE-WORLD
+ * TAPER note in `core/balance.ts` for why the 1.6× step cannot just continue.
+ */
+function worldFactor(world: number, early: number, late: number): number {
+  const cut = Math.max(1, BALANCE.combat.enemy.lateWorldFrom) - 1;
+  const step = Math.max(0, Math.floor(world) - 1);
+  return Math.pow(early, Math.min(step, cut)) * Math.pow(late, Math.max(0, step - cut));
+}
+
+/** HP multiplier of a world (1 in world 1). */
+export function worldHpFactor(world: number): number {
+  const e = BALANCE.combat.enemy;
+  return worldFactor(world, e.worldHpMult, e.lateWorldHpMult);
+}
+
+/** ATK multiplier of a world (1 in world 1). */
+export function worldAtkFactor(world: number): number {
+  const e = BALANCE.combat.enemy;
+  return worldFactor(world, e.worldAtkMult, e.lateWorldAtkMult);
+}
+
+/** Coin multiplier of a world (1 in world 1) — tapered like the difficulty. */
+export function worldCoinFactor(world: number): number {
+  const c = BALANCE.combat.coins;
+  return worldFactor(world, c.worldMult, c.lateWorldMult);
+}
+
+/** Coin multiplier of a world BOSS purse (1 in world 1), tapered the same way. */
+export function bossCoinFactor(world: number): number {
+  const b = BALANCE.combat.boss;
+  return worldFactor(world, b.coinsWorldMult, b.coinsLateWorldMult);
 }
 
 /**
@@ -177,12 +232,56 @@ export function isWorldBossWave(wave: number): boolean {
  * the endless "champion" endgame: waves keep counting past 50 and keep scaling.
  */
 export function bossStanding(world: number, wave: number, defeated: readonly string[]): boolean {
-  if (!isWorldBossWave(wave)) return false;
+  if (!isWorldBossWave(world, wave)) return false;
   const boss = worldBossOf(world);
   return boss !== undefined && !defeated.includes(boss.id);
 }
 
-/** True once the final world's boss is down — world 4 becomes endless. */
+/**
+ * WHERE THE LEDGER SAYS THE PLAYER ACTUALLY STANDS — derived, never stored.
+ *
+ * Two facts are read back out of `bossesDefeated` (which unions exactly under a
+ * merge) instead of being trusted from the world/wave markers:
+ *
+ *   1. THE CHAMPION MIGRATION. An account that beat the last boss of the OLD
+ *      four-world game carries `boss_defeated{endgame:true, nextWorld:4}`, so
+ *      replaying its log parks it in world 4 forever. That payload stays
+ *      authoritative — the fold still lands exactly where it always did — and
+ *      this function then reads the trophy shelf and says: the boss of this
+ *      world is down and this is not the last world, so the player belongs at
+ *      the START of the next one. Applied at fold-END, it is a pure function of
+ *      the event SET, which makes it order-independent and idempotent: running
+ *      it twice, or on either merge order, gives the same answer.
+ *   2. THE OVERSHOOT CLAMP. Those same accounts kept fighting "champion" waves
+ *      in world 4, so their marker can sit far past any real wave (wave 137 of a
+ *      world that now ends at 80). Whenever the current world's boss is still
+ *      STANDING, the wave is clamped to the boss's own wave — the player walks
+ *      straight into the fight they were owed rather than into a wave that does
+ *      not exist. A world whose boss is already a trophy is never clamped: that
+ *      is champion mode in the LAST world, where the waves are meant to run on.
+ */
+export function derivedProgress(p: {
+  readonly world: number;
+  readonly wave: number;
+  readonly bossesDefeated: readonly string[];
+}): { world: number; wave: number } {
+  let world = Math.max(1, Math.floor(p.world));
+  let wave = Math.max(1, Math.floor(p.wave));
+
+  // (1) walk forward over every world whose boss is already on the shelf.
+  for (let guard = 0; guard < WORLD_COUNT; guard += 1) {
+    if (world >= WORLD_COUNT) break;
+    const boss = worldBossOf(world);
+    if (!boss || !p.bossesDefeated.includes(boss.id)) break;
+    world += 1;
+    wave = 1;
+  }
+  // (2) a standing boss is a wall: never let the marker sit past it.
+  if (bossStanding(world, wave, p.bossesDefeated)) wave = bossWaveOf(world);
+  return { world, wave };
+}
+
+/** True once the final world's boss is down — the last world becomes endless. */
 export function isEndgame(defeated: readonly string[]): boolean {
   const last = worldBossOf(WORLD_COUNT);
   return last !== undefined && defeated.includes(last.id);
@@ -207,23 +306,20 @@ export interface BossSpec {
 /**
  * Everything about a world-boss fight, derived from the world alone.
  *
- * The boss stands on the wave-scaling curve at `wavesPerWorld + 1` and then
- * multiplies it by its own `hpMult`/`atkMult`, so it is always meaningfully
- * bigger than the wave-50 enemy the player just beat.
+ * The boss stands on the (stretched) wave-scaling curve one wave past the
+ * world's last one and then multiplies it by its own `hpMult`/`atkMult`, so it
+ * is always meaningfully bigger than the final enemy the player just beat.
  */
 export function bossSpec(world: number): BossSpec | null {
   const boss = worldBossOf(world);
   if (!boss) return null;
   const c = BALANCE.combat;
   const e = c.enemy;
-  const wave = c.wavesPerWorld + 1;
-  const worldStep = Math.max(0, world - 1);
-  const waveStep = wave - 1;
+  const wave = bossWaveOf(world);
+  const waveStep = (wave - 1) * waveStretch(world);
 
-  const hp =
-    e.hpBase * Math.pow(e.hpGrowth, waveStep) * Math.pow(e.worldHpMult, worldStep) * (boss.hpMult ?? 1);
-  const atk =
-    e.atkBase * Math.pow(e.atkGrowth, waveStep) * Math.pow(e.worldAtkMult, worldStep) * (boss.atkMult ?? 1);
+  const hp = e.hpBase * Math.pow(e.hpGrowth, waveStep) * worldHpFactor(world) * (boss.hpMult ?? 1);
+  const atk = e.atkBase * Math.pow(e.atkGrowth, waveStep) * worldAtkFactor(world) * (boss.atkMult ?? 1);
   const endgame = world >= WORLD_COUNT;
 
   return {
@@ -233,10 +329,10 @@ export function bossSpec(world: number): BossSpec | null {
     hp: Math.max(1, Math.round(hp)),
     atk: Math.max(1, Math.round(atk * 10) / 10),
     attackIntervalMs: c.boss.attackIntervalMs,
-    coins: Math.round(c.boss.coinsBase * Math.pow(c.boss.coinsWorldMult, worldStep)),
+    coins: Math.round(c.boss.coinsBase * bossCoinFactor(world)),
     energyCost: c.boss.energyCost,
-    // Beating the last boss does NOT reset progress: the player stays in world 4
-    // and the waves simply keep going (and keep scaling) from here.
+    // Beating the LAST boss does not reset progress: the player stays in the
+    // final world and the waves simply keep going (and keep scaling) from here.
     nextWorld: endgame ? world : world + 1,
     nextWave: endgame ? wave : 1,
     endgame,
@@ -261,25 +357,24 @@ export function waveSpec(world: number, wave: number): WaveSpec {
   const e = c.enemy;
   const miniBoss = isMiniBossWave(wave);
   const enemy = enemyForWave(world, wave, miniBoss);
-  const worldStep = Math.max(0, world - 1);
-  const waveStep = Math.max(0, wave - 1);
+  const waveStep = Math.max(0, wave - 1) * waveStretch(world);
 
   const hp =
     e.hpBase *
     Math.pow(e.hpGrowth, waveStep) *
-    Math.pow(e.worldHpMult, worldStep) *
+    worldHpFactor(world) *
     (miniBoss ? e.miniBossHpMult : 1) *
     (enemy.hpMult ?? 1);
   const atk =
     e.atkBase *
     Math.pow(e.atkGrowth, waveStep) *
-    Math.pow(e.worldAtkMult, worldStep) *
+    worldAtkFactor(world) *
     (miniBoss ? e.miniBossAtkMult : 1) *
     (enemy.atkMult ?? 1);
 
   const coins = Math.round(
     (c.coins.base + c.coins.perWave * waveStep) *
-      Math.pow(c.coins.worldMult, worldStep) *
+      worldCoinFactor(world) *
       (miniBoss ? c.coins.miniBossMult : 1),
   );
 
@@ -471,16 +566,53 @@ export interface EnemyState {
   worldBoss: boolean;
   svg: string;
   /**
-   * A GHOST's defensive stats (see `GauntletWave`). Absent for every ordinary
-   * enemy, and every rule below is skipped when they are — so nothing about an
-   * ordinary fight changes, down to the order of the RNG draws.
+   * A GHOST's defensive stats (see `GauntletWave`) — and, from Phase 9, the
+   * per-world FLAVOURS a campaign enemy may opt into (`EnemyDef`). Absent for
+   * every ordinary enemy, and every rule below is skipped when they are — so
+   * nothing about an ordinary fight changes, down to the order of the RNG draws.
    */
   def?: number;
   critChance?: number;
   critMultiplier?: number;
   regen?: number;
+  /** ממלכת הצללים — chance a NON-critical blow misses. Crits always land. */
+  dodgeChance?: number;
+  /** ממלכת הקרח — multiplies the PLAYER's attack interval while this one lives. */
+  slow?: number;
   /** True while another account's character is the opponent (drives the UI). */
   ghost?: boolean;
+}
+
+/**
+ * The optional flavour fields an `EnemyDef` contributes to a spawn, as a spread.
+ *
+ * A key is emitted ONLY when the definition names it, so an ordinary enemy's
+ * `EnemyState` has exactly the keys it has always had — which matters because
+ * every rule downstream is written as "skip unless present", and because the
+ * absence of a key is what keeps the seeded RNG stream identical.
+ *
+ * `regenPct` is the one that is not copied verbatim: it is a fraction of the
+ * enemy's OWN max HP, resolved here against the wave's rolled HP, because a flat
+ * HP-per-second number would be meaningless on an exponential curve.
+ */
+function flavourOf(def: EnemyDef, maxHp: number): Partial<EnemyState> {
+  const f = BALANCE.combat.enemy.flavour;
+  const clamp = (v: number, hi: number): number => Math.min(Math.max(0, v), hi);
+  const regen = def.regenPct ? clamp(def.regenPct, f.maxRegenPct) * maxHp : 0;
+  return {
+    ...(def.def ? { def: clamp(def.def, f.maxDef) } : {}),
+    ...(def.critChance
+      ? {
+          critChance: clamp(def.critChance, f.maxCritChance),
+          critMultiplier: Math.min(def.critMultiplier ?? 1.5, f.maxCritMultiplier),
+        }
+      : {}),
+    ...(regen > 0 ? { regen: Math.max(0.1, Math.round(regen * 10) / 10) } : {}),
+    ...(def.dodgeChance ? { dodgeChance: clamp(def.dodgeChance, f.maxDodgeChance) } : {}),
+    ...(def.attackSlowMult && def.attackSlowMult > 1
+      ? { slow: Math.min(def.attackSlowMult, f.maxAttackSlowMult) }
+      : {}),
+  };
 }
 
 export type BattleStatus =
@@ -722,6 +854,8 @@ export type CombatEvent =
   | { kind: 'hit'; source: 'auto' | 'tap' | 'super' | 'skill'; amount: number; crit: boolean; enemyHp: number }
   /** `crit` is only ever set by a GHOST, which is the only enemy with crit stats. */
   | { kind: 'enemy_hit'; amount: number; playerHp: number; crit?: boolean }
+  /** ממלכת הצללים — the blow found nothing but shadow. */
+  | { kind: 'dodged'; source: 'auto' | 'tap' | 'super' | 'skill'; enemyHp: number }
   | { kind: 'regen'; amount: number; playerHp: number }
   /** A ghost healed itself from its own Core. Never fires for an ordinary enemy. */
   | { kind: 'enemy_regen'; amount: number; enemyHp: number }
@@ -1025,6 +1159,7 @@ function spawn(state: BattleState, out: CombatEvent[]): void {
       miniBoss: false,
       worldBoss: true,
       svg: spec.boss.svg,
+      ...flavourOf(spec.boss, spec.hp),
     });
     out.push({ kind: 'boss_spawn', enemy: state.enemy as EnemyState, spec });
     return;
@@ -1049,6 +1184,7 @@ function spawn(state: BattleState, out: CombatEvent[]): void {
     miniBoss: spec.miniBoss,
     worldBoss: false,
     svg: spec.enemy.svg,
+    ...flavourOf(spec.enemy, spec.hp),
   });
   out.push({ kind: 'spawn', enemy: state.enemy as EnemyState, spec });
 }
@@ -1062,9 +1198,19 @@ function damageEnemy(
 ): void {
   const enemy = state.enemy;
   if (!enemy) return;
+  // ממלכת הצללים — a shade may fade out from under an ordinary blow. THE MERCY
+  // RULE: a CRIT can never be dodged, so the counter-play is a stat the player
+  // trains (Arms) and a skill they already have (מכה מדויקת's guaranteed crit).
+  // The draw sits inside the `> 0` guard, so an enemy without a dodge chance
+  // takes no number out of the stream — every older seed replays byte-identically.
+  const dodge = enemy.dodgeChance ?? 0;
+  if (dodge > 0 && !crit && nextFloat(state.rng) < dodge) {
+    out.push({ kind: 'dodged', source, enemyHp: enemy.hp });
+    return;
+  }
   // The enemy's own DEF, on the same soft-cap curve the player's is on. It is 0
   // for every ordinary enemy and `mitigation(0)` is exactly 1, so this line
-  // changes nothing outside a ghost duel.
+  // changes nothing outside a ghost duel and the armoured world.
   const dealt = Math.max(1, Math.round(amount * mitigation(enemy.def ?? 0) * 10) / 10);
   enemy.hp = Math.max(0, Math.round((enemy.hp - dealt) * 10) / 10);
   out.push({ kind: 'hit', source, amount: dealt, crit, enemyHp: enemy.hp });
@@ -1295,7 +1441,14 @@ function step(state: BattleState, dt: number, stats: CombatStats, out: CombatEve
   //    the crit DRAW still happens either way, so the RNG stream is unchanged.
   state.playerCd -= dt;
   if (state.playerCd <= 0) {
-    const interval = stats.attackIntervalMs * (state.skills.flurryMs > 0 ? state.skills.flurryFactor : 1);
+    // ממלכת הקרח — the chill multiplies the interval for as long as the enemy
+    // stands. It is a plain multiplication on the same line סערת מהלומות uses,
+    // so the two compose (a flurry thaws a chill), it costs no RNG draw at all,
+    // and `enemy.slow` is undefined everywhere else — hence `?? 1`.
+    const interval =
+      stats.attackIntervalMs *
+      (state.skills.flurryMs > 0 ? state.skills.flurryFactor : 1) *
+      (enemy.slow ?? 1);
     state.playerCd += Math.max(BALANCE.combat.tickMs, interval);
     const raw = varied(stats.atk, state.rng);
     const rolled = nextFloat(state.rng) < stats.critChance;

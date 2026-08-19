@@ -34,7 +34,7 @@ import {
   onWorkoutFinished,
 } from '../src/core/game.ts';
 import { computeStreak, statsOfGame, tsToIso } from '../src/core/xp.ts';
-import { worldBossOf } from '../src/data/gameContent.ts';
+import { bossWaveOf, wavesInWorld, worldBossOf } from '../src/data/gameContent.ts';
 import { BODY_PARTS, PROGRAM, type BodyPart, type BuiltInDayKey } from '../src/data/program.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import {
@@ -53,7 +53,7 @@ function fakeStorage(): StorageLike {
   };
 }
 
-const BOSS_WAVE = BALANCE.combat.wavesPerWorld + 1;
+const BOSS_WAVE = bossWaveOf(1);
 const DAYS: readonly BuiltInDayKey[] = ['A', 'B', 'C'];
 
 function levelsOf(store: LocalStore): Record<BodyPart, number> {
@@ -217,7 +217,7 @@ describe('the core loop, end to end', () => {
     }
 
     const afterBoss = gameOf(store);
-    expect(afterBoss.battle.wavesCleared).toBeGreaterThanOrEqual(BALANCE.combat.wavesPerWorld);
+    expect(afterBoss.battle.wavesCleared).toBeGreaterThanOrEqual(wavesInWorld(1));
     expect(afterBoss.battle.miniBossesCleared).toBeGreaterThan(0);
     expect(afterBoss.battle.bossesDefeated).toEqual([boss1?.id]);
     expect(afterBoss.battle.world).toBe(2); // world 2 unlocked

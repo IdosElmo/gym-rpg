@@ -33,7 +33,7 @@ import {
 } from '../src/core/combat.ts';
 import { deriveStats, emptyGame } from '../src/core/xp.ts';
 import { BODY_PARTS, type BodyPart } from '../src/data/program.ts';
-import { WORLDS } from '../src/data/gameContent.ts';
+import { WORLDS, wavesInWorld } from '../src/data/gameContent.ts';
 
 const TICK = BALANCE.combat.tickMs;
 
@@ -108,7 +108,7 @@ describe('wave scaling', () => {
     // the underlying curve is monotonic across a whole world (per-enemy
     // flavour multipliers are divided out — they wobble it on purpose)
     let prev = 0;
-    for (let wave = 1; wave <= BALANCE.combat.wavesPerWorld; wave += 1) {
+    for (let wave = 1; wave <= wavesInWorld(1); wave += 1) {
       const spec = waveSpec(1, wave);
       const hp =
         spec.hp /
@@ -134,10 +134,10 @@ describe('wave scaling', () => {
   });
 
   it('gates the world boss once the world is out of waves (Phase 3)', () => {
-    expect(isWorldBossWave(BALANCE.combat.wavesPerWorld)).toBe(false);
-    expect(isWorldBossWave(BALANCE.combat.wavesPerWorld + 1)).toBe(true);
+    expect(isWorldBossWave(1, wavesInWorld(1))).toBe(false);
+    expect(isWorldBossWave(1, wavesInWorld(1) + 1)).toBe(true);
 
-    const state = battle({ wave: BALANCE.combat.wavesPerWorld + 1 });
+    const state = battle({ wave: wavesInWorld(1) + 1 });
     const events = run(state, BASE, 2000);
     expect(state.status).toBe('gated');
     expect(events.some((e) => e.kind === 'gated')).toBe(true);
