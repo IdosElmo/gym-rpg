@@ -45,7 +45,7 @@ import { weeklyTargetOfPlanPayload } from '../data/planTypes.ts';
 import { BALANCE } from './balance.ts';
 import { bestDailyStreak, dailyStreak } from './daily.ts';
 import { duelKey, normalizeHandle } from './handle.ts';
-import type { ChallengeResult } from './combat.ts';
+import { derivedProgress, type ChallengeResult } from './combat.ts';
 import {
   EQUIPMENT_SLOTS,
   equipmentById,
@@ -891,6 +891,28 @@ export function finalizeGame(game: GameState, today: string, targets: WeeklyTarg
   game.streak = computeStreak(game.workoutDays, today, targets);
   finalizeDaily(game.daily, today);
   finalizeDuels(game.duels);
+  finalizeBattleProgress(game.battle);
+}
+
+/**
+ * Re-seat the world/wave marker on what the TROPHY SHELF says — the same
+ * "derive it, never store it" rule the levels, the daily totals and the duel
+ * record already follow.
+ *
+ * The reducer keeps folding `wave_cleared` / `boss_defeated` payloads verbatim,
+ * so history replays byte-identically; this runs once at the END of the fold and
+ * answers a question the payloads cannot: an account that beat the FINAL boss of
+ * the four-world game was told, by its own event, to stay in world 4 forever.
+ * With nine worlds that event no longer means "you are done", it means "world 4
+ * is behind you" — and `bossesDefeated` is what says so. `derivedProgress`
+ * (see `core/combat.ts`) also clamps a champion-era wave marker that now sits
+ * past a standing boss. Both are pure functions of the event SET, hence
+ * idempotent and identical under either merge order.
+ */
+export function finalizeBattleProgress(battle: BattleProgress): void {
+  const at = derivedProgress(battle);
+  battle.world = at.world;
+  battle.wave = at.wave;
 }
 
 /**

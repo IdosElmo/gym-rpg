@@ -9,8 +9,11 @@
  *      tests below drive the real loop and assert the classes, because the class
  *      is the contract between the loop and the stylesheet; and they assert the
  *      reduced-motion path leaves the DOM harmless rather than different.
- *   2. THE WORLD STRIP — the four worlds as nodes, with locked / current /
- *      boss-ready / champion states and the current world's wave progress.
+ *   2. THE WORLD STRIP — the NINE worlds as nodes, with locked / current /
+ *      boss-ready / champion states and the current world's own wave progress.
+ *      Nine nodes do not fit a phone side by side, so the row scrolls; the CSS
+ *      that makes that work is asserted here as source, since jsdom has no
+ *      layout and a layout-free assertion that lies is worse than none.
  *   3. THE HERO'S GEAR — the fighter wears what the דמות screen shows, in every
  *      mode the arena can be in, and the equipment layers are the same markup
  *      on the same 200×320 stage rather than a second, smaller drawing.
@@ -32,6 +35,8 @@ import {
   EQUIPMENT_SLOTS,
   WORLDS,
   WORLD_BOSSES,
+  bossWaveOf,
+  wavesInWorld,
   equipmentById,
   type EquipmentSlot,
 } from '../src/data/gameContent.ts';
@@ -216,7 +221,7 @@ describe('battle animations', () => {
     const store = battleStore(60, 40);
     store.update((d) => {
       const g = d.game ?? emptyGame();
-      g.battle.wave = BALANCE.combat.wavesPerWorld + 1;
+      g.battle.wave = bossWaveOf(1);
       d.game = g;
     });
     mount(store);
@@ -271,7 +276,7 @@ describe('world progress strip', () => {
     expect(list[0]?.className).toContain('current');
     expect(list[0]?.className).toContain('gated');
     expect(list[0]?.querySelector('.wp-glyph')?.textContent).toBe('🔒');
-    expect(list[0]?.querySelector('.wp-meta')?.textContent).toBe(`גל 1/${BALANCE.combat.wavesPerWorld}`);
+    expect(list[0]?.querySelector('.wp-meta')?.textContent).toBe(`גל 1/${wavesInWorld(1)}`);
     expect(list[0]?.querySelector('button')?.getAttribute('aria-current')).toBe('step');
     for (const node of list.slice(1)) {
       expect(node.className).toContain('locked');
@@ -294,7 +299,7 @@ describe('world progress strip', () => {
     const first = nodes()[0];
     expect(first?.className).toContain('ready');
     expect(first?.querySelector('.wp-glyph')?.textContent).toBe('✓');
-    expect(first?.querySelector('.wp-meta')?.textContent).toBe(`גל 23/${BALANCE.combat.wavesPerWorld}`);
+    expect(first?.querySelector('.wp-meta')?.textContent).toBe(`גל 23/${wavesInWorld(1)}`);
   });
 
   it('trophies the worlds behind the player and locks the ones ahead', () => {
@@ -350,6 +355,53 @@ describe('world progress strip', () => {
     expect(toast?.textContent).toContain('חזה');
     // the gate card it points at is the one that already lists every requirement
     expect(document.querySelector('.bt-gate .bt-reqs')).not.toBeNull();
+  });
+
+  it('scrolls instead of squeezing, once there are nine of them', () => {
+    mount(battleStore());
+    expect(nodes()).toHaveLength(9);
+
+    // The row is a horizontally scrolling flex line with a FIXED node width —
+    // nine equal grid columns would be ~34px on a 360px phone, under the app's
+    // 44px touch floor and far too narrow for a Hebrew world name.
+    const css = readFileSync(resolve(process.cwd(), 'styles', 'battle.css'), 'utf8');
+    const strip = css.slice(css.indexOf('.wp-strip{'), css.indexOf('}', css.indexOf('.wp-strip{')));
+    expect(strip).toContain('display:flex');
+    expect(strip).toContain('overflow-x:auto');
+    const node = css.slice(css.indexOf('.wp-node{'), css.indexOf('}', css.indexOf('.wp-node{')));
+    expect(node).toMatch(/flex:0 0 \d+px/);
+    // …and the page itself must never scroll sideways because of it
+    expect(strip).toContain('overflow-y:hidden');
+  });
+
+  it('marks the current node so the strip can open on the player', () => {
+    const store = battleStore(12);
+    store.update((d) => {
+      const g = d.game ?? emptyGame();
+      g.battle.world = 6;
+      g.battle.wave = 12;
+      g.battle.bossesDefeated = ['boss_w1', 'boss_w2', 'boss_w3', 'boss_w4', 'boss_w5'];
+      d.game = g;
+    });
+    mount(store);
+    const current = document.querySelectorAll('#btWorlds .wp-node[data-current="1"]');
+    expect(current).toHaveLength(1);
+    expect(current[0]?.querySelector('.wp-name')?.textContent).toBe(WORLDS[5]?.he);
+  });
+
+  it('counts each world against ITS OWN wave total, not a global 50', () => {
+    const store = battleStore(12);
+    store.update((d) => {
+      const g = d.game ?? emptyGame();
+      g.battle.world = 9;
+      g.battle.wave = 64;
+      g.battle.bossesDefeated = WORLD_BOSSES.slice(0, 8).map((b) => b.id);
+      d.game = g;
+    });
+    mount(store);
+    const last = nodes()[8];
+    expect(last?.className).toContain('current');
+    expect(last?.querySelector('.wp-meta')?.textContent).toBe(`גל 64/${wavesInWorld(9)}`);
   });
 
   it('does not push the arena off the first screen', () => {
@@ -423,7 +475,7 @@ describe('the hero in the arena', () => {
 
   it('is the same drawing the דמות screen shows — same stage, same gear', () => {
     const store = battleStore();
-    wear(store, { cape: 'cape_3', shoes: 'shoes_2' }, { cape_3: 1 });
+    wear(store, { cape: 'cape_3', shirt: 'shirt_2', leggings: 'leggings_2', shoes: 'shoes_2' }, { cape_3: 1 });
     mount(store);
 
     const game = gameOf(store);
@@ -449,8 +501,13 @@ describe('the hero in the arena', () => {
     }
     // The cape is the one layer that hangs BEHIND the body — its position in the
     // draw order travels with it into the arena.
+    // …and the whole six-slot stack keeps its order in the arena too: the cape
+    // hangs behind the body, the shirt is drawn inside it (before the pecs), and
+    // the leggings/shoes/belt/gloves are worn on top in that order.
     const kids = [...(heroSvg()?.children ?? [])].map((c) => c.getAttribute('data-slot') ?? c.tagName);
-    expect(kids.indexOf('cape')).toBeLessThan(kids.indexOf('shoes'));
+    const order = ['cape', 'shirt', 'leggings', 'shoes', 'belt', 'gloves'].map((s) => kids.indexOf(s));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
   it('carries the upgrade flair — the glow class, the glints and the +3 badge', () => {
@@ -485,7 +542,18 @@ describe('the hero in the arena', () => {
 
   it('keeps every gear stroke readable at arena scale', () => {
     const store = battleStore();
-    wear(store, { belt: 'belt_1', gloves: 'gloves_3', shoes: 'shoes_1', cape: 'cape_2' }, { cape_2: 3 });
+    wear(
+      store,
+      {
+        belt: 'belt_1',
+        gloves: 'gloves_3',
+        shirt: 'shirt_3',
+        leggings: 'leggings_1',
+        shoes: 'shoes_1',
+        cape: 'cape_2',
+      },
+      { cape_2: 3 },
+    );
     mount(store);
 
     // The arena draws the stage at ~90px, i.e. ≈0.45px per user unit: the
@@ -507,7 +575,7 @@ describe('the hero in the arena', () => {
     const states: Array<[label: string, apply: (g: ReturnType<typeof emptyGame>) => void]> = [
       ['wave 1', () => undefined],
       ['mini-boss', (g) => void (g.battle.wave = BALANCE.combat.miniBossEvery)],
-      ['world boss', (g) => void (g.battle.wave = BALANCE.combat.wavesPerWorld + 1)],
+      ['world boss', (g) => void (g.battle.wave = bossWaveOf(1))],
       [
         'champion',
         (g) => {

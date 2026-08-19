@@ -22,7 +22,7 @@ import {
   characterById,
   characterId,
 } from '../src/data/characters.ts';
-import { EQUIPMENT } from '../src/data/gameContent.ts';
+import { EQUIPMENT, EQUIPMENT_SLOTS } from '../src/data/gameContent.ts';
 import type { BodyPart } from '../src/data/program.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
@@ -721,6 +721,317 @@ describe('the shoes', () => {
           expect(x).toBeGreaterThan(b.minX - 8);
           expect(x).toBeLessThan(b.maxX + 8);
         });
+      }
+    }
+  });
+});
+
+/* --------------------------------------------- the shirt and the leggings */
+
+/**
+ * THE TWO GARMENTS THE WARDROBE GREW BY — 👕 חולצה and 🩳 טייץ — and the two
+ * promises they made when they were added:
+ *
+ *   1. THE SHIRT MUST NOT HIDE THE PHYSIQUE. The torso is this app's progress
+ *      display, so the tank top is drawn between the torso and the pec/ab
+ *      groups: the muscles are painted ON the fabric. Its outline is cut from
+ *      the character's own chest and waist, so the V-taper still grows in plain
+ *      sight, and its armholes leave the outer chest and the lat flare bare.
+ *   2. THE LEGGINGS MUST NOT LEAVE THE LEG. They are the same two strokes
+ *      `legGroup` draws, through the same three points, two units wider — so a
+ *      thicker thigh or a narrower stance (the female body's `legSpread`) moves
+ *      both together.
+ *
+ * Both are swept over both bodies and the whole growth curve, because that is
+ * where a hand-placed garment drifts off the body it is worn on.
+ */
+describe('the shirt and the leggings', () => {
+  const parser = new DOMParser();
+  const LEVELS = [1, 3, 7, 15, 99];
+  const SHIRTS = EQUIPMENT.filter((i) => i.slot === 'shirt');
+  const LEGGINGS = EQUIPMENT.filter((i) => i.slot === 'leggings');
+
+  function partsAt(level: number): ReturnType<typeof emptyGame>['parts'] {
+    const parts = emptyGame().parts;
+    for (const p of Object.keys(parts) as BodyPart[]) parts[p].level = level;
+    return parts;
+  }
+
+  function svgOf(characterId: string, level: number, equipped: Record<string, string>, upgrades = {}): string {
+    return characterSvg(partsAt(level), {
+      character: characterId,
+      equipment: { owned: Object.values(equipped), equipped, upgrades },
+    });
+  }
+
+  function draw(characterId: string, level: number, equipped: Record<string, string>): Document {
+    return parser.parseFromString(svgOf(characterId, level, equipped), 'image/svg+xml');
+  }
+
+  /** Every (x, y) an element draws at — absolute commands only, like the shoes. */
+  function pointsOf(el: Element): Array<[number, number]> {
+    if (el.tagName === 'rect') {
+      const at = (a: string): number => Number(el.getAttribute(a));
+      return [
+        [at('x'), at('y')],
+        [at('x') + at('width'), at('y') + at('height')],
+      ];
+    }
+    const d = el.getAttribute('d') ?? '';
+    expect(d, 'a garment path uses a relative command').not.toMatch(/[hvasHVAS]/);
+    const raw = (d.match(/-?\d+(\.\d+)?/g) ?? []).map(Number);
+    expect(raw.length % 2, `odd coordinate count in ${d}`).toBe(0);
+    return Array.from({ length: raw.length / 2 }, (_, i) => [raw[i * 2] as number, raw[i * 2 + 1] as number]);
+  }
+
+  const geoOf = (c: string, level: number) =>
+    characterGeometry(partsAt(level), c === 'hero_f' ? 'female' : 'male');
+
+  /* ------------------------------------------------------------- the cut */
+
+  it('cuts the shirt from the CHARACTER’s chest and waist, on both bodies', () => {
+    for (const c of ['hero_m', 'hero_f']) {
+      let widest = 0;
+      for (const level of LEVELS) {
+        const geo = geoOf(c, level);
+        for (const item of SHIRTS) {
+          const doc = draw(c, level, { shirt: item.id });
+          const path = doc.querySelector('[data-slot="shirt"] .ch-shirt-body');
+          expect(path, `${c} ${item.id}`).not.toBeNull();
+          const pts = pointsOf(path as Element);
+          const half = Math.max(...pts.map((p) => Math.abs(p[0] - 100)));
+
+          // never wider than the chest it is worn on — the outer chest and the
+          // lat flare (chestHalf + latFlare) stay outside the garment…
+          expect(half, `${c} ${item.id} @L${level} is wider than the chest`).toBeLessThan(geo.chestHalf);
+          expect(half).toBeLessThan(geo.chestHalf + geo.latFlare);
+          // …and the straps stay inboard of the deltoid caps, so the shoulders
+          // are still bare at every level.
+          const shoulderPts = pts.filter((p) => p[1] < 90);
+          expect(shoulderPts.length).toBeGreaterThan(3);
+          expect(
+            Math.max(...shoulderPts.map((p) => Math.abs(p[0] - 100))),
+            `${c} ${item.id} @L${level} swallows the deltoid`,
+          ).toBeLessThan(geo.shoulderHalf - geo.deltoidR * 0.4);
+          // it hangs from the shoulder line and stops above the hips
+          expect(Math.min(...pts.map((p) => p[1]))).toBeGreaterThanOrEqual(84);
+          expect(Math.max(...pts.map((p) => p[1]))).toBeLessThan(172);
+        }
+        // …and the SAME shirt grows with the CHEST it is on: the side seam
+        // under the arm is the point the chest drives (the hem is the waist's,
+        // and a trained core deliberately pulls that one IN).
+        const seam = pointsOf(
+          draw(c, level, { shirt: 'shirt_2' }).querySelector('.ch-shirt-body') as Element,
+        ).filter((p) => p[1] === 122);
+        expect(seam, `${c} @L${level} has no side seam`).toHaveLength(2);
+        const wide = Math.abs((seam[0] as [number, number])[0] - 100);
+        // strictly, right up to `BALANCE.character.visualMaxLevel`, where the
+        // whole drawing deliberately stops growing (L99 draws exactly L15)
+        if (level <= 15) expect(wide, `${c} @L${level} did not grow with the chest`).toBeGreaterThan(widest);
+        else expect(wide, `${c} @L${level} kept growing past the visual cap`).toBe(widest);
+        widest = wide;
+      }
+    }
+  });
+
+  it('gives the shirt real side cutouts — the armhole bites inward', () => {
+    // The armhole is a quadratic whose CONTROL point sits inside both of its
+    // endpoints, which is the whole reason the outer chest stays visible. Read
+    // it back out of the drawn path rather than trusting the source.
+    for (const c of ['hero_m', 'hero_f']) {
+      for (const level of [1, 99]) {
+        const d = draw(c, level, { shirt: 'shirt_1' })
+          .querySelector('.ch-shirt-body')
+          ?.getAttribute('d');
+        const q = /Q\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*\n?\s*L/.exec(d ?? '');
+        expect(q, `${c} @L${level} has no armhole curve`).not.toBeNull();
+        const control = Math.abs(Number(q?.[1]) - 100);
+        const seam = Math.abs(Number(q?.[3]) - 100);
+        const strap = Math.abs(Number(/M\s+-?[\d.]+\s+-?[\d.]+\s+L\s+(-?[\d.]+)/.exec(d ?? '')?.[1]) - 100);
+        expect(control, `${c} @L${level} armhole does not bite in`).toBeLessThan(seam);
+        expect(control).toBeLessThan(strap);
+      }
+    }
+  });
+
+  it('runs each legging down its OWN leg, wider than it, on both bodies', () => {
+    for (const c of ['hero_m', 'hero_f']) {
+      for (const level of LEVELS) {
+        const geo = geoOf(c, level);
+        const anchors = characterAnchors(geo);
+        for (const item of LEGGINGS) {
+          const doc = draw(c, level, { leggings: item.id });
+          const sleeves = [...doc.querySelectorAll('[data-slot="leggings"] .ch-legging')];
+          expect(sleeves, `${c} ${item.id} @L${level}`).toHaveLength(2);
+
+          sleeves.forEach((g, i) => {
+            const leg = anchors.leggings[i] as (typeof anchors.leggings)[number];
+            const thigh = g.querySelector('.ch-leg-thigh');
+            const calf = g.querySelector('.ch-leg-calf');
+            // the sleeve ENDS on the leg's own knee point — not on a share of
+            // the hip width picked by hand
+            const knee = pointsOf(thigh as Element)[1] as [number, number];
+            expect(knee[0], `${c} ${item.id} knee`).toBeCloseTo(leg.kneeX, 1);
+            expect(knee[1]).toBe(236);
+            expect(pointsOf(calf as Element)[0]?.[0]).toBeCloseTo(leg.kneeX, 1);
+            // …and it CONTAINS the leg: both strokes are wider than the limb's
+            expect(Number(thigh?.getAttribute('stroke-width'))).toBeGreaterThan(geo.thighW);
+            expect(Number(calf?.getAttribute('stroke-width'))).toBeGreaterThan(geo.calfW);
+            // the hem stops above the ankle, so a shoe collar can close over it
+            const hemY = (pointsOf(calf as Element)[1] as [number, number])[1];
+            expect(hemY, `${c} ${item.id} hem`).toBeLessThanOrEqual(292);
+            expect(hemY).toBeGreaterThan(236);
+          });
+
+          // mirrored about the centre line, like the legs themselves
+          const xs = sleeves.map((g) => Number(/M (-?[\d.]+)/.exec(g.querySelector('.ch-leg-thigh')?.getAttribute('d') ?? '')?.[1]));
+          expect((xs[0] as number) + (xs[1] as number)).toBeCloseTo(200, 0);
+        }
+      }
+    }
+  });
+
+  it('hides both thigh tops under the waistband, at the widest possible leg', () => {
+    // A round-capped stroke overshoots its start by half its own width; without
+    // the band the two sleeves would put a pair of domes on the abdomen.
+    for (const c of ['hero_m', 'hero_f']) {
+      for (const item of LEGGINGS) {
+        const doc = draw(c, 99, { leggings: item.id });
+        const band = doc.querySelector('.ch-leg-band');
+        const bandTop = Number(band?.getAttribute('y'));
+        const bandBottom = bandTop + Number(band?.getAttribute('height'));
+        const bandHalf = Number(band?.getAttribute('width')) / 2;
+        for (const thigh of doc.querySelectorAll('.ch-leg-thigh')) {
+          const start = pointsOf(thigh)[0] as [number, number];
+          const overshoot = Number(thigh.getAttribute('stroke-width')) / 2;
+          expect(start[1] - overshoot, `${c} ${item.id} sleeve pokes out above the band`).toBeGreaterThan(
+            bandTop,
+          );
+          expect(start[1], `${c} ${item.id} sleeve starts below the band`).toBeLessThan(bandBottom);
+          expect(Math.abs(start[0] - 100) + overshoot).toBeLessThan(bandHalf);
+        }
+        // and the band is the hip line, not an invented width
+        expect(bandHalf).toBeCloseTo(geoOf(c, 99).hipHalf + 1, 1);
+      }
+    }
+  });
+
+  it('gives each tier its own hem, and every stroke the 62px card can resolve', () => {
+    const hems = new Set<number>();
+    for (const item of LEGGINGS) {
+      const doc = draw('hero_m', 8, { leggings: item.id });
+      const calf = doc.querySelector('.ch-leg-calf');
+      hems.add((pointsOf(calf as Element)[1] as [number, number])[1]);
+    }
+    expect(hems.size, 'the three tiers end at the same place').toBe(LEGGINGS.length);
+
+    const shirtHems = new Set<number>();
+    for (const item of SHIRTS) {
+      const body = draw('hero_m', 8, { shirt: item.id }).querySelector('.ch-shirt-body');
+      expect(body, item.id).not.toBeNull();
+      shirtHems.add(Math.max(...pointsOf(body as Element).map((p) => p[1])));
+    }
+    expect(shirtHems.size, 'the three shirts end at the same place').toBe(SHIRTS.length);
+
+    for (const item of [...SHIRTS, ...LEGGINGS]) {
+      const doc = draw('hero_f', 12, { [item.slot]: item.id });
+      const group = doc.querySelector(`[data-slot="${item.slot}"]`);
+      expect(group?.childElementCount ?? 0).toBeGreaterThan(0);
+      for (const el of group?.querySelectorAll('[stroke-width]') ?? []) {
+        expect(Number(el.getAttribute('stroke-width')), item.id).toBeGreaterThanOrEqual(1.6);
+      }
+      // the three tiers are three genuinely different garments
+      expect(item.color).not.toBe(item.accent);
+    }
+    expect(new Set([...SHIRTS, ...LEGGINGS].map((i) => `${i.color}${i.accent}`)).size).toBe(6);
+  });
+
+  /* ---------------------------------------------------------- paint order */
+
+  it('paints the pecs, the abs and the arms ON the shirt — never under it', () => {
+    for (const c of ['hero_m', 'hero_f']) {
+      for (const level of LEVELS) {
+        const svg = svgOf(c, level, { shirt: 'shirt_3' });
+        const at = (needle: string): number => {
+          const i = svg.indexOf(needle);
+          expect(i, `${c} @L${level}: missing ${needle}`).toBeGreaterThan(-1);
+          return i;
+        };
+        const order = [
+          at('class="ch-hair back"'), // the female cascade — behind everything
+          at('ch-torso-group'),
+          at('data-slot="shirt"'),
+          at('data-part="chest"'),
+          at('data-part="core"'),
+          at('data-part="arms"'),
+          at('data-part="shoulders"'),
+          at('class="ch-head"'),
+        ];
+        expect([...order].sort((a, b) => a - b), `${c} @L${level} draw order`).toEqual(order);
+      }
+    }
+  });
+
+  it('stacks leggings → shoes → belt → gloves, all of them over the body', () => {
+    const svg = svgOf('hero_f', 9, {
+      cape: 'cape_3',
+      shirt: 'shirt_2',
+      belt: 'belt_2',
+      leggings: 'leggings_3',
+      shoes: 'shoes_2',
+      gloves: 'gloves_1',
+    });
+    const at = (needle: string): number => {
+      const i = svg.indexOf(needle);
+      expect(i, `missing ${needle}`).toBeGreaterThan(-1);
+      return i;
+    };
+    const order = [
+      at('data-slot="cape"'), // behind the body…
+      at('class="ch-hair back"'),
+      at('ch-torso-group'),
+      at('data-slot="shirt"'), // …inside it…
+      at('data-part="chest"'),
+      at('class="ch-head"'),
+      at('data-slot="leggings"'), // …and on top of it, in wearing order
+      at('data-slot="shoes"'),
+      at('data-slot="belt"'),
+      at('data-slot="gloves"'),
+    ];
+    expect([...order].sort((a, b) => a - b), 'six-slot draw order').toEqual(order);
+    // every slot is still its own group — the stylesheet's contract
+    for (const slot of EQUIPMENT_SLOTS) {
+      expect(svg, `no group for ${slot}`).toContain(`data-slot="${slot}"`);
+    }
+  });
+
+  /* --------------------------------------------------------------- flair */
+
+  it('pins the shirt’s flair to the chest emblem and the leggings’ to the knees', () => {
+    for (const c of ['hero_m', 'hero_f']) {
+      for (const level of [1, 99]) {
+        const shirt = parser.parseFromString(
+          svgOf(c, level, { shirt: 'shirt_3' }, { shirt_3: 3 }),
+          'image/svg+xml',
+        );
+        const sparks = [...shirt.querySelectorAll('[data-slot="shirt"] .ch-spark')];
+        expect(sparks, `${c} @L${level} shirt flair`).toHaveLength(1);
+        const mark = shirt.querySelector('.ch-shirt-mark');
+        expect(mark, 'no chest emblem to glint on').not.toBeNull();
+        // the glint sits beside the emblem, and both stay clear of the pecs
+        const geo = geoOf(c, level);
+        const y = (pointsOf(sparks[0] as Element)[0] as [number, number])[1];
+        expect(y).toBeLessThan(geo.pecY - geo.pecRy);
+
+        const legs = parser.parseFromString(
+          svgOf(c, level, { leggings: 'leggings_3' }, { leggings_3: 3 }),
+          'image/svg+xml',
+        );
+        const knees = [...legs.querySelectorAll('[data-slot="leggings"] .ch-spark')].map(
+          (s) => (pointsOf(s)[0] as [number, number])[0],
+        );
+        expect(knees, `${c} @L${level} leggings flair`).toHaveLength(2);
+        expect((knees[0] as number) + (knees[1] as number)).toBeCloseTo(200, 0);
       }
     }
   });

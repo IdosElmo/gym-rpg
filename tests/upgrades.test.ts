@@ -118,6 +118,10 @@ function headline(b: ReturnType<typeof zeroBonus>, def: EquipmentDef): number {
       return -b.attackIntervalMs;
     case 'cape':
       return b.regen;
+    case 'shirt':
+      return b.def;
+    case 'leggings':
+      return b.hp;
   }
 }
 

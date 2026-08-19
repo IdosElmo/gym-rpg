@@ -21,10 +21,11 @@ import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BALANCE } from '../src/core/balance.ts';
-import { buildGhost, ghostHash, type GhostPayload } from '../src/core/ghost.ts';
+import { buildGhost, ghostHash, ghostStats, type GhostPayload } from '../src/core/ghost.ts';
 import { gameOf, onSetCompleted } from '../src/core/game.ts';
 import { todayISO } from '../src/core/workout.ts';
 import { emptyGame, totalXpToReach } from '../src/core/xp.ts';
+import { EQUIPMENT_SLOTS } from '../src/data/gameContent.ts';
 import { BODY_PARTS, findExercise, type BodyPart, type Exercise } from '../src/data/program.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { AppEvent, GameState } from '../src/storage/DataStore.ts';
@@ -601,6 +602,40 @@ describe('a duel dresses both fighters', () => {
     }
   });
 
+  /**
+   * THE TWO NEWEST SLOTS ACROSS A DUEL. An opponent's 👕 and 🩳 have to be drawn
+   * on their body AND felt in the fight — the second half is what stops a slot
+   * from being a costume: `ghostStats` reads the published `equipped` map
+   * through `deriveStats`, the same function that gives the player their own
+   * numbers, so a shirt on the other side is DEF the player has to chew through.
+   */
+  it('renders the opponent’s shirt and leggings, and counts them in their stats', async () => {
+    const port = new FakeGhosts();
+    const dressed = dressedGhost(7, { shirt: 'shirt_3', leggings: 'leggings_3' }, { shirt_3: 2 });
+    port.publish(FOE, dressed);
+    const store = battleStore(6, 5);
+    mount(store, port);
+    await search(FOE);
+
+    expect(cardState()).toBe('ready');
+    expect(group('#btGhost .gd-figure', 'shirt')?.childElementCount).toBeGreaterThan(0);
+    expect(group('#btGhost .gd-figure', 'leggings')?.childElementCount).toBeGreaterThan(0);
+    expect(group('#btGhost .gd-figure', 'shirt')?.classList.contains('up-2')).toBe(true);
+    expect(card()?.textContent).toContain('2 פריטי ציוד');
+
+    // …and the pieces are worth real stats, not just pixels
+    const bare = ghostStats(dressedGhost(7, {}));
+    const geared = ghostStats(dressed);
+    expect(geared.def).toBeGreaterThan(bare.def);
+    expect(geared.maxHp).toBeGreaterThan(bare.maxHp);
+    expect(geared.attackIntervalMs).toBeLessThan(bare.attackIntervalMs);
+
+    // both of them travel into the arena too
+    click(fightBtn());
+    expect(group('#btEnemySprite', 'shirt')?.childElementCount).toBeGreaterThan(0);
+    expect(group('#btEnemySprite', 'leggings')?.childElementCount).toBeGreaterThan(0);
+  });
+
   it('draws no phantom gear for a hostile row’s invented items', async () => {
     const port = new FakeGhosts();
     const honest = dressedGhost(6, { belt: 'belt_1' });
@@ -608,15 +643,22 @@ describe('a duel dresses both fighters', () => {
     // one — a real item worn in the WRONG slot.
     port.rows.set(FOE, {
       ...honest,
-      equipped: { cape: 'gloves_1', belt: 'belt_9000', gloves: 42, shoes: '' },
+      equipped: {
+        cape: 'gloves_1',
+        belt: 'belt_9000',
+        gloves: 42,
+        shoes: '',
+        shirt: 'leggings_3',
+        leggings: 'shirt_1',
+      },
       upgrades: { belt_9000: 99, gloves_1: 7 },
     } as unknown as Record<string, unknown>);
     mount(battleStore(6, 6), port);
     await search(FOE);
 
     expect(cardState()).toBe('ready');
-    for (const slot of ['cape', 'belt', 'gloves', 'shoes']) {
-      expect(group('#btGhost .gd-figure', slot)?.childElementCount).toBe(0);
+    for (const slot of EQUIPMENT_SLOTS) {
+      expect(group('#btGhost .gd-figure', slot)?.childElementCount, slot).toBe(0);
       expect(group('#btGhost .gd-figure', slot)?.classList.contains('upgraded')).toBe(false);
     }
     // …and the card says so: nothing was worn, so nothing is counted.
@@ -624,8 +666,8 @@ describe('a duel dresses both fighters', () => {
 
     // The same is true once the fight starts.
     click(fightBtn());
-    for (const slot of ['cape', 'belt', 'gloves', 'shoes']) {
-      expect(group('#btEnemySprite', slot)?.childElementCount).toBe(0);
+    for (const slot of EQUIPMENT_SLOTS) {
+      expect(group('#btEnemySprite', slot)?.childElementCount, slot).toBe(0);
     }
   });
 });

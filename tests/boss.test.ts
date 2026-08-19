@@ -26,11 +26,18 @@ import {
 import { gameOf, onBossDefeated, onSetCompleted } from '../src/core/game.ts';
 import { applyGameEvent, deriveStats, emptyGame, rebuildGame } from '../src/core/xp.ts';
 import {
+  EQUIPMENT_SLOTS,
+  WORLDS,
   WORLD_BOSSES,
   WORLD_COUNT,
   bossGateStatus,
+  bossWaveOf,
+  equipmentById,
+  sumEquipBonus,
+  wavesInWorld,
   worldBossOf,
 } from '../src/data/gameContent.ts';
+import { upgradeMultiplier } from '../src/core/upgrades.ts';
 import { BODY_PARTS, findExercise, type BodyPart, type Exercise } from '../src/data/program.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import { rebuildFromEvents, type StorageLike } from '../src/storage/migrate.ts';
@@ -71,7 +78,61 @@ function statsAt(level: number): CombatStats {
   };
 }
 
-const BOSS_WAVE = BALANCE.combat.wavesPerWorld + 1;
+/**
+ * THE ERA LADDER — which shop kit a player plausibly wears when they reach each
+ * world's boss, as `[tier, upgradeLevel]`. Derived from the coin economy: every
+ * world's purse comfortably funds the next rung (see the coins note in
+ * `core/balance.ts`), so this is "spent your winnings", not "ground for gear".
+ *
+ * A "kit" is EVERY slot at that tier — `gateStats` builds it by concatenating
+ * `<slot>_<tier>` over `EQUIPMENT_SLOTS`, so when the wardrobe grew from four
+ * slots to six the ladder did not need a line changed and the simulations below
+ * automatically started measuring the fuller kit. What DID need changing was the
+ * five late bosses' `hpMult`, pinned in `six-slot era gear` below.
+ */
+const ERA_GEAR: Readonly<Record<number, readonly [0 | 1 | 2 | 3, 0 | 1 | 2 | 3]>> = {
+  1: [0, 0],
+  2: [1, 0],
+  3: [1, 1],
+  4: [2, 0],
+  5: [2, 2],
+  6: [3, 0],
+  7: [3, 1],
+  8: [3, 2],
+  9: [3, 3],
+};
+
+/** Stats of a character standing EXACTLY on a world's gate, in the given kit. */
+function gateStats(
+  world: number,
+  gear: readonly [0 | 1 | 2 | 3, 0 | 1 | 2 | 3] = [0, 0],
+): CombatStats {
+  const boss = worldBossOf(world);
+  const parts = emptyGame().parts;
+  const needs = Object.values(boss?.requires ?? {});
+  // untrained parts sit one level below the cheapest requirement — a player who
+  // trained only what the gate asks for, and not one rep more
+  const floor = Math.min(...needs) - 1;
+  for (const p of BODY_PARTS) parts[p].level = Math.max(1, floor);
+  for (const [part, need] of Object.entries(boss?.requires ?? {})) {
+    parts[part as BodyPart].level = need as number;
+  }
+
+  const [tier, upgrade] = gear;
+  const ids = tier > 0 ? EQUIPMENT_SLOTS.map((slot) => `${slot}_${tier}`).filter((id) => equipmentById(id)) : [];
+  const s = deriveStats(parts, 0, sumEquipBonus(ids, () => upgradeMultiplier(upgrade)));
+  return {
+    atk: s.atk,
+    def: s.def,
+    maxHp: s.maxHp,
+    attackIntervalMs: s.attackIntervalMs,
+    critChance: s.critChance,
+    critMultiplier: s.critMultiplier,
+    regen: s.regen,
+  };
+}
+
+const BOSS_WAVE = bossWaveOf(1);
 
 /** Run the battle like an ENGAGED player: auto attacks + taps + supers. */
 export function fight(
@@ -167,7 +228,13 @@ describe('boss gates', () => {
   it('is reachable by a consistent trainee at roughly the same pace as the waves', () => {
     // Sanity guard on the tuning: every gate must sit within the level band the
     // combat curve needs anyway (see the note in balance.ts).
-    const expected: Record<number, number> = { 1: 3, 2: 5, 3: 7, 4: 9 };
+    //
+    // The late ladder is deliberately COMPRESSED in height and escalated in
+    // BREADTH instead — `xpForLevel` is 100 × 1.35^(n−1), so an all-six gate at
+    // level 13 alone would want ~180 workouts and put the finale a year out.
+    // The requirement SUM still rises strictly world over world (asserted
+    // above); it is the peak that flattens.
+    const expected: Record<number, number> = { 1: 3, 2: 5, 3: 7, 4: 9, 5: 9, 6: 9, 7: 10, 8: 10, 9: 10 };
     for (let world = 1; world <= WORLD_COUNT; world += 1) {
       const needs = Object.values(worldBossOf(world)?.requires ?? {});
       expect(Math.max(...needs)).toBeLessThanOrEqual(expected[world] as number);
@@ -206,7 +273,7 @@ describe('boss specs', () => {
     for (let world = 1; world <= WORLD_COUNT; world += 1) {
       const spec = bossSpec(world);
       // wave 50 is itself a mini-boss, so compare against the last ORDINARY wave
-      const last = waveSpec(world, BALANCE.combat.wavesPerWorld - 1);
+      const last = waveSpec(world, wavesInWorld(world) - 1);
       expect(spec).not.toBeNull();
       expect(spec?.hp ?? 0).toBeGreaterThan(last.hp * 3);
       expect(spec?.coins ?? 0).toBeGreaterThan(last.coins * 5);
@@ -225,34 +292,23 @@ describe('boss specs', () => {
     const last = bossSpec(WORLD_COUNT);
     expect(last?.endgame).toBe(true);
     expect(last?.nextWorld).toBe(WORLD_COUNT);
-    expect(last?.nextWave).toBe(BOSS_WAVE);
+    expect(last?.nextWave).toBe(bossWaveOf(WORLD_COUNT));
   });
 
-  it('can be beaten by a character that exactly meets the gate', () => {
-    for (let world = 1; world <= WORLD_COUNT; world += 1) {
-      const boss = worldBossOf(world);
-      const parts = emptyGame().parts;
-      // exactly the gate, nothing more, and nothing bought in the shop
-      const needs = Object.values(boss?.requires ?? {});
-      const floor = Math.min(...needs) - 1;
-      for (const p of BODY_PARTS) parts[p].level = Math.max(1, floor);
-      for (const [part, need] of Object.entries(boss?.requires ?? {})) {
-        parts[part as BodyPart].level = need;
-      }
-      const s = deriveStats(parts, 0);
-      const stats: CombatStats = {
-        atk: s.atk,
-        def: s.def,
-        maxHp: s.maxHp,
-        attackIntervalMs: s.attackIntervalMs,
-        critChance: s.critChance,
-        critMultiplier: s.critMultiplier,
-        regen: s.regen,
-      };
+  it('stands each boss on ITS world’s own last wave, not on a global 51', () => {
+    for (const w of WORLDS) {
+      expect(bossSpec(w.id)?.wave, `world ${w.id}`).toBe(w.waves + 1);
+    }
+  });
+
+  it('can be beaten, bare-handed, by a gate-level character in the first four worlds', () => {
+    // The EARLY campaign asks for training and nothing else: no shop, no gear.
+    for (let world = 1; world <= 4; world += 1) {
+      const stats = gateStats(world);
       const state = createBattle({
         seed: 4242,
         world,
-        wave: BOSS_WAVE,
+        wave: bossWaveOf(world),
         energy: 1000,
         stats,
         gateOpen: true,
@@ -262,6 +318,84 @@ describe('boss specs', () => {
       // climactic: much longer than an ordinary wave, but not a war of attrition
       expect(res.ms).toBeGreaterThan(8_000);
       expect(res.ms).toBeLessThan(150_000);
+    }
+  });
+
+  /**
+   * THE LATE CAMPAIGN'S CONTRACT, simulated against the real engine.
+   *
+   * From world 5 on the gate is only half the ticket: the other half is the gear
+   * the world before it paid for. That is deliberate — the body-part gates had to
+   * be compressed (the 1.35 XP curve makes a level-13 wall a year long), so the
+   * coin economy carries the rest of the power curve. `ERA_GEAR` is the ladder a
+   * player who spends their winnings actually stands on when they arrive.
+   *
+   * The promise: ≈30–75 s of ACTIVE play (auto attacks + taps + the super move)
+   * for a character that exactly meets the gate and wears that era's kit.
+   */
+  /**
+   * SIX-SLOT ERA GEAR — the retune the two new wardrobe slots paid for.
+   *
+   * 👕 חולצה and 🩳 טייץ are worn alongside the other four, so an era kit is now
+   * a flat step stronger than the one the late bosses were tuned against: at
+   * world 9's rung the extra two pieces are ≈36 DEF, ≈414 max HP and ≈306 ms off
+   * the attack interval, which took the late fights from ≈50 s down to 43.7 s
+   * (world 7) — inside the 30–75 s band, but drifting away from the climax the
+   * band is there to protect. The answer was five per-boss `hpMult` values and
+   * nothing else: no curve, no taper, no coin factor, so every recorded seed
+   * still replays exactly (`tests/worlds.test.ts` pins that).
+   */
+  it('wears every slot in an era kit, and pins the five late bosses it retuned', () => {
+    // the kit really is the whole wardrobe — this is what makes the ladder
+    // above self-maintaining when a slot is added
+    for (const tier of [1, 2, 3]) {
+      const ids = EQUIPMENT_SLOTS.map((slot) => `${slot}_${tier}`);
+      expect(ids.filter((id) => equipmentById(id))).toHaveLength(EQUIPMENT_SLOTS.length);
+    }
+    // and the retune, enumerated: worlds 1–4 untouched, 5–9 raised
+    const hp = (world: number): number => worldBossOf(world)?.hpMult ?? 0;
+    expect([1, 2, 3, 4].map(hp)).toEqual([5, 5.5, 6, 7]);
+    expect([5, 6, 7, 8, 9].map(hp)).toEqual([5.4, 6.6, 6.05, 4.5, 4.55]);
+  });
+
+  it('falls in 30–75 s to a gate-level character in that era’s gear (worlds 5–9)', () => {
+    for (let world = 5; world <= WORLD_COUNT; world += 1) {
+      const stats = gateStats(world, ERA_GEAR[world]);
+      const state = createBattle({
+        seed: 4242,
+        world,
+        wave: bossWaveOf(world),
+        energy: 1000,
+        stats,
+        gateOpen: true,
+      });
+      const res = fight(state, stats);
+      expect(res.bosses, `world ${world} boss is unbeatable at its gate + gear`).toHaveLength(1);
+      expect(res.ms, `world ${world} boss is a pushover`).toBeGreaterThanOrEqual(30_000);
+      expect(res.ms, `world ${world} boss is a war of attrition`).toBeLessThanOrEqual(75_000);
+      expect(res.defeats, `world ${world} boss knocks a geared player out`).toBe(0);
+      // …and, after the six-slot retune, comfortably in the MIDDLE of that band
+      // rather than drifting towards its floor: all five land at 50.0–51.8 s.
+      expect(res.ms, `world ${world} boss drifted off the climax`).toBeGreaterThanOrEqual(45_000);
+      expect(res.ms, `world ${world} boss drifted off the climax`).toBeLessThanOrEqual(60_000);
+    }
+  });
+
+  it('stays climactic in the first four worlds too, in their own era gear', () => {
+    for (let world = 1; world <= 4; world += 1) {
+      const stats = gateStats(world, ERA_GEAR[world]);
+      const state = createBattle({
+        seed: 4242,
+        world,
+        wave: bossWaveOf(world),
+        energy: 1000,
+        stats,
+        gateOpen: true,
+      });
+      const res = fight(state, stats);
+      expect(res.bosses, `world ${world}`).toHaveLength(1);
+      expect(res.ms, `world ${world}`).toBeGreaterThan(20_000);
+      expect(res.ms, `world ${world}`).toBeLessThan(90_000);
     }
   });
 });
@@ -278,12 +412,12 @@ describe('boss_defeated', () => {
     return store;
   }
 
-  function killBoss(store: LocalStore, world: number, level = 12): BossResult {
+  function killBoss(store: LocalStore, world: number, level = 18): BossResult {
     const stats = statsAt(level);
     const state = createBattle({
       seed: 31337,
       world,
-      wave: BOSS_WAVE,
+      wave: bossWaveOf(world),
       energy: gameOf(store).energy,
       stats,
       gateOpen: true,
@@ -312,17 +446,17 @@ describe('boss_defeated', () => {
     expect(store.getEvents().filter((e) => e.type === 'boss_defeated')).toHaveLength(1);
   });
 
-  it('the last boss keeps the player in world 4, with the waves running on', () => {
+  it('the last boss keeps the player in the LAST world, with the waves running on', () => {
     const store = armedStore(400);
     for (let world = 1; world <= WORLD_COUNT; world += 1) killBoss(store, world);
 
     const battle = gameOf(store).battle;
     expect(battle.bossesDefeated).toEqual(WORLD_BOSSES.map((b) => b.id));
     expect(battle.world).toBe(WORLD_COUNT);
-    expect(battle.wave).toBe(BOSS_WAVE);
+    expect(battle.wave).toBe(bossWaveOf(WORLD_COUNT));
     expect(isEndgame(battle.bossesDefeated)).toBe(true);
     // the boss wave is no longer a wall — the world simply keeps going
-    expect(isWorldBossWave(battle.wave)).toBe(true);
+    expect(isWorldBossWave(battle.world, battle.wave)).toBe(true);
     expect(bossStanding(battle.world, battle.wave, battle.bossesDefeated)).toBe(false);
   });
 
@@ -331,7 +465,7 @@ describe('boss_defeated', () => {
     const state = createBattle({
       seed: 5,
       world: WORLD_COUNT,
-      wave: BOSS_WAVE,
+      wave: bossWaveOf(WORLD_COUNT),
       energy: 1000,
       stats,
       gateOpen: true,
@@ -340,8 +474,10 @@ describe('boss_defeated', () => {
     advance(state, 2000, stats);
     expect(state.status).toBe('fighting');
     expect(state.enemy?.worldBoss).toBe(false);
-    // and the scaling keeps climbing past the old world end
-    expect(waveSpec(WORLD_COUNT, BOSS_WAVE + 10).hp).toBeGreaterThan(waveSpec(WORLD_COUNT, BOSS_WAVE).hp);
+    // and the scaling keeps climbing past the world's own end (the roster's
+    // flavour multipliers wobble wave to wave, so compare a full lap apart)
+    const endWave = bossWaveOf(WORLD_COUNT);
+    expect(waveSpec(WORLD_COUNT, endWave + 12).hp).toBeGreaterThan(waveSpec(WORLD_COUNT, endWave).hp);
   });
 
   it('is idempotent under replay: rebuildFromEvents reproduces the trophies', () => {

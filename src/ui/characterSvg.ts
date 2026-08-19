@@ -30,15 +30,25 @@
  * always did — the palette below is the same one `styles/character.css` declares.
  *
  * LAYERS (draw order) — equipment hangs off the anchors in `characterAnchors`:
- *   shadow · [cape] · hair cascade · legs · lats · torso · pecs · abs · arms ·
- *   deltoids · head (hair · helmet/visor/wrap) · [shoes · belt · gloves] ·
- *   trophy medals
- * The cape and the long hair's cascade are the two layers drawn BEFORE the body:
- * a cape hangs behind everything, and long hair falls behind the torso — but in
- * front of the cape, because hair rests on a cape rather than vanishing under it.
- * The cape is the one piece drawn BEFORE the body (it hangs behind it); every
- * other slot is worn on top. Every body group carries `data-part`, which is all
- * the level-up pulse and any part-targeted effect needs.
+ *   shadow · [cape] · hair cascade · legs · lats · torso · [SHIRT] · pecs · abs ·
+ *   arms · deltoids · head (hair · helmet/visor/wrap) ·
+ *   [leggings · shoes · belt · gloves] · trophy medals
+ *
+ * THE THREE DECISIONS IN THAT LIST, all of them about what a garment is allowed
+ * to hide:
+ *   - the CAPE and the long hair's cascade are drawn BEFORE the body. A cape
+ *     hangs behind everything, and long hair falls behind the torso — but in
+ *     front of the cape, because hair rests on a cape rather than vanishing
+ *     under it;
+ *   - the SHIRT is drawn INSIDE the body, between the torso and the pec/ab
+ *     groups. The torso is this app's progress display, so the muscles are
+ *     painted ON the fabric rather than under it (see `shirtLayer`);
+ *   - everything else is worn on top, in the order clothes overlap: the
+ *     LEGGINGS' waistband lands on the hips, the SHOES' ankle collars close over
+ *     its hems, the BELT buckles over the band and over the shirt's hem, and the
+ *     GLOVES come last.
+ * Every body group carries `data-part`, which is all the level-up pulse and any
+ * part-targeted effect needs.
  */
 
 import { BALANCE } from '../core/balance.ts';
@@ -239,6 +249,45 @@ export function characterGeometry(parts: PartsProgress, body: BodyGeometry = 'ma
  */
 export interface CharacterAnchors {
   belt: { x: number; y: number; halfWidth: number };
+  /**
+   * THE TORSO GARMENT, as the five numbers a tank top is cut from: the shoulder
+   * line it hangs on (`y`), how far out the straps sit (`strapHalf`), how wide
+   * the neck opening is (`neckHalf`), the chest the body swells to (`chestHalf`)
+   * and the waist it narrows into (`waistHalf`).
+   *
+   * Every one of them is the CHARACTER's own measurement, so the garment grows
+   * with the physique instead of hiding it: training chest widens the shirt,
+   * training core takes it in at the waist. That is the whole reason the shirt
+   * is drawn between the torso and the pec/ab groups — see `shirtLayer`.
+   */
+  shirt: {
+    x: number;
+    y: number;
+    strapHalf: number;
+    neckHalf: number;
+    chestHalf: number;
+    waistHalf: number;
+  };
+  /**
+   * ONE ANCHOR PER LEG, in [left, right] order — the same three points
+   * `legGroup` strokes its limb through (hip, knee, ankle) plus the two
+   * thicknesses it strokes them at.
+   *
+   * Sharing the expressions rather than the numbers is what makes a pair of
+   * leggings track the leg it is worn on: `legSpread` is already folded in, so
+   * the female body's closer stance moves the garment with it, and thicker
+   * thighs widen the sleeve without a second table.
+   */
+  leggings: Array<{
+    hipX: number;
+    kneeX: number;
+    ankleX: number;
+    thighW: number;
+    calfW: number;
+    dir: -1 | 1;
+  }>;
+  /** Waistband of the leggings: the hip line the sleeves hang from. */
+  waistband: { x: number; y: number; halfWidth: number };
   gloves: Array<{ x: number; y: number; r: number }>;
   /**
    * ONE ANCHOR PER FOOT, in [left, right] order.
@@ -260,8 +309,32 @@ export function characterAnchors(geo: CharacterGeometry): CharacterAnchors {
   const armX = CX + geo.shoulderHalf - 2;
   const legX = CX + geo.hipHalf * 0.58 * geo.legSpread;
   const shoeHalf = geo.calfW * 0.6 + 3;
+  /** The leg's own three points, exactly as `legGroup` computes them. */
+  const legAt = (side: 1 | -1): CharacterAnchors['leggings'][number] => {
+    const x = (v: number): number => CX + side * v * geo.legSpread;
+    return {
+      hipX: x(geo.hipHalf * 0.52),
+      kneeX: x(geo.hipHalf * 0.62),
+      ankleX: x(geo.hipHalf * 0.58),
+      thighW: geo.thighW,
+      calfW: geo.calfW,
+      dir: side,
+    };
+  };
   return {
     belt: { x: CX, y: HIP_Y - 8, halfWidth: geo.waistHalf + 2 },
+    shirt: {
+      x: CX,
+      y: SHOULDER_Y,
+      // The straps sit INBOARD of the deltoid caps — a tank top hangs on the
+      // shoulder, it does not swallow it — and never wider than the chest.
+      strapHalf: Math.min(geo.shoulderHalf - geo.deltoidR * 0.55, geo.chestHalf * 0.72),
+      neckHalf: geo.neckHalf + 3,
+      chestHalf: geo.chestHalf,
+      waistHalf: geo.waistHalf,
+    },
+    leggings: [legAt(-1), legAt(1)],
+    waistband: { x: CX, y: HIP_Y - 1, halfWidth: geo.hipHalf + 1 },
     gloves: [
       { x: CX * 2 - armX - 2, y: HAND_Y, r: geo.armW * 0.55 },
       { x: armX + 2, y: HAND_Y, r: geo.armW * 0.55 },
@@ -435,11 +508,192 @@ function shoesLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: Equipmen
     .join('');
 }
 
+/** Pixels below the shoulder line the chest emblem (and its flair) sits at. */
+const SHIRT_EMBLEM_DY = 13;
+
+/** Where each tier's hem falls, relative to the waist line: cropped → long. */
+const SHIRT_HEM_DY: Readonly<Record<number, number>> = { 1: -4, 2: 2, 3: 8 };
+
+/**
+ * A TANK TOP — and the one layer in this file that is drawn INSIDE the body.
+ *
+ * The torso is the app's progress display: pecs swell with chest levels, the abs
+ * sharpen with core, the waist takes in and the lats flare. A shirt painted over
+ * all of that would delete the single most legible reward in the game, so this
+ * one is emitted between `ch-torso-group` and the pec/ab groups (see the layer
+ * list in the module header). The muscles are therefore drawn ON the garment —
+ * a `.ch-pec` at 85% opacity over the fabric reads exactly like a chest pushing
+ * through a tight vest — and the physique keeps growing in plain sight.
+ *
+ * The CUT does the rest of the work, and every one of its points is one of the
+ * character's own measurements (`characterAnchors().shirt`):
+ *
+ *   - the SHOULDER STRAPS run from the neck opening out to `strapHalf`, which is
+ *     pinned inboard of the deltoid cap — so the shoulders stay bare and the
+ *     deltoid still reads as the outermost thing on the body;
+ *   - the ARMHOLES are the side cutouts: each side edge leaves the strap and is
+ *     pulled INWARD (the quadratic's control point sits at `chestHalf × 0.46`)
+ *     before flaring back out to the side seam under the arm, which is what
+ *     leaves the outer chest and the lat flare visible at every level;
+ *   - the SIDE SEAM tracks `chestHalf` and the HEM tracks the waist→hip taper,
+ *     so training core visibly takes the shirt in exactly as it takes the body
+ *     in. Nothing here is a literal coordinate; a level-99 body wears the same
+ *     shirt a level-1 body does, cut to its own measurements.
+ *
+ * Three hems and three chest emblems separate the tiers (a cropped training
+ * vest, a scooped scale shirt, a pointed plate with a star), which is the same
+ * "one bold silhouette + one accent detail" rule the other layers follow.
+ */
+function shirtLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: EquipmentDef): string {
+  const s = a.shirt;
+  const yTop = s.y + 1;
+  const neck = s.neckHalf;
+  const strap = Math.max(s.strapHalf, neck + 4);
+  const ch = s.chestHalf;
+  const wa = s.waistHalf;
+  const yUnder = CHEST_Y + 14;
+  const sideHalf = ch * 0.84;
+  const armIn = ch * 0.46;
+  const hemY = WAIST_Y + (SHIRT_HEM_DY[item.tier] ?? 0);
+  // Half-width of the BODY at the hem line: above the waist it is still coming
+  // in off the chest, below it, it opens back out towards the hips — but only
+  // PART OF THE WAY (×0.6), and never past the side seam. A garment that took
+  // the full hip flare would be wider at the hem than at the chest on the female
+  // body, whose hips outrun its shoulders; a tank top hangs off the chest.
+  const hemHalf = Math.min(
+    hemY <= WAIST_Y
+      ? wa + (ch - wa) * ((WAIST_Y - hemY) / 30)
+      : wa + (a.waistband.halfWidth - 1 - wa) * ((hemY - WAIST_Y) / (HIP_Y - WAIST_Y)) * 0.6,
+    ch * 0.84,
+  );
+  const hem =
+    item.tier === 1
+      ? `L ${n(CX + hemHalf)} ${n(hemY)}`
+      : item.tier === 2
+        ? `Q ${n(CX)} ${n(hemY + 6)} ${n(CX + hemHalf)} ${n(hemY)}`
+        : `L ${n(CX)} ${n(hemY + 9)} L ${n(CX + hemHalf)} ${n(hemY)}`;
+
+  const body = `<path class="ch-shirt-body" d="M ${n(CX - neck)} ${n(yTop)}
+    L ${n(CX - strap)} ${n(yTop)}
+    Q ${n(CX - armIn)} ${n(CHEST_Y - 6)} ${n(CX - sideHalf)} ${n(yUnder)}
+    L ${n(CX - hemHalf)} ${n(hemY)}
+    ${hem}
+    L ${n(CX + sideHalf)} ${n(yUnder)}
+    Q ${n(CX + armIn)} ${n(CHEST_Y - 6)} ${n(CX + strap)} ${n(yTop)}
+    L ${n(CX + neck)} ${n(yTop)}
+    Q ${n(CX)} ${n(yTop + 6)} ${n(CX - neck)} ${n(yTop)} Z"
+    fill="${item.color}" stroke="${item.accent}" stroke-width="2" stroke-linejoin="round"/>`;
+
+  const ey = s.y + SHIRT_EMBLEM_DY;
+  const em = clamp(ch * 0.13, 3.4, 5.6);
+  const emblem =
+    item.tier === 1
+      ? `<rect class="ch-shirt-mark" x="${n(CX - em * 1.7)}" y="${n(ey - 1.6)}" width="${n(em * 3.4)}" height="3.2" rx="1.6"
+          fill="${item.accent}"/>`
+      : item.tier === 2
+        ? `<path class="ch-shirt-mark" d="M ${n(CX)} ${n(ey - em)} L ${n(CX + em * 0.8)} ${n(ey)} L ${n(CX)} ${n(ey + em)}
+            L ${n(CX - em * 0.8)} ${n(ey)} Z" fill="${item.accent}"/>`
+        : `<path class="ch-shirt-mark" d="M ${n(CX - em * 0.9)} ${n(ey - em * 0.85)} L ${n(CX + em * 0.9)} ${n(ey - em * 0.85)}
+            L ${n(CX + em * 1.5)} ${n(ey)} L ${n(CX + em * 0.9)} ${n(ey + em * 0.85)}
+            L ${n(CX - em * 0.9)} ${n(ey + em * 0.85)} L ${n(CX - em * 1.5)} ${n(ey)} Z"
+            fill="${item.accent}" stroke="${item.color}" stroke-width="1.6" stroke-linejoin="round"/>`;
+
+  return `<g class="ch-shirt">${body}${emblem}</g>`;
+}
+
+/**
+ * LEGGINGS — a waistband plus one sleeve per leg, cut from the leg's own stroke.
+ *
+ * `legGroup` draws a leg as two round-capped strokes (hip→knee at `thighW`,
+ * knee→ankle at `calfW`) through three points that already fold `legSpread` in.
+ * The garment is the SAME two strokes, two units wider, through the SAME three
+ * points — which is why it can never drift off the leg it is worn on: thicker
+ * thighs thicken the sleeve, and the female body's narrower stance moves both
+ * legs and both sleeves together.
+ *
+ * DRAW ORDER inside the group: sleeves, then the hem cuffs, then the WAISTBAND
+ * last — and the band is not decoration, it is load bearing. A round-capped
+ * stroke overshoots its start by half its own width, so at a high leg level the
+ * two thigh sleeves would put a pair of 14-unit domes on the lower abdomen; the
+ * sleeves therefore start BELOW the hip line and the band, drawn over them,
+ * closes the garment across the hips. `SLEEVE_TOP_Y` and the band's own box are
+ * chosen so the widest possible thigh still starts inside it.
+ *
+ * The whole group is drawn AFTER the torso (so the band sits ON the hips rather
+ * than disappearing under them) and BEFORE the shoes (so a shoe's ankle collar
+ * closes over the hem) — and before the belt, which buckles over the band.
+ *
+ * The three tiers differ in LENGTH, which is the one thing a leg garment can say
+ * from across a 62px card: three-quarter tights, full-length with a calf stripe,
+ * and a full-length pair with a bright cuff and a bolt down each thigh. The
+ * stripe lives on the CALF and the bolt on the THIGH, so the two never cross.
+ */
+const SLEEVE_TOP_Y = HIP_Y + 7;
+
+/** Where each tier's sleeve ends: three-quarter · ankle · over the shoe collar. */
+const LEGGING_HEM_Y: Readonly<Record<number, number>> = {
+  1: KNEE_Y + 16,
+  2: ANKLE_Y - 12,
+  3: ANKLE_Y - 2,
+};
+
+function leggingsLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: EquipmentDef): string {
+  const hemY = LEGGING_HEM_Y[item.tier] ?? ANKLE_Y - 2;
+  const t = (hemY - KNEE_Y) / (ANKLE_Y - KNEE_Y);
+  const cuffH = 3 + item.tier;
+
+  const legs = a.leggings
+    .map((L) => {
+      const hemX = L.kneeX + (L.ankleX - L.kneeX) * t;
+      // The sleeve starts on the thigh's own line, just lower down it.
+      const topX = L.hipX + (L.kneeX - L.hipX) * ((SLEEVE_TOP_Y - (HIP_Y - 6)) / (KNEE_Y - (HIP_Y - 6)));
+      const thigh = `<path class="ch-leg-thigh" d="M ${n(topX)} ${n(SLEEVE_TOP_Y)} L ${n(L.kneeX)} ${n(KNEE_Y)}"
+        stroke="${item.color}" stroke-width="${n(L.thighW + 2)}" stroke-linecap="round" fill="none"/>`;
+      const calf = `<path class="ch-leg-calf" d="M ${n(L.kneeX)} ${n(KNEE_Y)} L ${n(hemX)} ${n(hemY)}"
+        stroke="${item.color}" stroke-width="${n(L.calfW + 2)}" stroke-linecap="round" fill="none"/>`;
+      const cuff = `<rect class="ch-leg-cuff" x="${n(hemX - (L.calfW + 2) / 2)}" y="${n(hemY - cuffH / 2)}"
+        width="${n(L.calfW + 2)}" height="${n(cuffH)}" rx="${n(cuffH / 2.4)}" fill="${item.accent}"/>`;
+      const stripe =
+        item.tier >= 2
+          ? `<path class="ch-leg-stripe" d="M ${n(L.kneeX + L.dir * L.calfW * 0.3)} ${n(KNEE_Y - 4)}
+             L ${n(hemX + L.dir * L.calfW * 0.3)} ${n(hemY - cuffH)}"
+             stroke="${item.accent}" stroke-width="2.2" stroke-linecap="round" fill="none"/>`
+          : '';
+      const bolt =
+        item.tier === 3
+          ? `<path class="ch-leg-bolt" d="M ${n(topX + L.dir * L.thighW * 0.12)} ${n(SLEEVE_TOP_Y + 6)}
+             L ${n(topX - L.dir * L.thighW * 0.2)} ${n(SLEEVE_TOP_Y + 24)}
+             L ${n(topX + L.dir * L.thighW * 0.04)} ${n(SLEEVE_TOP_Y + 24)}
+             L ${n(topX - L.dir * L.thighW * 0.22)} ${n(SLEEVE_TOP_Y + 42)}
+             L ${n(topX + L.dir * L.thighW * 0.28)} ${n(SLEEVE_TOP_Y + 20)}
+             L ${n(topX + L.dir * L.thighW * 0.04)} ${n(SLEEVE_TOP_Y + 20)} Z"
+             fill="${item.accent}"/>`
+          : '';
+      return `<g class="ch-legging">${thigh}${calf}${cuff}${stripe}${bolt}</g>`;
+    })
+    .join('');
+
+  const b = a.waistband;
+  const bandTop = b.y - 7;
+  const bandH = 15 + item.tier;
+  const band = `<rect class="ch-leg-band" x="${n(b.x - b.halfWidth)}" y="${n(bandTop)}" width="${n(b.halfWidth * 2)}"
+    height="${n(bandH)}" rx="6" fill="${item.color}" stroke="${item.accent}" stroke-width="2"/>`;
+  const draw =
+    item.tier >= 2
+      ? `<path class="ch-leg-draw" d="M ${n(b.x - b.halfWidth * 0.34)} ${n(bandTop + bandH * 0.62)}
+         L ${n(b.x + b.halfWidth * 0.34)} ${n(bandTop + bandH * 0.62)}"
+         stroke="${item.accent}" stroke-width="2.2" stroke-linecap="round"/>`
+      : '';
+  return `${legs}${band}${draw}`;
+}
+
 const SLOT_DRAW: Readonly<
   Record<EquipmentSlot, (geo: CharacterGeometry, a: CharacterAnchors, item: EquipmentDef) => string>
 > = {
   cape: capeLayer,
+  shirt: shirtLayer,
   belt: beltLayer,
+  leggings: leggingsLayer,
   gloves: glovesLayer,
   shoes: shoesLayer,
 };
@@ -470,6 +724,20 @@ function flairSpots(slot: EquipmentSlot, a: CharacterAnchors): Array<{ x: number
       return [{ x: a.belt.x, y: a.belt.y, r: 8 }];
     case 'cape':
       return [{ x: a.cape.x, y: a.cape.y + 5, r: 9 }];
+    case 'shirt':
+      // THE CHEST EMBLEM, and deliberately nothing else — the single point of
+      // the garment that no other layer is ever drawn over. The badge is pinned
+      // outward from whichever spot is furthest right, and on a level-1 body the
+      // deltoid cap reaches within ~20 units of the centre line: a strap or a
+      // hem corner would put the star behind a shoulder or an arm at the small
+      // end of the growth curve. The emblem sits above the pecs at every level,
+      // on both bodies, so one spot it is (the belt and the cape have exactly
+      // one each, for the same reason).
+      return [{ x: a.shirt.x, y: a.shirt.y + SHIRT_EMBLEM_DY, r: Math.max(7, a.shirt.chestHalf * 0.16) }];
+    case 'leggings':
+      // The two knees: the widest point of the garment, and the one stretch of
+      // leg that is never behind a shoe, a belt or a hand.
+      return a.leggings.map((L) => ({ x: L.kneeX, y: KNEE_Y, r: Math.max(7, L.calfW * 0.55) }));
   }
 }
 
@@ -1158,6 +1426,11 @@ export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {
     <path class="ch-torso" style="fill:url(#${grad})" d="${torsoPath(geo)}"/>
   </g>
 
+  <!-- THE SHIRT, and the only equipment layer drawn INSIDE the body: the pecs,
+       the abs and the arms are painted ON it, so a tank top reads as fabric a
+       chest pushes through instead of a lid over the progress display. -->
+  ${group('shirt')}
+
   <g class="${cls('chest')}" data-part="chest">
     <ellipse class="ch-pec" cx="${n(CX - pecOffset)}" cy="${n(geo.pecY)}" rx="${n(geo.pecRx)}" ry="${n(geo.pecRy)}"/>
     <ellipse class="ch-pec" cx="${n(CX + pecOffset)}" cy="${n(geo.pecY)}" rx="${n(geo.pecRx)}" ry="${n(geo.pecRy)}"/>
@@ -1174,7 +1447,12 @@ export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {
 
   ${headGroup(geo, look)}
 
-  <!-- Equipment layers worn ON TOP of the body (see characterAnchors). -->
+  <!-- Equipment layers worn ON TOP of the body (see characterAnchors), in the
+       order clothes actually overlap: the leggings' waistband sits on the hips,
+       the shoe collars close over their hems, the belt buckles over the band
+       (and over the shirt's hem), and the gloves are last because a hand is in
+       front of everything it holds. -->
+  ${group('leggings')}
   ${group('shoes')}
   ${group('belt')}
   ${group('gloves')}

@@ -13,7 +13,13 @@ import { BALANCE } from '../src/core/balance.ts';
 import { gameOf, onSetCompleted } from '../src/core/game.ts';
 import { emptyGame, totalXpToReach } from '../src/core/xp.ts';
 import { BODY_PART_HE, findExercise, type BodyPart, type Exercise } from '../src/data/program.ts';
-import { ENEMIES, EQUIPMENT, WORLDS, WORLD_BOSSES } from '../src/data/gameContent.ts';
+import {
+  ENEMIES,
+  EQUIPMENT,
+  WORLDS,
+  WORLD_BOSSES,
+  bossWaveOf,
+} from '../src/data/gameContent.ts';
 import { characterSvg, trophyMedallion } from '../src/ui/characterSvg.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
@@ -165,7 +171,7 @@ describe('battle tab', () => {
         g.parts[part as BodyPart].xp = totalXpToReach(need as number) + 1;
         g.parts[part as BodyPart].level = need as number;
       }
-      g.battle.wave = BALANCE.combat.wavesPerWorld + 1;
+      g.battle.wave = bossWaveOf(g.battle.world);
       d.game = g;
     });
     mount(store);
@@ -183,7 +189,7 @@ describe('battle tab', () => {
     store.update((d) => {
       const g = d.game ?? emptyGame();
       g.battle.world = WORLDS.length;
-      g.battle.wave = BALANCE.combat.wavesPerWorld + 1;
+      g.battle.wave = bossWaveOf(g.battle.world);
       g.battle.bossesDefeated = WORLD_BOSSES.map((b) => b.id);
       d.game = g;
     });

@@ -106,6 +106,8 @@ import {
   SKILL_IDS,
   WORLDS,
   WORLD_COUNT,
+  bossWaveOf,
+  wavesInWorld,
   worldById,
   worldBossOf,
   type SkillId,
@@ -503,7 +505,7 @@ function dailyCard(game: GameState, date: string, run: ChallengeRun | null): str
 /* ------------------------------------------------------ world progress strip */
 
 /**
- * The four worlds as one compact row of nodes, directly under the world bar.
+ * The nine worlds as one compact row of nodes, directly under the world bar.
  *
  * It answers the three questions the arena could not answer before without
  * scrolling: where am I in the run, how far into THIS world am I, and is the
@@ -512,20 +514,27 @@ function dailyCard(game: GameState, date: string, run: ChallengeRun | null): str
  *
  *   🏆 the world's boss is a trophy      ✓ the gate is met — the boss is ready
  *   🔒 locked (a future world, or a gate that still wants training)
- *   👑 champion mode — the last boss is down and world 4 runs forever
+ *   👑 champion mode — the last boss is down and the final world runs forever
  *
- * The current node also carries `גל 23/50` and a hairline progress bar. Tapping
- * any node explains it in Hebrew; tapping the CURRENT one scrolls to the gate
- * card that already renders the full met/unmet list, rather than duplicating it.
+ * The current node also carries `גל 23/50` — the denominator is that world's OWN
+ * wave count — and a hairline progress bar. Tapping any node explains it in
+ * Hebrew; tapping the CURRENT one scrolls to the gate card that already renders
+ * the full met/unmet list, rather than duplicating it.
+ *
+ * NINE NODES ON A PHONE. The strip was a four-column grid; nine columns would be
+ * ~34px wide on a 360px screen, under the app's 44px touch floor. It is now a
+ * horizontally SCROLLING flex row with a fixed node width (the same pattern the
+ * inner tab rows use), and the current node is `scrollIntoView`-ed on mount so
+ * the player always opens on themselves rather than on world 1.
  */
 function worldStrip(game: GameState): string {
   const cur = game.battle.world;
   const wave = game.battle.wave;
-  const perWorld = BALANCE.combat.wavesPerWorld;
   const champion = isEndgame(game.battle.bossesDefeated);
   const gate = worldGate(cur, partLevels(game));
 
   const nodes = WORLDS.map((w) => {
+    const perWorld = w.waves;
     const boss = worldBossOf(w.id);
     const cleared = boss !== undefined && game.battle.bossesDefeated.includes(boss.id);
     const current = w.id === cur;
@@ -552,7 +561,7 @@ function worldStrip(game: GameState): string {
     const pct = current && !champion ? Math.min(100, Math.round(((wave - 1) / perWorld) * 100)) : 0;
     const label = `${w.he} · ${meta}${current ? (gate.locked ? ' · הבוס נעול' : ' · הבוס פתוח') : ''}`;
 
-    return `<li class="wp-node ${state}">
+    return `<li class="wp-node ${state}"${current ? ' data-current="1"' : ''}>
       <button class="wp-btn" type="button" data-world="${w.id}" aria-label="${esc(label)}"
         ${current ? 'aria-current="step"' : ''}>
         <span class="wp-glyph" aria-hidden="true">${glyph}</span>
@@ -569,6 +578,17 @@ function worldStrip(game: GameState): string {
 
 /** Wire the strip: every node explains itself, the current one leads to the gate. */
 function wireWorldStrip(main: HTMLElement, store: DataStore): void {
+  // Nine worlds no longer fit side by side, so the row scrolls — open it on the
+  // player. `inline: 'center'` keeps the neighbours visible on both sides, which
+  // is what makes it read as a path rather than as a cropped list.
+  const here = main.querySelector('.wp-node[data-current="1"]');
+  if (here && typeof here.scrollIntoView === 'function') {
+    try {
+      here.scrollIntoView({ block: 'nearest', inline: 'center' });
+    } catch {
+      /* older engines: the strip simply starts at world 1 */
+    }
+  }
   main.querySelectorAll<HTMLButtonElement>('.wp-btn[data-world]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const id = Number(btn.dataset['world']);
@@ -596,7 +616,7 @@ function wireWorldStrip(main: HTMLElement, store: DataStore): void {
         .filter((r) => !r.met)
         .map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`)
         .join(' · ');
-      toast(gate.locked ? `🔒 חסר לבוס: ${missing}` : `✓ בוס ${world.he} פתוח — הגיעו לגל ${BALANCE.combat.wavesPerWorld + 1}.`);
+      toast(gate.locked ? `🔒 חסר לבוס: ${missing}` : `✓ בוס ${world.he} פתוח — הגיעו לגל ${bossWaveOf(id)}.`);
       const card = main.querySelector('.bt-gate');
       if (card && typeof card.scrollIntoView === 'function') {
         try {
@@ -635,7 +655,7 @@ function gateCard(game: GameState): string {
   }
 
   const gate = worldGate(game.battle.world, partLevels(game));
-  const wavesLeft = Math.max(0, BALANCE.combat.wavesPerWorld - (game.battle.wave - 1));
+  const wavesLeft = Math.max(0, wavesInWorld(game.battle.world) - (game.battle.wave - 1));
   const spec = bossSpec(game.battle.world);
   const reqs = gate.requirements
     .map(
@@ -658,7 +678,7 @@ function gateCard(game: GameState): string {
     <p class="gc-note">${
       gate.locked
         ? `הבוס נעול. חסר לכם: <b>${esc(missingHe)}</b> — התאמנו על החלקים האלה וזה ייפתח מעצמו.`
-        : `כל הדרישות הושלמו! הקרב מתחיל לבד ברגע שתגיעו לגל ${BALANCE.combat.wavesPerWorld + 1}${
+        : `כל הדרישות הושלמו! הקרב מתחיל לבד ברגע שתגיעו לגל ${bossWaveOf(game.battle.world)}${
             spec ? ` · עולה ${spec.energyCost} ⚡ · מזכה ב־${spec.coins} 🪙` : ''
           }.`
     }</p>
@@ -1393,6 +1413,14 @@ function start(main: HTMLElement, deps: BattleDeps): void {
           }
           anim(sprite, 'anim-hit', ANIM.hit);
           if (ev.source === 'super') shake(true);
+          break;
+        case 'dodged':
+          // ממלכת הצללים — the blow found nothing. It must be VISIBLE or a shade
+          // just looks like a bug; the hero still lunges, because they did swing.
+          float('החמיץ!', 'miss', 'enemy');
+          if (ev.source !== 'super' && ev.source !== 'skill') {
+            anim(heroSprite, 'anim-attack', ANIM.attack);
+          }
           break;
         case 'enemy_hit':
           paintHero();
