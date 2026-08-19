@@ -614,6 +614,11 @@ describe('the nine-world journey, in real workouts', () => {
     // but its last waves are the game's first "go and train" wall, which is what
     // sends a new player back to the gym. Every other world is measured at its
     // own gate band.
+    // (The gear here is a SIX-slot kit — `statsAt` concatenates `<slot>_<tier>`
+    // over `EQUIPMENT_SLOTS` — so the two wardrobe slots added in Phase 10 are
+    // already in every number below. They took ≈1–2 s off the worst world's
+    // pace, which is well inside the band; the late BOSSES needed a nudge, the
+    // waves did not. See the Phase 10 note in `core/balance.ts`.)
     const era: ReadonlyArray<[number, readonly [0 | 1 | 2 | 3, 0 | 1 | 2 | 3]]> = [
       [6, [0, 0]],
       [6, [1, 0]],
@@ -638,8 +643,8 @@ describe('the nine-world journey, in real workouts', () => {
   });
 
   it('keeps the world purse growing without turning into a faucet', () => {
-    // A world's whole take, against the ≈25,500 🪙 the four-slot wardrobe costs
-    // at three tiers plus +3 on everything.
+    // A world's whole take, against the ≈47,250 🪙 the SIX-slot wardrobe costs
+    // at three tiers plus +3 on everything (pinned in `tests/shop.test.ts`).
     const take = (world: number): number => {
       let sum = 0;
       for (let wave = 1; wave <= wavesInWorld(world); wave += 1) sum += waveSpec(world, wave).coins;
@@ -651,7 +656,10 @@ describe('the nine-world journey, in real workouts', () => {
     }
     // world 1 alone must not buy the shop…
     expect(purses[0] as number).toBeLessThan(4000);
-    // …and nine worlds together must not pay a hundred wardrobes
-    expect(purses.reduce((a, b) => a + b, 0)).toBeLessThan(250_000);
+    // …and nine worlds together must not pay a hundred wardrobes: the campaign
+    // buys the fully upgraded shop between three and six times over.
+    const income = purses.reduce((a, b) => a + b, 0);
+    expect(income).toBeLessThan(250_000);
+    expect(income).toBeGreaterThan(47_250 * 3.5);
   });
 });

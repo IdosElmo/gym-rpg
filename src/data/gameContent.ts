@@ -1672,7 +1672,7 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     world: 5,
     kind: 'boss',
     requires: { chest: 9, back: 8, legs: 8, shoulders: 8, arms: 9, core: 8 },
-    hpMult: 5,
+    hpMult: 5.4,
     atkMult: 0.9,
     def: 26,
     svg: sprite(`
@@ -1697,7 +1697,7 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     world: 6,
     kind: 'boss',
     requires: { chest: 9, back: 9, legs: 8, shoulders: 8, arms: 9, core: 9 },
-    hpMult: 6.3,
+    hpMult: 6.6,
     atkMult: 0.9,
     attackSlowMult: 1.2,
     svg: sprite(`
@@ -1721,7 +1721,7 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     world: 7,
     kind: 'boss',
     requires: { chest: 10, back: 9, legs: 9, shoulders: 8, arms: 9, core: 9 },
-    hpMult: 5.2,
+    hpMult: 6.05,
     atkMult: 0.9,
     dodgeChance: 0.15,
     svg: sprite(`
@@ -1745,7 +1745,7 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     world: 8,
     kind: 'boss',
     requires: { chest: 10, back: 9, legs: 9, shoulders: 9, arms: 10, core: 10 },
-    hpMult: 4,
+    hpMult: 4.5,
     atkMult: 0.9,
     regenPct: 0.004,
     svg: sprite(`
@@ -1771,7 +1771,7 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     world: 9,
     kind: 'boss',
     requires: { chest: 10, back: 10, legs: 9, shoulders: 9, arms: 10, core: 10 },
-    hpMult: 4.2,
+    hpMult: 4.55,
     atkMult: 0.85,
     critChance: 0.15,
     critMultiplier: 1.7,

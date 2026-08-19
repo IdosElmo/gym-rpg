@@ -83,6 +83,12 @@ function statsAt(level: number): CombatStats {
  * world's boss, as `[tier, upgradeLevel]`. Derived from the coin economy: every
  * world's purse comfortably funds the next rung (see the coins note in
  * `core/balance.ts`), so this is "spent your winnings", not "ground for gear".
+ *
+ * A "kit" is EVERY slot at that tier — `gateStats` builds it by concatenating
+ * `<slot>_<tier>` over `EQUIPMENT_SLOTS`, so when the wardrobe grew from four
+ * slots to six the ladder did not need a line changed and the simulations below
+ * automatically started measuring the fuller kit. What DID need changing was the
+ * five late bosses' `hpMult`, pinned in `six-slot era gear` below.
  */
 const ERA_GEAR: Readonly<Record<number, readonly [0 | 1 | 2 | 3, 0 | 1 | 2 | 3]>> = {
   1: [0, 0],
@@ -327,6 +333,31 @@ describe('boss specs', () => {
    * The promise: ≈30–75 s of ACTIVE play (auto attacks + taps + the super move)
    * for a character that exactly meets the gate and wears that era's kit.
    */
+  /**
+   * SIX-SLOT ERA GEAR — the retune the two new wardrobe slots paid for.
+   *
+   * 👕 חולצה and 🩳 טייץ are worn alongside the other four, so an era kit is now
+   * a flat step stronger than the one the late bosses were tuned against: at
+   * world 9's rung the extra two pieces are ≈36 DEF, ≈414 max HP and ≈306 ms off
+   * the attack interval, which took the late fights from ≈50 s down to 43.7 s
+   * (world 7) — inside the 30–75 s band, but drifting away from the climax the
+   * band is there to protect. The answer was five per-boss `hpMult` values and
+   * nothing else: no curve, no taper, no coin factor, so every recorded seed
+   * still replays exactly (`tests/worlds.test.ts` pins that).
+   */
+  it('wears every slot in an era kit, and pins the five late bosses it retuned', () => {
+    // the kit really is the whole wardrobe — this is what makes the ladder
+    // above self-maintaining when a slot is added
+    for (const tier of [1, 2, 3]) {
+      const ids = EQUIPMENT_SLOTS.map((slot) => `${slot}_${tier}`);
+      expect(ids.filter((id) => equipmentById(id))).toHaveLength(EQUIPMENT_SLOTS.length);
+    }
+    // and the retune, enumerated: worlds 1–4 untouched, 5–9 raised
+    const hp = (world: number): number => worldBossOf(world)?.hpMult ?? 0;
+    expect([1, 2, 3, 4].map(hp)).toEqual([5, 5.5, 6, 7]);
+    expect([5, 6, 7, 8, 9].map(hp)).toEqual([5.4, 6.6, 6.05, 4.5, 4.55]);
+  });
+
   it('falls in 30–75 s to a gate-level character in that era’s gear (worlds 5–9)', () => {
     for (let world = 5; world <= WORLD_COUNT; world += 1) {
       const stats = gateStats(world, ERA_GEAR[world]);
@@ -343,6 +374,10 @@ describe('boss specs', () => {
       expect(res.ms, `world ${world} boss is a pushover`).toBeGreaterThanOrEqual(30_000);
       expect(res.ms, `world ${world} boss is a war of attrition`).toBeLessThanOrEqual(75_000);
       expect(res.defeats, `world ${world} boss knocks a geared player out`).toBe(0);
+      // …and, after the six-slot retune, comfortably in the MIDDLE of that band
+      // rather than drifting towards its floor: all five land at 50.0–51.8 s.
+      expect(res.ms, `world ${world} boss drifted off the climax`).toBeGreaterThanOrEqual(45_000);
+      expect(res.ms, `world ${world} boss drifted off the climax`).toBeLessThanOrEqual(60_000);
     }
   });
 

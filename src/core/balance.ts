@@ -98,7 +98,7 @@ export const BALANCE = {
    * of the three TIERS the shop already sells as separate items.
    *
    * Two curves, both expressed relative to the item itself, so one rule prices
-   * and powers all twelve pieces and a new item needs no new numbers:
+   * and powers all eighteen pieces and a new item needs no new numbers:
    *   cost  = `item.cost × costCurve[N]` spent in total to reach +N
    *   bonus = `item.bonus × statCurve[N]` once it is there
    *
@@ -219,6 +219,20 @@ export const BALANCE = {
      * world's last one, multiplied by the boss's own `hpMult`/`atkMult` from
      * `data/gameContent.ts`. A boss is a SPONGE with heavy, slow hits: the fight
      * lasts ≈40–90 s of active play for a character that just meets the gate.
+     *
+     * PHASE 10 — THE SIX-SLOT RETUNE, and why it touched five numbers and no
+     * curve. Growing the wardrobe from four slots to six (👕 חולצה, 🩳 טייץ) is a
+     * flat power gain: at world 9's era gear it adds ≈36 DEF, ≈414 max HP and
+     * ≈306 ms off the attack interval, which pushed the LATE bosses from ≈50 s
+     * of active play down to 43.7–48.5 s. Nothing left the 30–75 s band, so the
+     * fix is not a curve change — the wave scaling, the taper and the coin
+     * factors are all untouched, and every recorded seed still replays. It is
+     * five per-boss `hpMult` values in `data/gameContent.ts` (worlds 5–9:
+     * 5→5.4, 6.3→6.6, 5.2→6.05, 4→4.5, 4.2→4.55), each raised by exactly the
+     * share the new gear took off its own fight, which puts all five back at
+     * 50.0–51.8 s. Worlds 1–4 were deliberately NOT touched: their era gear is
+     * tier 0–2, the two new pieces move those fights by under 3%, and their
+     * bosses are the ones a player meets before the shop matters.
      */
     boss: {
       /** ⚡ charged when the boss falls (≈3 ordinary waves). */
@@ -243,10 +257,14 @@ export const BALANCE = {
        * keep 1.6×, later worlds step by `lateWorldMult`), because a purse that
        * kept compounding at 1.6× would pay ~2,300 🪙 for a single world-9 wave —
        * a quarter of the whole shop, per wave. As tapered, the nine worlds pay
-       * ≈130,000 🪙 against ≈25,500 🪙 of sinks (three tiers × four slots, each
-       * taken to +3), which is deliberately generous: the late worlds are meant
-       * to be fought in fully upgraded tier-3 gear, and there is room left for
-       * the slots the wardrobe is about to grow.
+       * ≈195,500 🪙 (2,385 / 4,469 / 8,202 / 14,806 / 18,597 / 24,333 / 30,507 /
+       * 39,668 / 52,489) against ≈47,250 🪙 of sinks — three tiers × SIX slots,
+       * every one of them taken to +3, an item's lifetime cost being 3× its
+       * price. That is a little over four wardrobes' worth of income across the
+       * campaign, which is the ratio the shop is tuned for: the late worlds are
+       * meant to be fought in fully upgraded tier-3 gear, and no slot is ever
+       * out of reach of the world that is supposed to pay for it.
+       * `tests/shop.test.ts` pins both halves of that arithmetic.
        */
       base: 5, perWave: 1, worldMult: 1.6, lateWorldMult: 1.2, miniBossMult: 4,
     },
