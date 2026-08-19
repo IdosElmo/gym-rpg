@@ -231,11 +231,19 @@ describe('flavour multipliers', () => {
         6,
       );
     }
-    // …and from world 5 on the step is gentler than 1.6, or the late game would
-    // outrun a player whose gate levels were deliberately compressed.
-    for (let world = 5; world <= WORLDS.length; world += 1) {
-      expect(worldHpFactor(world) / worldHpFactor(world - 1)).toBeLessThan(e.worldHpMult);
-      expect(worldHpFactor(world) / worldHpFactor(world - 1)).toBeGreaterThan(1);
+    // …and from `lateWorldFrom` on the step is the gentler one, exactly, or the
+    // late game would outrun a player whose gate levels are deliberately
+    // compressed. World 5 is the FIRST tapered world.
+    expect(e.lateWorldFrom).toBe(5);
+    for (let world = e.lateWorldFrom; world <= WORLDS.length; world += 1) {
+      expect(worldHpFactor(world) / worldHpFactor(world - 1), `world ${world}`).toBeCloseTo(
+        e.lateWorldHpMult,
+        6,
+      );
+      expect(worldAtkFactor(world) / worldAtkFactor(world - 1), `world ${world}`).toBeCloseTo(
+        e.lateWorldAtkMult,
+        6,
+      );
     }
   });
 

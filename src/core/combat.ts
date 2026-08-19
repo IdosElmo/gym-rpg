@@ -194,7 +194,10 @@ export function waveStretch(world: number): number {
  * TAPER note in `core/balance.ts` for why the 1.6× step cannot just continue.
  */
 function worldFactor(world: number, early: number, late: number): number {
-  const cut = Math.max(1, BALANCE.combat.enemy.lateWorldFrom) - 1;
+  // `lateWorldFrom` is the first world that uses the gentler step, so the number
+  // of EARLY steps is one less than its index — world 4 is `early^3`, world 5 is
+  // `early^3 x late`, and so on.
+  const cut = Math.max(0, BALANCE.combat.enemy.lateWorldFrom - 2);
   const step = Math.max(0, Math.floor(world) - 1);
   return Math.pow(early, Math.min(step, cut)) * Math.pow(late, Math.max(0, step - cut));
 }
