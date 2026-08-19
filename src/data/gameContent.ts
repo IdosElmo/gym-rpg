@@ -1839,20 +1839,47 @@ export function bossGateStatus(
 
 /* ------------------------------------------------------------- equipment */
 
-export type EquipmentSlot = 'gloves' | 'belt' | 'shoes' | 'cape';
+/**
+ * THE SIX SLOTS, head to toe.
+ *
+ * Nothing anywhere counts them: every slot-keyed surface — the shop drawers, the
+ * SVG layers, `normalizeEquipment`, the ghost payload's `equipped` map — is
+ * built by iterating `EQUIPMENT_SLOTS`, which is why growing the wardrobe from
+ * four to six needed no version bump. `equipped` is a PARTIAL record, so a save
+ * (or a published ghost) written before the two new slots existed is still
+ * exactly valid: the missing keys mean "wearing nothing there", which is what
+ * they always meant.
+ */
+export type EquipmentSlot = 'gloves' | 'shirt' | 'belt' | 'leggings' | 'shoes' | 'cape';
 
-export const EQUIPMENT_SLOTS: readonly EquipmentSlot[] = ['gloves', 'belt', 'shoes', 'cape'] as const;
+/**
+ * ORDER IS THE SHOP'S ORDER, and it is anatomical: hands · chest · waist · legs
+ * · feet · back. The two new slots were inserted where the body puts them rather
+ * than appended, so the drawer list reads as a wardrobe instead of a changelog.
+ */
+export const EQUIPMENT_SLOTS: readonly EquipmentSlot[] = [
+  'gloves',
+  'shirt',
+  'belt',
+  'leggings',
+  'shoes',
+  'cape',
+] as const;
 
 export const SLOT_HE: Readonly<Record<EquipmentSlot, string>> = {
   gloves: 'כפפות',
+  shirt: 'חולצה',
   belt: 'חגורה',
+  leggings: 'טייץ',
   shoes: 'נעליים',
   cape: 'גלימה',
 };
 
 export const SLOT_EMOJI: Readonly<Record<EquipmentSlot, string>> = {
   gloves: '🥊',
+  shirt: '👕',
   belt: '🎗',
+  leggings: '🩳',
   shoes: '👟',
   cape: '🧣',
 };
@@ -1897,13 +1924,24 @@ function icon(inner: string): string {
 }
 
 /**
- * The shop roster: four slots × three tiers.
+ * The shop roster: six slots × three tiers.
  *
  * PRICE TUNING — world 1's fifty waves pay ≈1 800 🪙 and each world multiplies
  * the payout by `BALANCE.combat.coins.worldMult`, on top of a large boss purse.
  * So tier 1 is affordable in the first world, tier 2 around its boss, and tier 3
- * during worlds 2–3. Each slot leans on a different stat family so that the four
+ * during worlds 2–3. Each slot leans on a different stat family so that the six
  * pieces together cover the whole stat sheet.
+ *
+ * THE TWO NEWER SLOTS ARE DELIBERATELY CHEAPER AND LIGHTER than the four they
+ * joined (≈2 150 🪙 of items each against 2 540–3 250 🪙, and roughly three
+ * quarters of the per-tier bonus of the slot they share a stat family with).
+ * Two reasons, and they are the same reason twice: a wardrobe is worn ALL AT
+ * ONCE, so six full slots must not add up to half again the power four did —
+ * the campaign's boss pacing is pinned against era-appropriate gear — and the
+ * whole six-slot ladder, taken to +3 on every piece, has to stay a sink the
+ * nine worlds' ≈195 000 🪙 comfortably covers. Together the two new slots cost
+ * ≈12 960 🪙 fully upgraded (an item's full +3 costs 2× its price, so a slot's
+ * lifetime cost is 3× the sum of its three tiers).
  */
 export const EQUIPMENT: readonly EquipmentDef[] = [
   /* --- gloves: attack & crit ------------------------------------------- */
@@ -1947,6 +1985,47 @@ export const EQUIPMENT: readonly EquipmentDef[] = [
     icon: icon(`<path d="M14 30 v-14 a4 4 0 0 1 8 0 v-4 a4 4 0 0 1 8 0 v4 a4 4 0 0 1 8 0 v16 a10 10 0 0 1 -10 10 h-8 a10 10 0 0 1 -10 -10 Z" fill="#B91C1C" stroke="#FDE68A" stroke-width="2"/><path d="M14 26 h24" stroke="#FDE68A" stroke-width="2.5"/><path d="M26 29 l3 6 -6 0 Z" fill="#FDE68A"/>`),
   },
 
+  /* --- shirt: defence & HP (the chest plate) ---------------------------- */
+  {
+    id: 'shirt_1',
+    he: 'גופיית אימון',
+    en: 'Training Tank',
+    slot: 'shirt',
+    tier: 1,
+    cost: 110,
+    bonus: { def: 3, hp: 12 },
+    color: '#334155',
+    accent: '#94A3B8',
+    note: 'כותנה פשוטה, גזרה פתוחה — הכתפיים נשארות בחוץ.',
+    icon: icon(`<path d="M14 10 h6 a4 4 0 0 0 8 0 h6 l4 8 -5 3 v17 h-18 v-17 l-5 -3 Z" fill="#334155" stroke="#94A3B8" stroke-width="2" stroke-linejoin="round"/><path d="M19 24 h10" stroke="#94A3B8" stroke-width="2"/>`),
+  },
+  {
+    id: 'shirt_2',
+    he: 'חולצת דרקון',
+    en: 'Dragon Shirt',
+    slot: 'shirt',
+    tier: 2,
+    cost: 480,
+    bonus: { def: 8, hp: 40 },
+    color: '#065F46',
+    accent: '#34D399',
+    note: 'קשקשים ירוקים. מכות מחליקות מהם.',
+    icon: icon(`<path d="M14 10 h6 a4 4 0 0 0 8 0 h6 l4 8 -5 3 v17 h-18 v-17 l-5 -3 Z" fill="#065F46" stroke="#34D399" stroke-width="2" stroke-linejoin="round"/><path d="M24 19 l5 5 -5 5 -5 -5 Z" fill="#34D399"/>`),
+  },
+  {
+    id: 'shirt_3',
+    he: 'שריון טיטניום',
+    en: 'Titanium Plate',
+    slot: 'shirt',
+    tier: 3,
+    cost: 1560,
+    bonus: { def: 20, hp: 100 },
+    color: '#1E293B',
+    accent: '#E2E8F0',
+    note: 'קל כמו נוצה, קשה כמו הר.',
+    icon: icon(`<path d="M14 10 h6 a4 4 0 0 0 8 0 h6 l4 8 -5 3 v17 h-18 v-17 l-5 -3 Z" fill="#1E293B" stroke="#E2E8F0" stroke-width="2" stroke-linejoin="round"/><path d="M24 16 l3 6 6.6 .9 -4.8 4.6 1.2 6.5 -6 -3.2 -6 3.2 1.2 -6.5 -4.8 -4.6 6.6 -.9 Z" fill="#E2E8F0"/>`),
+  },
+
   /* --- belt: defence & HP ---------------------------------------------- */
   {
     id: 'belt_1',
@@ -1986,6 +2065,47 @@ export const EQUIPMENT: readonly EquipmentDef[] = [
     accent: '#FBBF24',
     note: 'האבזם לבדו שוקל יותר מהמתחרים.',
     icon: icon(`<rect x="2" y="18" width="44" height="12" rx="3" fill="#78350F" stroke="#FBBF24" stroke-width="2"/><path d="M24 8 l14 8 v16 l-14 8 -14 -8 v-16 Z" fill="#FBBF24" stroke="#78350F" stroke-width="2"/><circle cx="24" cy="24" r="5" fill="#78350F"/>`),
+  },
+
+  /* --- leggings: HP & attack speed (leg drive) -------------------------- */
+  {
+    id: 'leggings_1',
+    he: 'טייץ ספורט',
+    en: 'Sport Tights',
+    slot: 'leggings',
+    tier: 1,
+    cost: 130,
+    bonus: { hp: 20, attackIntervalMs: -30 },
+    color: '#312E81',
+    accent: '#818CF8',
+    note: 'צמוד וגמיש — שום סקוואט לא נתקע בו.',
+    icon: icon(`<path d="M13 8 h22 v6 l-3 26 h-6 l-2 -18 -2 18 h-6 l-3 -26 Z" fill="#312E81" stroke="#818CF8" stroke-width="2" stroke-linejoin="round"/><path d="M13 14 h22" stroke="#818CF8" stroke-width="2.5"/>`),
+  },
+  {
+    id: 'leggings_2',
+    he: 'מכנסי לוחם',
+    en: 'Warrior Pants',
+    slot: 'leggings',
+    tier: 2,
+    cost: 500,
+    bonus: { hp: 55, attackIntervalMs: -80 },
+    color: '#7F1D1D',
+    accent: '#FCA5A5',
+    note: 'רגליים חמות דוחפות חזק יותר.',
+    icon: icon(`<path d="M13 8 h22 v6 l-3 26 h-6 l-2 -18 -2 18 h-6 l-3 -26 Z" fill="#7F1D1D" stroke="#FCA5A5" stroke-width="2" stroke-linejoin="round"/><path d="M13 14 h22" stroke="#FCA5A5" stroke-width="2.5"/><path d="M18 20 v16 M30 20 v16" stroke="#FCA5A5" stroke-width="2" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'leggings_3',
+    he: 'רגלי ברק',
+    en: 'Lightning Legs',
+    slot: 'leggings',
+    tier: 3,
+    cost: 1540,
+    bonus: { hp: 130, attackIntervalMs: -170 },
+    color: '#0C4A6E',
+    accent: '#FACC15',
+    note: 'הברק מתחיל ברגליים. תמיד התחיל.',
+    icon: icon(`<path d="M13 8 h22 v6 l-3 26 h-6 l-2 -18 -2 18 h-6 l-3 -26 Z" fill="#0C4A6E" stroke="#FACC15" stroke-width="2" stroke-linejoin="round"/><path d="M13 14 h22" stroke="#FACC15" stroke-width="2.5"/><path d="M25 18 l-6 10 h5 l-3 10 8 -12 h-5 Z" fill="#FACC15"/>`),
   },
 
   /* --- shoes: attack speed & HP ---------------------------------------- */

@@ -11,8 +11,8 @@
  *   cost to REACH +N  = `item.cost × costCurve[N]`   (60% / 120% / 200%)
  *   bonus at +N       = `item.bonus × statCurve[N]`  (×1.25 / ×1.5 / ×1.8)
  *
- * One rule prices and powers all twelve items, so adding a thirteenth needs no
- * new numbers — and retuning the economy is one edit in `balance.ts`.
+ * One rule prices and powers all eighteen items, so adding a nineteenth needs
+ * no new numbers — and retuning the economy is one edit in `balance.ts`.
  *
  * WHY A RELATIVE CURVE. It keeps the two ways to spend a purse comparable per
  * coin (a tier jump is ≈2.5–3× the bonus for ≈4× the price; a full +3 is 1.8×

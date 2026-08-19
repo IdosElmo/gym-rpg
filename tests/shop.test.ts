@@ -19,14 +19,20 @@ import {
 import {
   EQUIPMENT,
   EQUIPMENT_SLOTS,
+  SLOT_EMOJI,
   SLOT_HE,
+  WORLDS,
   bonusHe,
   equipmentById,
   equipmentForSlot,
   sumEquipBonus,
+  wavesInWorld,
   zeroBonus,
 } from '../src/data/gameContent.ts';
+import { bossSpec, waveSpec } from '../src/core/combat.ts';
+import { MAX_UPGRADE_LEVEL, upgradeTotalCost } from '../src/core/upgrades.ts';
 import { findExercise, type Exercise } from '../src/data/program.ts';
+import { GAME_STATE_VERSION } from '../src/storage/DataStore.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import {
   buildExport,
@@ -71,8 +77,9 @@ function richStore(coins: number): LocalStore {
 /* ------------------------------------------------------------- the roster */
 
 describe('the equipment roster', () => {
-  it('covers all four slots with several tiers and unique ids', () => {
-    expect(EQUIPMENT.length).toBeGreaterThanOrEqual(8);
+  it('covers all six slots with several tiers and unique ids', () => {
+    expect(EQUIPMENT_SLOTS).toEqual(['gloves', 'shirt', 'belt', 'leggings', 'shoes', 'cape']);
+    expect(EQUIPMENT.length).toBeGreaterThanOrEqual(EQUIPMENT_SLOTS.length * 3);
     expect(new Set(EQUIPMENT.map((e) => e.id)).size).toBe(EQUIPMENT.length);
     for (const slot of EQUIPMENT_SLOTS) {
       const items = equipmentForSlot(slot);
@@ -97,6 +104,98 @@ describe('the equipment roster', () => {
       expect(item.icon).not.toMatch(/https?:\/\/(?!www\.w3\.org)/); // offline rule
       expect(Object.keys(item.bonus).length).toBeGreaterThan(0);
     }
+  });
+
+  /**
+   * THE SLOT-SURFACE SWEEP. Six slots, and not one of them is special-cased:
+   * every id follows `<slot>_<tier>` (which is what lets the era-gear ladders in
+   * `tests/boss.test.ts` and `tests/worlds.test.ts` build a whole kit by
+   * concatenation), every slot names itself in Hebrew and with an emoji, and
+   * every slot is reachable from `equipmentForSlot`.
+   */
+  it('gives every slot a Hebrew name, an emoji and a full `<slot>_<tier>` ladder', () => {
+    for (const slot of EQUIPMENT_SLOTS) {
+      expect(SLOT_HE[slot], `${slot} has no Hebrew name`).toBeTruthy();
+      expect(SLOT_EMOJI[slot], `${slot} has no emoji`).toBeTruthy();
+      for (const tier of [1, 2, 3]) {
+        const def = equipmentById(`${slot}_${tier}`);
+        expect(def, `${slot}_${tier} is missing`).toBeDefined();
+        expect(def?.slot).toBe(slot);
+        expect(def?.tier).toBe(tier);
+      }
+    }
+    // …and nothing outside the six slots ever slipped into the roster
+    for (const item of EQUIPMENT) expect(EQUIPMENT_SLOTS).toContain(item.slot);
+  });
+
+  /**
+   * THE TWO NEWEST SLOTS, and the promise they were priced against: each one is
+   * CHEAPER and LIGHTER than the slot it shares a stat family with, because six
+   * slots are worn at once and the campaign's boss pacing is pinned against a
+   * full kit (see the note above `EQUIPMENT` and the Phase 10 note in
+   * `balance.ts`).
+   */
+  it('keeps 👕 חולצה on DEF+HP and 🩳 טייץ on HP+speed, under the slot they echo', () => {
+    for (const [slot, sibling, keys] of [
+      ['shirt', 'belt', ['def', 'hp']],
+      ['leggings', 'shoes', ['hp', 'attackIntervalMs']],
+    ] as const) {
+      const items = equipmentForSlot(slot);
+      const siblings = equipmentForSlot(sibling);
+      expect(items).toHaveLength(3);
+      for (const [i, item] of items.entries()) {
+        // the stat identity: exactly the family the slot is about, no strays
+        expect(Object.keys(item.bonus).sort(), `${item.id} bonus`).toEqual([...keys].sort());
+        // …and both the price and the headline sit under the older slot's
+        const twin = siblings[i] as (typeof siblings)[number];
+        expect(item.cost, `${item.id} costs more than ${twin.id}`).toBeLessThan(twin.cost);
+      }
+      // leg drive must not out-sprint the shoes it is worn with
+      const lifetime = items.reduce((sum, i) => sum + i.cost * 3, 0);
+      expect(lifetime, `${slot} lifetime cost`).toBeGreaterThan(5_500);
+      expect(lifetime, `${slot} lifetime cost`).toBeLessThan(7_500);
+    }
+  });
+
+  /**
+   * THE ECONOMY, both halves of it, measured rather than asserted by eye: what
+   * nine worlds pay against what a fully upgraded six-slot wardrobe costs. An
+   * item's LIFETIME cost is 3× its price (the item, plus `costCurve[3]` = 2× to
+   * take it to +3), so the whole shop is one sum over `EQUIPMENT`.
+   */
+  it('keeps a fully upgraded six-slot wardrobe at ≈47k 🪙 — a quarter of the campaign', () => {
+    const lifetime = (cost: number): number => cost + upgradeTotalCost(cost, MAX_UPGRADE_LEVEL);
+    const sink = EQUIPMENT.reduce((sum, e) => sum + lifetime(e.cost), 0);
+    expect(sink).toBe(47_250);
+    // the two new slots are the ≈13k the wardrobe grew by
+    const added = EQUIPMENT.filter((e) => e.slot === 'shirt' || e.slot === 'leggings').reduce(
+      (sum, e) => sum + lifetime(e.cost),
+      0,
+    );
+    expect(added).toBe(12_960);
+
+    // …against the whole campaign's take (waves + boss purses, nine worlds)
+    let income = 0;
+    for (const w of WORLDS) {
+      for (let wave = 1; wave <= wavesInWorld(w.id); wave += 1) income += waveSpec(w.id, wave).coins;
+      income += bossSpec(w.id)?.coins ?? 0;
+    }
+    expect(income).toBeGreaterThan(190_000);
+    expect(income / sink, 'the campaign must buy the shop several times over').toBeGreaterThan(3.5);
+    expect(income / sink, 'but coins must never stop meaning anything').toBeLessThan(6);
+
+    // …and the tier-1 prices still gate a FRESH player naturally: nobody walks
+    // into the shop off their first handful of waves…
+    const cheapest = Math.min(...EQUIPMENT.map((e) => e.cost));
+    let firstFive = 0;
+    for (let wave = 1; wave <= 5; wave += 1) firstFive += waveSpec(1, wave).coins;
+    expect(cheapest, 'a brand-new player can already dress').toBeGreaterThan(firstFive * 2);
+    // …while world 1 alone still pays for the whole tier-1 row, both new slots
+    // included, which is what makes the first shop visit a real decision.
+    let world1 = 0;
+    for (let wave = 1; wave <= wavesInWorld(1); wave += 1) world1 += waveSpec(1, wave).coins;
+    const tier1 = EQUIPMENT.filter((e) => e.tier === 1).reduce((sum, e) => sum + e.cost, 0);
+    expect(tier1).toBeLessThan(world1);
   });
 
   it('sums bonuses across slots and ignores unknown ids', () => {
@@ -284,6 +383,42 @@ describe('replay', () => {
     restored.replaceAll(parsed!.state, parsed!.events);
     expect(gameOf(restored).equipment).toEqual(live.equipment);
     expect(statsOfGame(gameOf(restored))).toEqual(statsOfGame(live));
+  });
+
+  /**
+   * NO VERSION BUMP, and this is why: `equipped` is a PARTIAL record keyed by
+   * slot, so a save written when the wardrobe had four slots is already a valid
+   * six-slot save — the two missing keys mean "wearing nothing there", which is
+   * what a missing key has always meant. A blob from the older build must
+   * therefore load untouched, at the SAME `GAME_STATE_VERSION`, and simply find
+   * two more empty drawers waiting in the shop.
+   */
+  it('loads a four-slot save as a six-slot one, with no version bump', () => {
+    const store = richStore(6000);
+    buyItem(store, 'belt_1');
+    buyItem(store, 'gloves_1');
+    const raw = JSON.parse(JSON.stringify(store.getState())) as {
+      game: { version: number; equipment: { equipped: Record<string, string> } };
+    };
+    // exactly the shape the four-slot build wrote: no shirt, no leggings
+    expect(Object.keys(raw.game.equipment.equipped).sort()).toEqual(['belt', 'gloves']);
+    expect(raw.game.version).toBe(GAME_STATE_VERSION);
+
+    const migrated = migrateState(JSON.stringify(raw));
+    expect(migrated.game?.version).toBe(GAME_STATE_VERSION);
+    expect(migrated.game?.equipment.equipped).toEqual({ belt: 'belt_1', gloves: 'gloves_1' });
+    for (const slot of EQUIPMENT_SLOTS) {
+      // every slot answers — the four worn-in ones by name, the new two by being
+      // honestly empty rather than by throwing
+      expect(migrated.game?.equipment.equipped[slot] ?? null).toBe(
+        slot === 'belt' ? 'belt_1' : slot === 'gloves' ? 'gloves_1' : null,
+      );
+    }
+    // …and the two new slots are wearable straight away on that save
+    const restored = new LocalStore(fakeStorage());
+    restored.replaceAll(migrated, store.getEvents());
+    expect(buyItem(restored, 'shirt_1')).toEqual({ ok: true });
+    expect(gameOf(restored).equipment.equipped['shirt']).toBe('shirt_1');
   });
 
   it('drops phantom items when a stored blob mentions an id the roster lost', () => {

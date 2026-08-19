@@ -475,7 +475,7 @@ describe('the hero in the arena', () => {
 
   it('is the same drawing the דמות screen shows — same stage, same gear', () => {
     const store = battleStore();
-    wear(store, { cape: 'cape_3', shoes: 'shoes_2' }, { cape_3: 1 });
+    wear(store, { cape: 'cape_3', shirt: 'shirt_2', leggings: 'leggings_2', shoes: 'shoes_2' }, { cape_3: 1 });
     mount(store);
 
     const game = gameOf(store);
@@ -501,8 +501,13 @@ describe('the hero in the arena', () => {
     }
     // The cape is the one layer that hangs BEHIND the body — its position in the
     // draw order travels with it into the arena.
+    // …and the whole six-slot stack keeps its order in the arena too: the cape
+    // hangs behind the body, the shirt is drawn inside it (before the pecs), and
+    // the leggings/shoes/belt/gloves are worn on top in that order.
     const kids = [...(heroSvg()?.children ?? [])].map((c) => c.getAttribute('data-slot') ?? c.tagName);
-    expect(kids.indexOf('cape')).toBeLessThan(kids.indexOf('shoes'));
+    const order = ['cape', 'shirt', 'leggings', 'shoes', 'belt', 'gloves'].map((s) => kids.indexOf(s));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
   it('carries the upgrade flair — the glow class, the glints and the +3 badge', () => {
@@ -537,7 +542,18 @@ describe('the hero in the arena', () => {
 
   it('keeps every gear stroke readable at arena scale', () => {
     const store = battleStore();
-    wear(store, { belt: 'belt_1', gloves: 'gloves_3', shoes: 'shoes_1', cape: 'cape_2' }, { cape_2: 3 });
+    wear(
+      store,
+      {
+        belt: 'belt_1',
+        gloves: 'gloves_3',
+        shirt: 'shirt_3',
+        leggings: 'leggings_1',
+        shoes: 'shoes_1',
+        cape: 'cape_2',
+      },
+      { cape_2: 3 },
+    );
     mount(store);
 
     // The arena draws the stage at ~90px, i.e. ≈0.45px per user unit: the

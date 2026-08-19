@@ -61,7 +61,7 @@ import {
   totalXpToReach,
 } from '../src/core/xp.ts';
 import { BODY_PARTS, findExercise, type Exercise } from '../src/data/program.ts';
-import { EQUIPMENT, equipmentById } from '../src/data/gameContent.ts';
+import { EQUIPMENT, EQUIPMENT_SLOTS, equipmentById } from '../src/data/gameContent.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import { GAME_STATE_VERSION, type AppEvent, type GameState } from '../src/storage/DataStore.ts';
 import { normalizeGame, rebuildFromEvents, type StorageLike } from '../src/storage/migrate.ts';
@@ -269,6 +269,45 @@ describe('the published ghost', () => {
     expect(ghostStats(ghost)).toEqual(statsOfGame(game));
   });
 
+  /**
+   * SIX SLOTS ACROSS THE WIRE. The payload's `equipped` map is keyed by slot and
+   * built by iterating `EQUIPMENT_SLOTS`, so growing the wardrobe needed no
+   * change here at all — this is the test that says so out loud, and pins that
+   * an opponent's shirt and leggings actually COUNT in the duel rather than just
+   * being drawn.
+   */
+  it('publishes all six slots, and every one of them lands in the ghost’s stats', () => {
+    const game = gameAt(8);
+    game.streak.tier = 2;
+    for (const slot of EQUIPMENT_SLOTS) {
+      const id = `${slot}_3`;
+      game.equipment.owned.push(id);
+      game.equipment.equipped[slot] = id;
+      game.equipment.upgrades[id] = 2;
+    }
+    const ghost = buildGhost(game, FOE);
+    expect(Object.keys(ghost.equipped).sort()).toEqual([...EQUIPMENT_SLOTS].sort());
+    for (const slot of EQUIPMENT_SLOTS) expect(ghost.equipped[slot]).toBe(`${slot}_3`);
+
+    // …and the stats are the player's own derivation, gear and upgrades included
+    expect(ghostStats(ghost)).toEqual(statsOfGame(game));
+
+    // dropping just the two newest pieces measurably weakens the opponent
+    const lighter = normalizeGhost({
+      ...JSON.parse(JSON.stringify(ghost)),
+      equipped: { ...ghost.equipped, shirt: undefined, leggings: undefined },
+    }) as GhostPayload;
+    expect(lighter.equipped.shirt).toBeUndefined();
+    expect(ghostStats(lighter).def).toBeLessThan(ghostStats(ghost).def);
+    expect(ghostStats(lighter).maxHp).toBeLessThan(ghostStats(ghost).maxHp);
+    expect(ghostStats(lighter).attackIntervalMs).toBeGreaterThanOrEqual(ghostStats(ghost).attackIntervalMs);
+
+    // …and a round trip through the wire keeps all six
+    const wire = normalizeGhost(JSON.parse(JSON.stringify(ghost))) as GhostPayload;
+    expect(wire).toEqual(ghost);
+    expect(ghostHash(wire)).toBe(ghostHash(ghost));
+  });
+
   it('changes its fingerprint when the character changes, and only then', () => {
     const game = gameAt(4);
     const base = ghostHash(buildGhost(game, FOE));
@@ -309,7 +348,15 @@ describe('a payload from a hostile client', () => {
     skin: 'not-a-skin',
     parts: { chest: 1e9, back: -50, legs: 'ten', shoulders: Infinity, arms: NaN, core: 99 },
     streakTier: 1_000_000,
-    equipped: { gloves: 'gloves_3', belt: 'gloves_1', shoes: 'made-up', cape: 42, hat: 'gloves_3' },
+    equipped: {
+      gloves: 'gloves_3',
+      shirt: 'shirt_2',
+      belt: 'gloves_1',
+      leggings: 'shoes_3',
+      shoes: 'made-up',
+      cape: 42,
+      hat: 'gloves_3',
+    },
     upgrades: { gloves_3: 99, 'made-up': 3, belt_1: -4 },
     characterLevel: 999,
     // Fields we never asked for, from a client that hopes we read them.
@@ -331,7 +378,9 @@ describe('a payload from a hostile client', () => {
     expect(g.streakTier).toBe(BALANCE.duel.maxStreakTier);
     // Only a real item, in the slot it actually belongs to, survives.
     expect(g.equipped.gloves).toBe('gloves_3');
+    expect(g.equipped.shirt).toBe('shirt_2');
     expect(g.equipped.belt).toBeUndefined(); // gloves in the belt slot
+    expect(g.equipped.leggings).toBeUndefined(); // shoes in the leggings slot
     expect(g.equipped.shoes).toBeUndefined(); // unknown id
     expect(g.equipped.cape).toBeUndefined(); // not even a string
     expect(g.upgrades['gloves_3']).toBe(BALANCE.upgrades.maxLevel);

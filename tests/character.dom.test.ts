@@ -9,16 +9,18 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { gameOf } from '../src/core/game.ts';
+import { buyItem, gameOf } from '../src/core/game.ts';
 import { emptyGame } from '../src/core/xp.ts';
 import { BODY_PART_HE, PROGRAM } from '../src/data/program.ts';
 import {
   EQUIPMENT_SLOTS,
+  SLOT_EMOJI,
   SLOT_HE,
   WORLDS,
   WORLD_BOSSES,
   equipmentById,
 } from '../src/data/gameContent.ts';
+import { upgradeStepCost } from '../src/core/upgrades.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
 import { createApp } from '../src/ui/app.ts';
@@ -107,7 +109,7 @@ describe('character SVG', () => {
     for (const part of ['chest', 'back', 'legs', 'shoulders', 'arms', 'core']) {
       expect(svg).toContain(`data-part="${part}"`);
     }
-    for (const slot of ['cape', 'belt', 'gloves', 'shoes']) {
+    for (const slot of EQUIPMENT_SLOTS) {
       expect(svg).toContain(`data-slot="${slot}"`);
     }
     expect(svg).toContain('ch-part pulse');
@@ -141,7 +143,7 @@ describe('דמות screen', () => {
     expect(document.querySelector('#main .streak-tier b')?.textContent).toBe('0');
     expect(document.querySelectorAll('#main .game-card.locked')).toHaveLength(0);
     expect(document.getElementById('shopCard')).not.toBeNull();
-    expect(document.querySelectorAll('#main .eq-slot')).toHaveLength(4);
+    expect(document.querySelectorAll('#main .eq-slot')).toHaveLength(EQUIPMENT_SLOTS.length);
     expect(document.getElementById('header')?.textContent).toContain('הדמות שלי');
   });
 
@@ -272,6 +274,62 @@ describe('the coin shop on the דמות screen', () => {
     btn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(gameOf(store).equipment.owned).toEqual([]);
     expect(store.getEvents().some((e) => e.type === 'coins_spent')).toBe(false);
+  });
+
+  /**
+   * THE TWO SLOTS THE SHOP GREW BY, through the same drawer the other four use.
+   * There is no bespoke code behind either of them — `shopCard` iterates
+   * `EQUIPMENT_SLOTS` — so this walks the whole flow once per new slot to prove
+   * the generic path really does cover them: open, buy, wear, draw, upgrade.
+   */
+  it('buys, wears, draws and upgrades a 👕 and a 🩳 through the ordinary drawer', () => {
+    for (const [slot, id] of [
+      ['shirt', 'shirt_1'],
+      ['leggings', 'leggings_1'],
+    ] as const) {
+      const item = equipmentById(id);
+      if (!item) throw new Error(`missing ${id}`);
+      const store = shopStore(item.cost + upgradeStepCost(item.cost, 1));
+      mount(store);
+      // which drawer is open is view state that survives a re-render (and the
+      // previous case), so ask rather than blind-click
+      const head = document.querySelector<HTMLButtonElement>(`[data-slot-toggle="${slot}"]`);
+      if (head?.getAttribute('aria-expanded') !== 'true') {
+        head?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }
+
+      // the drawer is titled in Hebrew and lists the slot's three tiers
+      expect(document.querySelector(`[data-slot-toggle="${slot}"]`)?.textContent).toContain(SLOT_HE[slot]);
+      expect(document.querySelector(`[data-slot-toggle="${slot}"]`)?.textContent).toContain(SLOT_EMOJI[slot]);
+      expect(document.querySelectorAll('.eq-item')).toHaveLength(3);
+      expect(document.querySelector(`[data-slot="${slot}"]`)?.innerHTML).toBe('');
+
+      document
+        .querySelector<HTMLButtonElement>(`[data-buy="${id}"]`)!
+        .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(gameOf(store).equipment.equipped[slot]).toBe(id);
+      expect(document.querySelector(`[data-slot="${slot}"]`)?.innerHTML).not.toBe('');
+      expect(document.querySelector(`[data-unequip="${slot}"]`)).not.toBeNull();
+
+      // …and the upgrade ladder is on it too, flair and all
+      document
+        .querySelector<HTMLButtonElement>(`[data-upgrade="${id}"]`)!
+        .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(gameOf(store).equipment.upgrades[id]).toBe(1);
+      const worn = document.querySelector(`.char-stage [data-slot="${slot}"]`);
+      expect(worn?.getAttribute('data-upgrade')).toBe('1');
+      expect(worn?.querySelectorAll('.ch-spark').length ?? 0).toBeGreaterThan(0);
+    }
+  });
+
+  it('counts all six slots in the shop header', () => {
+    const store = shopStore(50_000);
+    for (const slot of EQUIPMENT_SLOTS) buyItem(store, `${slot}_1`);
+    mount(store);
+    expect(document.querySelector('#shopCard .gc-sub')?.textContent).toContain(
+      `${EQUIPMENT_SLOTS.length}/${EQUIPMENT_SLOTS.length}`,
+    );
   });
 
   it('shows the trophy shelf with Hebrew boss and world names', () => {
