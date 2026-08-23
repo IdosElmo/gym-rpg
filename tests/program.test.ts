@@ -59,13 +59,64 @@ function withoutAdded(v: unknown): unknown {
  */
 const POST_LEGACY_IDS = new Set(['b6', 'c6']);
 
+/**
+ * Coaching-copy fields deliberately AMENDED after the port — technical fixes
+ * from the instruction audit against the MIT-licensed exercises-dataset
+ * (grip width on a1/b1, plank elbow position on b5, the curl's starting grip
+ * on a5, the row's bar path + mistake on b4). Each entry names the ONLY
+ * fields allowed to differ from the legacy literal for that exercise; a
+ * companion test asserts they actually DO differ, so the list cannot rot.
+ */
+const AMENDED_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  a1: ['steps'],
+  a5: ['steps'],
+  b1: ['steps'],
+  b4: ['steps', 'mistake'],
+  b5: ['steps'],
+};
+
+interface ComparableExercise {
+  id: string;
+  [k: string]: unknown;
+}
+
+/** Blank the amended fields on ONE side's exercise list, in place. */
+function blankAmended(days: Record<string, { exercises: ComparableExercise[] }>): void {
+  for (const day of Object.values(days)) {
+    for (const ex of day.exercises) {
+      for (const field of AMENDED_FIELDS[ex.id] ?? []) ex[field] = '<amended>';
+    }
+  }
+}
+
 describe('program data', () => {
-  it('matches the legacy PROGRAM byte-for-byte (minus added fields and appended exercises)', () => {
-    const stripped = withoutAdded(PROGRAM) as Record<string, { exercises: { id: string }[] }>;
+  it('matches the legacy PROGRAM byte-for-byte (minus added fields, appended exercises and enumerated amendments)', () => {
+    const stripped = withoutAdded(PROGRAM) as Record<string, { exercises: ComparableExercise[] }>;
     for (const day of Object.values(stripped)) {
       day.exercises = day.exercises.filter((e) => !POST_LEGACY_IDS.has(e.id));
     }
-    expect(stripped).toEqual(legacyProgram());
+    const legacy = legacyProgram() as Record<string, { exercises: ComparableExercise[] }>;
+    blankAmended(stripped);
+    blankAmended(legacy);
+    expect(stripped).toEqual(legacy);
+  });
+
+  it('every enumerated amendment genuinely differs from the legacy copy', () => {
+    const legacy = legacyProgram() as Record<string, { exercises: ComparableExercise[] }>;
+    const legacyById = new Map(
+      Object.values(legacy).flatMap((day) => day.exercises.map((e) => [e.id, e] as const)),
+    );
+    for (const [id, fields] of Object.entries(AMENDED_FIELDS)) {
+      const ours = findExercise(id);
+      const theirs = legacyById.get(id);
+      expect(ours).not.toBeNull();
+      expect(theirs).toBeDefined();
+      for (const field of fields) {
+        expect(JSON.stringify((ours as unknown as ComparableExercise)[field])).not.toBe(
+          JSON.stringify(theirs?.[field]),
+        );
+      }
+    }
   });
 
   it('appends post-legacy exercises strictly at the END of their day', () => {
