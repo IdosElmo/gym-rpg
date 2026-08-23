@@ -1,0 +1,54 @@
+/* ---------- Exercise demonstration (ui/coachFigure + ui/exerciseDemo) ----------
+ *
+ * ORIGINAL ART, drawn from numbers. There is no image, sprite sheet, video or
+ * font here — the whole demo is SVG strokes generated at runtime, so it costs
+ * the single-file bundle a few kB of code and nothing else.
+ *
+ * Every colour is a design token. The figure takes the app's text colour, the
+ * far limbs the dim one (that is the ONLY depth cue), the joints the accent,
+ * the station (bench, rail, pulley, mat) the line colours so it recedes behind
+ * the body, and the iron takes --warn so the weight is the thing that pops.
+ *
+ * `prefers-reduced-motion` needs no rule of its own: nothing here animates in
+ * CSS. `ui/exerciseDemo.ts` reads the media query itself and paints the mid-rep
+ * pose once, so a reduced-motion user gets a still diagram rather than a frozen
+ * start position.
+ */
+.ex-demo{
+  max-width:210px; margin:10px auto 12px; padding:4px 6px 2px;
+  background:var(--bg); border:1px solid var(--line); border-radius:12px;
+}
+.cd-svg{
+  display:block; width:100%; height:auto;
+  --cd-body:var(--text); --cd-far:#54627E; --cd-joint:var(--accent);
+  --cd-frame:#44567A; --cd-pad:#56698F; --cd-iron:var(--warn); --cd-cable:#7A88A3;
+}
+
+/* the demonstrator */
+.cd-limb{
+  fill:none; stroke:var(--cd-body); stroke-width:5;
+  stroke-linecap:round; stroke-linejoin:round;
+}
+.cd-limb.far{stroke:var(--cd-far); stroke-width:4.4}
+.cd-torso{fill:var(--cd-body); stroke:var(--cd-body); stroke-width:3; stroke-linejoin:round}
+.cd-neck{fill:none; stroke:var(--cd-body); stroke-width:5; stroke-linecap:round}
+.cd-head{fill:var(--cd-body)}
+.cd-joint{fill:var(--cd-joint)}
+
+/* the station */
+.cd-pad{fill:none; stroke:var(--cd-pad); stroke-width:5; stroke-linecap:round}
+.cd-frame{fill:none; stroke:var(--cd-frame); stroke-width:2.2; stroke-linecap:round}
+.cd-rail{stroke-width:2.8}
+.cd-wheel{fill:var(--bg)}
+.cd-floor{fill:none; stroke:var(--cd-frame); stroke-width:2.2; stroke-linecap:round}
+.cd-mat{fill:var(--cd-pad); opacity:.75}
+.cd-roller{fill:#6A7EA6}
+
+/* the iron */
+.cd-iron{fill:none; stroke:var(--cd-iron); stroke-width:3; stroke-linecap:round}
+.cd-bar{stroke-width:3.4}
+.cd-bell{stroke-width:4.6}
+.cd-iron-fill{fill:var(--cd-iron)}
+.cd-hub{fill:var(--bg)}
+.cd-cable{fill:none; stroke:var(--cd-cable); stroke-width:1.6; stroke-linecap:round}
+.cd-rope{fill:none; stroke:var(--cd-cable); stroke-width:2.6; stroke-linecap:round}
