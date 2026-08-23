@@ -822,6 +822,22 @@ function handWrap(s: SideJoints, sk: Skin, scale: number): string {
 }
 
 /**
+ * WHERE A BACK-SQUAT BAR ACTUALLY IS: on the traps, BEHIND the neck.
+ *
+ * Anchoring it at the shoulder joint was fine for a stick figure, whose torso
+ * had no thickness. Give the torso volume and the same anchor puts a loaded
+ * plate through the lifter's chest, because the shoulder joint is in the middle
+ * of the body and the plate is drawn on the side the chest is on. So the bar is
+ * carried a torso-width BEHIND the spine and a little up it, which is the shelf
+ * the traps actually make, and it is painted between the torso and the head so
+ * the skull passes in front of it.
+ */
+export function barBackAnchor(j: Joints, facing: 1 | -1): Vec {
+  const up = angleOf(j.pelvis, j.shoulders);
+  return step(step(j.shoulders, up + 90 * facing + 180, 5.4), up, 3.5);
+}
+
+/**
  * A LOADED BAR SEEN END-ON — the Smith bar and the barbell across the traps.
  * What you actually see is the plate: a big disc with a rim, a collar in front
  * of it and the sleeve poking through. Drawn as one solid so it cannot be
@@ -875,7 +891,14 @@ export function roller(p: Vec, axis: number, r = 4.6): string {
  * and the part that goes in front of it. Everything is positioned from the FK
  * output, so the iron can only ever be exactly where the hands are.
  */
-function holdSvg(hold: Hold, j: Joints, which: 'near' | 'far', sk: Skin, scale: number): string {
+function holdSvg(
+  hold: Hold,
+  j: Joints,
+  which: 'near' | 'far',
+  sk: Skin,
+  scale: number,
+  facing: 1 | -1,
+): string {
   const s = which === 'near' ? j.near : j.far;
   const fa = angleOf(s.elbow, s.wrist);
   const wrap = handWrap(s, sk, scale);
@@ -903,24 +926,44 @@ function holdSvg(hold: Hold, j: Joints, which: 'near' | 'far', sk: Skin, scale: 
     case 'bar':
       return which === 'far' ? wrap : wrap + barEnd(s.grip, sk, 6.4);
     case 'barBack': {
-      // across the traps: the bar itself passes behind the neck, the plate hangs
-      // off the near end of it.
+      // Across the traps and seen end-on: the bar points at the camera, so what
+      // there is to draw is the plate, plus a stub of sleeve either side of it.
       if (which === 'far') return '';
-      const a = angleOf(j.far.shoulder, j.near.shoulder);
+      const c = barBackAnchor(j, facing);
+      const axis = angleOf(j.far.shoulder, j.near.shoulder);
       return (
-        inked(capsule(step(j.far.shoulder, a, -5), step(j.near.shoulder, a, 6), 1.8, 1.8), PAL.ironDark, 1.2) +
-        barEnd(step(j.near.shoulder, a, 6), sk, 6)
+        `<g class="cd-bar">` +
+        inked(capsule(step(c, axis, -8), step(c, axis, 8), 1.8, 1.8), PAL.ironDark, 1.2) +
+        barEnd(c, sk, 6.2) +
+        `</g>`
       );
     }
     case 'rope': {
+      // A ROPE HAS TWO ENDS, AND TWO HANDS. Drawn as one strand to a midpoint
+      // with a pair of tails hanging off it, a face pull reads as two fists
+      // stacked on one side of a stick — which is exactly what it looked like.
+      // So the cable stops at a SPLIT, and from there a strand runs to each fist
+      // and past it: whatever the pose does with the two grips, the V follows.
       if (which === 'far') return wrap;
       const from: Vec = { x: hold.from[0] ?? 0, y: hold.from[1] ?? 0 };
       const hands = mid(j.near.grip, j.far.grip);
-      const a = angleOf(from, hands);
-      const tail = (deg: number): string =>
-        inked(capsule(hands, step(hands, deg, 8.5), 1.9, 2.4), PAL.frameDark, 1.1) +
-        circ(step(hands, deg, 9.2), 2.2, PAL.pad, `stroke="${PAL.line}" stroke-width="1"`);
-      return cable(from, hands) + tail(a - 26) + tail(a + 26) + handWrap(j.far, FAR_SKIN, FAR_SCALE) + wrap;
+      const run = dist(from, hands);
+      const split = step(from, angleOf(from, hands), Math.max(run * 0.45, run - 11));
+      const strand = (g: Vec): string => {
+        const a = angleOf(split, g);
+        return (
+          inked(capsule(split, g, 1.6, 2.1), PAL.frameDark, 1.1) +
+          inked(capsule(g, step(g, a, 5.5), 2.1, 1.7), PAL.frameDark, 1.1) +
+          circ(step(g, a, 6.2), 2.1, PAL.pad, `stroke="${PAL.line}" stroke-width="1"`)
+        );
+      };
+      return (
+        cable(from, split) +
+        strand(j.far.grip) +
+        handWrap(j.far, FAR_SKIN, FAR_SCALE) +
+        strand(j.near.grip) +
+        wrap
+      );
     }
     case 'handle': {
       if (which === 'far') return wrap;
@@ -1067,11 +1110,11 @@ export function figureSvg(j: Joints, style: FigureStyle, clipId: string): string
     highlightGroup(nearP.main.onShorts ?? '', true, HI_MAIN) +
     (nearP.second ? highlightGroup(nearP.second.onShorts ?? '', false, HI_SECOND) : '');
 
-  const nearHold = holdOnArm(style.hold) ? holdSvg(style.hold, j, 'near', NEAR_SKIN, 1) : '';
+  const nearHold = holdOnArm(style.hold) ? holdSvg(style.hold, j, 'near', NEAR_SKIN, 1, style.facing) : '';
   const farHold = holdOnArm(style.hold)
-    ? holdSvg(style.hold, j, 'far', farStyle.sk, farStyle.scale)
+    ? holdSvg(style.hold, j, 'far', farStyle.sk, farStyle.scale, style.facing)
     : '';
-  const bodyHold = holdOnArm(style.hold) ? '' : holdSvg(style.hold, j, 'near', NEAR_SKIN, 1);
+  const bodyHold = holdOnArm(style.hold) ? '' : holdSvg(style.hold, j, 'near', NEAR_SKIN, 1, style.facing);
 
   const layers: Record<Layer, string> = {
     farLeg: legSvg(j.far, farStyle, limbHi(farP, 'leg', farStyle.hi), style.view),
@@ -1098,8 +1141,12 @@ export function figureSvg(j: Joints, style: FigureStyle, clipId: string): string
       shorts +
       `<clipPath id="${clipId}-s"><path d="${shortsPath}"/></clipPath>` +
       `<g clip-path="url(#${clipId}-s)">${shortsHi}</g>` +
+      // whatever the BODY itself carries goes on before the head, so a bar
+      // racked behind the neck is behind the neck
+      bodyHold +
+      `<g class="cd-head">` +
       (front ? headFrontSvg(j, NEAR_SKIN, 1) : headProfileSvg(j, style.facing, NEAR_SKIN, 1)) +
-      bodyHold,
+      `</g>`,
     nearLeg: legSvg(j.near, nearStyle, limbHi(nearP, 'leg', 1), style.view),
     nearArm: armSvg(j.near, nearStyle, limbHi(nearP, 'arm', 1)) + nearHold,
   };

@@ -238,10 +238,25 @@ const A4: ExerciseDemo = {
   forwardShare: 0.45,
   // Flye: the arms open into a wide V, each hand dropping past its own side of
   // the bench, then close over the chest — the honest way to draw a transverse
-  // arc from the side, with the soft elbow held bent the whole way.
+  // arc from the side.
+  //
+  // A RIGID ARM SWEPT ABOUT ONE JOINT, and that is the whole fix. With the two
+  // segment angles free to interpolate at their own rates, the near elbow crept
+  // eleven units left for two thirds of the descent and then crawled back right,
+  // and the far dumbbell reversed with it — the hands looked like they changed
+  // their mind halfway down. Here the elbow is frozen at 60° (which is the
+  // coaching cue anyway: hug a wide tree) and only the shoulder turns, so each
+  // hand rides a circle of fixed radius and a circle cannot double back.
+  //
+  // The stretch was also raised out of the floor. It now sits where a flye's
+  // stretch actually is — arms out to the SIDES at chest height, not hanging at
+  // the bench's feet — which puts each hand at the outer edge of its own arc, so
+  // from the first frame onward both only ever travel inward and up. The gap
+  // between the two dumbbells goes 52 → 41 → 3 and never widens.
   frames: [
-    { x: 72, y: 78, torso: 0, head: 0, arm: [98.5, 25.4], armF: [84, 162.8], leg: [165.7, 81.1, 155], legF: [165.9, 82.5, 155] },
-    { x: 72, y: 78, torso: 0, head: 0, arm: [237.7, -70.3], armF: [-61.9, 220.6], leg: [165.7, 81.1, 155], legF: [165.9, 82.5, 155] },
+    { x: 72, y: 78, torso: 0, head: 0, arm: [47.3, -12.7], armF: [207.3, 147.3], leg: [165.7, 81.1, 155], legF: [165.9, 82.5, 155] },
+    { x: 72, y: 78, torso: 0, head: 0, arm: [-5.2, -65.2], armF: [254.8, 194.8], leg: [165.7, 81.1, 155], legF: [165.9, 82.5, 155] },
+    { x: 72, y: 78, torso: 0, head: 0, arm: [-57.7, -117.7], armF: [302.3, 242.3], leg: [165.7, 81.1, 155], legF: [165.9, 82.5, 155] },
   ],
   // the bench STARTS past the knees: a pad drawn under the shins reads as a
   // shin cutting through it, which a stroke figure got away with and a solid
@@ -305,10 +320,14 @@ const B1: ExerciseDemo = {
   facing: -1,
   loopMs: 2800,
   forwardShare: 0.42,
-  // Flat Smith bench: the bar cannot leave the rail, so both keyframes put the
-  // hands on x=92 and only the height changes.
+  // Flat Smith bench: the bar cannot leave the rail, so every keyframe puts the
+  // hands on x=92 and only the height changes. The MIDDLE keyframe is there
+  // because two are not enough to say that: lerping the two arm angles from
+  // bottom to top bowed the bar four units off the rail halfway up, which is the
+  // one thing a guided bar cannot do. It is solved from the grip on the rail.
   frames: [
     { x: 74, y: 78, torso: 0, head: 0, arm: [-214.4, -70.6], armF: [-205.2, -55.3], leg: [166.4, 88.1, 155], legF: [166.4, 89.6, 155] },
+    { x: 74, y: 78, torso: 0, head: 0, arm: [-166.2, -62.8], armF: [-139, -63.9], leg: [166.4, 88.1, 155], legF: [166.4, 89.6, 155] },
     { x: 74, y: 78, torso: 0, head: 0, arm: [-121.3, -86.2], armF: [-118.9, -78.4], leg: [166.4, 88.1, 155], legF: [166.4, 89.6, 155] },
   ],
   props: () => floor(26, 146) + rail(92, 24, 94) + flatBench({ x: 64, y: 84, len: 56 }),
@@ -331,8 +350,11 @@ const B2: ExerciseDemo = {
   // rises 17 and the chin arrives level with the bar. At the top the head tips
   // BACK rather than straight up: a skull drawn directly under the fists is a
   // skull you cannot see, and looking up is what the movement asks for anyway.
+  // The middle keyframe is solved from the grip so the hands stay WELDED to the
+  // bar: with two frames the fists slid four units along it halfway up.
   frames: [
     { x: 84, y: 65, torso: -90, head: -50, arm: [-90, -90], armF: [-84.9, -84.9], leg: [95, 85, 30], legF: [100, 80, 30] },
+    { x: 85, y: 56.5, torso: -93.5, head: -81, arm: [-39.9, -129.8], armF: [-33.3, -121.8], leg: [97.5, 77.5, 30], legF: [102.5, 72.5, 30] },
     { x: 86, y: 48, torso: -97, head: -112, arm: [-11.7, -142.5], armF: [-1.3, -130], leg: [100, 70, 30], legF: [105, 65, 30] },
   ],
   props: () => pullBar(58, 110, 14, 6),
@@ -636,7 +658,9 @@ const X1: ExerciseDemo = {
   ],
   props: () => floor(40, 122) + rail(78, 14, 98),
   hold: { k: 'barBack' },
-  order: STANDING,
+  // the arms reach BACK to the bar, so they belong behind the torso — and with
+  // them in front, they covered the one thing this demo has to show
+  order: ARMS_BEHIND,
   primary: 'legs',
   face: 'front',
   muscles: ['ארבע ראשי · ישבן'],
@@ -759,9 +783,17 @@ const X7: ExerciseDemo = {
   // finishes at the forehead with the elbows driven back and up to shoulder
   // level — high elbows are the whole cue, and from the front they would be
   // pointing straight at the camera.
+  //
+  // TWO HANDS, TWO ROPE ENDS. The fists were landing within two units of each
+  // other, so the near one simply ate the far one and the pull read as
+  // one-handed. They are now solved to arrive on OPPOSITE SIDES OF THE HEAD —
+  // near fist forward of the temple, far fist behind it, seventeen units apart —
+  // and because the arms are painted behind the skull, the head occludes the
+  // middle of the pull and leaves exactly the two fists showing. The far elbow
+  // swings down and back through the torso, where the torso hides it.
   frames: [
-    { x: 70, y: 66, torso: -90, head: -90, arm: [18, -31.9], armF: [5.3, -12.1], leg: [92, 88, 25], legF: [88, 92, 25] },
-    { x: 70, y: 66, torso: -90, head: -90, arm: [-134.7, -1.5], armF: [-118.3, 14.5], leg: [92, 88, 25], legF: [88, 92, 25] },
+    { x: 70, y: 66, torso: -90, head: -90, arm: [-2.3, -20.6], armF: [25.3, -21.8], leg: [92, 88, 25], legF: [88, 92, 25] },
+    { x: 70, y: 66, torso: -90, head: -90, arm: [3.7, -106.8], armF: [153.7, -64.4], leg: [92, 88, 25], legF: [88, 92, 25] },
   ],
   props: () => floor(40, 136) + pulley(122, 34, { top: 12, post: 32, stack: true }),
   hold: { k: 'rope', from: [122, 34] },

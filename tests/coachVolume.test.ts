@@ -28,6 +28,7 @@ import {
   MUSCLE_HE,
   MUSCLE_REGIONS,
   PAL,
+  barBackAnchor,
   capsule,
   defsSvg,
   figureSvg,
@@ -40,7 +41,7 @@ import {
   type Layer,
   type MuscleRegion,
 } from '../src/ui/coachVolume.ts';
-import { forwardKinematics, type Pose } from '../src/ui/coachFigure.ts';
+import { angleOf, forwardKinematics, type Pose } from '../src/ui/coachFigure.ts';
 
 const STANDING: Pose = {
   x: 80,
@@ -190,6 +191,40 @@ describe('the muscle highlight', () => {
     // and the primary is deliberately BELOW 1: a muscle painted onto a body, not
     // a neon cut-out pasted over it
     expect(Math.max(...both)).toBeLessThan(1);
+  });
+});
+
+/* ------------------------------------------------------------- the load */
+
+describe('what the hands are on', () => {
+  it('carries a racked bar behind the spine, whichever way the figure faces', () => {
+    const j = forwardKinematics(STANDING, 'side');
+    for (const facing of [1, -1] as const) {
+      const bar = barBackAnchor(j, facing);
+      const chest = angleOf(j.pelvis, j.shoulders) + 90 * facing;
+      const along =
+        (bar.x - j.shoulders.x) * Math.cos((chest * Math.PI) / 180) +
+        (bar.y - j.shoulders.y) * Math.sin((chest * Math.PI) / 180);
+      expect(along, `facing ${facing}`).toBeLessThan(-4); // behind the chest
+      expect(bar.y).toBeLessThan(j.shoulders.y); // and up on the traps
+    }
+    // the two facings put it on opposite sides, which is the whole point
+    expect(barBackAnchor(j, 1).x).not.toBeCloseTo(barBackAnchor(j, -1).x, 1);
+  });
+
+  it('paints that bar between the torso and the head', () => {
+    const svg = draw(STANDING, { hold: { k: 'barBack' } });
+    expect(svg).toContain('class="cd-bar"');
+    expect(svg.indexOf('<clipPath')).toBeLessThan(svg.indexOf('class="cd-bar"'));
+    expect(svg.indexOf('class="cd-bar"')).toBeLessThan(svg.indexOf('class="cd-head"'));
+  });
+
+  it('splits a rope into one strand per fist', () => {
+    // two hands, two ends: the strands are drawn from a split on the cable, so
+    // however far apart the pose puts the grips, the V follows them
+    const svg = draw(STANDING, { hold: { k: 'rope', from: [140, 10] } });
+    expect(svg.match(new RegExp(`r="2.1" fill="${PAL.pad}"`, 'g'))).toHaveLength(2);
+    expect(svg).toContain('M 140 10');
   });
 });
 
