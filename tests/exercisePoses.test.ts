@@ -22,6 +22,13 @@
  * Plus the sweep that applies to all 28: coverage, joint limits, frames inside
  * the stage, equipment anchored to the joint it belongs to, and no external
  * reference anywhere in the markup.
+ *
+ * AND THE RENDERING CONFIG, which is data too. A volumetric figure needs five
+ * things a stick one did not, and every one of them can be wrong in a way no
+ * type checks: a camera that crops the stage it does not cover, a layer order
+ * that draws a limb twice or not at all, a muscle the exercise does not
+ * actually train, a front-view silhouette on a lift that happens in the
+ * sagittal plane. Each of those is a `describe` below.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -37,7 +44,9 @@ import {
   type Pose,
   type Vec,
 } from '../src/ui/coachFigure.ts';
-import { demoSvg, poseAt, stillPose } from '../src/ui/exerciseDemo.ts';
+import { LAYERS, MUSCLE_REGIONS } from '../src/ui/coachVolume.ts';
+import { bodyPartWeights } from '../src/data/program.ts';
+import { demoSvg, legendHtml, poseAt, stillPose } from '../src/ui/exerciseDemo.ts';
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -137,6 +146,53 @@ describe('every demo, structurally', () => {
         // the two halves of a rep are not equal, but neither is a flicker
         expect(d.forwardShare).toBeGreaterThanOrEqual(0.3);
         expect(d.forwardShare).toBeLessThanOrEqual(0.7);
+      });
+
+      it('declares a facing, a full layer order and a camera inside the stage', () => {
+        expect(d.facing === 1 || d.facing === -1).toBe(true);
+        // every layer exactly once: a missing one drops a limb, a repeated one
+        // paints it twice and the second copy wins
+        expect([...d.order].sort()).toEqual([...LAYERS].sort());
+        const [x, y, w, h] = d.camera;
+        expect(x).toBeGreaterThanOrEqual(0);
+        expect(y).toBeGreaterThanOrEqual(0);
+        expect(w).toBeGreaterThan(30);
+        expect(h).toBeGreaterThan(30);
+        expect(x + w).toBeLessThanOrEqual(STAGE.w);
+        expect(y + h).toBeLessThanOrEqual(STAGE.h);
+        // and it is a card, not a letterbox
+        expect(w / h).toBeGreaterThan(0.5);
+        expect(w / h).toBeLessThan(2.2);
+      });
+
+      it('highlights the muscle the exercise actually pays XP for', () => {
+        const ex = findExercise(d.id);
+        expect(ex).not.toBeNull();
+        const weights = bodyPartWeights(ex!);
+        expect(MUSCLE_REGIONS).toContain(d.primary);
+        // the primary IS the exercise's own body part…
+        expect(d.primary as string).toBe(ex!.bodyPart);
+        if (d.secondary === undefined) {
+          // …and a demo only claims a second muscle when the exercise splits
+          const others = MUSCLE_REGIONS.filter((r) => r !== d.primary && (weights[r] ?? 0) > 0);
+          expect(others).toHaveLength(0);
+        } else {
+          expect(d.secondary).not.toBe(d.primary);
+          expect(weights[d.secondary] ?? 0).toBeGreaterThan(0);
+          // …and when it does, it names the heavier half of the split
+          for (const r of MUSCLE_REGIONS) {
+            if (r === d.primary || r === d.secondary) continue;
+            expect(weights[r] ?? 0).toBeLessThanOrEqual(weights[d.secondary] ?? 0);
+          }
+        }
+      });
+
+      it('chips the muscle in Hebrew, primary first', () => {
+        expect(d.muscles.length).toBe(d.secondary === undefined ? 1 : 2);
+        for (const m of d.muscles) expect(m).toMatch(/[֐-׿]/);
+        const chip = legendHtml(d);
+        expect(chip).toContain('cd-chip');
+        expect(chip).toContain(d.muscles[0] as string);
       });
 
       it('keeps every joint inside the stage', () => {
@@ -621,5 +677,97 @@ describe('the views are chosen per movement, not by habit', () => {
     // the rig mirrors the far side for free
     for (const id of front) expect(demo(id).facing).toBe(1);
     expect(EXERCISE_DEMOS.filter((d) => d.view === 'side')).toHaveLength(24);
+  });
+});
+
+/* ------------------------------------------------ the volumetric rendering */
+
+describe('the camera frames the figure it is pointed at', () => {
+  for (const d of EXERCISE_DEMOS) {
+    it(d.id, () => {
+      const [cx, cy, cw, ch] = d.camera;
+      // the landmarks a viewer looks for: if any of these is out of frame the
+      // demo is cropping the movement rather than framing it
+      eachFrame(d, (j) => {
+        const pts: Array<[string, Vec]> = [
+          ['head', j.head],
+          ['pelvis', j.pelvis],
+          ['shoulders', j.shoulders],
+          ['grip', j.near.grip],
+          ['ankle', j.near.ankle],
+          ['knee', j.near.knee],
+          ['elbow', j.near.elbow],
+        ];
+        for (const [name, p] of pts) {
+          expect(p.x, `${d.id} ${name} x`).toBeGreaterThan(cx - 1);
+          expect(p.x, `${d.id} ${name} x`).toBeLessThan(cx + cw + 1);
+          expect(p.y, `${d.id} ${name} y`).toBeGreaterThan(cy - 1);
+          expect(p.y, `${d.id} ${name} y`).toBeLessThan(cy + ch + 1);
+        }
+      });
+    });
+  }
+});
+
+describe('the two demos the volumetric renderer was signed off on', () => {
+  it('a1 keeps the reviewed incline press exactly as it was approved', () => {
+    const d = demo('a1');
+    expect(d.view).toBe('side');
+    expect(d.facing).toBe(-1);
+    expect(d.loopMs).toBe(3000);
+    expect(d.forwardShare).toBe(0.42);
+    expect(d.order).toEqual(['farArm', 'farLeg', 'body', 'nearLeg', 'nearArm']);
+    expect(d.camera).toEqual([26, 32, 100, 75]);
+    expect(d.primary).toBe('chest');
+    expect(d.secondary).toBe('arms');
+    expect(d.muscles).toEqual(['חזה עליון', 'כתף קדמית · תלת ראשי']);
+    expect(d.hold).toEqual({ k: 'db' });
+    expect(d.frames).toHaveLength(3);
+    expect(d.frames[0]?.arm).toEqual([-208.1, -82.1]);
+    expect(d.frames[1]?.arm).toEqual([-172, -94]);
+    expect(d.frames[2]?.arm).toEqual([-138.5, -103.7]);
+    for (const f of d.frames) {
+      expect(f.x).toBe(69);
+      expect(f.y).toBe(79.5);
+      expect(f.torso).toBe(-30);
+      expect(f.leg).toEqual([168, 83, 176]);
+    }
+  });
+
+  it('c2 keeps the reviewed RDL exactly as it was approved', () => {
+    const d = demo('c2');
+    expect(d.facing).toBe(1);
+    expect(d.loopMs).toBe(3400);
+    expect(d.forwardShare).toBe(0.6);
+    expect(d.order).toEqual(['farLeg', 'farArm', 'body', 'nearLeg', 'nearArm']);
+    expect(d.camera).toEqual([37.5, 19, 80, 85]);
+    expect(d.arcShift).toEqual([10, 0]);
+    expect(d.primary).toBe('legs');
+    expect(d.secondary).toBe('back');
+    expect(d.muscles).toEqual(['ירך אחורית · ישבן', 'זוקפי גב']);
+    expect(d.frames.map((f) => [f.x, f.y, f.torso])).toEqual([
+      [80, 65.8, -90],
+      [72, 67.5, -55],
+      [62, 71.5, -20],
+    ]);
+    expect(d.frames.map((f) => f.leg)).toEqual([
+      [81.3, 99.3, 4],
+      [61.1, 90.8, 4],
+      [45.6, 67.5, 4],
+    ]);
+  });
+
+  it('plants the ankle of every STANDING lift for the whole rep', () => {
+    // A stick foot was a stroke that could hover a unit off the floor unnoticed.
+    // A drawn shoe cannot, so the legs of these were re-solved from a fixed
+    // ankle with two-link inverse kinematics.
+    for (const id of ['a3', 'c2', 'x1', 'a5', 'x9', 'x5', 'x7', 'b4', 'x4', 'x8']) {
+      const d = demo(id);
+      const first = at(id, 0);
+      for (let i = 1; i < d.frames.length; i++) {
+        expect(dist(first.near.ankle, at(id, i).near.ankle), `${id} near ankle`).toBeLessThan(1.5);
+        expect(dist(first.far.ankle, at(id, i).far.ankle), `${id} far ankle`).toBeLessThan(1.5);
+      }
+    }
   });
 });
