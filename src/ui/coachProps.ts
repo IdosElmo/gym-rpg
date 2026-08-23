@@ -105,6 +105,28 @@ export function inclineBench(o: {
 }
 
 /**
+ * A FLAT BENCH SEEN FROM ABOVE — the one station that is not a side elevation.
+ *
+ * A lifter lying face-up, viewed from directly overhead, is the FRONT
+ * silhouette; the bench under them is therefore a slab running head-to-foot
+ * rather than a pad on posts. `(x, y1)` is the head end and `(x, y2)` the foot
+ * end; `half` is half the pad's width. The frame shows as two cross-members at
+ * the ends, which is all you see of a bench's legs from above.
+ */
+export function benchTop(x: number, y1: number, y2: number, half = 9.5): string {
+  const bar = (y: number, w: number): string =>
+    strut({ x: x - w, y }, { x: x + w, y }, 3.4);
+  return (
+    bar(y1 + 3, half + 4) +
+    bar(y2 - 3, half + 5) +
+    inked(capsule({ x, y: y1 + half }, { x, y: y2 - half }, half, half), PAL.pad, 1.3) +
+    // the lit centre of the pad, and the seam where the head cushion starts
+    `<path d="${capsule({ x, y: y1 + half }, { x, y: y2 - half }, half * 0.42, half * 0.42)}" fill="${PAL.padLight}" opacity=".35"/>` +
+    `<path d="${capsule({ x: x - half + 1, y: y1 + 8 }, { x: x + half - 1, y: y1 + 8 }, 0.7, 0.7)}" fill="${PAL.padDark}" opacity=".7"/>`
+  );
+}
+
+/**
  * AN UPRIGHT BENCH — the near-vertical backrest a seated press or a seated
  * overhead extension is done against. Same parts as the incline, steeper, and
  * with the seat long enough for a thigh to actually sit on it.

@@ -62,6 +62,7 @@
 import type { Hold, Pose, View } from '../ui/coachFigure.ts';
 import type { ArcFrom, Layer, MuscleRegion } from '../ui/coachVolume.ts';
 import {
+  benchTop,
   dipBars,
   flatBench,
   floor,
@@ -232,41 +233,46 @@ const A3: ExerciseDemo = {
 
 const A4: ExerciseDemo = {
   id: 'a4',
-  view: 'side',
-  facing: -1,
+  view: 'front',
+  facing: 1,
   loopMs: 3000,
   forwardShare: 0.45,
-  // Flye: the arms open into a wide V, each hand dropping past its own side of
-  // the bench, then close over the chest — the honest way to draw a transverse
-  // arc from the side.
+  // FLYE, SEEN FROM ABOVE. A flye is a bilateral movement: the arms open to
+  // BOTH sides of the body and close in front of the chest. The sagittal camera
+  // can never say that — from the side the two arms stack into one plane, and
+  // however well the pose was solved the hands read as one pair going the same
+  // way. So this demo is shot from directly overhead, which for a lifter on his
+  // back IS the front silhouette: the rig spreads the shoulders to ±9, mirrors
+  // the far side for free, and the two hands finally travel on two mirrored
+  // arcs towards each other.
   //
-  // A RIGID ARM SWEPT ABOUT ONE JOINT, and that is the whole fix. With the two
-  // segment angles free to interpolate at their own rates, the near elbow crept
-  // eleven units left for two thirds of the descent and then crawled back right,
-  // and the far dumbbell reversed with it — the hands looked like they changed
-  // their mind halfway down. Here the elbow is frozen at 60° (which is the
-  // coaching cue anyway: hug a wide tree) and only the shoulder turns, so each
-  // hand rides a circle of fixed radius and a circle cannot double back.
+  // WHY THE ELBOW FOLDS AS THE HANDS MEET. Seen from above, a flye's real arc
+  // is almost entirely towards the CAMERA — the hands rise as they converge —
+  // and a 29-unit arm whose hand ends up eight units from its own shoulder can
+  // only project as a folded one. The fold IS the foreshortening: at the stretch
+  // the elbow is soft (59°) and by the finish it reads closed (147°), while the
+  // elbow itself stays parked wide at x≈102, which is exactly the coaching cue —
+  // hug a wide tree, do not press.
   //
-  // The stretch was also raised out of the floor. It now sits where a flye's
-  // stretch actually is — arms out to the SIDES at chest height, not hanging at
-  // the bench's feet — which puts each hand at the outer edge of its own arc, so
-  // from the first frame onward both only ever travel inward and up. The gap
-  // between the two dumbbells goes 52 → 41 → 3 and never widens.
+  // The three keyframes were solved so that LINEAR angle interpolation keeps the
+  // grip within 2.4 units of the straight line it should travel and never
+  // reverses along it: the gap between the dumbbells goes 60 → 32 → 12 and only
+  // ever closes.
   frames: [
-    { x: 72, y: 78, torso: 0, head: 0, arm: [47.3, -12.7], armF: [207.3, 147.3], leg: [165.7, 81.1, 155], legF: [165.9, 82.5, 155] },
-    { x: 72, y: 78, torso: 0, head: 0, arm: [-5.2, -65.2], armF: [254.8, 194.8], leg: [165.7, 81.1, 155], legF: [165.9, 82.5, 155] },
-    { x: 72, y: 78, torso: 0, head: 0, arm: [-57.7, -117.7], armF: [302.3, 242.3], leg: [165.7, 81.1, 155], legF: [165.9, 82.5, 155] },
+    { x: 80, y: 76, torso: -90, head: -90, arm: [1.9, 61], armF: [1.9, 61], leg: [30, 150, 120], legF: [30, 150, 120] },
+    { x: 80, y: 76, torso: -90, head: -90, arm: [-9.2, 114.1], armF: [-9.2, 114.1], leg: [30, 150, 120], legF: [30, 150, 120] },
+    { x: 80, y: 76, torso: -90, head: -90, arm: [24.3, 170.9], armF: [24.3, 170.9], leg: [30, 150, 120], legF: [30, 150, 120] },
   ],
-  // the bench STARTS past the knees: a pad drawn under the shins reads as a
-  // shin cutting through it, which a stroke figure got away with and a solid
-  // one does not
-  props: () => floor(28, 146) + flatBench({ x: 62, y: 84, len: 58 }),
-  hold: { k: 'db' },
-  order: SUPINE,
+  // no floor: from above there is no floor to see, only the bench the lifter is
+  // lying on, with the feet drawn up on it
+  props: () => benchTop(80, 26, 104, 11),
+  // the bar lies flat across the frame in this projection, so the whole bell is
+  // visible rather than the three-quarter disc a sagittal demo shows
+  hold: { k: 'db', broad: true },
+  order: FRONTAL,
   primary: 'chest',
   muscles: ['חזה'],
-  camera: [34, 34, 96, 74],
+  camera: [40, 22, 80, 84],
 };
 
 const A5: ExerciseDemo = {
@@ -774,36 +780,42 @@ const X6: ExerciseDemo = {
 
 const X7: ExerciseDemo = {
   id: 'x7',
-  view: 'side',
+  view: 'front',
   facing: 1,
   loopMs: 2600,
   forwardShare: 0.44,
-  // OUR face pull, and the sagittal plane is the only one that can show it: the
-  // rope starts at a pulley set to FACE height with the arms extended, and
-  // finishes at the forehead with the elbows driven back and up to shoulder
-  // level — high elbows are the whole cue, and from the front they would be
-  // pointing straight at the camera.
+  // FACE PULL, SEEN FROM THE FRONT. The whole point of a face pull is that the
+  // rope has two ends and they arrive at two temples; a sagittal camera puts
+  // both hands on one side of the head no matter what the angles say, so this
+  // one is shot square-on. The rig spreads the shoulders to ±9 and mirrors the
+  // far arm, and the two fists land at (90, 28) and (70, 28) — one either side
+  // of a skull that spans 75 to 85. There is nothing to interpret.
   //
-  // TWO HANDS, TWO ROPE ENDS. The fists were landing within two units of each
-  // other, so the near one simply ate the far one and the pull read as
-  // one-handed. They are now solved to arrive on OPPOSITE SIDES OF THE HEAD —
-  // near fist forward of the temple, far fist behind it, seventeen units apart —
-  // and because the arms are painted behind the skull, the head occludes the
-  // middle of the pull and leaves exactly the two fists showing. The far elbow
-  // swings down and back through the torso, where the torso hides it.
+  // THE REACH, WHICH THE FIRST ATTEMPT AT THIS COULD NOT SOLVE. A 29-unit arm
+  // cannot put a fist at the temple with the elbow above it while the shoulder
+  // sits on the body's centre line — but in the FRONT view the shoulder is nine
+  // units out to the side, and that changes the sum: from (89, 42) the fist at
+  // (90, 28) is twelve away, which the arm reaches with a 123° elbow (a rope
+  // pull is allowed to close past a right angle) and leaves the elbow at
+  // (102, 38) — wide, and four units ABOVE the shoulder line, which is the cue.
+  //
+  // The pulley is overhead rather than at face height, because a cable that
+  // comes from behind the camera cannot be drawn at all: what the front view
+  // buys is the V, and the V is the information.
   frames: [
-    { x: 70, y: 66, torso: -90, head: -90, arm: [-2.3, -20.6], armF: [25.3, -21.8], leg: [92, 88, 25], legF: [88, 92, 25] },
-    { x: 70, y: 66, torso: -90, head: -90, arm: [3.7, -106.8], armF: [153.7, -64.4], leg: [92, 88, 25], legF: [88, 92, 25] },
+    { x: 80, y: 66, torso: -90, head: -90, arm: [-78.2, -124.4], armF: [-78.2, -124.4], leg: [85, 88, 20], legF: [85, 88, 20] },
+    { x: 80, y: 66, torso: -90, head: -90, arm: [-17.4, -140], armF: [-17.4, -140], leg: [85, 88, 20], legF: [85, 88, 20] },
   ],
-  props: () => floor(40, 136) + pulley(122, 34, { top: 12, post: 32, stack: true }),
-  hold: { k: 'rope', from: [122, 34] },
-  // the rope finishes AT the face: the near forearm crosses it, so the arm goes
-  // behind the head and the fists come back out beside it
-  order: ARMS_BEHIND,
+  props: () => floor(44, 118) + shadow(80, 17) + pulley(80, 10, { top: 2, post: 0 }),
+  hold: { k: 'rope', from: [80, 10] },
+  order: FRONTAL,
   primary: 'shoulders',
   secondary: 'back',
   muscles: ['כתף אחורית', 'טרפז אמצעי'],
-  camera: [44, 14, 86, 92],
+  camera: [46, 0, 68, 106],
+  // the load runs straight down the centre line, where the rope already is:
+  // the guide is moved clear of the figure so it can be seen at all
+  arcShift: [24, 0],
 };
 
 const X8: ExerciseDemo = {

@@ -583,18 +583,29 @@ describe('machines and cables', () => {
     expect(demo('b6').hold.k).toBe('cables');
   });
 
-  it('x7 is OUR face pull: to the face, elbows back and up at shoulder height', () => {
+  it('x7 is OUR face pull: two rope ends, two temples, elbows wide and high', () => {
+    const d = demo('x7');
+    expect(d.view).toBe('front'); // a rope has two ends and they arrive apart
     const out = at('x7', 0);
     const pulled = at('x7', 1);
-    expect(dist(out.near.shoulder, out.near.grip)).toBeGreaterThan(24); // arms extended
-    expect(dist(pulled.near.grip, pulled.head)).toBeLessThan(12); // …to the face
-    // ELBOWS BACK AND HIGH is the cue, and from the side it can only be told on
-    // one arm: the far elbow is the one that swings behind the ribs, while the
-    // near one holds shoulder height so its fist can clear the skull forward.
-    expect(pulled.far.elbow.x).toBeLessThan(pulled.far.shoulder.x - 8); // driven back
-    expect(Math.abs(pulled.near.elbow.y - pulled.near.shoulder.y)).toBeLessThan(4); // and high
-    const from = demo('x7').hold.k === 'rope' ? (demo('x7').hold as { from: readonly number[] }).from : [];
-    expect(from[1]).toBeLessThan(pulled.head.y + 12); // pulley set at face height
+    // extended: the fists together up at the rope, arms nearly straight
+    expect(dist(out.near.shoulder, out.near.grip)).toBeGreaterThan(24);
+    expect(dist(out.near.grip, out.far.grip)).toBeLessThan(10);
+    expect(out.near.grip.y).toBeLessThan(out.head.y - 8);
+    // contracted: ONE FIST EITHER SIDE OF THE HEAD, at about ear height
+    expect(pulled.near.grip.x).toBeGreaterThan(pulled.head.x + 6);
+    expect(pulled.far.grip.x).toBeLessThan(pulled.head.x - 6);
+    expect(Math.abs(pulled.near.grip.y - pulled.head.y)).toBeLessThan(6);
+    // …and the two arms are mirror images of each other, because the rig
+    // mirrors the far side of a front-view pose for free
+    expect(pulled.near.grip.x - pulled.pelvis.x).toBeCloseTo(pulled.pelvis.x - pulled.far.grip.x, 6);
+    expect(pulled.near.grip.y).toBeCloseTo(pulled.far.grip.y, 6);
+    // ELBOWS WIDE AND HIGH is the cue, and in this view both of them show it
+    expect(pulled.near.elbow.x).toBeGreaterThan(pulled.near.shoulder.x + 8);
+    expect(pulled.far.elbow.x).toBeLessThan(pulled.far.shoulder.x - 8);
+    expect(pulled.near.elbow.y).toBeLessThan(pulled.near.shoulder.y);
+    const from = d.hold.k === 'rope' ? (d.hold as { from: readonly number[] }).from : [];
+    expect(from[1]).toBeLessThan(out.near.grip.y); // the rope comes from above
   });
 
   it('x8 is a pure elevation: nothing rotates, the head stays', () => {
@@ -613,18 +624,34 @@ describe('machines and cables', () => {
 });
 
 describe('flye family — a wide arc, elbow bent throughout', () => {
-  it('a4 opens the hands far apart and closes them over the chest', () => {
+  it('a4 opens the hands to BOTH sides and closes them over the chest', () => {
+    const d = demo('a4');
+    // Seen from the side, two arms opening left and right stack into one plane
+    // and the pair reads as one hand. Shot from above — which for a lifter on
+    // his back is the front silhouette — they are visibly two.
+    expect(d.view).toBe('front');
     const open = at('a4', 0);
     const closed = at('a4', endOf('a4'));
-    expect(dist(open.near.grip, open.far.grip)).toBeGreaterThan(24);
-    expect(dist(closed.near.grip, closed.far.grip)).toBeLessThan(12);
-    expect(closed.near.grip.y).toBeLessThan(open.near.grip.y - 30);
-    // the elbow never straightens — "hug a wide tree", not a press
+    expect(dist(open.near.grip, open.far.grip)).toBeGreaterThan(40);
+    expect(dist(closed.near.grip, closed.far.grip)).toBeLessThan(14);
+    // one hand each side of the body's centre line, the whole way
     for (let i = 0; i <= endOf('a4'); i++) {
+      const j = at('a4', i);
+      expect(j.near.grip.x, `frame ${i}`).toBeGreaterThan(j.pelvis.x + 4);
+      expect(j.far.grip.x, `frame ${i}`).toBeLessThan(j.pelvis.x - 4);
+      // …and the two arcs are mirror images
+      expect(j.near.grip.x - j.pelvis.x).toBeCloseTo(j.pelvis.x - j.far.grip.x, 6);
+      expect(j.near.grip.y).toBeCloseTo(j.far.grip.y, 6);
+      // the elbow never straightens and never comes inboard — "hug a wide
+      // tree", not a press
       const p = frameOf('a4', i);
       expect(flexion(p.arm[0], p.arm[1])).toBeGreaterThan(20);
       expect(flexion(p.armF[0], p.armF[1])).toBeGreaterThan(20);
+      expect(j.near.elbow.x, `elbow ${i}`).toBeGreaterThan(j.pelvis.x + 10);
     }
+    // the hands finish over the chest, above the pelvis and below the chin
+    expect(closed.near.grip.y).toBeLessThan(closed.pelvis.y - 8);
+    expect(closed.near.grip.y).toBeGreaterThan(closed.head.y + 8);
   });
 
   it('x10 arcs ONE weight from behind the head to over the chest', () => {
@@ -674,13 +701,16 @@ describe('flye family — a wide arc, elbow bent throughout', () => {
 describe('the views are chosen per movement, not by habit', () => {
   it('puts the frontal-plane lifts in the FRONT view and everything else in the side', () => {
     const front = EXERCISE_DEMOS.filter((d) => d.view === 'front').map((d) => d.id).sort();
-    expect(front).toEqual(['b6', 'c6', 'x4', 'x8']);
+    // six, not four: a flye and a face pull are bilateral movements whose hands
+    // travel to OPPOSITE SIDES of the body, and a sagittal camera stacks them
+    // into one plane however well the pose is solved
+    expect(front).toEqual(['a4', 'b6', 'c6', 'x4', 'x7', 'x8']);
     // …and every one of them is a movement whose plane is frontal
     for (const id of front) expect(findExercise(id)).not.toBeNull();
     // the front silhouette is symmetric, so it is authored facing the camera and
     // the rig mirrors the far side for free
     for (const id of front) expect(demo(id).facing).toBe(1);
-    expect(EXERCISE_DEMOS.filter((d) => d.view === 'side')).toHaveLength(24);
+    expect(EXERCISE_DEMOS.filter((d) => d.view === 'side')).toHaveLength(22);
   });
 });
 
@@ -731,43 +761,77 @@ describe('the load travels a path, not a loop', () => {
     for (let i = 0; i <= 40; i++) out.push(of(forwardKinematics(frameAt(d.frames, i / 40), d.view)));
     return out;
   };
-  /** The smaller of the two directions travelled — zero for a monotone path. */
-  const backtrack = (pts: readonly Vec[], sel: (p: Vec) => number): number => {
-    let up = 0;
-    let down = 0;
-    for (let i = 1; i < pts.length; i++) {
-      const dv = sel(pts[i] as Vec) - sel(pts[i - 1] as Vec);
-      if (dv > 0) up += dv;
-      else down -= dv;
+  /**
+   * How far the load RETREATS along its own line of travel. Measuring height
+   * alone was enough while every demo was sagittal; a movement shot from above
+   * travels sideways, and "does not double back" has to mean the same thing in
+   * both. So each sample is projected onto the chord from the first position to
+   * the last, and what is summed is the distance walked backwards along it.
+   */
+  const backtrack = (pts: readonly Vec[]): number => {
+    const a = pts[0] as Vec;
+    const b = pts[pts.length - 1] as Vec;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-6) return 0;
+    let worst = -Infinity;
+    let back = 0;
+    for (const p of pts) {
+      const s = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len;
+      if (s < worst) back += worst - s;
+      else worst = s;
     }
-    return Math.min(up, down);
+    return back;
+  };
+
+  /**
+   * The point the demo's own guide follows — the load for a lift that holds
+   * one, and the joint the demo names for a bodyweight movement that moves the
+   * body instead (`ui/coachVolume.ts`). Testing anything else tests a line
+   * nobody draws: a pull-up's fists never leave the bar.
+   */
+  const guided = (d: ExerciseDemo, j: Joints): Vec | null => {
+    switch (d.arcFrom ?? 'load') {
+      case 'none':
+        return null;
+      case 'hip':
+        return j.pelvis;
+      case 'knee':
+        return j.near.knee;
+      case 'ankle':
+        return j.near.ankle;
+      case 'head':
+        return j.head;
+      default:
+        return holdAnchors(d.hold, j)[0] ?? null;
+    }
   };
 
   for (const d of EXERCISE_DEMOS) {
     it(d.id, () => {
-      const pts = trace(d, (j) => holdAnchors(d.hold, j)[0] ?? j.near.grip);
+      if (guided(d, forwardKinematics(frameAt(d.frames, 0), d.view)) === null) return;
+      const pts = trace(d, (j) => guided(d, j) as Vec);
+      // below six units of travel there is no path — the guide is not drawn
+      // either — and a wobble measured against a chord that short means nothing
+      if (dist(pts[0] as Vec, pts[pts.length - 1] as Vec) < 6) return;
       // 3 units is a third of a fist: below that nothing is visible at any size
-      expect(backtrack(pts, (p) => p.y), `${d.id} load height doubles back`).toBeLessThan(3);
+      expect(backtrack(pts), `${d.id} load doubles back on itself`).toBeLessThan(3);
     });
   }
 
   it('a4 closes the flye monotonically — the dumbbells only ever converge', () => {
     const d = demo('a4');
     const gap: number[] = [];
-    const nearY: number[] = [];
-    for (let i = 0; i <= 20; i++) {
-      const j = forwardKinematics(frameAt(d.frames, i / 20), d.view);
+    for (let i = 0; i <= 40; i++) {
+      const j = forwardKinematics(frameAt(d.frames, i / 40), d.view);
       gap.push(dist(j.near.grip, j.far.grip));
-      nearY.push(j.near.grip.y);
     }
     for (let i = 1; i < gap.length; i++) {
-      // +2 of slack: the two arcs bulge outward by a unit at the very stretch
-      // before they start closing, which is a hand's own thickness
-      expect(gap[i] as number, `gap grew at ${i}`).toBeLessThan((gap[i - 1] as number) + 2);
-      expect(nearY[i] as number, `hand rose at ${i}`).toBeLessThan((nearY[i - 1] as number) + 0.01);
+      expect(gap[i] as number, `gap grew at ${i}`).toBeLessThan((gap[i - 1] as number) + 0.01);
     }
-    expect(gap[0] as number).toBeGreaterThan(24);
-    expect(gap[gap.length - 1] as number).toBeLessThan(12);
+    expect(gap[0] as number).toBeGreaterThan(40);
+    expect(gap[gap.length - 1] as number).toBeLessThan(14);
   });
 
   it('keeps a guided bar ON its rail between the keyframes, not just on them', () => {

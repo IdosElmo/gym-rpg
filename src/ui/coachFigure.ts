@@ -279,7 +279,17 @@ export type Hold =
   /** One dumbbell per hand. `axis` is the bar's direction: across the forearm
    *  (a normal grip, seen from the side) or along it (a neutral/hammer grip
    *  seen from the front). */
-  | { readonly k: 'db'; readonly axis?: 'cross' | 'along' }
+  | {
+      readonly k: 'db';
+      readonly axis?: 'cross' | 'along';
+      /**
+       * Seen BROADSIDE rather than three-quarter. A normally-gripped dumbbell
+       * points at the camera in the sagittal plane, so it is drawn foreshortened
+       * — but looking DOWN on a lifter lying on a bench, the same bar lies flat
+       * across the frame and the whole bell is visible.
+       */
+      readonly broad?: boolean;
+    }
   /** One dumbbell, near hand only (the one-arm row). */
   | { readonly k: 'dbNear' }
   /** One weight in BOTH hands — held at the midpoint of the two grips. */

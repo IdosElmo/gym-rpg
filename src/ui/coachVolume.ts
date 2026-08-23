@@ -898,6 +898,8 @@ function holdSvg(
   sk: Skin,
   scale: number,
   facing: 1 | -1,
+  farSk: Skin,
+  farScale: number,
 ): string {
   const s = which === 'near' ? j.near : j.far;
   const fa = angleOf(s.elbow, s.wrist);
@@ -907,7 +909,7 @@ function holdSvg(
       return wrap;
     case 'db': {
       const along = hold.axis === 'along';
-      const db = dumbbell(s.grip, along ? fa : fa + 90, sk, scale, along);
+      const db = dumbbell(s.grip, along ? fa : fa + 90, sk, scale, along || hold.broad === true);
       return db.behind + wrap + db.front;
     }
     case 'dbNear': {
@@ -960,7 +962,7 @@ function holdSvg(
       return (
         cable(from, split) +
         strand(j.far.grip) +
-        handWrap(j.far, FAR_SKIN, FAR_SCALE) +
+        handWrap(j.far, farSk, farScale) +
         strand(j.near.grip) +
         wrap
       );
@@ -1110,11 +1112,11 @@ export function figureSvg(j: Joints, style: FigureStyle, clipId: string): string
     highlightGroup(nearP.main.onShorts ?? '', true, HI_MAIN) +
     (nearP.second ? highlightGroup(nearP.second.onShorts ?? '', false, HI_SECOND) : '');
 
-  const nearHold = holdOnArm(style.hold) ? holdSvg(style.hold, j, 'near', NEAR_SKIN, 1, style.facing) : '';
-  const farHold = holdOnArm(style.hold)
-    ? holdSvg(style.hold, j, 'far', farStyle.sk, farStyle.scale, style.facing)
-    : '';
-  const bodyHold = holdOnArm(style.hold) ? '' : holdSvg(style.hold, j, 'near', NEAR_SKIN, 1, style.facing);
+  const hold = (which: 'near' | 'far'): string =>
+    holdSvg(style.hold, j, which, which === 'near' ? NEAR_SKIN : farStyle.sk, which === 'near' ? 1 : farStyle.scale, style.facing, farStyle.sk, farStyle.scale);
+  const nearHold = holdOnArm(style.hold) ? hold('near') : '';
+  const farHold = holdOnArm(style.hold) ? hold('far') : '';
+  const bodyHold = holdOnArm(style.hold) ? '' : hold('near');
 
   const layers: Record<Layer, string> = {
     farLeg: legSvg(j.far, farStyle, limbHi(farP, 'leg', farStyle.hi), style.view),
