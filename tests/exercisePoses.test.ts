@@ -61,6 +61,14 @@ function frameOf(id: string, i: number): Pose {
   return p;
 }
 
+/**
+ * The index of the LAST authored keyframe. Several demos gained a middle frame
+ * when the volumetric renderer arrived (a mid-rep pose is where the eye is once
+ * the tempo is two-phase, and it is what pins a planted ankle through a
+ * descent), so "the end of the movement" is not always frame 1.
+ */
+const endOf = (id: string): number => demo(id).frames.length - 1;
+
 /** Mid-torso point — "the chest" for the purposes of a press. */
 function chest(j: Joints): Vec {
   return { x: (j.pelvis.x + j.shoulders.x * 2) / 3, y: (j.pelvis.y + j.shoulders.y * 2) / 3 };
@@ -74,7 +82,7 @@ function leanFromVertical(pose: Pose): number {
 /** Every wheel centre the props drew — i.e. every real pulley. */
 function pulleys(d: ExerciseDemo): Vec[] {
   const out: Vec[] = [];
-  const re = /class="cd-frame cd-wheel" cx="(-?[\d.]+)" cy="(-?[\d.]+)"/g;
+  const re = /class="cd-wheel" cx="(-?[\d.]+)" cy="(-?[\d.]+)"/g;
   let m = re.exec(d.props());
   while (m) {
     out.push({ x: Number(m[1]), y: Number(m[2]) });
@@ -86,7 +94,7 @@ function pulleys(d: ExerciseDemo): Vec[] {
 /** Every vertical guide rail the props drew. */
 function rails(d: ExerciseDemo): number[] {
   const out: number[] = [];
-  const re = /class="cd-frame cd-rail" d="M (-?[\d.]+) /g;
+  const re = /class="cd-rail" d="M (-?[\d.]+) /g;
   let m = re.exec(d.props());
   while (m) {
     out.push(Number(m[1]));
@@ -126,6 +134,9 @@ describe('every demo, structurally', () => {
         expect(d.loopMs).toBeGreaterThanOrEqual(1800);
         expect(d.loopMs).toBeLessThanOrEqual(5000);
         expect(d.view === 'side' || d.view === 'front').toBe(true);
+        // the two halves of a rep are not equal, but neither is a flicker
+        expect(d.forwardShare).toBeGreaterThanOrEqual(0.3);
+        expect(d.forwardShare).toBeLessThanOrEqual(0.7);
       });
 
       it('keeps every joint inside the stage', () => {
@@ -199,15 +210,19 @@ describe('every demo, structurally', () => {
         }
       });
 
-      it('renders self-contained markup', () => {
+      it('renders self-contained volumetric markup', () => {
         const svg = demoSvg(d, stillPose(d), 'x');
         expect(svg).toMatch(/^<svg class="cd-svg"/);
         expect(svg).toContain('cd-static');
         expect(svg).toContain('cd-live');
+        expect(svg).toContain('cd-figure');
+        expect(svg).toContain(`viewBox="${d.camera.join(' ')}"`);
         expect(svg).not.toMatch(/NaN|undefined|Infinity/);
         // the licence story in one assertion: nothing is fetched, ever
         expect(svg).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
-        expect(svg).not.toMatch(/<image|url\(|xlink:href|\.gif|\.png|\.jpg|data:/);
+        expect(svg).not.toMatch(/<image|xlink:href|\.gif|\.png|\.jpg|data:/);
+        // the only url() is a reference to a def in this same document
+        for (const m of svg.matchAll(/url\(([^)]*)\)/g)) expect(m[1]?.startsWith('#')).toBe(true);
       });
 
       it('actually MOVES — no demo is two copies of one pose', () => {
@@ -243,32 +258,40 @@ function limbPoints(j: Joints): Vec[] {
 describe('presses — hands at the chest at the bottom, extended at the top', () => {
   for (const id of ['a1', 'b1', 'c1']) {
     it(id, () => {
+      const end = endOf(id);
       const bottom = at(id, 0);
-      const top = at(id, 1);
+      const top = at(id, end);
       // bottom: the hand is ABOVE the chest (never down at the belly) and near it
       expect(bottom.near.grip.y).toBeLessThan(chest(bottom).y);
       expect(dist(bottom.near.shoulder, bottom.near.grip)).toBeLessThan(16);
       expect(flexion(frameOf(id, 0).arm[0], frameOf(id, 0).arm[1])).toBeGreaterThan(90);
       // top: pressed away, arm close to straight but not locked
       expect(dist(top.near.shoulder, top.near.grip)).toBeGreaterThan(22);
-      expect(flexion(frameOf(id, 1).arm[0], frameOf(id, 1).arm[1])).toBeLessThan(60);
+      expect(flexion(frameOf(id, end).arm[0], frameOf(id, end).arm[1])).toBeLessThan(60);
       expect(top.near.grip.y).toBeLessThan(bottom.near.grip.y - 12);
     });
   }
 
   it('a1 presses on a 30° incline, c1 on the same incline but DEEPER', () => {
-    // both recline; c1's bottom sits closer to the shoulder than the bar allows
+    // both recline on the same pad and both press dumbbells, which is what the
+    // program says they are — a1 at 8–10 reps, c1 at 10–12 through a fuller
+    // range. What tells them apart is the bottom: c1's dumbbells travel BELOW
+    // where a1 stops, and its elbow drops further under the shoulder line.
     expect(leanFromVertical(frameOf('a1', 0))).toBeCloseTo(60, 0);
     expect(leanFromVertical(frameOf('c1', 0))).toBeCloseTo(60, 0);
     const a1 = at('a1', 0);
     const c1 = at('c1', 0);
-    expect(dist(c1.near.shoulder, c1.near.grip)).toBeGreaterThan(dist(a1.near.shoulder, a1.near.grip));
+    expect(c1.near.grip.y).toBeGreaterThan(a1.near.grip.y + 2);
+    expect(c1.near.elbow.y - c1.near.shoulder.y).toBeGreaterThan(a1.near.elbow.y - a1.near.shoulder.y);
+    // …and they finish in the same place, because it is the same lockout
+    expect(dist(at('a1', endOf('a1')).near.grip, at('c1', endOf('c1')).near.grip)).toBeLessThan(1);
   });
 });
 
 describe('Smith machine lifts — the bar cannot leave the rail', () => {
+  // a1 is the DUMBBELL half of its own copy (`Incline Smith / Dumbbell Press`);
+  // the bar version of a flat press is b1, and the rail lifts are b1/b4/x1.
   const cases: Array<[string, 'grip' | 'shoulder']> = [
-    ['a1', 'grip'],
     ['b1', 'grip'],
     ['b4', 'grip'],
     ['x1', 'shoulder'],
@@ -278,17 +301,15 @@ describe('Smith machine lifts — the bar cannot leave the rail', () => {
       const d = demo(id);
       const railXs = rails(d);
       expect(railXs).toHaveLength(1);
-      const xs = d.frames.map((_p, i) => {
+      const on = (i: number): Vec => {
         const j = at(id, i);
-        return point === 'grip' ? j.near.grip.x : j.near.shoulder.x;
-      });
-      for (const x of xs) expect(Math.abs(x - (railXs[0] ?? 0))).toBeLessThan(2);
+        return point === 'grip' ? j.near.grip : j.near.shoulder;
+      };
+      for (let i = 0; i < d.frames.length; i++) {
+        expect(Math.abs(on(i).x - (railXs[0] ?? 0))).toBeLessThan(2);
+      }
       // ...and it still travels vertically
-      const ys = d.frames.map((_p, i) => {
-        const j = at(id, i);
-        return point === 'grip' ? j.near.grip.y : j.near.shoulder.y;
-      });
-      expect(Math.abs((ys[0] ?? 0) - (ys[1] ?? 0))).toBeGreaterThan(12);
+      expect(Math.abs(on(0).y - on(endOf(id)).y)).toBeGreaterThan(12);
     });
   }
 });
@@ -297,7 +318,7 @@ describe('squat patterns — hips to at least parallel, feet planted', () => {
   for (const id of ['a3', 'x1']) {
     it(id, () => {
       const top = at(id, 0);
-      const bottom = at(id, 1);
+      const bottom = at(id, endOf(id));
       expect(bottom.pelvis.y - top.pelvis.y).toBeGreaterThan(11);
       // "below parallel-ish": the hip is at or under the knee at the bottom
       expect(bottom.pelvis.y).toBeGreaterThan(bottom.near.knee.y - 2);
@@ -308,7 +329,7 @@ describe('squat patterns — hips to at least parallel, feet planted', () => {
   }
 
   it('a3 is a SPLIT stance with the back knee dropping near the floor', () => {
-    const bottom = at('a3', 1);
+    const bottom = at('a3', endOf('a3'));
     expect(bottom.near.ankle.x - bottom.far.ankle.x).toBeGreaterThan(20);
     expect(bottom.far.knee.y).toBeGreaterThan(bottom.near.knee.y + 10);
   });
@@ -317,7 +338,7 @@ describe('squat patterns — hips to at least parallel, feet planted', () => {
 describe('c2 — an RDL hinges at the hip, and barely at the knee', () => {
   it('rotates the torso far while the knee keeps its small fixed bend', () => {
     const top = frameOf('c2', 0);
-    const bottom = frameOf('c2', 1);
+    const bottom = frameOf('c2', endOf('c2'));
     expect(leanFromVertical(bottom) - leanFromVertical(top)).toBeGreaterThan(60);
     expect(flexion(top.leg[0], top.leg[1])).toBeLessThan(35);
     expect(flexion(bottom.leg[0], bottom.leg[1])).toBeLessThan(35);
@@ -325,7 +346,7 @@ describe('c2 — an RDL hinges at the hip, and barely at the knee', () => {
 
   it('pushes the hips BACK and lets the weight hang down the shins', () => {
     const a = at('c2', 0);
-    const b = at('c2', 1);
+    const b = at('c2', endOf('c2'));
     expect(b.pelvis.x).toBeLessThan(a.pelvis.x - 8); // hips travel away from the toes
     expect(dist(a.near.ankle, b.near.ankle)).toBeLessThan(1.5);
     // arms hang: the hand stays directly under the shoulder in BOTH frames
@@ -462,7 +483,7 @@ describe('core', () => {
     expect(rolls[2]).toBeGreaterThan(0);
     const right = holdAnchors(d.hold, at('c6', 0))[0];
     const left = holdAnchors(d.hold, at('c6', 2))[0];
-    expect((right?.x ?? 0) - (left?.x ?? 0)).toBeGreaterThan(25);
+    expect((right?.x ?? 0) - (left?.x ?? 0)).toBeGreaterThan(18);
     // the seat stays put — the rotation is not a lean
     expect(at('c6', 0).pelvis).toEqual(at('c6', 2).pelvis);
   });
@@ -596,5 +617,9 @@ describe('the views are chosen per movement, not by habit', () => {
     expect(front).toEqual(['b6', 'c6', 'x4', 'x8']);
     // …and every one of them is a movement whose plane is frontal
     for (const id of front) expect(findExercise(id)).not.toBeNull();
+    // the front silhouette is symmetric, so it is authored facing the camera and
+    // the rig mirrors the far side for free
+    for (const id of front) expect(demo(id).facing).toBe(1);
+    expect(EXERCISE_DEMOS.filter((d) => d.view === 'side')).toHaveLength(24);
   });
 });

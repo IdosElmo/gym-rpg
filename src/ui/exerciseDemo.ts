@@ -3,19 +3,25 @@
  * workout card's "הסבר ודגשי ביצוע" drawer.
  *
  * WHY A rAF INTERPOLATOR AND NOT CSS. A pose is a dozen joint ANGLES, and the
- * shapes they produce (a thigh, a forearm, the dumbbell hanging off the wrist)
- * are recomputed from those angles by forward kinematics. CSS keyframes can
- * interpolate a transform per element, but nothing in CSS can interpolate the
- * INPUT of a geometry function — a bench press animated as per-limb rotations
- * would need one nested transform per bone and would still leave the weight
- * behind. So: lerp the pose, run FK, repaint. The repaint is one `innerHTML` of
- * a ~1 kB group at 30 fps, and only the moving group — the bench, the rail and
- * the pulley are painted once into a sibling group and never touched again.
+ * shapes they produce (a thigh, a forearm, the dumbbell hanging off the wrist,
+ * the pec patch riding the ribs) are recomputed from those angles by forward
+ * kinematics. CSS keyframes can interpolate a transform per element, but nothing
+ * in CSS can interpolate the INPUT of a geometry function — a bench press
+ * animated as per-limb rotations would need one nested transform per bone and
+ * would still leave the weight behind. So: lerp the pose, run FK, repaint. The
+ * repaint is one `innerHTML` of a few kB at 30 fps, and only the moving group —
+ * the bench, the rail, the pulley and the load-path guide are painted once into
+ * a sibling group and never touched again.
+ *
+ * THE TEMPO IS NOT SYMMETRIC. A rep's two halves take different times, so the
+ * loop is split at `forwardShare`: the forward pass of the keyframes gets that
+ * fraction of the clock and the way back gets the rest, each eased on its own.
+ * A press snaps up and lowers slowly; an RDL lowers slowly and drives up.
  *
  * WHEN IT MOVES, AND WHEN IT DOES NOT. The loop is decoration, so it gives up
  * easily and always leaves a correct still behind:
- *   - `prefers-reduced-motion: reduce` → the mid-rep pose, painted once. This
- *     is deliberately a MID pose and not the start: a still of the bottom of a
+ *   - `prefers-reduced-motion: reduce` → the MID-REP pose, painted once. This is
+ *     deliberately the middle and not the start: a still of half way down a
  *     squat says more than a still of someone standing.
  *   - no `requestAnimationFrame` (jsdom, and any host without one) → the same
  *     still. There is no `setTimeout` fallback on purpose — unlike the battle
@@ -34,15 +40,16 @@
 
 import { demoFor, type ExerciseDemo } from '../data/exercisePoses.ts';
 import { esc } from './dom.ts';
+import { ease, forwardKinematics, n, type Pose } from './coachFigure.ts';
 import {
-  ease,
+  MUSCLE_HE,
+  defsSvg,
   figureSvg,
-  forwardKinematics,
-  holdSvg,
-  lerpPose,
-  STAGE,
-  type Pose,
-} from './coachFigure.ts';
+  frameAt,
+  motionPathSvg,
+  styleOf,
+  type DemoLook,
+} from './coachVolume.ts';
 
 /** Fastest repaint we ever ask for. A rep takes 2–4s; 30 fps is plenty. */
 const FRAME_MS = 1000 / 30;
@@ -69,55 +76,67 @@ export interface DemoHandle {
 /* ------------------------------------------------------------------ timing */
 
 /**
- * The frame order of one full cycle: the keyframes forwards, then back down
- * without repeating the ends — `[0,1]` for a two-frame rep, `[0,1,2,1]` for
- * three. Playing THAT on a loop is the yoyo the poses are authored for.
+ * The pose `ms` into the loop. The same cosine ease as ever, but applied to each
+ * half of the yoyo separately with its own share of the clock, which is the
+ * cheapest honest tempo: the lift snaps, the lowering takes its time.
  */
-export function timeline(frameCount: number): number[] {
-  const out: number[] = [];
-  for (let i = 0; i < frameCount; i++) out.push(i);
-  for (let i = frameCount - 2; i > 0; i--) out.push(i);
-  return out;
-}
-
-/** The pose `ms` into the loop (wrapping), eased within each segment. */
 export function poseAt(demo: ExerciseDemo, ms: number): Pose {
-  const order = timeline(demo.frames.length);
-  const segs = order.length;
   const cycle = demo.loopMs > 0 ? demo.loopMs : 1;
-  const t = ((ms % cycle) + cycle) % cycle;
-  const p = (t / cycle) * segs;
-  const i = Math.min(segs - 1, Math.floor(p));
-  const a = demo.frames[order[i] ?? 0];
-  const b = demo.frames[order[(i + 1) % segs] ?? 0];
-  if (!a || !b) return demo.frames[0] as Pose;
-  return lerpPose(a, b, ease(p - i));
+  const t = (((ms % cycle) + cycle) % cycle) / cycle;
+  const fs = Math.min(0.85, Math.max(0.15, demo.forwardShare));
+  const u = t < fs ? ease(t / fs) : 1 - ease((t - fs) / (1 - fs));
+  return frameAt(demo.frames, u);
 }
 
 /**
- * The pose a STILL shows: a quarter of the way round the loop, which for every
- * demo here is the far end of the movement — the bottom of the squat, the
- * lockout of the press, the middle of the twist.
+ * The pose a STILL shows: the middle of the authored pass, which is where a
+ * movement is most itself — half way down the squat, the dumbbells level with
+ * the chest, the twist at full turn.
  */
 export function stillPose(demo: ExerciseDemo): Pose {
-  return poseAt(demo, demo.loopMs / 4);
+  return frameAt(demo.frames, 0.5);
 }
 
 /* ----------------------------------------------------------------- drawing */
 
-/** The moving half of the picture: the figure plus whatever it is holding. */
+/** The moving half of the picture: the figure, its muscle patch and its iron. */
 export function liveSvg(demo: ExerciseDemo, pose: Pose): string {
-  const joints = forwardKinematics(pose, demo.view);
-  return figureSvg(joints, demo.view) + holdSvg(demo.hold, joints);
+  return figureSvg(forwardKinematics(pose, demo.view), styleOf(demo as DemoLook), clipIdOf(demo));
+}
+
+/**
+ * The id of a demo's torso clip path. The clip is rebuilt on every repaint (the
+ * torso deforms with the spine), so the mount has to hand the live group the
+ * same id the first paint used.
+ */
+export function clipIdOf(demo: ExerciseDemo): string {
+  return `cd-${demo.id}-torso`;
 }
 
 /** The complete markup of a demo at one pose — used by the mount and by tests. */
 export function demoSvg(demo: ExerciseDemo, pose: Pose, label: string): string {
+  const [x, y, w, h] = demo.camera;
   return (
-    `<svg class="cd-svg" viewBox="0 0 ${STAGE.w} ${STAGE.h}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(label)}" data-view="${demo.view}">` +
-    `<g class="cd-static">${demo.props()}</g>` +
+    `<svg class="cd-svg" viewBox="${n(x)} ${n(y)} ${n(w)} ${n(h)}" xmlns="http://www.w3.org/2000/svg" ` +
+    `role="img" aria-label="${esc(label)}" data-view="${demo.view}">` +
+    defsSvg() +
+    `<rect class="cd-bg" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" fill="url(#cdStage)"/>` +
+    `<g class="cd-static">${demo.props()}${motionPathSvg(demo as DemoLook)}</g>` +
     `<g class="cd-live">${liveSvg(demo, pose)}</g>` +
     `</svg>`
+  );
+}
+
+/** The legend chip: 🎯 plus the muscles this demo is highlighting. */
+export function legendHtml(demo: ExerciseDemo): string {
+  const names = demo.muscles.length > 0 ? demo.muscles : [MUSCLE_HE[demo.primary]];
+  const main = names[0] ?? '';
+  const rest = names.slice(1).join(' · ');
+  return (
+    `<p class="cd-legend"><span class="cd-chip">` +
+    `<span aria-hidden="true">🎯</span><span>${esc(main)}</span>` +
+    (rest ? `<span class="cd-chip-2">${esc(rest)}</span>` : '') +
+    `</span></p>`
   );
 }
 
@@ -149,7 +168,7 @@ export function mountExerciseDemo(host: HTMLElement, exId: string, opts: DemoOpt
   el.dataset['demo'] = demo.id;
   const label = opts.label ?? 'הדגמת ביצוע';
   const still = opts.still === true || !canAnimate();
-  el.innerHTML = demoSvg(demo, stillPose(demo), label);
+  el.innerHTML = demoSvg(demo, stillPose(demo), label) + legendHtml(demo);
   host.appendChild(el);
 
   const live = el.querySelector<SVGGElement>('.cd-live');
