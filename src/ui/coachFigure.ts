@@ -381,6 +381,27 @@ export function padProp(a: Vec, b: Vec): string {
   return `<path class="cd-pad" d="${line(a, b)}"/>`;
 }
 
+/**
+ * A FLAT BENCH SEEN FROM ABOVE — the one station here that is not a side
+ * elevation. A lifter on his back, viewed from directly overhead, is the FRONT
+ * silhouette; the bench under him is therefore a slab running head-to-foot
+ * rather than a pad on posts. `(x, y1)` is the head end and `(x, y2)` the foot
+ * end, `half` half the pad's width; the two cross-members are all you ever see
+ * of a bench's legs from up there.
+ */
+export function benchTopProp(x: number, y1: number, y2: number, half = 11): string {
+  const cross = (y: number, w: number): string =>
+    `<path class="cd-frame" d="${line({ x: x - w, y }, { x: x + w, y })}"/>`;
+  return (
+    cross(y1 + 4, half + 5) +
+    cross(y2 - 4, half + 6) +
+    `<rect class="cd-mat" x="${n(x - half)}" y="${n(y1)}" width="${n(half * 2)}" height="${n(y2 - y1)}" rx="${n(half)}"/>` +
+    // the seam where the head cushion starts, the one thing that says which end
+    // of a slab the head is on
+    `<path class="cd-frame" d="${line({ x: x - half + 2, y: y1 + 13 }, { x: x + half - 2, y: y1 + 13 })}"/>`
+  );
+}
+
 /** A machine's rotation axis, drawn where the joint it tracks actually sits. */
 export function pivotProp(x: number, y: number): string {
   return `<circle class="cd-frame cd-wheel" cx="${n(x)}" cy="${n(y)}" r="3"/>`;
@@ -528,7 +549,10 @@ export function holdAnchors(hold: Hold, j: Joints): Vec[] {
       return [j.near.grip];
     case 'barBack':
       return [j.near.shoulder];
+    // a rope has TWO ends and they are held in two fists — which is the whole
+    // point of a face pull, and invisible if the anchor is their midpoint
     case 'rope':
+      return [j.near.grip, j.far.grip];
     case 'handle':
       return [mid(j.near.grip, j.far.grip)];
     case 'cables':
@@ -560,13 +584,15 @@ export function holdSvg(hold: Hold, j: Joints): string {
       return plateSvg(step(j.near.shoulder, a, 1.5), 5);
     }
     case 'rope': {
+      // A ROPE HAS TWO ENDS, AND THEY ARRIVE IN TWO FISTS. One strand to the
+      // midpoint with a splay at the bottom was enough while both hands sat on
+      // top of each other in the sagittal plane; the moment a lift is shot from
+      // the front — the face pull — the V is the whole information, so each
+      // fist gets its own strand and its own loose end past the knuckles.
       const from: Vec = { x: hold.from[0] ?? 0, y: hold.from[1] ?? 0 };
-      const hands = mid(j.near.grip, j.far.grip);
-      const a = angleOf(from, hands);
-      return (
-        cableSvg(from, hands) +
-        `<path class="cd-rope" d="${line(hands, step(hands, a - 26, 8))} ${line(hands, step(hands, a + 26, 8))}"/>`
-      );
+      const strand = (g: Vec): string =>
+        cableSvg(from, g) + `<path class="cd-rope" d="${line(g, step(g, angleOf(from, g), 7))}"/>`;
+      return strand(j.far.grip) + strand(j.near.grip);
     }
     case 'handle': {
       const from: Vec = { x: hold.from[0] ?? 0, y: hold.from[1] ?? 0 };
