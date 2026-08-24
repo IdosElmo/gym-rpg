@@ -18,6 +18,29 @@
   max-width:210px; margin:10px auto 12px; padding:4px 6px 2px;
   background:var(--bg); border:1px solid var(--line); border-radius:12px;
 }
+
+/* ---------- two ways of doing one exercise, side by side ----------
+ *
+ * Half the program's names offer a CHOICE — "פולי עליון / מתח", "חתירה
+ * בסמית׳ / משקולות", "בתלייה או בשכיבה" — and a demo that picks one of them
+ * silently teaches the wrong thing to whoever came for the other. So those
+ * exercises get two stages sharing the card's width, each with the tiny caption
+ * that says which is which, animated from one clock so the two reps stay in
+ * step.
+ *
+ * The stages are FLEX ITEMS with a floor of 140px: on a phone in portrait two of
+ * them still fit across a workout card, and on anything narrower than that they
+ * wrap and stack rather than shrinking into two illegible thumbnails.
+ */
+.ex-demo-pair{
+  max-width:420px; padding:4px 6px 4px;
+  display:flex; flex-wrap:wrap; gap:4px 8px; justify-content:center;
+}
+.ex-demo-pair .cd-stage{flex:1 1 140px; min-width:140px}
+.cd-cap{
+  margin:0; padding:1px 0 2px; text-align:center;
+  font-size:11px; font-weight:600; color:var(--muted); line-height:1.2;
+}
 .cd-svg{
   display:block; width:100%; height:auto;
   --cd-body:var(--text); --cd-far:#54627E; --cd-joint:var(--accent);

@@ -430,16 +430,32 @@ export function railProp(x: number, y1: number, y2: number): string {
   return `<path class="cd-frame cd-rail" d="${line({ x, y: y1 }, { x, y: y2 })}"/>` + notches.join('');
 }
 
-/** A cable pulley: the wheel the cable leaves from, on its upright. */
-export function pulleyProp(x: number, y: number, o: { top?: number; post?: number; stack?: boolean } = {}): string {
+/**
+ * A cable pulley: the wheel the cable leaves from, on its upright.
+ *
+ * `postX` moves the UPRIGHT away from the wheel and hangs the wheel off a top
+ * beam instead. A lat pulldown is the reason it exists: the wheel has to be
+ * directly above the seat or the cable comes down at an angle no station ever
+ * does, and the mast that carries it has to be behind the lifter's back rather
+ * than through his thighs.
+ */
+export function pulleyProp(
+  x: number,
+  y: number,
+  o: { top?: number; post?: number; stack?: boolean; postX?: number } = {},
+): string {
   const top = o.top ?? 8;
   const post = o.post ?? 40;
+  const px = o.postX ?? x;
   const stack = o.stack
-    ? `<rect class="cd-mat" x="${n(x - 5)}" y="${n(y + 14)}" width="10" height="26" rx="2"/>` +
-      `<path class="cd-frame" d="${line({ x: x - 5, y: y + 22 }, { x: x + 5, y: y + 22 })} ${line({ x: x - 5, y: y + 30 }, { x: x + 5, y: y + 30 })}"/>`
+    ? `<rect class="cd-mat" x="${n(px - 5)}" y="${n(y + 14)}" width="10" height="26" rx="2"/>` +
+      `<path class="cd-frame" d="${line({ x: px - 5, y: y + 22 }, { x: px + 5, y: y + 22 })} ${line({ x: px - 5, y: y + 30 }, { x: px + 5, y: y + 30 })}"/>`
     : '';
+  const beam = px === x ? '' : `<path class="cd-frame" d="${line({ x: px, y: top }, { x, y: top })}"/>`;
   return (
-    `<path class="cd-frame" d="${line({ x, y: top }, { x, y: y + post })}"/>` +
+    `<path class="cd-frame" d="${line({ x: px, y: top }, { x: px, y: y + post })}"/>` +
+    beam +
+    (px === x ? '' : `<path class="cd-frame" d="${line({ x, y: top }, { x, y })}"/>`) +
     `<circle class="cd-frame cd-wheel" cx="${n(x)}" cy="${n(y)}" r="3.2"/>` +
     stack
   );

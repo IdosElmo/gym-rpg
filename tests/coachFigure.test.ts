@@ -17,6 +17,7 @@ import {
   STAGE,
   angleOf,
   benchProp,
+  benchTopProp,
   dist,
   ease,
   figureSvg,
@@ -199,9 +200,34 @@ describe('drawing', () => {
   });
 
   it('keeps every prop free of external references', () => {
-    const props = benchProp({ x: 40, y: 84, len: 60 }) + railProp(90, 20, 90) + pulleyProp(100, 20, { stack: true });
+    const props =
+      benchProp({ x: 40, y: 84, len: 60 }) +
+      railProp(90, 20, 90) +
+      pulleyProp(100, 20, { stack: true }) +
+      benchTopProp(80, 24, 104, 12);
     expect(props).not.toMatch(/https?:|url\(|<image|xlink/);
     expect(props).not.toMatch(/NaN|undefined/);
+  });
+
+  it('draws a bench SEEN FROM ABOVE as a slab running head to foot', () => {
+    // the flye is shot from overhead, and from up there a bench is not a pad on
+    // posts: it is the thing the lifter is lying on, seen end-on
+    const slab = benchTopProp(80, 24, 104, 12);
+    expect(slab).toContain('<rect class="cd-mat" x="68" y="24" width="24" height="80"');
+    // …with the only part of its legs you can see from there: two cross-members
+    expect(slab.match(/class="cd-frame"/g)?.length).toBe(3);
+  });
+
+  it('hangs a pulley off a top beam when its mast has to stand elsewhere', () => {
+    // a lat pulldown's wheel is directly over the seat and its mast is behind
+    // the lifter's back; drawn as one upright it would run through his thighs
+    const near = pulleyProp(78, 14, { top: 8, post: 40 });
+    expect(near).toContain('cx="78" cy="14"');
+    const far = pulleyProp(78, 14, { top: 8, post: 40, postX: 108 });
+    expect(far).toContain('cx="78" cy="14"'); // same wheel…
+    expect(far).toContain('M 108 8 L 108 54'); // …a mast 30 units behind it…
+    expect(far).toContain('M 108 8 L 78 8'); // …and the beam that carries it
+    expect(far.length).toBeGreaterThan(near.length);
   });
 });
 
@@ -222,11 +248,17 @@ describe('what the hands hold is read off the joints', () => {
     expect(holdAnchors({ k: 'roller', joint: 'knee' }, j)).toEqual([j.near.knee]);
   });
 
-  it('draws a cable from the declared pulley to the hands', () => {
+  it('draws a rope as TWO strands from the pulley, one per fist', () => {
+    // a rope has two ends and they arrive in two hands; one strand to their
+    // midpoint was invisible in the sagittal plane and wrong in the frontal one
     const svg = holdSvg({ k: 'rope', from: [100, 18] }, j);
-    expect(svg).toContain('cd-cable');
-    expect(svg).toContain('M 100 18');
-    expect(svg).toContain('cd-rope');
+    expect(svg.match(/class="cd-cable"/g)).toHaveLength(2);
+    expect(svg.match(/M 100 18/g)).toHaveLength(2);
+    expect(svg.match(/class="cd-rope"/g)).toHaveLength(2); // a loose end each
+    expect(holdAnchors({ k: 'rope', from: [100, 18] }, j)).toEqual([j.near.grip, j.far.grip]);
+    // a single handle is still ONE thing in two hands: the midpoint
+    const handle = holdAnchors({ k: 'handle', from: [100, 18] }, j)[0];
+    near(handle?.x ?? 0, (j.near.grip.x + j.far.grip.x) / 2);
   });
 
   it('gives an empty hold no markup at all', () => {

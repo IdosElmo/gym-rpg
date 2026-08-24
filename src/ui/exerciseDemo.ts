@@ -12,6 +12,12 @@
  * a ~1 kB group at 30 fps, and only the moving group — the bench, the rail and
  * the pulley are painted once into a sibling group and never touched again.
  *
+ * TWO STAGES, ONE CLOCK. An exercise whose own name offers two implementations
+ * (`data/exercisePoses.ts`) is drawn as two pictures sharing the card's width,
+ * each with its own caption — and BOTH are painted from the same `ms` inside the
+ * same `requestAnimationFrame` callback. Two loops would be two things that
+ * could drift apart, and one frame does the work of two anyway.
+ *
  * THE TEMPO IS NOT SYMMETRIC. A rep's two halves take different times, so the
  * loop is split at `forwardShare`: the forward pass of the keyframes gets that
  * fraction of the clock and the way back gets the rest, each eased on its own.
@@ -37,7 +43,7 @@
  * tests inspect real frames without ever starting one.
  */
 
-import { demoFor, type ExerciseDemo } from '../data/exercisePoses.ts';
+import { demoFor, type DemoVariant } from '../data/exercisePoses.ts';
 import { esc } from './dom.ts';
 import {
   ease,
@@ -81,7 +87,7 @@ export interface DemoHandle {
  * slowly); a hinge whose frames run standing → bottom asks for more. Each half
  * is eased on its own, so the turn-around is still the slow part.
  */
-export function poseAt(demo: ExerciseDemo, ms: number): Pose {
+export function poseAt(demo: DemoVariant, ms: number): Pose {
   const cycle = demo.loopMs > 0 ? demo.loopMs : 1;
   const t = (((ms % cycle) + cycle) % cycle) / cycle;
   const fs = Math.min(0.85, Math.max(0.15, demo.forwardShare));
@@ -94,25 +100,39 @@ export function poseAt(demo: ExerciseDemo, ms: number): Pose {
  * movement is most itself — half way down the squat, the dumbbells level with
  * the chest, the twist at full turn.
  */
-export function stillPose(demo: ExerciseDemo): Pose {
+export function stillPose(demo: DemoVariant): Pose {
   return frameAt(demo.frames, 0.5);
 }
 
 /* ----------------------------------------------------------------- drawing */
 
 /** The moving half of the picture: the figure plus whatever it is holding. */
-export function liveSvg(demo: ExerciseDemo, pose: Pose): string {
+export function liveSvg(demo: DemoVariant, pose: Pose): string {
   const joints = forwardKinematics(pose, demo.view);
   return figureSvg(joints, demo.view) + holdSvg(demo.hold, joints);
 }
 
-/** The complete markup of a demo at one pose — used by the mount and by tests. */
-export function demoSvg(demo: ExerciseDemo, pose: Pose, label: string): string {
+/** The complete markup of one variant at one pose — used by the mount and by tests. */
+export function demoSvg(demo: DemoVariant, pose: Pose, label: string): string {
   return (
     `<svg class="cd-svg" viewBox="0 0 ${STAGE.w} ${STAGE.h}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(label)}" data-view="${demo.view}">` +
     `<g class="cd-static">${demo.props()}</g>` +
     `<g class="cd-live">${liveSvg(demo, pose)}</g>` +
     `</svg>`
+  );
+}
+
+/**
+ * One stage: the picture, and — only when there is more than one — the little
+ * Hebrew caption that says WHICH way of doing it this one is.
+ */
+export function stageHtml(v: DemoVariant, label: string): string {
+  const name = v.caption ? `${label} · ${v.caption}` : label;
+  return (
+    `<div class="cd-stage">` +
+    demoSvg(v, stillPose(v), name) +
+    (v.caption ? `<p class="cd-cap">${esc(v.caption)}</p>` : '') +
+    `</div>`
   );
 }
 
@@ -139,26 +159,33 @@ export function mountExerciseDemo(host: HTMLElement, exId: string, opts: DemoOpt
   const demo = demoFor(exId);
   if (!demo) return null;
 
+  const variants = demo.variants;
   const el = document.createElement('div');
-  el.className = 'ex-demo';
+  el.className = variants.length > 1 ? 'ex-demo ex-demo-pair' : 'ex-demo';
   el.dataset['demo'] = demo.id;
   const label = opts.label ?? 'הדגמת ביצוע';
   const still = opts.still === true || !canAnimate();
-  el.innerHTML = demoSvg(demo, stillPose(demo), label);
+  el.innerHTML = variants.map((v) => stageHtml(v, label)).join('');
   host.appendChild(el);
 
-  const live = el.querySelector<SVGGElement>('.cd-live');
+  const lives = Array.from(el.querySelectorAll<SVGGElement>('.cd-live'));
   let raf = 0;
   let origin = 0;
   let painted = -1;
   let disposed = false;
 
-  function paint(pose: Pose): void {
-    if (live) live.innerHTML = liveSvg(demo as ExerciseDemo, pose);
-  }
-
+  /**
+   * ONE CLOCK FOR BOTH STAGES. Two variants are two pictures of one exercise, so
+   * they are painted from the same `ms` by the same frame — never two loops that
+   * could drift apart, and never two `requestAnimationFrame` chains where one
+   * would do.
+   */
   function renderAt(ms: number): void {
-    paint(poseAt(demo as ExerciseDemo, ms));
+    for (let i = 0; i < lives.length; i++) {
+      const v = variants[i];
+      const g = lives[i];
+      if (v && g) g.innerHTML = liveSvg(v, poseAt(v, ms));
+    }
   }
 
   function frame(now: number): void {

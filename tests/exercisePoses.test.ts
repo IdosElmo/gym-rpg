@@ -25,7 +25,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { EXERCISE_DEMOS, demoFor, type ExerciseDemo } from '../src/data/exercisePoses.ts';
+import { EXERCISE_DEMOS, demoFor, type DemoVariant, type ExerciseDemo } from '../src/data/exercisePoses.ts';
 import { builtInExercises, findExercise } from '../src/data/program.ts';
 import {
   STAGE,
@@ -42,22 +42,39 @@ import { demoSvg, poseAt, stillPose } from '../src/ui/exerciseDemo.ts';
 
 /* ------------------------------------------------------------------ helpers */
 
-const demo = (id: string): ExerciseDemo => {
+const exercise = (id: string): ExerciseDemo => {
   const d = demoFor(id);
   if (!d) throw new Error(`no demo for ${id}`);
   return d;
 };
 
+/**
+ * ONE VARIANT of an exercise. `demo('b4')` is the first way of doing it — the
+ * one the exercise's own name leads with — and `demo('b4', 1)` the second.
+ * Almost every assertion below is about a variant rather than an exercise,
+ * because a variant is what has a pose at all.
+ */
+const demo = (id: string, vi = 0): DemoVariant => {
+  const v = exercise(id).variants[vi];
+  if (!v) throw new Error(`${id} has no variant ${vi}`);
+  return v;
+};
+
+/** Every variant of every exercise, tagged with the id it belongs to. */
+const ALL: Array<{ id: string; vi: number; tag: string; v: DemoVariant }> = EXERCISE_DEMOS.flatMap((d) =>
+  d.variants.map((v, vi) => ({ id: d.id, vi, tag: d.variants.length > 1 ? `${d.id}.${vi}` : d.id, v })),
+);
+
 /** Joints of keyframe `i` (not an interpolated frame — the authored pose). */
-function at(id: string, i: number): Joints {
-  const d = demo(id);
+function at(id: string, i: number, vi = 0): Joints {
+  const d = demo(id, vi);
   const pose = d.frames[i];
   if (!pose) throw new Error(`${id} has no frame ${i}`);
   return forwardKinematics(pose, d.view);
 }
 
-function frameOf(id: string, i: number): Pose {
-  const p = demo(id).frames[i];
+function frameOf(id: string, i: number, vi = 0): Pose {
+  const p = demo(id, vi).frames[i];
   if (!p) throw new Error(`${id} has no frame ${i}`);
   return p;
 }
@@ -68,10 +85,10 @@ function frameOf(id: string, i: number): Pose {
  * a free press needs one or it travels an arc — so "the end of the movement" is
  * not always frame 1.
  */
-const endOf = (id: string): number => demo(id).frames.length - 1;
+const endOf = (id: string, vi = 0): number => demo(id, vi).frames.length - 1;
 
 /** The pose `u` of the way along the authored pass, interpolated. */
-const tween = (d: ExerciseDemo, u: number): Joints => forwardKinematics(frameAt(d.frames, u), d.view);
+const tween = (d: DemoVariant, u: number): Joints => forwardKinematics(frameAt(d.frames, u), d.view);
 
 /** Mid-torso point — "the chest" for the purposes of a press. */
 function chest(j: Joints): Vec {
@@ -84,7 +101,7 @@ function leanFromVertical(pose: Pose): number {
 }
 
 /** Every wheel centre the props drew — i.e. every real pulley. */
-function pulleys(d: ExerciseDemo): Vec[] {
+function pulleys(d: DemoVariant): Vec[] {
   const out: Vec[] = [];
   const re = /class="cd-frame cd-wheel" cx="(-?[\d.]+)" cy="(-?[\d.]+)"/g;
   let m = re.exec(d.props());
@@ -96,7 +113,7 @@ function pulleys(d: ExerciseDemo): Vec[] {
 }
 
 /** Every vertical guide rail the props drew. */
-function rails(d: ExerciseDemo): number[] {
+function rails(d: DemoVariant): number[] {
   const out: number[] = [];
   const re = /class="cd-frame cd-rail" d="M (-?[\d.]+) /g;
   let m = re.exec(d.props());
@@ -107,7 +124,7 @@ function rails(d: ExerciseDemo): number[] {
   return out;
 }
 
-const eachFrame = (d: ExerciseDemo, fn: (j: Joints, pose: Pose, i: number) => void): void => {
+const eachFrame = (d: DemoVariant, fn: (j: Joints, pose: Pose, i: number) => void): void => {
   d.frames.forEach((pose, i) => fn(forwardKinematics(pose, d.view), pose, i));
 };
 
@@ -122,6 +139,37 @@ describe('coverage', () => {
     for (const d of EXERCISE_DEMOS) expect(findExercise(d.id)).not.toBeNull();
   });
 
+  it('shows TWO ways of doing the exercises whose own name offers two', () => {
+    // half the program's names are a choice — "פולי עליון / מתח", "חתירה
+    // בסמית׳ / משקולות", "בתלייה או בשכיבה" — and a demo that silently picks one
+    // teaches the wrong thing to whoever came for the other. These six get both,
+    // side by side, in the order their own Hebrew name lists them.
+    const pairs = EXERCISE_DEMOS.filter((d) => d.variants.length > 1);
+    expect(pairs.map((d) => d.id)).toEqual(['a1', 'a6', 'b2', 'b4', 'c2', 'c5']);
+    expect(pairs.map((d) => d.variants.map((v) => v.caption))).toEqual([
+      ['סמית׳', 'משקולות'],
+      ['בתלייה', 'בשכיבה'],
+      ['פולי עליון', 'מתח'],
+      ['סמית׳', 'משקולות'],
+      ['משקולות', 'סמית׳'],
+      ['על מזרן', 'בשיפוע'],
+    ]);
+    // …and nothing else carries a caption: with one picture the exercise's own
+    // name is already the caption, and repeating it would be noise
+    for (const d of EXERCISE_DEMOS) {
+      if (d.variants.length === 1) expect(d.variants[0]?.caption, d.id).toBeUndefined();
+      else for (const v of d.variants) expect(v.caption, d.id).toBeTruthy();
+    }
+    expect(ALL).toHaveLength(34);
+    // two variants of one exercise are two DIFFERENT pictures, never a copy
+    for (const d of EXERCISE_DEMOS) {
+      if (d.variants.length < 2) continue;
+      const [a, b] = d.variants as [DemoVariant, DemoVariant];
+      expect(a.props(), d.id).not.toBe(b.props());
+      expect(JSON.stringify(a.frames), d.id).not.toBe(JSON.stringify(b.frames));
+    }
+  });
+
   it('has NO demo for a custom exercise — a stand-in would be a guess', () => {
     expect(demoFor('cx_9f2a')).toBeNull();
     expect(demoFor('')).toBeNull();
@@ -130,8 +178,8 @@ describe('coverage', () => {
 });
 
 describe('every demo, structurally', () => {
-  for (const d of EXERCISE_DEMOS) {
-    describe(d.id, () => {
+  for (const { tag, id, vi, v: d } of ALL) {
+    describe(tag, () => {
       it('has 2–3 keyframes and a rep tempo a human could follow', () => {
         expect(d.frames.length).toBeGreaterThanOrEqual(2);
         expect(d.frames.length).toBeLessThanOrEqual(3);
@@ -170,8 +218,8 @@ describe('every demo, structurally', () => {
       it('turns each joint the SHORT way between keyframes', () => {
         // authored so a plain lerp cannot spin an arm the long way round
         for (let i = 1; i < d.frames.length; i++) {
-          const a = frameOf(d.id, i - 1);
-          const b = frameOf(d.id, i);
+          const a = frameOf(id, i - 1, vi);
+          const b = frameOf(id, i, vi);
           const pairs: Array<[number, number]> = [
             [a.torso, b.torso],
             [a.arm[0], b.arm[0]],
@@ -224,7 +272,7 @@ describe('every demo, structurally', () => {
 
       it('actually MOVES — no demo is two copies of one pose', () => {
         // b5 is a HOLD: it breathes rather than reps, and that is the point.
-        const least = d.id === 'b5' ? 0.4 : 3;
+        const least = id === 'b5' ? 0.4 : 3;
         const a = poseAt(d, 0);
         const b = poseAt(d, d.loopMs / 2);
         const ja = forwardKinematics(a, d.view);
@@ -415,12 +463,47 @@ describe('rows and pulls', () => {
     expect(top.near.elbow.x).toBeLessThan(top.near.shoulder.x); // elbow drives back
   });
 
-  it('b2 keeps the grip ON the bar and lifts the BODY to it', () => {
-    const hang = at('b2', 0);
-    const top = at('b2', endOf('b2'));
+  it('b2’s pull-up keeps the grip ON the bar and lifts the BODY to it', () => {
+    const hang = at('b2', 0, 1);
+    const top = at('b2', endOf('b2', 1), 1);
     expect(dist(hang.near.grip, top.near.grip)).toBeLessThan(1);
     expect(hang.pelvis.y - top.pelvis.y).toBeGreaterThan(15);
     expect(top.head.y).toBeLessThan(hang.head.y - 12); // chin arrives at the bar
+  });
+
+  it('b2’s LAT PULLDOWN is the other half of its own name, and it comes first', () => {
+    // "פולי עליון / מתח" names the machine first, so the drawer leads with it
+    const d = exercise('b2');
+    expect(d.variants).toHaveLength(2);
+    expect(d.variants[0]?.caption).toBe('פולי עליון');
+    expect(d.variants[1]?.caption).toBe('מתח');
+
+    const pd = demo('b2', 0);
+    expect(pd.hold).toEqual({ k: 'handle', from: [78, 14], wide: true });
+    const over = at('b2', 0, 0);
+    const chestHigh = at('b2', endOf('b2', 0), 0);
+    // seated: the pelvis never moves, unlike the pull-up where it is the point
+    for (let i = 0; i <= endOf('b2', 0); i++) {
+      expect(at('b2', i, 0).pelvis).toEqual(over.pelvis);
+    }
+    // the bar starts OVERHEAD, well above the head, arms all but straight
+    expect(over.near.grip.y).toBeLessThan(over.head.y - 12);
+    expect(dist(over.near.shoulder, over.near.grip)).toBeGreaterThan(26);
+    // …and finishes at the UPPER CHEST: below the shoulder, well above the belly
+    expect(chestHigh.near.grip.y).toBeGreaterThan(chestHigh.near.shoulder.y);
+    expect(chestHigh.near.grip.y).toBeLessThan(chestHigh.pelvis.y - 15);
+    // the elbow leads it, which is our own step ('הובילו את המרפקים מטה ולאחור'):
+    // above the shoulder at the top, straight under it at the end
+    expect(over.near.elbow.y).toBeLessThan(over.near.shoulder.y - 8);
+    expect(chestHigh.near.elbow.y).toBeGreaterThan(chestHigh.near.shoulder.y + 8);
+    expect(Math.abs(chestHigh.near.elbow.x - chestHigh.near.shoulder.x)).toBeLessThan(3);
+    // the cable starts at a pulley that exists, and it hangs over the bar
+    const wheel = pulleys(pd)[0] as Vec;
+    expect(wheel).toEqual({ x: 78, y: 14 });
+    // …and the bar travels STRAIGHT DOWN that pulley's line, not on an arc
+    for (let i = 0; i <= 40; i++) {
+      expect(Math.abs(tween(pd, i / 40).near.grip.x - wheel.x), `at ${i}`).toBeLessThan(2.5);
+    }
   });
 
   it('x6 pulls the handle from overhead down to the chest', () => {
@@ -704,7 +787,7 @@ describe('the load travels a path, not a loop', () => {
    * what proves it is sampling the movement between the keyframes rather than
    * only on them.
    */
-  const trace = (d: ExerciseDemo, of: (j: Joints) => Vec, samples = 40): Vec[] => {
+  const trace = (d: DemoVariant, of: (j: Joints) => Vec, samples = 40): Vec[] => {
     const out: Vec[] = [];
     for (let i = 0; i <= samples; i++) out.push(of(tween(d, i / samples)));
     return out;
@@ -755,23 +838,21 @@ describe('the load travels a path, not a loop', () => {
     b3: (j) => j.pelvis,
   };
 
-  const guided = (d: ExerciseDemo): ((j: Joints) => Vec) | null => {
-    const own = BODYWEIGHT[d.id];
-    if (own) return own;
-    if (d.hold.k === 'none') return null;
+  const guided = (id: string, d: DemoVariant): ((j: Joints) => Vec) | null => {
+    if (d.hold.k === 'none') return BODYWEIGHT[id] ?? null;
     return (j) => holdAnchors(d.hold, j)[0] as Vec;
   };
 
-  for (const d of EXERCISE_DEMOS) {
-    it(`${d.id} never doubles back`, () => {
-      const of = guided(d);
+  for (const { tag, id, v: d } of ALL) {
+    it(`${tag} never doubles back`, () => {
+      const of = guided(id, d);
       if (!of) return;
       const pts = trace(d, of);
       // below six units of travel there is no path to speak of, and a wobble
       // measured against a chord that short means nothing
       if (dist(pts[0] as Vec, pts[pts.length - 1] as Vec) < 6) return;
       // 3 units is a third of a fist: below that nothing is visible at any size
-      expect(backtrack(pts), `${d.id} load doubles back on itself`).toBeLessThan(3);
+      expect(backtrack(pts), `${tag} load doubles back on itself`).toBeLessThan(3);
     });
   }
 
@@ -808,8 +889,8 @@ describe('the load travels a path, not a loop', () => {
   });
 
   it('welds a bodyweight grip to the bar it hangs from', () => {
-    for (const id of ['a6', 'b2', 'b3']) {
-      const d = demo(id);
+    for (const [id, vi] of [['a6', 0], ['b2', 1], ['b3', 0]] as Array<[string, number]>) {
+      const d = demo(id, vi);
       const first = tween(d, 0).near.grip;
       for (let i = 0; i <= 40; i++) {
         expect(dist(first, tween(d, i / 40).near.grip), `${id} hand slid at ${i}`).toBeLessThan(2.5);
@@ -834,7 +915,7 @@ describe('the load travels a path, not a loop', () => {
 
 describe('the views are chosen per movement, not by habit', () => {
   it('puts the frontal-plane lifts in the FRONT view and everything else in the side', () => {
-    const front = EXERCISE_DEMOS.filter((d) => d.view === 'front').map((d) => d.id).sort();
+    const front = ALL.filter((e) => e.v.view === 'front').map((e) => e.tag).sort();
     // a4 and x7 joined the frontal four: both are TWO-SIDED movements, and the
     // sagittal camera stacks their two hands into one no matter what the angles
     // say — a flye reads as one dumbbell looping, a face pull as one fist at one

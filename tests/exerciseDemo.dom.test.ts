@@ -20,7 +20,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { demoFor } from '../src/data/exercisePoses.ts';
+import { demoFor, type DemoVariant } from '../src/data/exercisePoses.ts';
 import { PROGRAM, isBuiltInDayKey, type BuiltInDayKey } from '../src/data/program.ts';
 import { CUSTOM_ID_PREFIX, type PlanDoc } from '../src/data/planTypes.ts';
 import { defaultPlanDoc, makePlanDay, savePlan } from '../src/core/plan.ts';
@@ -225,11 +225,11 @@ describe('the still', () => {
     expect(raf.scheduled).toBe(0);
 
     // …and what it shows is the MIDDLE of the movement, not the start
-    const d = demoFor('a3');
-    expect(d).not.toBeNull();
-    const still = stillPose(d!);
-    expect(still.y).toBeGreaterThan((d!.frames[0]?.y ?? 0) + 4);
-    expect(still.y).toBeLessThan(d!.frames[d!.frames.length - 1]?.y ?? 0);
+    const d = demoFor('a3')?.variants[0] as DemoVariant;
+    expect(d).not.toBeUndefined();
+    const still = stillPose(d);
+    expect(still.y).toBeGreaterThan((d.frames[0]?.y ?? 0) + 4);
+    expect(still.y).toBeLessThan(d.frames[d.frames.length - 1]?.y ?? 0);
     expect(host.querySelector('.cd-live')?.innerHTML).toContain('cd-torso');
     h?.destroy();
   });
@@ -258,35 +258,128 @@ describe('the still', () => {
   });
 });
 
+const variant = (id: string, vi = 0): DemoVariant => {
+  const v = demoFor(id)?.variants[vi];
+  if (!v) throw new Error(`no variant ${vi} for ${id}`);
+  return v;
+};
+
 describe('the tempo', () => {
   it('lands exactly on the authored ends, and turns at forwardShare', () => {
-    const d = demoFor('a3');
-    expect(d).not.toBeNull();
-    const last = d!.frames.length - 1;
-    const start = poseAt(d!, 0);
-    const turn = poseAt(d!, d!.loopMs * d!.forwardShare);
-    expect(start.y).toBeCloseTo(d!.frames[0]?.y ?? 0, 6);
-    expect(turn.y).toBeCloseTo(d!.frames[last]?.y ?? 0, 6);
+    const d = variant('a3');
+    const last = d.frames.length - 1;
+    const start = poseAt(d, 0);
+    const turn = poseAt(d, d.loopMs * d.forwardShare);
+    expect(start.y).toBeCloseTo(d.frames[0]?.y ?? 0, 6);
+    expect(turn.y).toBeCloseTo(d.frames[last]?.y ?? 0, 6);
     // and it wraps: a whole loop later is the same pose again
-    expect(poseAt(d!, d!.loopMs).y).toBeCloseTo(start.y, 6);
-    expect(poseAt(d!, -d!.loopMs).y).toBeCloseTo(start.y, 6);
+    expect(poseAt(d, d.loopMs).y).toBeCloseTo(start.y, 6);
+    expect(poseAt(d, -d.loopMs).y).toBeCloseTo(start.y, 6);
   });
 
   it('gives the two halves of the rep DIFFERENT amounts of the clock', () => {
     // an RDL lowers slowly and drives up, so the bottom of the hinge arrives at
     // 60% of the loop and NOT at halfway — which is exactly what a symmetric
     // yoyo could never say.
-    const d = demoFor('c2');
-    expect(d!.forwardShare).toBe(0.6);
-    const bottom = d!.frames[d!.frames.length - 1]?.torso ?? 0;
-    expect(poseAt(d!, d!.loopMs * 0.6).torso).toBeCloseTo(bottom, 6);
-    expect(poseAt(d!, d!.loopMs * 0.5).torso).not.toBeCloseTo(bottom, 1);
+    const d = variant('c2');
+    expect(d.forwardShare).toBe(0.6);
+    const bottom = d.frames[d.frames.length - 1]?.torso ?? 0;
+    expect(poseAt(d, d.loopMs * 0.6).torso).toBeCloseTo(bottom, 6);
+    expect(poseAt(d, d.loopMs * 0.5).torso).not.toBeCloseTo(bottom, 1);
     // …and a press is the other way round: it snaps up and lowers slowly
-    const p = demoFor('a1');
-    expect(p!.forwardShare).toBeLessThan(0.5);
-    const top = p!.frames[p!.frames.length - 1]?.arm[0] ?? 0;
-    expect(poseAt(p!, p!.loopMs * p!.forwardShare).arm[0]).toBeCloseTo(top, 6);
-    expect(poseAt(p!, p!.loopMs * 0.5).arm[0]).not.toBeCloseTo(top, 1);
+    const p = variant('a1');
+    expect(p.forwardShare).toBeLessThan(0.5);
+    const top = p.frames[p.frames.length - 1]?.arm[0] ?? 0;
+    expect(poseAt(p, p.loopMs * p.forwardShare).arm[0]).toBeCloseTo(top, 6);
+    expect(poseAt(p, p.loopMs * 0.5).arm[0]).not.toBeCloseTo(top, 1);
+  });
+});
+
+/* --------------------------------------------------- two ways, side by side */
+
+describe('an exercise with two implementations', () => {
+  it('gives b2 TWO stages in one card, pulldown first, each with its caption', () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const h = mountExerciseDemo(host, 'b2');
+
+    const card = host.querySelector('.ex-demo');
+    expect(card?.classList.contains('ex-demo-pair')).toBe(true);
+    const stages = host.querySelectorAll('.cd-stage');
+    expect(stages).toHaveLength(2);
+    expect(host.querySelectorAll('svg.cd-svg')).toHaveLength(2);
+    // the machine is named first in 'פולי עליון / מתח', so it is drawn first
+    const caps = Array.from(host.querySelectorAll('.cd-cap')).map((e) => e.textContent);
+    expect(caps).toEqual(['פולי עליון', 'מתח']);
+    // …and each picture says which one it is to a screen reader too
+    const labels = Array.from(host.querySelectorAll('svg')).map((e) => e.getAttribute('aria-label'));
+    expect(labels[0]).toContain('פולי עליון');
+    expect(labels[1]).toContain('מתח');
+    h?.destroy();
+  });
+
+  it('gives a single-implementation exercise ONE stage and no caption', () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const h = mountExerciseDemo(host, 'a5');
+    expect(host.querySelectorAll('.cd-stage')).toHaveLength(1);
+    expect(host.querySelectorAll('.cd-cap')).toHaveLength(0);
+    expect(host.querySelector('.ex-demo')?.classList.contains('ex-demo-pair')).toBe(false);
+    h?.destroy();
+  });
+
+  it('animates both stages from ONE requestAnimationFrame, in step', () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const h = mountExerciseDemo(host, 'c5');
+    // one loop, not two: a pair must never be able to drift apart
+    expect(raf.scheduled).toBe(1);
+
+    const before = Array.from(host.querySelectorAll('.cd-live')).map((e) => e.innerHTML);
+    pump(0);
+    pump(700);
+    const after = Array.from(host.querySelectorAll('.cd-live')).map((e) => e.innerHTML);
+    expect(after[0]).not.toBe(before[0]);
+    expect(after[1]).not.toBe(before[1]); // BOTH moved on the same frame
+    expect(raf.frames.length).toBe(1); // …and exactly one is still in flight
+    h?.destroy();
+    expect(raf.cancelled).toHaveLength(1);
+  });
+
+  it('paints a still into EVERY stage under prefers-reduced-motion', () => {
+    vi.stubGlobal('matchMedia', ((q: string) => ({
+      matches: q.includes('prefers-reduced-motion'),
+      media: q,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    })) as unknown as typeof window.matchMedia);
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const h = mountExerciseDemo(host, 'a6');
+    expect(h?.running()).toBe(false);
+    expect(raf.scheduled).toBe(0);
+    const lives = host.querySelectorAll('.cd-live');
+    expect(lives).toHaveLength(2);
+    for (const g of Array.from(lives)) expect(g.innerHTML).toContain('cd-torso');
+    // the two stills are different pictures — hanging and lying
+    expect(lives[0]?.innerHTML).not.toBe(lives[1]?.innerHTML);
+    h?.destroy();
+  });
+
+  it('paints every variant of every exercise without leaving a hole', () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    for (const id of ['a1', 'a6', 'b2', 'b4', 'c2', 'c5', 'a5', 'x1']) {
+      const h = mountExerciseDemo(host, id);
+      const n = demoFor(id)?.variants.length ?? 0;
+      expect(host.querySelectorAll('.cd-stage'), id).toHaveLength(n);
+      for (const g of Array.from(host.querySelectorAll('.cd-live'))) {
+        expect(g.innerHTML, id).toContain('cd-figure');
+        expect(g.innerHTML, id).not.toMatch(/NaN|undefined/);
+      }
+      h?.destroy();
+    }
   });
 });
 

@@ -3,9 +3,19 @@
  *
  * A demo is DATA, not media: a view (which plane the camera is on), two to
  * three keyframes of joint angles for `ui/coachFigure.ts`, the props the lift
- * happens on, what the hands are holding, and a rep tempo. Roughly 6 kB of
+ * happens on, what the hands are holding, and a rep tempo. Roughly 8 kB of
  * numbers for all 28 exercises — the whole feature ships without a single byte
  * of image, video or font, which is what keeps the single-file build honest.
+ *
+ * AN EXERCISE CAN HAVE TWO IMPLEMENTATIONS, AND THEN IT SHOWS BOTH. Half the
+ * program's names are a choice rather than a movement: "פולי עליון / מתח",
+ * "חתירה בסמית׳ / משקולות", "הרמות רגליים בתלייה או בשכיבה", "כפיפות בטן
+ * בשיפוע / עם משקל". A demo that silently picks one of them teaches the wrong
+ * thing to whoever came for the other, so those six carry a `variants` array and
+ * the drawer draws them side by side, each with the tiny Hebrew caption that
+ * says which is which, both animated off one clock (`ui/exerciseDemo.ts`). The
+ * order is the order the exercise's own Hebrew name lists them in. Everything
+ * else has exactly one variant and fills the card on its own.
  *
  * THE KEYFRAMES ARE A YOYO, BUT NOT A SYMMETRIC ONE. `frames` lists the rep in
  * ONE direction (usually start → finish) and `ui/exerciseDemo.ts` plays it there
@@ -75,9 +85,18 @@ import {
   type View,
 } from '../ui/coachFigure.ts';
 
-export interface ExerciseDemo {
-  /** The exercise id this demonstrates (`data/program.ts`). */
-  readonly id: string;
+/**
+ * ONE WAY OF DOING THE EXERCISE — a plane, a station, a set of keyframes and
+ * something in the hands. Most exercises have exactly one; the ones whose own
+ * name offers two get two, and the drawer shows them side by side.
+ */
+export interface DemoVariant {
+  /**
+   * The tiny Hebrew label under this stage. Present exactly when the exercise
+   * has more than one variant: with a single demo the exercise's own name is
+   * already the caption, and repeating it would be noise.
+   */
+  readonly caption?: string;
   readonly view: View;
   /** One full rep, there and back, in milliseconds. */
   readonly loopMs: number;
@@ -91,6 +110,16 @@ export interface ExerciseDemo {
   readonly hold: Hold;
 }
 
+export interface ExerciseDemo {
+  /** The exercise id this demonstrates (`data/program.ts`). */
+  readonly id: string;
+  /** One or two ways to do it, in the order the drawer shows them. Never empty. */
+  readonly variants: readonly DemoVariant[];
+}
+
+/** The common case: an exercise with exactly one implementation. */
+const one = (id: string, v: DemoVariant): ExerciseDemo => ({ id, variants: [v] });
+
 /* ------------------------------------------------------------ shared props */
 
 const FLOOR = 102;
@@ -98,10 +127,42 @@ const flatBench = (x: number, len: number): string => benchProp({ x, y: 84, len,
 const inclineBench = (): string => benchProp({ x: 66, y: 84, len: 46, angle: -30, seat: 16, floorY: FLOOR });
 const uprightBench = (): string => benchProp({ x: 68, y: 84, len: 34, angle: -85, seat: 16, floorY: FLOOR });
 
+/**
+ * A DECLINE SIT-UP BENCH: the pad tipped 12° so the head end is the low one,
+ * with the ankle bracket at the top of the slope where the feet hook under.
+ */
+const declineBench = (): string =>
+  padProp({ x: 54, y: 84 }, { x: 112, y: 96.3 }) +
+  padProp({ x: 54, y: 73 }, { x: 66, y: 75.5 }) +
+  frameProp(56, 84, FLOOR) +
+  frameProp(56, 84, 73) +
+  frameProp(109, 96, FLOOR) +
+  floorProp(30, 132);
+
+/**
+ * A LAT-PULLDOWN STATION seen from the side: the seat, and the thigh pad on its
+ * post that stops the whole lifter being pulled up off it.
+ */
+const pulldownStation = (): string =>
+  benchProp({ x: 46, y: 86, len: 22, floorY: FLOOR }) +
+  padProp({ x: 75, y: 78.5 }, { x: 97, y: 80.5 }) +
+  frameProp(96, 80, 90);
+
 /* ------------------------------------------------------------------ day A */
+
+/**
+ * a1 · INCLINE PRESS, WHICH OUR OWN NAME OFFERS TWO WAYS: `Incline Smith /
+ * Dumbbell Press`. So the drawer shows both, side by side — the rail version
+ * first, because that is the one the steps describe the bar path of, and the
+ * dumbbells beside it. They share the bench, the recline and the frozen legs;
+ * what differs is what the hands are on and therefore how deep the bottom is.
+ */
+const A1_BASE = { x: 68, y: 81, torso: -30, head: -30, leg: [175, 75.8, 155], legF: [175.3, 77.2, 155] } as const;
 
 const A1: ExerciseDemo = {
   id: 'a1',
+  variants: [{
+  caption: 'סמית׳',
   view: 'side',
   loopMs: 2600,
   forwardShare: 0.42,
@@ -119,10 +180,25 @@ const A1: ExerciseDemo = {
   ],
   props: () => inclineBench() + railProp(84, 28, 92) + floorProp(30, 140),
   hold: { k: 'bar' },
+  }, {
+    caption: 'משקולות',
+    view: 'side',
+    loopMs: 2600,
+    forwardShare: 0.42,
+    // The same bench without the rail: nothing guides the path, so the bottom is
+    // a little deeper and a little wider than the bar's. Still a press and not a
+    // swing — the middle keyframe is solved on the chord between the ends.
+    frames: [
+      { ...A1_BASE, arm: [-208.1, -82.1], armF: [-204.7, -70.9] },
+      { ...A1_BASE, arm: [-175.4, -83.8], armF: [-173.2, -74.2] },
+      { ...A1_BASE, arm: [-138.5, -103.7], armF: [-140.9, -92.6] },
+    ],
+    props: () => inclineBench() + floorProp(30, 140),
+    hold: { k: 'db' },
+  }],
 };
 
-const A2: ExerciseDemo = {
-  id: 'a2',
+const A2: ExerciseDemo = one('a2', {
   view: 'side',
   loopMs: 2600,
   forwardShare: 0.44,
@@ -134,10 +210,9 @@ const A2: ExerciseDemo = {
   ],
   props: () => flatBench(48, 76) + floorProp(30, 140),
   hold: { k: 'dbNear' },
-};
+});
 
-const A3: ExerciseDemo = {
-  id: 'a3',
+const A3: ExerciseDemo = one('a3', {
   view: 'side',
   loopMs: 2800,
   forwardShare: 0.58,
@@ -149,10 +224,9 @@ const A3: ExerciseDemo = {
   ],
   props: () => floorProp(36, 120),
   hold: { k: 'db' },
-};
+});
 
-const A4: ExerciseDemo = {
-  id: 'a4',
+const A4: ExerciseDemo = one('a4', {
   view: 'front',
   loopMs: 3000,
   forwardShare: 0.45,
@@ -185,10 +259,9 @@ const A4: ExerciseDemo = {
   // and the legs run OFF it, out and down to two feet planted either side
   props: () => benchTopProp(80, 22, 100, 12),
   hold: { k: 'db' },
-};
+});
 
-const A5: ExerciseDemo = {
-  id: 'a5',
+const A5: ExerciseDemo = one('a5', {
   view: 'side',
   loopMs: 2200,
   forwardShare: 0.42,
@@ -200,10 +273,12 @@ const A5: ExerciseDemo = {
   ],
   props: () => floorProp(48, 112),
   hold: { k: 'db' },
-};
+});
 
 const A6: ExerciseDemo = {
   id: 'a6',
+  variants: [{
+  caption: 'בתלייה',
   view: 'side',
   loopMs: 2800,
   forwardShare: 0.45,
@@ -215,12 +290,29 @@ const A6: ExerciseDemo = {
   ],
   props: () => barProp(60, 106, 10, 6),
   hold: { k: 'none' },
+  }, {
+    caption: 'בשכיבה',
+    view: 'side',
+    loopMs: 2800,
+    forwardShare: 0.45,
+    // LYING, the other half of 'הרמות רגליים/ברכיים בתלייה או בשכיבה'. On a
+    // bench the hands grip the pad beside the hips instead of a bar overhead —
+    // elbows folded up over the ribs, which is both what a lifter does and the
+    // one place an arm does not cross the skull in this projection. The legs run
+    // off the end of the pad, and the raise is the same hip flexion taken to
+    // vertical: knee all but straight, so the shins finish over the hips.
+    frames: [
+      { x: 70, y: 75, torso: 0, head: 0, arm: [-148.5, 114.7], armF: [-145, 118], leg: [178, 179, 200], legF: [175, 182, 200] },
+      { x: 70, y: 75, torso: 0, head: 0, arm: [-148.5, 114.7], armF: [-145, 118], leg: [258, 264, 280], legF: [255, 267, 280] },
+    ],
+    props: () => benchProp({ x: 66, y: 80, len: 58, floorY: FLOOR }) + floorProp(24, 140),
+    hold: { k: 'none' },
+  }],
 };
 
 /* ------------------------------------------------------------------ day B */
 
-const B1: ExerciseDemo = {
-  id: 'b1',
+const B1: ExerciseDemo = one('b1', {
   view: 'side',
   loopMs: 2600,
   forwardShare: 0.42,
@@ -233,10 +325,41 @@ const B1: ExerciseDemo = {
   ],
   props: () => flatBench(44, 74) + railProp(92, 24, 92) + floorProp(28, 140),
   hold: { k: 'bar' },
-};
+});
+
+/**
+ * b2 · פולי עליון / מתח — the exercise is literally named after its two
+ * implementations, and the machine is named FIRST, so the drawer leads with the
+ * seated pulldown and puts the pull-up beside it. They are the same movement
+ * from opposite ends: on the machine the bar travels to a body that stays put,
+ * on the bar the body travels to a grip that stays put.
+ */
+const B2_SEAT = { x: 64, y: 80, torso: -83, head: -83, leg: [15, 85, 5] as const, legF: [12, 88, 5] as const };
 
 const B2: ExerciseDemo = {
   id: 'b2',
+  variants: [{
+  caption: 'פולי עליון',
+  view: 'side',
+  loopMs: 2800,
+  forwardShare: 0.44,
+  // LAT PULLDOWN. Seated with the thighs under the pad, a wide bar on the cable,
+  // and the bar travelling STRAIGHT DOWN the line the pulley hangs on — x=78 in
+  // all three keyframes — from overhead to the upper chest. The middle keyframe
+  // is what makes that true between them: solved for the least bow rather than
+  // for a point, it takes the path from 12 units off the vertical to 2. The
+  // elbow leads: it starts above the shoulder, swings forward through shoulder
+  // height and finishes down at the ribs, which is the cue our steps give.
+  frames: [
+    { ...B2_SEAT, arm: [-79.3, -56.4], armF: [-78.7, -56.6] },
+    { ...B2_SEAT, arm: [4.5, -106.5], armF: [4.7, -106.1] },
+    { ...B2_SEAT, arm: [90, -44.7], armF: [90.2, -44.4] },
+  ],
+  props: () =>
+    pulldownStation() + pulleyProp(78, 14, { top: 8, post: 72, postX: 108 }) + floorProp(34, 132),
+  hold: { k: 'handle', from: [78, 14], wide: true },
+  }, {
+  caption: 'מתח',
   view: 'side',
   loopMs: 2800,
   forwardShare: 0.44,
@@ -253,10 +376,10 @@ const B2: ExerciseDemo = {
   ],
   props: () => barProp(58, 110, 12, 6),
   hold: { k: 'none' },
+  }],
 };
 
-const B3: ExerciseDemo = {
-  id: 'b3',
+const B3: ExerciseDemo = one('b3', {
   view: 'side',
   loopMs: 2600,
   forwardShare: 0.58,
@@ -276,10 +399,14 @@ const B3: ExerciseDemo = {
   ],
   props: () => dipBarsProp(62, 104, 52, FLOOR),
   hold: { k: 'none' },
-};
+});
+
+const B4_HINGE = { x: 76, y: 66, torso: -45, head: -45, leg: [85.2, 109.8, 25] as const, legF: [86.4, 110, 25] as const };
 
 const B4: ExerciseDemo = {
   id: 'b4',
+  variants: [{
+  caption: 'סמית׳',
   view: 'side',
   loopMs: 2600,
   forwardShare: 0.44,
@@ -291,10 +418,24 @@ const B4: ExerciseDemo = {
   ],
   props: () => railProp(93, 26, 94) + floorProp(40, 124),
   hold: { k: 'bar' },
+  }, {
+    caption: 'משקולות',
+    view: 'side',
+    loopMs: 2600,
+    forwardShare: 0.44,
+    // The free version of the same hinge: no rail, so the dumbbells hang
+    // straight down from the shoulders and are rowed back to the hips with the
+    // elbow driving past the ribs. Same 45° torso, and it still does not move.
+    frames: [
+      { ...B4_HINGE, arm: [90, 90], armF: [92, 92] },
+      { ...B4_HINGE, arm: [191.3, 66.4], armF: [187, 70] },
+    ],
+    props: () => floorProp(40, 124),
+    hold: { k: 'db' },
+  }],
 };
 
-const B5: ExerciseDemo = {
-  id: 'b5',
+const B5: ExerciseDemo = one('b5', {
   view: 'side',
   loopMs: 4200,
   forwardShare: 0.5,
@@ -308,10 +449,9 @@ const B5: ExerciseDemo = {
   ],
   props: () => matProp(38, 122, 100) + floorProp(30, 140, 103.4),
   hold: { k: 'none' },
-};
+});
 
-const B6: ExerciseDemo = {
-  id: 'b6',
+const B6: ExerciseDemo = one('b6', {
   view: 'front',
   loopMs: 2800,
   forwardShare: 0.44,
@@ -324,12 +464,11 @@ const B6: ExerciseDemo = {
   ],
   props: () => pulleyProp(24, 26, { stack: true }) + pulleyProp(136, 26, { stack: true }) + floorProp(36, 124),
   hold: { k: 'cables', from: [[24, 26], [136, 26]] },
-};
+});
 
 /* ------------------------------------------------------------------ day C */
 
-const C1: ExerciseDemo = {
-  id: 'c1',
+const C1: ExerciseDemo = one('c1', {
   view: 'side',
   loopMs: 2800,
   forwardShare: 0.4,
@@ -345,10 +484,12 @@ const C1: ExerciseDemo = {
   ],
   props: () => inclineBench() + floorProp(30, 140),
   hold: { k: 'db' },
-};
+});
 
 const C2: ExerciseDemo = {
   id: 'c2',
+  variants: [{
+  caption: 'משקולות',
   view: 'side',
   loopMs: 2800,
   forwardShare: 0.6,
@@ -360,10 +501,29 @@ const C2: ExerciseDemo = {
   ],
   props: () => floorProp(34, 118),
   hold: { k: 'db' },
+  }, {
+    caption: 'סמית׳',
+    view: 'side',
+    loopMs: 3000,
+    forwardShare: 0.6,
+    // THE SMITH RDL IS A DIFFERENT PICTURE, not the same one with a bar drawn
+    // in. The rail is vertical, so the bar cannot follow the shins: it goes
+    // straight down x=88 while the hips travel back away from it, and the arms
+    // are what take up the difference. Every keyframe's arms are solved by IK
+    // from the grip ON the rail, which is why the bar stays within one unit of
+    // it the whole way rather than only at the ends. Three keyframes, because
+    // the planted ankle needs a middle one as much as the bar does.
+    frames: [
+      { x: 80, y: 65.8, torso: -90, head: -90, arm: [93.6, 55.2], armF: [93.6, 55.2], leg: [81.3, 99.3, 4], legF: [82.8, 97.8, 4] },
+      { x: 72, y: 67.5, torso: -55, head: -58, arm: [99.5, 73.3], armF: [99.5, 73.3], leg: [61.1, 90.8, 4], legF: [62.6, 89.3, 4] },
+      { x: 62, y: 71.5, torso: -20, head: -28, arm: [106.1, 62.4], armF: [106.1, 62.4], leg: [45.6, 67.5, 4], legF: [47.1, 66, 4] },
+    ],
+    props: () => railProp(88, 18, 98) + floorProp(34, 122),
+    hold: { k: 'bar' },
+  }],
 };
 
-const C3: ExerciseDemo = {
-  id: 'c3',
+const C3: ExerciseDemo = one('c3', {
   view: 'side',
   loopMs: 2600,
   forwardShare: 0.42,
@@ -377,10 +537,9 @@ const C3: ExerciseDemo = {
   ],
   props: () => uprightBench() + floorProp(36, 124),
   hold: { k: 'db' },
-};
+});
 
-const C4: ExerciseDemo = {
-  id: 'c4',
+const C4: ExerciseDemo = one('c4', {
   view: 'side',
   loopMs: 2400,
   forwardShare: 0.42,
@@ -393,10 +552,12 @@ const C4: ExerciseDemo = {
   ],
   props: () => uprightBench() + floorProp(36, 124),
   hold: { k: 'plate', r: 5 },
-};
+});
 
 const C5: ExerciseDemo = {
   id: 'c5',
+  variants: [{
+  caption: 'על מזרן',
   view: 'side',
   loopMs: 2400,
   forwardShare: 0.44,
@@ -416,10 +577,26 @@ const C5: ExerciseDemo = {
   ],
   props: () => matProp(40, 112, 100) + floorProp(30, 130, 103.4),
   hold: { k: 'plate', r: 5 },
+  }, {
+    caption: 'בשיפוע',
+    view: 'side',
+    loopMs: 2400,
+    forwardShare: 0.44,
+    // The decline bench our step names first ('ספסל בשיפוע שלילי או מזרן'): the
+    // feet are hooked at the HIGH end, the head is the low one, and the whole
+    // body — and the plate on its chest — is the mat version tipped 12°. The
+    // plate is solved the same way, perpendicular to the spine, so it rides the
+    // sternum on the slope exactly as it does on the floor.
+    frames: [
+      { x: 73, y: 81.5, torso: 12, head: 12, arm: [-47.9, 174.4], armF: [-47.9, 174.4], leg: [-106.1, 123.8, 132], legF: [-102, 120, 132] },
+      { x: 73, y: 81.5, torso: -18, head: -33, arm: [-77.9, 144.4], armF: [-77.9, 144.4], leg: [-106.1, 123.8, 132], legF: [-102, 120, 132] },
+    ],
+    props: () => declineBench(),
+    hold: { k: 'plate', r: 5 },
+  }],
 };
 
-const C6: ExerciseDemo = {
-  id: 'c6',
+const C6: ExerciseDemo = one('c6', {
   view: 'front',
   loopMs: 3200,
   forwardShare: 0.5,
@@ -433,12 +610,11 @@ const C6: ExerciseDemo = {
   ],
   props: () => matProp(46, 116, 96),
   hold: { k: 'plate' },
-};
+});
 
 /* ---------------------------------------------------------------- library */
 
-const X1: ExerciseDemo = {
-  id: 'x1',
+const X1: ExerciseDemo = one('x1', {
   view: 'side',
   loopMs: 2800,
   forwardShare: 0.58,
@@ -456,10 +632,9 @@ const X1: ExerciseDemo = {
   ],
   props: () => railProp(78, 14, 98) + floorProp(38, 122),
   hold: { k: 'barBack' },
-};
+});
 
-const X2: ExerciseDemo = {
-  id: 'x2',
+const X2: ExerciseDemo = one('x2', {
   view: 'side',
   loopMs: 2400,
   forwardShare: 0.42,
@@ -481,10 +656,9 @@ const X2: ExerciseDemo = {
     pivotProp(83, 80) +
     floorProp(34, 122),
   hold: { k: 'roller', joint: 'ankle' },
-};
+});
 
-const X3: ExerciseDemo = {
-  id: 'x3',
+const X3: ExerciseDemo = one('x3', {
   view: 'side',
   loopMs: 2400,
   forwardShare: 0.42,
@@ -496,10 +670,9 @@ const X3: ExerciseDemo = {
   ],
   props: () => benchProp({ x: 40, y: 86, len: 66, floorY: FLOOR }) + pivotProp(101, 80) + floorProp(28, 136),
   hold: { k: 'roller', joint: 'ankle' },
-};
+});
 
-const X4: ExerciseDemo = {
-  id: 'x4',
+const X4: ExerciseDemo = one('x4', {
   view: 'front',
   loopMs: 2200,
   forwardShare: 0.42,
@@ -511,10 +684,9 @@ const X4: ExerciseDemo = {
   ],
   props: () => floorProp(48, 112),
   hold: { k: 'db' },
-};
+});
 
-const X5: ExerciseDemo = {
-  id: 'x5',
+const X5: ExerciseDemo = one('x5', {
   view: 'side',
   loopMs: 2200,
   forwardShare: 0.42,
@@ -526,10 +698,9 @@ const X5: ExerciseDemo = {
   ],
   props: () => pulleyProp(100, 18, { stack: true }) + floorProp(44, 122),
   hold: { k: 'rope', from: [100, 18] },
-};
+});
 
-const X6: ExerciseDemo = {
-  id: 'x6',
+const X6: ExerciseDemo = one('x6', {
   view: 'side',
   loopMs: 2600,
   forwardShare: 0.44,
@@ -543,10 +714,9 @@ const X6: ExerciseDemo = {
     padProp({ x: 76, y: 76 }, { x: 90, y: 76 }) +
     floorProp(34, 130),
   hold: { k: 'handle', from: [108, 16] },
-};
+});
 
-const X7: ExerciseDemo = {
-  id: 'x7',
+const X7: ExerciseDemo = one('x7', {
   view: 'front',
   loopMs: 2600,
   forwardShare: 0.44,
@@ -574,10 +744,9 @@ const X7: ExerciseDemo = {
   ],
   props: () => pulleyProp(80, 10, { top: 2, post: 0 }) + floorProp(44, 118),
   hold: { k: 'rope', from: [80, 10] },
-};
+});
 
-const X8: ExerciseDemo = {
-  id: 'x8',
+const X8: ExerciseDemo = one('x8', {
   view: 'front',
   loopMs: 2000,
   forwardShare: 0.45,
@@ -589,10 +758,9 @@ const X8: ExerciseDemo = {
   ],
   props: () => floorProp(48, 112),
   hold: { k: 'db' },
-};
+});
 
-const X9: ExerciseDemo = {
-  id: 'x9',
+const X9: ExerciseDemo = one('x9', {
   view: 'side',
   loopMs: 2200,
   forwardShare: 0.42,
@@ -607,10 +775,9 @@ const X9: ExerciseDemo = {
   ],
   props: () => floorProp(48, 112),
   hold: { k: 'db', axis: 'along' },
-};
+});
 
-const X10: ExerciseDemo = {
-  id: 'x10',
+const X10: ExerciseDemo = one('x10', {
   view: 'side',
   loopMs: 2800,
   forwardShare: 0.42,
@@ -622,7 +789,7 @@ const X10: ExerciseDemo = {
   ],
   props: () => flatBench(46, 74) + floorProp(30, 140),
   hold: { k: 'plate', r: 6 },
-};
+});
 
 /** Every demonstration, in program order. */
 export const EXERCISE_DEMOS: readonly ExerciseDemo[] = [
