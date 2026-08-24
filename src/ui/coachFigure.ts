@@ -24,7 +24,7 @@
  * readable on the page: `arm: [90, 90]` is an arm hanging straight down, and
  * `torso: -90` is an upright spine.
  *
- * TWO VIEWS share the one rig:
+ * THREE VIEWS share the one rig:
  *   - `side` — both limb pairs hang off the same shoulder/hip point, the far
  *     one nudged by `DEPTH` and drawn dimmer. This is the sagittal plane, where
  *     presses, hinges, curls and squats live.
@@ -32,6 +32,12 @@
  *     and the FAR side's angles are mirrored automatically, so a symmetric
  *     front pose is authored once and copied. This is the plane where a lateral
  *     raise, a shrug or a cable crossover is actually legible.
+ *   - `threeQuarter` — the same spread, taken at an angle: narrower across (`Q.
+ *     spread`), pushed apart along a depth diagonal (`Q.near` / `Q.far`), and
+ *     with the far side's bones drawn shorter (`Q.foreshorten`). It is the view
+ *     for a movement that is two-handed AND happens in front of the body, where
+ *     the side camera stacks the two hands into one and the front one flattens
+ *     all the depth out of them — a face pull, a flye.
  *
  * FORWARD KINEMATICS IS THE SOURCE OF TRUTH for the equipment too: a dumbbell
  * sits at the hand because `holdSvg` reads `joints.near.grip`, a machine roller
@@ -46,7 +52,13 @@
 
 /* ------------------------------------------------------------------ types */
 
-export type View = 'side' | 'front';
+/**
+ * Which plane the camera is on. `threeQuarter` is the turned one — see `Q` — and
+ * it exists for the movements that are two-handed AND happen in front of the
+ * body, where `side` stacks the two hands into one and `front` flattens the
+ * depth out of them.
+ */
+export type View = 'side' | 'front' | 'threeQuarter';
 
 export interface Vec {
   readonly x: number;
@@ -125,6 +137,38 @@ export const RIG = {
 /** How far the FAR limbs sit from the near ones in the side view. */
 const DEPTH: Vec = { x: -2.6, y: 0 };
 
+/**
+ * THE THREE-QUARTER CHEAT, in four numbers.
+ *
+ * A body turned ~45° to the camera is not something a 2D rig can compute, but it
+ * is something a 2D rig can FAKE honestly, and the fake is worth having: it is
+ * the only view in which a two-handed movement shows two hands AND a depth
+ * order. Three things happen to the body at once, and each gets one number:
+ *
+ *   `spread`      the shoulder and hip spans are seen at an angle, so what
+ *                 survives in the picture is the cosine of the turn. 0.62 of the
+ *                 full span is a turn of about 52°.
+ *   `near`/`far`  what that cosine COST goes into instead: depth. The far side
+ *                 is pushed up-and-left and the near side down-and-right along
+ *                 one diagonal, which is what makes the torso a parallelogram
+ *                 rather than a flat plate and tells the eye which shoulder is
+ *                 closer.
+ *   `foreshorten` the far side is further from the camera, so its bones are
+ *                 drawn a little shorter. It is not perspective — it is the one
+ *                 cue that stops a mirrored far arm reading as a second near
+ *                 arm pasted on at an offset.
+ *
+ * Everything else is unchanged: the far side's angles are still mirrored, so a
+ * symmetric pose is still authored once, and the far limbs still take the dim
+ * stroke that is this renderer's only other depth cue.
+ */
+const Q = {
+  spread: 0.62,
+  near: { x: 2, y: 1.7 } as Vec,
+  far: { x: -2, y: -1.7 } as Vec,
+  foreshorten: 0.85,
+} as const;
+
 /** The stage every demo is drawn on. Wider than tall: half the lifts lie down. */
 export const STAGE = { w: 160, h: 120, floorY: 102 } as const;
 
@@ -156,25 +200,25 @@ export function flexion(first: number, second: number): number {
   return Math.abs(d);
 }
 
-function armChain(shoulder: Vec, a: ArmAngles, mirror: 1 | -1): Pick<SideJoints, 'shoulder' | 'elbow' | 'wrist' | 'grip'> {
+function armChain(shoulder: Vec, a: ArmAngles, mirror: 1 | -1, k: number): Pick<SideJoints, 'shoulder' | 'elbow' | 'wrist' | 'grip'> {
   const u = mirror === 1 ? a[0] : 180 - a[0];
   const f = mirror === 1 ? a[1] : 180 - a[1];
-  const elbow = step(shoulder, u, RIG.upperArm);
-  const wrist = step(elbow, f, RIG.forearm);
-  return { shoulder, elbow, wrist, grip: step(wrist, f, RIG.hand) };
+  const elbow = step(shoulder, u, RIG.upperArm * k);
+  const wrist = step(elbow, f, RIG.forearm * k);
+  return { shoulder, elbow, wrist, grip: step(wrist, f, RIG.hand * k) };
 }
 
-function legChain(hip: Vec, l: LegAngles, mirror: 1 | -1): Pick<SideJoints, 'hip' | 'knee' | 'ankle' | 'toe'> {
+function legChain(hip: Vec, l: LegAngles, mirror: 1 | -1, k: number): Pick<SideJoints, 'hip' | 'knee' | 'ankle' | 'toe'> {
   const t = mirror === 1 ? l[0] : 180 - l[0];
   const s = mirror === 1 ? l[1] : 180 - l[1];
   const f = mirror === 1 ? l[2] : 180 - l[2];
-  const knee = step(hip, t, RIG.thigh);
-  const ankle = step(knee, s, RIG.shin);
-  return { hip, knee, ankle, toe: step(ankle, f, RIG.foot) };
+  const knee = step(hip, t, RIG.thigh * k);
+  const ankle = step(knee, s, RIG.shin * k);
+  return { hip, knee, ankle, toe: step(ankle, f, RIG.foot * k) };
 }
 
-function side(shoulder: Vec, hip: Vec, a: ArmAngles, l: LegAngles, mirror: 1 | -1): SideJoints {
-  return { ...armChain(shoulder, a, mirror), ...legChain(hip, l, mirror) };
+function side(shoulder: Vec, hip: Vec, a: ArmAngles, l: LegAngles, mirror: 1 | -1, k = 1): SideJoints {
+  return { ...armChain(shoulder, a, mirror, k), ...legChain(hip, l, mirror, k) };
 }
 
 /** Pose → every joint position. The one place the skeleton is assembled. */
@@ -187,26 +231,31 @@ export function forwardKinematics(pose: Pose, view: View = 'side'): Joints {
   // must raise the traps towards the ears, never carry the skull up with them.
   const head = step(neck, pose.head, RIG.neck);
 
-  if (view === 'front') {
+  if (view === 'front' || view === 'threeQuarter') {
     const roll = pose.roll ?? 0;
+    const q = view === 'threeQuarter';
+    const spread = q ? Q.spread : 1;
+    const scale = q ? Q.foreshorten : 1;
+    const on = (p: Vec, d: Vec): Vec => (q ? { x: p.x + d.x, y: p.y + d.y } : p);
     return {
       pelvis,
       neck,
       shoulders,
       head,
       near: side(
-        step(shoulders, roll, RIG.shoulderHalf),
-        { x: pelvis.x + RIG.hipHalf, y: pelvis.y },
+        on(step(shoulders, roll, RIG.shoulderHalf * spread), Q.near),
+        on(q ? step(pelvis, roll, RIG.hipHalf * spread) : { x: pelvis.x + RIG.hipHalf, y: pelvis.y }, Q.near),
         pose.arm,
         pose.leg,
         1,
       ),
       far: side(
-        step(shoulders, roll + 180, RIG.shoulderHalf),
-        { x: pelvis.x - RIG.hipHalf, y: pelvis.y },
+        on(step(shoulders, roll + 180, RIG.shoulderHalf * spread), Q.far),
+        on(q ? step(pelvis, roll + 180, RIG.hipHalf * spread) : { x: pelvis.x - RIG.hipHalf, y: pelvis.y }, Q.far),
         pose.armF,
         pose.legF,
         -1,
+        scale,
       ),
     };
   }
@@ -308,7 +357,9 @@ function limbPath(s: SideJoints, cls: string): string {
 }
 
 function torsoPath(j: Joints, view: View): string {
-  if (view === 'front') {
+  // both spread views build the torso from the rig's own four points, so a roll
+  // (or the three-quarter diagonal) shapes it for free
+  if (view !== 'side') {
     return poly([j.near.shoulder, j.far.shoulder, j.far.hip, j.near.hip]);
   }
   const perp = angleOf(j.pelvis, j.shoulders) + 90;
@@ -382,23 +433,28 @@ export function padProp(a: Vec, b: Vec): string {
 }
 
 /**
- * A FLAT BENCH SEEN FROM ABOVE — the one station here that is not a side
- * elevation. A lifter on his back, viewed from directly overhead, is the FRONT
- * silhouette; the bench under him is therefore a slab running head-to-foot
- * rather than a pad on posts. `(x, y1)` is the head end and `(x, y2)` the foot
- * end, `half` half the pad's width; the two cross-members are all you ever see
- * of a bench's legs from up there.
+ * A FLAT BENCH SEEN AT THREE QUARTERS: the pad is a PARALLELOGRAM — its long
+ * axis `a`→`b` running head-to-foot under the lifter, its width along `dep`, the
+ * same depth diagonal the rig spreads the body on — with a leg dropped from each
+ * end of the near edge. `a` is the head end, and it gets the cushion seam, which
+ * is the one mark that says which end of a slab the skull belongs on.
  */
-export function benchTopProp(x: number, y1: number, y2: number, half = 11): string {
-  const cross = (y: number, w: number): string =>
-    `<path class="cd-frame" d="${line({ x: x - w, y }, { x: x + w, y })}"/>`;
+export function benchDiagProp(o: { a: Vec; b: Vec; dep: Vec; floorY?: number }): string {
+  const floorY = o.floorY ?? STAGE.floorY;
+  const at = (p: Vec, k: number): Vec => ({ x: p.x + o.dep.x * k, y: p.y + o.dep.y * k });
+  const along = (k: number): Vec => ({ x: o.a.x + (o.b.x - o.a.x) * k, y: o.a.y + (o.b.y - o.a.y) * k });
+  const nearA = at(along(0.1), 1);
+  const nearB = at(along(0.9), 1);
+  const leg = (p: Vec): string => `<path class="cd-frame" d="${line(p, { x: p.x, y: floorY })}"/>`;
+  const seam = along(0.22);
   return (
-    cross(y1 + 4, half + 5) +
-    cross(y2 - 4, half + 6) +
-    `<rect class="cd-mat" x="${n(x - half)}" y="${n(y1)}" width="${n(half * 2)}" height="${n(y2 - y1)}" rx="${n(half)}"/>` +
-    // the seam where the head cushion starts, the one thing that says which end
-    // of a slab the head is on
-    `<path class="cd-frame" d="${line({ x: x - half + 2, y: y1 + 13 }, { x: x + half - 2, y: y1 + 13 })}"/>`
+    leg(nearA) +
+    leg(nearB) +
+    `<path class="cd-frame" d="${line({ x: nearA.x, y: floorY }, { x: nearB.x, y: floorY })}"/>` +
+    `<path class="cd-slab" d="${poly([at(o.a, -1), at(o.b, -1), at(o.b, 1), at(o.a, 1)])}"/>` +
+    `<path class="cd-frame" d="${line(at(o.a, -1), at(o.b, -1))}"/>` +
+    `<path class="cd-pad" d="${line(at(o.a, 1), at(o.b, 1))}"/>` +
+    `<path class="cd-frame" d="${line(at(seam, 0.92), at(seam, -0.92))}"/>`
   );
 }
 
@@ -578,6 +634,34 @@ export function holdAnchors(hold: Hold, j: Joints): Vec[] {
   }
 }
 
+/** The one hold whose two halves live on two sides of the body: the rope. */
+function ropeParts(hold: { readonly from: readonly [number, number] }, j: Joints) {
+  const from: Vec = { x: hold.from[0] ?? 0, y: hold.from[1] ?? 0 };
+  const hands = mid(j.near.grip, j.far.grip);
+  const clip = step(hands, angleOf(hands, from), 7);
+  return {
+    from,
+    clip,
+    strand: (g: Vec): string =>
+      `<path class="cd-rope" d="${line(clip, g)} ${line(g, step(g, angleOf(clip, g), 5))}"/>`,
+  };
+}
+
+/**
+ * THE PART OF THE LOAD THAT IS BEHIND THE BODY, painted before the figure is.
+ *
+ * Almost nothing is: a dumbbell is in a hand and a bar is in front of the chest.
+ * A ROPE is the exception, and it is the reason this function exists. Pulled to
+ * the face, the two ends straddle the skull — one passes the near ear and one
+ * the far one — so drawing both in front puts a stripe across the face, which is
+ * exactly what the review called out. The far strand belongs behind the head,
+ * and the head is a filled circle, so putting it in this layer is the whole fix.
+ */
+export function holdBackSvg(hold: Hold, j: Joints): string {
+  if (hold.k !== 'rope') return '';
+  return ropeParts(hold, j).strand(j.far.grip);
+}
+
 export function holdSvg(hold: Hold, j: Joints): string {
   switch (hold.k) {
     case 'none':
@@ -600,15 +684,23 @@ export function holdSvg(hold: Hold, j: Joints): string {
       return plateSvg(step(j.near.shoulder, a, 1.5), 5);
     }
     case 'rope': {
-      // A ROPE HAS TWO ENDS, AND THEY ARRIVE IN TWO FISTS. One strand to the
-      // midpoint with a splay at the bottom was enough while both hands sat on
-      // top of each other in the sagittal plane; the moment a lift is shot from
-      // the front — the face pull — the V is the whole information, so each
-      // fist gets its own strand and its own loose end past the knuckles.
-      const from: Vec = { x: hold.from[0] ?? 0, y: hold.from[1] ?? 0 };
-      const strand = (g: Vec): string =>
-        cableSvg(from, g) + `<path class="cd-rope" d="${line(g, step(g, angleOf(from, g), 7))}"/>`;
-      return strand(j.far.grip) + strand(j.near.grip);
+      // A ROPE HAS TWO ENDS, AND THEY ARRIVE IN TWO FISTS — but it is not two
+      // cables. What hangs off the machine is ONE cable ending in a clip, and
+      // the rope's two halves run from that clip to the two hands. Drawing two
+      // full-length strands back to the pulley made a face pull read as a rake:
+      // both lines left the same wheel at almost the same angle and merged into
+      // one bar across the top of the picture. The clip is what breaks them
+      // apart — it sits a rope's length in front of the hands, so the two ends
+      // leave it at a wide angle.
+      //
+      // Only the NEAR end is drawn here. The far one is behind the body — see
+      // `holdBackSvg`.
+      const rope = ropeParts(hold, j);
+      return (
+        cableSvg(rope.from, rope.clip) +
+        rope.strand(j.near.grip) +
+        `<circle class="cd-clip" cx="${n(rope.clip.x)}" cy="${n(rope.clip.y)}" r="1.9"/>`
+      );
     }
     case 'handle': {
       const from: Vec = { x: hold.from[0] ?? 0, y: hold.from[1] ?? 0 };

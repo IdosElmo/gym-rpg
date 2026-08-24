@@ -29,11 +29,14 @@ import { EXERCISE_DEMOS, demoFor, type DemoVariant, type ExerciseDemo } from '..
 import { builtInExercises, findExercise } from '../src/data/program.ts';
 import {
   STAGE,
+  angleOf,
   dist,
   flexion,
   forwardKinematics,
   frameAt,
   holdAnchors,
+  holdBackSvg,
+  holdSvg,
   type Joints,
   type Pose,
   type Vec,
@@ -124,6 +127,15 @@ function rails(d: DemoVariant): number[] {
   return out;
 }
 
+/** Distance from a point to a segment — "does this bone cross the skull". */
+function segDist(p: Vec, a: Vec, b: Vec): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const L = dx * dx + dy * dy;
+  const t = L ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / L)) : 0;
+  return Math.hypot(p.x - (a.x + dx * t), p.y - (a.y + dy * t));
+}
+
 const eachFrame = (d: DemoVariant, fn: (j: Joints, pose: Pose, i: number) => void): void => {
   d.frames.forEach((pose, i) => fn(forwardKinematics(pose, d.view), pose, i));
 };
@@ -185,7 +197,7 @@ describe('every demo, structurally', () => {
         expect(d.frames.length).toBeLessThanOrEqual(3);
         expect(d.loopMs).toBeGreaterThanOrEqual(1800);
         expect(d.loopMs).toBeLessThanOrEqual(5000);
-        expect(d.view === 'side' || d.view === 'front').toBe(true);
+        expect(['side', 'front', 'threeQuarter']).toContain(d.view);
       });
 
       it('keeps every joint inside the stage', () => {
@@ -627,37 +639,69 @@ describe('machines and cables', () => {
 
   it('x7 is OUR face pull: two rope ends, two temples, elbows wide and high', () => {
     const d = demo('x7');
-    expect(d.view).toBe('front'); // a rope has two ends and they arrive apart
+    // a rope has two ends and they arrive apart. The side camera stacks them;
+    // the front camera separates them but has to hang the cable from the ceiling
+    // and works the whole movement straight at the lens. The turned view keeps
+    // the station where a face pull's station is — off to one side at head
+    // height — and still shows two hands.
+    expect(d.view).toBe('threeQuarter');
     const out = at('x7', 0);
     const pulled = at('x7', endOf('x7'));
-    // extended: the fists together up at the rope, arms nearly straight
-    expect(dist(out.near.shoulder, out.near.grip)).toBeGreaterThan(24);
-    expect(dist(out.near.grip, out.far.grip)).toBeLessThan(10);
-    expect(out.near.grip.y).toBeLessThan(out.head.y - 8);
-    // contracted: ONE FIST EITHER SIDE OF THE HEAD, at about ear height
-    expect(pulled.near.grip.x).toBeGreaterThan(pulled.head.x + 6);
-    expect(pulled.far.grip.x).toBeLessThan(pulled.head.x - 6);
-    expect(Math.abs(pulled.near.grip.y - pulled.head.y)).toBeLessThan(6);
-    // …and the two arms are mirror images, because the rig mirrors the far side
-    // of a front-view pose for free
-    expect(pulled.near.grip.x - pulled.pelvis.x).toBeCloseTo(pulled.pelvis.x - pulled.far.grip.x, 6);
-    expect(pulled.near.grip.y).toBeCloseTo(pulled.far.grip.y, 6);
-    // ELBOWS WIDE AND HIGH is the cue, and in this view both of them show it
+    // extended: the fists out at the rope, the near arm all but straight
+    expect(dist(out.near.shoulder, out.near.grip)).toBeGreaterThan(26);
+    expect(out.near.grip.x).toBeGreaterThan(out.head.x + 20);
+    // contracted: ONE FIST EITHER SIDE OF THE HEAD, at about eye height
+    expect(pulled.near.grip.x).toBeGreaterThan(pulled.head.x + 8);
+    expect(pulled.far.grip.x).toBeLessThan(pulled.head.x - 8);
+    for (const g of [pulled.near.grip, pulled.far.grip]) {
+      expect(Math.abs(g.y - pulled.head.y)).toBeLessThan(8);
+      expect(dist(g, pulled.head)).toBeGreaterThan(9); // outside the skull
+    }
+    // …and the two are offset on the DEPTH diagonal, so which is which is never
+    // in doubt: the far fist is the higher one
+    expect(pulled.near.grip.y - pulled.far.grip.y).toBeGreaterThan(2);
+    // ELBOWS WIDE AND HIGH is the cue, and both of them show it
     expect(pulled.near.elbow.x).toBeGreaterThan(pulled.near.shoulder.x + 8);
     expect(pulled.far.elbow.x).toBeLessThan(pulled.far.shoulder.x - 8);
     expect(pulled.near.elbow.y).toBeLessThan(pulled.near.shoulder.y);
-    const from = d.hold.k === 'rope' ? (d.hold as { from: readonly number[] }).from : [];
-    expect(from[1]).toBeLessThan(out.near.grip.y); // the rope comes from above
+    expect(pulled.far.elbow.y).toBeLessThan(pulled.far.shoulder.y);
+    // the wheel is at FACE height and off to the side, which is where a cable
+    // station is — not on the ceiling
+    const wheel = pulleys(d)[0] as Vec;
+    expect(Math.abs(wheel.y - out.head.y)).toBeLessThan(6);
+    expect(wheel.x).toBeGreaterThan(out.head.x + 40);
+    expect(d.hold.k === 'rope' && d.hold.from[0] === wheel.x && d.hold.from[1] === wheel.y).toBe(true);
   });
 
-  it('draws the rope as TWO strands, one to each fist', () => {
+  it('x7 never draws anything ACROSS the face', () => {
+    // the review's complaint about the front-view attempt was that the arm and
+    // the rope read as piercing the skull. What is painted IN FRONT of the body
+    // — the near arm, the cable, the clip, the near rope end — now misses the
+    // head by more than its own radius all the way through the rep, and the far
+    // halves that do cross it are painted BEHIND the figure.
     const d = demo('x7');
-    const svg = demoSvg(d, frameAt(d.frames, 1), 'x');
-    expect(svg.match(/class="cd-cable"/g)).toHaveLength(2);
-    expect(svg.match(/class="cd-rope"/g)).toHaveLength(2);
-    // and the anchors the tests read are the two fists, not their midpoint
-    const j = at('x7', endOf('x7'));
-    expect(holdAnchors(d.hold, j)).toEqual([j.near.grip, j.far.grip]);
+    const wheel = pulleys(d)[0] as Vec;
+    for (let i = 0; i <= 40; i++) {
+      const j = tween(d, i / 40);
+      const bones: Array<[Vec, Vec]> = [
+        [j.near.shoulder, j.near.elbow],
+        [j.near.elbow, j.near.wrist],
+        [j.near.wrist, j.near.grip],
+      ];
+      for (const [a, b] of bones) {
+        expect(segDist(j.head, a, b), `near arm at ${i}`).toBeGreaterThan(8);
+      }
+      const hands = { x: (j.near.grip.x + j.far.grip.x) / 2, y: (j.near.grip.y + j.far.grip.y) / 2 };
+      const a = angleOf(hands, wheel) * (Math.PI / 180);
+      const clip = { x: hands.x + Math.cos(a) * 7, y: hands.y + Math.sin(a) * 7 };
+      expect(dist(j.head, clip), `clip at ${i}`).toBeGreaterThan(7);
+      expect(segDist(j.head, wheel, clip), `cable at ${i}`).toBeGreaterThan(8);
+      expect(segDist(j.head, clip, j.near.grip), `near rope end at ${i}`).toBeGreaterThan(8);
+    }
+    // …and the far end really is in the back layer, not the front one
+    const joints = forwardKinematics(frameAt(d.frames, 1), d.view);
+    expect(holdBackSvg(d.hold, joints)).toContain('cd-rope');
+    expect(holdSvg(d.hold, joints).match(/class="cd-rope"/g)).toHaveLength(1);
   });
 
   it('x8 is a pure elevation: nothing rotates, the head stays', () => {
@@ -679,33 +723,51 @@ describe('flye family — a wide arc, elbow bent throughout', () => {
   it('a4 opens the hands to BOTH sides and closes them over the chest', () => {
     const d = demo('a4');
     // Seen from the side, two arms opening left and right stack into one plane
-    // and the pair reads as one hand. Shot from above — which for a lifter on
-    // his back IS the front silhouette — they are visibly two.
-    expect(d.view).toBe('front');
+    // and the pair reads as one hand. Seen from straight above, the body is a
+    // plank with a head on it. The TURNED view gives both: the bench recedes on
+    // a diagonal and the two arms separate along that diagonal — the near one
+    // swinging down towards the viewer, the far one up and away.
+    expect(d.view).toBe('threeQuarter');
     const open = at('a4', 0);
     const closed = at('a4', endOf('a4'));
-    expect(dist(open.near.grip, open.far.grip)).toBeGreaterThan(40);
-    expect(dist(closed.near.grip, closed.far.grip)).toBeLessThan(14);
+    expect(dist(open.near.grip, open.far.grip)).toBeGreaterThan(50);
+    expect(open.near.grip.y - open.far.grip.y).toBeGreaterThan(50); // a wide V
+    expect(dist(closed.near.grip, closed.far.grip)).toBeLessThan(8);
     for (let i = 0; i <= endOf('a4'); i++) {
       const j = at('a4', i);
-      // one hand each side of the body's centre line, the whole way
-      expect(j.near.grip.x, `frame ${i}`).toBeGreaterThan(j.pelvis.x + 4);
-      expect(j.far.grip.x, `frame ${i}`).toBeLessThan(j.pelvis.x - 4);
-      // …and the two arcs are mirror images, which the rig gives for free
-      expect(j.near.grip.x - j.pelvis.x).toBeCloseTo(j.pelvis.x - j.far.grip.x, 6);
-      expect(j.near.grip.y).toBeCloseTo(j.far.grip.y, 6);
-      // the elbow never straightens and never comes inboard — "hug a wide
-      // tree", not a press
+      // one hand each side of the body's own depth line, the whole way: the near
+      // one always lower in the picture, which is what "nearer the camera" looks
+      // like in this projection. They converge but never swap.
+      expect(j.near.grip.y, `frame ${i}`).toBeGreaterThan(j.far.grip.y + 1.5);
+      // the elbow never straightens and never folds shut — "hug a wide tree",
+      // not a press
       const p = frameOf('a4', i);
-      expect(flexion(p.arm[0], p.arm[1])).toBeGreaterThan(20);
-      expect(flexion(p.armF[0], p.armF[1])).toBeGreaterThan(20);
-      expect(j.near.elbow.x, `elbow ${i}`).toBeGreaterThan(j.pelvis.x + 10);
+      for (const arm of [p.arm, p.armF] as const) {
+        expect(flexion(arm[0], arm[1]), `elbow ${i}`).toBeGreaterThan(25);
+        expect(flexion(arm[0], arm[1]), `elbow ${i}`).toBeLessThan(125);
+      }
+      // …and the near elbow stays OUT, clear of the torso it would otherwise
+      // vanish into
+      expect(dist(j.near.elbow, j.shoulders), `elbow out ${i}`).toBeGreaterThan(14);
+      // nothing tangles with the skull: both arms work on the FOOT side of it
+      for (const side of [j.near, j.far]) {
+        const bones: Array<[Vec, Vec]> = [
+          [side.shoulder, side.elbow],
+          [side.elbow, side.wrist],
+          [side.wrist, side.grip],
+        ];
+        for (const [a, b] of bones) {
+          expect(segDist(j.head, a, b), `head clearance ${i}`).toBeGreaterThan(9);
+        }
+      }
     }
-    // the hands finish over the chest: above the pelvis and below the chin
-    expect(closed.near.grip.y).toBeLessThan(closed.pelvis.y - 8);
-    expect(closed.near.grip.y).toBeGreaterThan(closed.head.y + 8);
-    // the bench is drawn from above too — a slab, not a pad on posts
-    expect(d.props()).toContain('cd-mat');
+    // the hands finish over the chest — off the body on the camera side of it,
+    // not resting on the ribs
+    const chestPt = chest(closed);
+    expect(dist(closed.near.grip, chestPt)).toBeLessThan(18);
+    expect(closed.near.grip.y).toBeLessThan(chestPt.y);
+    // the bench is drawn on the same diagonal, as a surface rather than a pad
+    expect(d.props()).toContain('cd-slab');
   });
 
   it('x10 arcs ONE weight from behind the head to over the chest', () => {
@@ -899,6 +961,10 @@ describe('the load travels a path, not a loop', () => {
   });
 
   it('a4 closes the flye monotonically — the dumbbells only ever converge', () => {
+    // measured in the TURNED projection, where the two hands separate along the
+    // depth diagonal rather than left and right: the gap is the distance between
+    // the two bells as drawn, and a rep that read as the arms changing their
+    // mind half way down would show up here as the gap growing again.
     const d = demo('a4');
     const gap: number[] = [];
     for (let i = 0; i <= 40; i++) {
@@ -908,19 +974,23 @@ describe('the load travels a path, not a loop', () => {
     for (let i = 1; i < gap.length; i++) {
       expect(gap[i] as number, `gap grew at ${i}`).toBeLessThan((gap[i - 1] as number) + 0.01);
     }
-    expect(gap[0] as number).toBeGreaterThan(40);
-    expect(gap[gap.length - 1] as number).toBeLessThan(14);
+    expect(gap[0] as number).toBeGreaterThan(55);
+    expect(gap[gap.length - 1] as number).toBeLessThan(6);
   });
 });
 
 describe('the views are chosen per movement, not by habit', () => {
   it('puts the frontal-plane lifts in the FRONT view and everything else in the side', () => {
     const front = ALL.filter((e) => e.v.view === 'front').map((e) => e.tag).sort();
-    // a4 and x7 joined the frontal four: both are TWO-SIDED movements, and the
-    // sagittal camera stacks their two hands into one no matter what the angles
-    // say — a flye reads as one dumbbell looping, a face pull as one fist at one
-    // temple. Neither is a thing the pose could fix; only the camera could.
-    expect(front).toEqual(['a4', 'b6', 'c6', 'x4', 'x7', 'x8']);
+    expect(front).toEqual(['b6', 'c6', 'x4', 'x8']);
+    // a4 and x7 are TWO-SIDED movements too — the sagittal camera stacks their
+    // two hands into one no matter what the angles say — but neither belongs
+    // square-on either: a flye seen from straight above is a plank with a head,
+    // and a face pull seen from the front has to hang its cable from the ceiling
+    // and works straight at the lens. They are the turned view's whole reason
+    // for existing.
+    const quarter = ALL.filter((e) => e.v.view === 'threeQuarter').map((e) => e.tag).sort();
+    expect(quarter).toEqual(['a4', 'x7']);
     // …and every one of them is a movement whose plane is frontal
     for (const id of front) expect(findExercise(id)).not.toBeNull();
   });

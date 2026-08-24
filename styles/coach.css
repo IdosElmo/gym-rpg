@@ -65,6 +65,8 @@
 .cd-wheel{fill:var(--bg)}
 .cd-floor{fill:none; stroke:var(--cd-frame); stroke-width:2.2; stroke-linecap:round}
 .cd-mat{fill:var(--cd-pad); opacity:.75}
+/* a bench seen at three quarters: a big surface, so it sits back further */
+.cd-slab{fill:var(--cd-pad); opacity:.42}
 .cd-roller{fill:#6A7EA6}
 
 /* the iron */
@@ -75,3 +77,5 @@
 .cd-hub{fill:var(--bg)}
 .cd-cable{fill:none; stroke:var(--cd-cable); stroke-width:1.6; stroke-linecap:round}
 .cd-rope{fill:none; stroke:var(--cd-cable); stroke-width:2.6; stroke-linecap:round}
+/* the clip where one cable becomes two rope ends — the apex of the V */
+.cd-clip{fill:var(--cd-cable)}

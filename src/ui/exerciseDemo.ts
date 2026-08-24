@@ -50,6 +50,7 @@ import {
   figureSvg,
   forwardKinematics,
   frameAt,
+  holdBackSvg,
   holdSvg,
   STAGE,
   type Pose,
@@ -106,10 +107,15 @@ export function stillPose(demo: DemoVariant): Pose {
 
 /* ----------------------------------------------------------------- drawing */
 
-/** The moving half of the picture: the figure plus whatever it is holding. */
+/**
+ * The moving half of the picture: the figure plus whatever it is holding — in
+ * three layers, because a load is not always in front of the body. The far half
+ * of a rope passes behind the head, and the head is a filled circle, so it has
+ * to be painted before the figure or it draws a stripe across the face.
+ */
 export function liveSvg(demo: DemoVariant, pose: Pose): string {
   const joints = forwardKinematics(pose, demo.view);
-  return figureSvg(joints, demo.view) + holdSvg(demo.hold, joints);
+  return holdBackSvg(demo.hold, joints) + figureSvg(joints, demo.view) + holdSvg(demo.hold, joints);
 }
 
 /** The complete markup of one variant at one pose — used by the mount and by tests. */

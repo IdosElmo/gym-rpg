@@ -70,8 +70,8 @@
 
 import {
   barProp,
+  benchDiagProp,
   benchProp,
-  benchTopProp,
   dipBarsProp,
   floorProp,
   frameProp,
@@ -147,6 +147,18 @@ const pulldownStation = (): string =>
   benchProp({ x: 46, y: 86, len: 22, floorY: FLOOR }) +
   padProp({ x: 75, y: 78.5 }, { x: 97, y: 80.5 }) +
   frameProp(96, 80, 90);
+
+/**
+ * a4 lies along a diagonal — spine at -15°, head up and to the right, feet down
+ * and to the left — with the shoulder line rolled perpendicular to it. The head
+ * is at the far end on purpose: the arms work on the FOOT side of it, so nothing
+ * either arm does can tangle with the skull. Everything below the waist is
+ * frozen; this lift happens above it.
+ */
+const A4_BASE = {
+  x: 68, y: 74, torso: -15, head: -15, roll: 105,
+  leg: [162, 125, 92], legF: [18, 55, 88],
+} as const;
 
 /* ------------------------------------------------------------------ day A */
 
@@ -227,37 +239,41 @@ const A3: ExerciseDemo = one('a3', {
 });
 
 const A4: ExerciseDemo = one('a4', {
-  view: 'front',
+  view: 'threeQuarter',
   loopMs: 3000,
   forwardShare: 0.45,
-  // FLYE, SEEN FROM ABOVE. A flye is a BILATERAL movement: the arms open to
-  // both sides of the body and close in front of the chest. The sagittal camera
-  // can never say that — from the side the two arms stack into one plane, and
-  // however carefully the pose is solved the pair reads as one hand looping over
-  // the chest and stacking on the way back. So this demo is shot from directly
-  // overhead, which for a lifter on his back IS the front silhouette: the rig
-  // spreads the shoulders to ±9, mirrors the far side for free, and the two
-  // hands finally travel on two mirrored arcs towards each other.
+  // FLYE, AT THREE QUARTERS — the angle every exercise book has drawn this lift
+  // from, and for the same reason we ended up here.
   //
-  // WHY THE ELBOW FOLDS AS THE HANDS MEET. Seen from above, a flye's real arc is
-  // almost entirely towards the CAMERA — the hands rise as they converge — and a
-  // 29-unit arm whose hand ends up eight units from its own shoulder can only
-  // project as a folded one. The fold IS the foreshortening: at the stretch the
-  // elbow is soft and by the finish it reads closed, while the elbow itself
-  // stays parked wide, which is exactly the coaching cue — hug a wide tree, do
-  // not press.
+  // A flye is BILATERAL: the arms open to both sides of the body and close in
+  // front of the chest. The sagittal camera cannot say that — from the side the
+  // two arms stack into one plane and the pair reads as a single dumbbell
+  // looping over the chest. The overhead camera says it, but says nothing else:
+  // a body seen from straight above is a rectangle with a head on it, and the
+  // review's verdict on that was "looks terrible". The three-quarter view is the
+  // one that gives both: the bench runs away from the viewer on a diagonal, the
+  // body lies along it, and the shoulders spread on the SAME diagonal — so the
+  // near arm swings down towards the viewer and the far arm up away from it,
+  // and they are two arms with a depth order rather than two arms side by side.
   //
-  // Three keyframes, solved so that linear interpolation keeps each grip within
-  // 2.4 units of the line it should travel and the gap between the dumbbells
-  // only ever CLOSES: 60 → 32 → 12.
+  // `roll: 105` is what turns the body onto that diagonal: the shoulder line is
+  // held perpendicular to a spine that lies at 195°, which is the difference
+  // between a lifter on a bench and a lifter standing up in the picture plane.
+  //
+  // THE ELBOWS STAY PARKED. The far one barely moves at all (y ≈ 50 the whole
+  // way) and the near one travels along under the bench edge; neither ever
+  // straightens and neither ever folds shut — the elbow angle lives between 59°
+  // and 103° across the whole rep, which is "hug a wide tree" rather than
+  // "press". The dumbbells go from 60 units apart to 2, and only ever converge.
   frames: [
-    { x: 80, y: 76, torso: -90, head: -90, arm: [1.9, 61], armF: [1.9, 61], leg: [55, 78, 88], legF: [55, 78, 88] },
-    { x: 80, y: 76, torso: -90, head: -90, arm: [-9.2, 114.1], armF: [-9.2, 114.1], leg: [55, 78, 88], legF: [55, 78, 88] },
-    { x: 80, y: 76, torso: -90, head: -90, arm: [24.3, 170.9], armF: [24.3, 170.9], leg: [55, 78, 88], legF: [55, 78, 88] },
+    { ...A4_BASE, arm: [67.3, 125.2], armF: [278.9, 231.8] },
+    { ...A4_BASE, arm: [177.4, 269.1], armF: [410.5, 298.7] },
   ],
-  // from above there is no floor to see, only the slab the lifter is lying on —
-  // and the legs run OFF it, out and down to two feet planted either side
-  props: () => benchTopProp(80, 22, 100, 12),
+  // the bench is a parallelogram on the same diagonal, head end up and to the
+  // right, so the body lies along it and the legs run off the foot end
+  props: () =>
+    benchDiagProp({ a: { x: 108, y: 63.5 }, b: { x: 48, y: 79 }, dep: { x: 0, y: 9.5 } }) +
+    floorProp(28, 132),
   hold: { k: 'db' },
 });
 
@@ -612,6 +628,15 @@ const C6: ExerciseDemo = one('c6', {
   hold: { k: 'plate' },
 });
 
+/**
+ * x7 stands square on its feet and is TURNED, not rotated: the pose is a plain
+ * standing one and the three-quarter view does the turning.
+ */
+const X7_BASE = {
+  x: 70, y: 66, torso: -90, head: -90,
+  leg: [86, 89, 20], legF: [86, 89, 20],
+} as const;
+
 /* ---------------------------------------------------------------- library */
 
 const X1: ExerciseDemo = one('x1', {
@@ -717,33 +742,44 @@ const X6: ExerciseDemo = one('x6', {
 });
 
 const X7: ExerciseDemo = one('x7', {
-  view: 'front',
+  view: 'threeQuarter',
   loopMs: 2600,
   forwardShare: 0.44,
-  // FACE PULL, SEEN FROM THE FRONT. The whole point of a face pull is that the
-  // rope has TWO ends and they arrive at two temples; a sagittal camera puts
-  // both hands on one side of the head no matter what the angles say, so this
-  // one is shot square-on. The rig spreads the shoulders to ±9 and mirrors the
-  // far arm, and the two fists land at (90, 28) and (70, 28) — one either side
-  // of a skull that spans 73.5 to 86.5. There is nothing left to interpret.
+  // FACE PULL, AT THREE QUARTERS. A rope has two ends and they arrive at two
+  // temples, so the question was only ever which camera can show that.
   //
-  // THE REACH, which the sagittal attempt could not solve. A 29-unit arm cannot
-  // put a fist at the temple with the elbow above it while the shoulder sits on
-  // the body's centre line — but in the FRONT view the shoulder is nine units
-  // out to the side, and that changes the sum: from (89, 42) the fist at (90,
-  // 28) is fourteen away, which the arm reaches with a folded elbow (a rope pull
-  // is allowed to close past a right angle) and leaves the elbow wide and ABOVE
-  // the shoulder line, which is the cue.
+  // The side view cannot: it stacks both fists on one side of the head no matter
+  // what the angles say. The front view can, but it costs everything else — with
+  // the lifter square to the camera the cable has to come from directly
+  // overhead, the arms work straight at the lens, and the review's verdict was
+  // that the rope and the arm read as piercing the skull. The three-quarter view
+  // keeps the station where a face pull's station actually is — off to one side
+  // at head height, cable running in almost horizontally — and still separates
+  // the hands: the near fist finishes beside the near temple and the far one is
+  // pushed further out along the depth diagonal, with the head between them.
   //
-  // The pulley is overhead rather than at face height, because a cable coming
-  // from behind the camera cannot be drawn at all: what the front view buys is
-  // the V, and the V is the information.
+  // WHAT THE NUMBERS GUARANTEE, over the whole rep and not just at the ends:
+  // nothing PAINTED IN FRONT of the body comes within 8 units of the head's
+  // centre — not the near arm, not the cable, not the clip, not the near rope
+  // end — and the skull's radius is 6.5. The far rope end and the far arm do
+  // cross that circle, and they are drawn BEHIND the figure, which is where a
+  // rope end pulled past the far ear and a far arm actually are.
+  //
+  // Elbows wide and high is the cue and both show it: at the finish the near
+  // elbow sits 2.7 above its own shoulder and 13 outboard of it, the far one 5.1
+  // above and 10 outboard.
+  //
+  // The fists finish at (81, 29) and (59, 24) — one either side of a skull that
+  // spans 63.5 to 76.5, at eye level, and offset five units on the depth
+  // diagonal so which is which is never in doubt.
   frames: [
-    { x: 80, y: 66, torso: -90, head: -90, arm: [-78.2, -124.4], armF: [-78.2, -124.4], leg: [85, 88, 20], legF: [85, 88, 20] },
-    { x: 80, y: 66, torso: -90, head: -90, arm: [-17.4, -140], armF: [-17.4, -140], leg: [85, 88, 20], legF: [85, 88, 20] },
+    { ...X7_BASE, arm: [4.4, -25.8], armF: [165.8, 230.1] },
+    { ...X7_BASE, arm: [-11.5, -129.3], armF: [333.8, 238.5] },
   ],
-  props: () => pulleyProp(80, 10, { top: 2, post: 0 }) + floorProp(44, 118),
-  hold: { k: 'rope', from: [80, 10] },
+  // the station is where a face pull's station is: off to one side, wheel at
+  // FACE height, cable coming in almost level
+  props: () => pulleyProp(124, 30, { top: 8, post: 34, stack: true }) + floorProp(38, 134),
+  hold: { k: 'rope', from: [124, 30] },
 });
 
 const X8: ExerciseDemo = one('x8', {

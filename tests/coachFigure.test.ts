@@ -16,14 +16,15 @@ import {
   RIG,
   STAGE,
   angleOf,
+  benchDiagProp,
   benchProp,
-  benchTopProp,
   dist,
   ease,
   figureSvg,
   flexion,
   forwardKinematics,
   holdAnchors,
+  holdBackSvg,
   holdSvg,
   lerpPose,
   pulleyProp,
@@ -135,6 +136,55 @@ describe('forward kinematics — front view', () => {
   });
 });
 
+describe('forward kinematics — three quarters', () => {
+  const P: Pose = { x: 80, y: 66, torso: -90, head: -90, arm: [90, 90], armF: [90, 90], leg: [90, 90, 20], legF: [90, 90, 20] };
+
+  it('narrows the spread, splits the two sides along ONE diagonal, and shortens the far bones', () => {
+    const f = forwardKinematics(P, 'front');
+    const q = forwardKinematics(P, 'threeQuarter');
+    // ACROSS: what survives a turn is the cosine of it — 0.62 of the full span
+    const fullSpan = f.near.shoulder.x - f.far.shoulder.x;
+    const turnedSpan = q.near.shoulder.x - q.far.shoulder.x;
+    near(turnedSpan, RIG.shoulderHalf * 2 * 0.62 + 4); // the spread, plus the diagonal
+    expect(turnedSpan).toBeLessThan(fullSpan);
+    // INTO THE PAGE: the near side goes down-and-right, the far side up-and-left,
+    // by the SAME vector — a parallelogram, not two unrelated nudges
+    near(q.near.shoulder.y - f.near.shoulder.y, 1.7);
+    near(q.far.shoulder.y - f.far.shoulder.y, -1.7);
+    near(q.near.hip.y - q.pelvis.y, 1.7);
+    near(q.far.hip.y - q.pelvis.y, -1.7);
+    // the spine itself is untouched: only the two sides move
+    expect(q.pelvis).toEqual(f.pelvis);
+    expect(q.shoulders).toEqual(f.shoulders);
+    expect(q.head).toEqual(f.head);
+  });
+
+  it('draws the FAR limbs shorter, because they are further away', () => {
+    const q = forwardKinematics(P, 'threeQuarter');
+    const nearArm = dist(q.near.shoulder, q.near.grip);
+    const farArm = dist(q.far.shoulder, q.far.grip);
+    near(nearArm, RIG.upperArm + RIG.forearm + RIG.hand);
+    near(farArm, (RIG.upperArm + RIG.forearm + RIG.hand) * 0.85);
+    near(dist(q.far.hip, q.far.toe) / dist(q.near.hip, q.near.toe), 0.85);
+  });
+
+  it('still MIRRORS the far side, so a symmetric pose is authored once', () => {
+    const q = forwardKinematics({ ...P, arm: [40, 20], armF: [40, 20] }, 'threeQuarter');
+    // the far elbow is the near one reflected in x about its own shoulder…
+    near(q.far.elbow.x - q.far.shoulder.x, -(q.near.elbow.x - q.near.shoulder.x) * 0.85);
+    near(q.far.elbow.y - q.far.shoulder.y, (q.near.elbow.y - q.near.shoulder.y) * 0.85);
+  });
+
+  it('gives the torso four corners, so a roll shapes it for free', () => {
+    const flat = figureSvg(forwardKinematics(P, 'threeQuarter'), 'threeQuarter');
+    expect(flat).toContain('cd-torso');
+    // the same four-point silhouette the front view uses, not the side view's
+    // slab about the spine
+    const corners = /class="cd-torso" d="M [^"]*"/.exec(flat)?.[0] ?? '';
+    expect(corners.match(/L /g)).toHaveLength(3);
+  });
+});
+
 describe('shrug', () => {
   it('raises the shoulders and the arms with them — and leaves the head alone', () => {
     const flat = forwardKinematics(STANDING, 'front');
@@ -204,18 +254,22 @@ describe('drawing', () => {
       benchProp({ x: 40, y: 84, len: 60 }) +
       railProp(90, 20, 90) +
       pulleyProp(100, 20, { stack: true }) +
-      benchTopProp(80, 24, 104, 12);
+      benchDiagProp({ a: { x: 108, y: 64 }, b: { x: 48, y: 79 }, dep: { x: 0, y: 9.5 } });
     expect(props).not.toMatch(/https?:|url\(|<image|xlink/);
     expect(props).not.toMatch(/NaN|undefined/);
   });
 
-  it('draws a bench SEEN FROM ABOVE as a slab running head to foot', () => {
-    // the flye is shot from overhead, and from up there a bench is not a pad on
-    // posts: it is the thing the lifter is lying on, seen end-on
-    const slab = benchTopProp(80, 24, 104, 12);
-    expect(slab).toContain('<rect class="cd-mat" x="68" y="24" width="24" height="80"');
-    // …with the only part of its legs you can see from there: two cross-members
-    expect(slab.match(/class="cd-frame"/g)?.length).toBe(3);
+  it('draws a bench SEEN AT THREE QUARTERS as a parallelogram on two legs', () => {
+    // a bench the body lies along diagonally is not a pad on posts seen from the
+    // side: it is a surface, and its width runs along the same depth diagonal
+    // the rig spreads the body on
+    const slab = benchDiagProp({ a: { x: 108, y: 64 }, b: { x: 48, y: 79 }, dep: { x: 0, y: 9.5 } });
+    // the pad: four corners, the far pair 9.5 above the axis and the near pair below
+    expect(slab).toContain('<path class="cd-slab" d="M 108 54.5 L 48 69.5 L 48 88.5 L 108 73.5 Z"/>');
+    // a lit near edge, a quiet far one, a leg at each end and a base between them
+    expect(slab).toContain('class="cd-pad"');
+    expect(slab.match(/class="cd-frame"/g)?.length).toBe(5);
+    expect(slab).not.toMatch(/NaN|undefined/);
   });
 
   it('hangs a pulley off a top beam when its mast has to stand elsewhere', () => {
@@ -248,14 +302,24 @@ describe('what the hands hold is read off the joints', () => {
     expect(holdAnchors({ k: 'roller', joint: 'knee' }, j)).toEqual([j.near.knee]);
   });
 
-  it('draws a rope as TWO strands from the pulley, one per fist', () => {
-    // a rope has two ends and they arrive in two hands; one strand to their
-    // midpoint was invisible in the sagittal plane and wrong in the frontal one
-    const svg = holdSvg({ k: 'rope', from: [100, 18] }, j);
-    expect(svg.match(/class="cd-cable"/g)).toHaveLength(2);
-    expect(svg.match(/M 100 18/g)).toHaveLength(2);
-    expect(svg.match(/class="cd-rope"/g)).toHaveLength(2); // a loose end each
-    expect(holdAnchors({ k: 'rope', from: [100, 18] }, j)).toEqual([j.near.grip, j.far.grip]);
+  it('draws a rope as ONE cable, a clip, and one end per fist — the far one behind', () => {
+    // a rope has two ends and they arrive in two hands, but what hangs off the
+    // machine is a single cable ending in a clip. Two full strands back to the
+    // wheel left it at nearly the same angle and merged into one bar across the
+    // picture; the clip is what breaks them apart.
+    const hold = { k: 'rope', from: [100, 18] } as const;
+    const front = holdSvg(hold, j);
+    const back = holdBackSvg(hold, j);
+    expect(front.match(/class="cd-cable"/g)).toHaveLength(1); // ONE cable…
+    expect(front).toContain('M 100 18');
+    expect(front).toContain('class="cd-clip"'); // …ending at the clip
+    expect(front.match(/class="cd-rope"/g)).toHaveLength(1); // the near end in front
+    expect(back.match(/class="cd-rope"/g)).toHaveLength(1); // the far end behind
+    expect(back).not.toContain('cd-cable');
+    expect(holdAnchors(hold, j)).toEqual([j.near.grip, j.far.grip]);
+    // nothing else has a half that lives behind the body
+    expect(holdBackSvg({ k: 'db' }, j)).toBe('');
+    expect(holdBackSvg({ k: 'handle', from: [100, 18] }, j)).toBe('');
     // a single handle is still ONE thing in two hands: the midpoint
     const handle = holdAnchors({ k: 'handle', from: [100, 18] }, j)[0];
     near(handle?.x ?? 0, (j.near.grip.x + j.far.grip.x) / 2);
