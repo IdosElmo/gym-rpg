@@ -262,12 +262,29 @@ const A4: ExerciseDemo = one('a4', {
   //
   // THE ELBOWS STAY PARKED. The far one barely moves at all (y ≈ 50 the whole
   // way) and the near one travels along under the bench edge; neither ever
-  // straightens and neither ever folds shut — the elbow angle lives between 59°
-  // and 103° across the whole rep, which is "hug a wide tree" rather than
-  // "press". The dumbbells go from 60 units apart to 2, and only ever converge.
+  // straightens and neither ever folds shut — the elbow angle lives between 47°
+  // and 112° across the whole rep, which is "hug a wide tree" rather than
+  // "press". The dumbbells go from 62 units apart to 2, and only ever converge.
+  //
+  // AND BOTH ELBOWS BOW THE SAME ANATOMICAL WAY, which is the one thing the
+  // rig's automatic mirror cannot be trusted with here. That mirror reflects the
+  // far side about the PICTURE's vertical axis — right for a lifter standing
+  // square to the camera, wrong for one lying along a diagonal, whose sagittal
+  // plane projects to a nearly HORIZONTAL line. Reflecting about the wrong axis
+  // flipped the elbow's BEND along with its position: the far elbow kinked
+  // towards the head while the near one kinked towards the feet, and the far arm
+  // read as bent backwards. So the far arm's two segment angles are authored
+  // EXPLICITLY here, taken from the other inverse-kinematic branch — the far
+  // hand is exactly where it was, and only the elbow moved to the other side of
+  // it.
+  //
+  // What says it is right is the FK rather than the eye: the elbow sits on
+  // OPPOSITE sides of its own shoulder→hand line for the two arms, in every
+  // frame, which is what a mirrored pair looks like when one of them travels the
+  // other way across the picture.
   frames: [
-    { ...A4_BASE, arm: [67.3, 125.2], armF: [278.9, 231.8] },
-    { ...A4_BASE, arm: [177.4, 269.1], armF: [410.5, 298.7] },
+    { ...A4_BASE, arm: [67.3, 125.2], armF: [228.4, 275.5] },
+    { ...A4_BASE, arm: [177.4, 269.1], armF: [287.1, 398.9] },
   ],
   // the bench is a parallelogram on the same diagonal, head end up and to the
   // right, so the body lies along it and the legs run off the foot end
@@ -769,11 +786,18 @@ const X7: ExerciseDemo = one('x7', {
   // elbow sits 2.7 above its own shoulder and 13 outboard of it, the far one 5.1
   // above and 10 outboard.
   //
-  // The fists finish at (81, 29) and (59, 24) — one either side of a skull that
-  // spans 63.5 to 76.5, at eye level, and offset five units on the depth
-  // diagonal so which is which is never in doubt.
+  // The fists finish either side of a skull that spans 63.5 to 76.5, at eye
+  // level, offset on the depth diagonal so which is which is never in doubt.
+  //
+  // AND NEITHER ELBOW SNAPS THROUGH. The flye's defect had a quieter cousin
+  // here: the far arm reached the rope bowed one way and finished bowed the
+  // OTHER, which means that four tenths of the way up it passed through dead
+  // straight and flipped — a hinge bending backwards for one frame. Only the far
+  // arm's extended keyframe had to move, and only its elbow: the same hand, on
+  // the other inverse-kinematic branch, so the bend now holds one direction for
+  // the whole rep and never comes inside 43° of straight.
   frames: [
-    { ...X7_BASE, arm: [4.4, -25.8], armF: [165.8, 230.1] },
+    { ...X7_BASE, arm: [4.4, -25.8], armF: [214.5, 174.8] },
     { ...X7_BASE, arm: [-11.5, -129.3], armF: [333.8, 238.5] },
   ],
   // the station is where a face pull's station is: off to one side, wheel at

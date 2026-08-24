@@ -39,6 +39,7 @@ import {
   holdSvg,
   type Joints,
   type Pose,
+  type SideJoints,
   type Vec,
 } from '../src/ui/coachFigure.ts';
 import { demoSvg, poseAt, stillPose } from '../src/ui/exerciseDemo.ts';
@@ -746,6 +747,7 @@ describe('flye family — a wide arc, elbow bent throughout', () => {
         expect(flexion(arm[0], arm[1]), `elbow ${i}`).toBeGreaterThan(25);
         expect(flexion(arm[0], arm[1]), `elbow ${i}`).toBeLessThan(125);
       }
+      // …and the two elbows bow the same anatomical way. See the chapter below.
       // …and the near elbow stays OUT, clear of the torso it would otherwise
       // vanish into
       expect(dist(j.near.elbow, j.shoulders), `elbow out ${i}`).toBeGreaterThan(14);
@@ -977,6 +979,81 @@ describe('the load travels a path, not a loop', () => {
     expect(gap[0] as number).toBeGreaterThan(55);
     expect(gap[gap.length - 1] as number).toBeLessThan(6);
   });
+});
+
+/* --------------------------------------------- the two arms of a turned pose */
+
+describe('a turned pose has two arms, and they agree with each other', () => {
+  /**
+   * WHICH WAY AN ELBOW BENDS is not something the rig can be trusted to get
+   * right on the far side by itself. Its mirror reflects the far limb about the
+   * PICTURE's vertical axis — correct for a lifter standing square to the
+   * camera, wrong for one lying along a diagonal, whose sagittal plane projects
+   * to a nearly horizontal line. Reflected about the wrong axis, the far elbow
+   * kinks the opposite way from the near one and the arm reads as bent
+   * backwards. That is what the review caught in the flye.
+   *
+   * `bow` is the measure: the cross product of an arm's shoulder→grip chord with
+   * its shoulder→elbow vector, i.e. WHICH SIDE OF ITS OWN CHORD the elbow sits
+   * on. Two arms that are mirror images in three dimensions have opposite bow
+   * signs in the picture whenever they travel opposite ways across it — and the
+   * sign is what matters, not the magnitude, because the far arm is drawn
+   * shorter.
+   */
+  const bow = (s: SideJoints): number => {
+    const cx = s.grip.x - s.shoulder.x;
+    const cy = s.grip.y - s.shoulder.y;
+    return cx * (s.elbow.y - s.shoulder.y) - cy * (s.elbow.x - s.shoulder.x);
+  };
+
+  const turned = ALL.filter((e) => e.v.view === 'threeQuarter');
+
+  it('has exactly the two demos the turned view exists for', () => {
+    expect(turned.map((e) => e.tag)).toEqual(['a4', 'x7']);
+  });
+
+  for (const { tag, v: d } of turned) {
+    it(`${tag} bends its two elbows to opposite sides of their own chords`, () => {
+      for (let i = 0; i <= 40; i++) {
+        const j = tween(d, i / 40);
+        const n = bow(j.near);
+        const f = bow(j.far);
+        // both arms are meaningfully bent — a straight arm has no side
+        expect(Math.abs(n), `${tag} near elbow flat at ${i}`).toBeGreaterThan(40);
+        expect(Math.abs(f), `${tag} far elbow flat at ${i}`).toBeGreaterThan(40);
+        expect(Math.sign(n), `${tag} elbows bend the same way at ${i}`).not.toBe(Math.sign(f));
+      }
+    });
+
+    it(`${tag} never snaps an elbow through straight`, () => {
+      // an elbow that changes which side of its chord it is on has to pass
+      // through dead straight to get there, and for one frame the arm reads as
+      // hinging backwards
+      const first = { n: 0, f: 0 };
+      for (let i = 0; i <= 40; i++) {
+        const j = tween(d, i / 40);
+        const n = Math.sign(bow(j.near));
+        const f = Math.sign(bow(j.far));
+        if (i === 0) { first.n = n; first.f = f; }
+        expect(n, `${tag} near elbow flipped at ${i}`).toBe(first.n);
+        expect(f, `${tag} far elbow flipped at ${i}`).toBe(first.f);
+        const p = frameAt(d.frames, i / 40);
+        expect(flexion(p.arm[0], p.arm[1]), `${tag} near arm straightens at ${i}`).toBeGreaterThan(20);
+        expect(flexion(p.armF[0], p.armF[1]), `${tag} far arm straightens at ${i}`).toBeGreaterThan(20);
+      }
+    });
+
+    it(`${tag} keeps both fists off the skull at the keyframes`, () => {
+      // between them a far hand may pass behind the head — it is drawn before
+      // the head, so the skull covers it — but at the two poses the reader
+      // actually looks at, both hands are in the open
+      for (let i = 0; i < d.frames.length; i++) {
+        const j = forwardKinematics(d.frames[i] as Pose, d.view);
+        expect(dist(j.head, j.near.grip), `${tag} near fist, frame ${i}`).toBeGreaterThan(9);
+        expect(dist(j.head, j.far.grip), `${tag} far fist, frame ${i}`).toBeGreaterThan(9);
+      }
+    });
+  }
 });
 
 describe('the views are chosen per movement, not by habit', () => {
