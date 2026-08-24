@@ -1,19 +1,13 @@
-/* ---------- Exercise demonstration (ui/coachVolume + ui/exerciseDemo) ----------
+/* ---------- Exercise demonstration (ui/coachFigure + ui/exerciseDemo) ----------
  *
  * ORIGINAL ART, drawn from numbers. There is no image, sprite sheet, video or
- * font here — the whole demo is SVG generated at runtime, so it costs the
- * single-file bundle a few kB of code and nothing else.
+ * font here — the whole demo is SVG strokes generated at runtime, so it costs
+ * the single-file bundle a few kB of code and nothing else.
  *
- * WHERE THE COLOUR LIVES. The figure paints hex directly from the palette table
- * in `ui/coachVolume.ts` (`PAL`): the moving group is re-rendered thirty times a
- * second, and `var(--cd-shirt, #4a5f8c)` in every fill would triple the string
- * for no gain. What CSS owns is everything AROUND the figure — the card, its
- * border, the legend chip — and it owns it in the same colours, declared here as
- * custom properties that mirror `PAL` name for name.
- *
- * `tests/coachVolume.test.ts` parses this block and fails if a `--cd-*` value
- * here ever stops matching its `PAL` entry, so "the chip is the same red as the
- * muscle" is a fact and not a coincidence.
+ * Every colour is a design token. The figure takes the app's text colour, the
+ * far limbs the dim one (that is the ONLY depth cue), the joints the accent,
+ * the station (bench, rail, pulley, mat) the line colours so it recedes behind
+ * the body, and the iron takes --warn so the weight is the thing that pops.
  *
  * `prefers-reduced-motion` needs no rule of its own: nothing here animates in
  * CSS. `ui/exerciseDemo.ts` reads the media query itself and paints the mid-rep
@@ -21,27 +15,40 @@
  * start position.
  */
 .ex-demo{
-  --cd-stage1:#25314c; --cd-stage2:#151d2e; --cd-ink:#131a29;
-  --cd-skin:#d9a377; --cd-shirt:#4a5f8c; --cd-shorts:#2c3b5e;
-  --cd-pad:#5a6e96; --cd-frame:#46587d; --cd-iron:#5a6c90; --cd-plate:#8fa2c6;
-  --cd-hot1:#ef4444; --cd-hot2:#f59e0b;
-
-  max-width:210px; margin:10px auto 12px; padding:4px 4px 6px;
-  background:var(--cd-stage2); border:1px solid var(--line); border-radius:14px;
+  max-width:210px; margin:10px auto 12px; padding:4px 6px 2px;
+  background:var(--bg); border:1px solid var(--line); border-radius:12px;
 }
 .cd-svg{
   display:block; width:100%; height:auto;
-  border-radius:11px;
+  --cd-body:var(--text); --cd-far:#54627E; --cd-joint:var(--accent);
+  --cd-frame:#44567A; --cd-pad:#56698F; --cd-iron:var(--warn); --cd-cable:#7A88A3;
 }
 
-/* the legend chip: what the highlight on the figure is pointing at */
-.cd-legend{margin:6px 0 1px; text-align:center; line-height:1}
-.cd-chip{
-  display:inline-flex; gap:6px; align-items:center;
-  background:color-mix(in srgb, var(--cd-hot1) 14%, transparent);
-  border:1px solid color-mix(in srgb, var(--cd-hot1) 42%, transparent);
-  color:var(--cd-hot2);
-  border-radius:99px; padding:4px 11px; font-size:12px; font-weight:700;
+/* the demonstrator */
+.cd-limb{
+  fill:none; stroke:var(--cd-body); stroke-width:5;
+  stroke-linecap:round; stroke-linejoin:round;
 }
-/* the secondary muscle, one step quieter than the primary */
-.cd-chip-2{opacity:.62; font-weight:600}
+.cd-limb.far{stroke:var(--cd-far); stroke-width:4.4}
+.cd-torso{fill:var(--cd-body); stroke:var(--cd-body); stroke-width:3; stroke-linejoin:round}
+.cd-neck{fill:none; stroke:var(--cd-body); stroke-width:5; stroke-linecap:round}
+.cd-head{fill:var(--cd-body)}
+.cd-joint{fill:var(--cd-joint)}
+
+/* the station */
+.cd-pad{fill:none; stroke:var(--cd-pad); stroke-width:5; stroke-linecap:round}
+.cd-frame{fill:none; stroke:var(--cd-frame); stroke-width:2.2; stroke-linecap:round}
+.cd-rail{stroke-width:2.8}
+.cd-wheel{fill:var(--bg)}
+.cd-floor{fill:none; stroke:var(--cd-frame); stroke-width:2.2; stroke-linecap:round}
+.cd-mat{fill:var(--cd-pad); opacity:.75}
+.cd-roller{fill:#6A7EA6}
+
+/* the iron */
+.cd-iron{fill:none; stroke:var(--cd-iron); stroke-width:3; stroke-linecap:round}
+.cd-bar{stroke-width:3.4}
+.cd-bell{stroke-width:4.6}
+.cd-iron-fill{fill:var(--cd-iron)}
+.cd-hub{fill:var(--bg)}
+.cd-cable{fill:none; stroke:var(--cd-cable); stroke-width:1.6; stroke-linecap:round}
+.cd-rope{fill:none; stroke:var(--cd-cable); stroke-width:2.6; stroke-linecap:round}

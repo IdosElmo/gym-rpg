@@ -3,15 +3,14 @@
  * workout card's "הסבר ודגשי ביצוע" drawer.
  *
  * WHY A rAF INTERPOLATOR AND NOT CSS. A pose is a dozen joint ANGLES, and the
- * shapes they produce (a thigh, a forearm, the dumbbell hanging off the wrist,
- * the pec patch riding the ribs) are recomputed from those angles by forward
- * kinematics. CSS keyframes can interpolate a transform per element, but nothing
- * in CSS can interpolate the INPUT of a geometry function — a bench press
- * animated as per-limb rotations would need one nested transform per bone and
- * would still leave the weight behind. So: lerp the pose, run FK, repaint. The
- * repaint is one `innerHTML` of a few kB at 30 fps, and only the moving group —
- * the bench, the rail, the pulley and the load-path guide are painted once into
- * a sibling group and never touched again.
+ * shapes they produce (a thigh, a forearm, the dumbbell hanging off the wrist)
+ * are recomputed from those angles by forward kinematics. CSS keyframes can
+ * interpolate a transform per element, but nothing in CSS can interpolate the
+ * INPUT of a geometry function — a bench press animated as per-limb rotations
+ * would need one nested transform per bone and would still leave the weight
+ * behind. So: lerp the pose, run FK, repaint. The repaint is one `innerHTML` of
+ * a ~1 kB group at 30 fps, and only the moving group — the bench, the rail and
+ * the pulley are painted once into a sibling group and never touched again.
  *
  * THE TEMPO IS NOT SYMMETRIC. A rep's two halves take different times, so the
  * loop is split at `forwardShare`: the forward pass of the keyframes gets that
@@ -20,8 +19,8 @@
  *
  * WHEN IT MOVES, AND WHEN IT DOES NOT. The loop is decoration, so it gives up
  * easily and always leaves a correct still behind:
- *   - `prefers-reduced-motion: reduce` → the MID-REP pose, painted once. This is
- *     deliberately the middle and not the start: a still of half way down a
+ *   - `prefers-reduced-motion: reduce` → the mid-rep pose, painted once. This
+ *     is deliberately a MID pose and not the start: a still of the bottom of a
  *     squat says more than a still of someone standing.
  *   - no `requestAnimationFrame` (jsdom, and any host without one) → the same
  *     still. There is no `setTimeout` fallback on purpose — unlike the battle
@@ -40,16 +39,15 @@
 
 import { demoFor, type ExerciseDemo } from '../data/exercisePoses.ts';
 import { esc } from './dom.ts';
-import { ease, forwardKinematics, n, type Pose } from './coachFigure.ts';
 import {
-  MUSCLE_HE,
-  defsSvg,
+  ease,
   figureSvg,
+  forwardKinematics,
   frameAt,
-  motionPathSvg,
-  styleOf,
-  type DemoLook,
-} from './coachVolume.ts';
+  holdSvg,
+  STAGE,
+  type Pose,
+} from './coachFigure.ts';
 
 /** Fastest repaint we ever ask for. A rep takes 2–4s; 30 fps is plenty. */
 const FRAME_MS = 1000 / 30;
@@ -76,9 +74,12 @@ export interface DemoHandle {
 /* ------------------------------------------------------------------ timing */
 
 /**
- * The pose `ms` into the loop. The same cosine ease as ever, but applied to each
- * half of the yoyo separately with its own share of the clock, which is the
- * cheapest honest tempo: the lift snaps, the lowering takes its time.
+ * The pose `ms` into the loop (wrapping). The keyframes are played forwards and
+ * then backwards — but NOT in equal time: `forwardShare` says how much of the
+ * clock the forward pass gets, because a rep is not symmetric. A press whose
+ * frames run bottom → top asks for less than half (it snaps up and lowers
+ * slowly); a hinge whose frames run standing → bottom asks for more. Each half
+ * is eased on its own, so the turn-around is still the slow part.
  */
 export function poseAt(demo: ExerciseDemo, ms: number): Pose {
   const cycle = demo.loopMs > 0 ? demo.loopMs : 1;
@@ -99,44 +100,19 @@ export function stillPose(demo: ExerciseDemo): Pose {
 
 /* ----------------------------------------------------------------- drawing */
 
-/** The moving half of the picture: the figure, its muscle patch and its iron. */
+/** The moving half of the picture: the figure plus whatever it is holding. */
 export function liveSvg(demo: ExerciseDemo, pose: Pose): string {
-  return figureSvg(forwardKinematics(pose, demo.view), styleOf(demo as DemoLook), clipIdOf(demo));
-}
-
-/**
- * The id of a demo's torso clip path. The clip is rebuilt on every repaint (the
- * torso deforms with the spine), so the mount has to hand the live group the
- * same id the first paint used.
- */
-export function clipIdOf(demo: ExerciseDemo): string {
-  return `cd-${demo.id}-torso`;
+  const joints = forwardKinematics(pose, demo.view);
+  return figureSvg(joints, demo.view) + holdSvg(demo.hold, joints);
 }
 
 /** The complete markup of a demo at one pose — used by the mount and by tests. */
 export function demoSvg(demo: ExerciseDemo, pose: Pose, label: string): string {
-  const [x, y, w, h] = demo.camera;
   return (
-    `<svg class="cd-svg" viewBox="${n(x)} ${n(y)} ${n(w)} ${n(h)}" xmlns="http://www.w3.org/2000/svg" ` +
-    `role="img" aria-label="${esc(label)}" data-view="${demo.view}">` +
-    defsSvg() +
-    `<rect class="cd-bg" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" fill="url(#cdStage)"/>` +
-    `<g class="cd-static">${demo.props()}${motionPathSvg(demo as DemoLook)}</g>` +
+    `<svg class="cd-svg" viewBox="0 0 ${STAGE.w} ${STAGE.h}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(label)}" data-view="${demo.view}">` +
+    `<g class="cd-static">${demo.props()}</g>` +
     `<g class="cd-live">${liveSvg(demo, pose)}</g>` +
     `</svg>`
-  );
-}
-
-/** The legend chip: 🎯 plus the muscles this demo is highlighting. */
-export function legendHtml(demo: ExerciseDemo): string {
-  const names = demo.muscles.length > 0 ? demo.muscles : [MUSCLE_HE[demo.primary]];
-  const main = names[0] ?? '';
-  const rest = names.slice(1).join(' · ');
-  return (
-    `<p class="cd-legend"><span class="cd-chip">` +
-    `<span aria-hidden="true">🎯</span><span>${esc(main)}</span>` +
-    (rest ? `<span class="cd-chip-2">${esc(rest)}</span>` : '') +
-    `</span></p>`
   );
 }
 
@@ -168,7 +144,7 @@ export function mountExerciseDemo(host: HTMLElement, exId: string, opts: DemoOpt
   el.dataset['demo'] = demo.id;
   const label = opts.label ?? 'הדגמת ביצוע';
   const still = opts.still === true || !canAnimate();
-  el.innerHTML = demoSvg(demo, stillPose(demo), label) + legendHtml(demo);
+  el.innerHTML = demoSvg(demo, stillPose(demo), label);
   host.appendChild(el);
 
   const live = el.querySelector<SVGGElement>('.cd-live');

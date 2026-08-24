@@ -1,12 +1,12 @@
 /**
- * ui/coachFigure.ts — the RIG the "coach" demonstrator is built on.
+ * ui/coachFigure.ts — the articulated "coach" demonstrator and its props.
  *
- * This file is the skeleton and nothing else: bone lengths, poses, forward
- * kinematics, interpolation, and the declaration of what the hands are holding.
- * The picture is drawn by `ui/coachVolume.ts` (the body) and `ui/coachProps.ts`
- * (the station); the demonstrator is deliberately NOT the RPG character
- * (`ui/characterSvg.ts`), which scales its muscles with your levels and would
- * turn a technique demo into a progress display.
+ * ORIGINAL ART. Every shape in this file is authored here from numbers; no
+ * image, frame, trace or path is derived from any third-party media. The figure
+ * is deliberately NOT the RPG character (`ui/characterSvg.ts`): that one scales
+ * its muscles with your levels and would turn a technique demo into a progress
+ * display. This is a neutral demonstrator — one bold stick silhouette, the same
+ * on every device and at every level.
  *
  * THE RIG is a 2D skeleton with fixed bone lengths (`RIG`) and a pose that is
  * nothing but a root position plus a handful of ABSOLUTE segment angles. Angles
@@ -34,16 +34,14 @@
  *     raise, a shrug or a cable crossover is actually legible.
  *
  * FORWARD KINEMATICS IS THE SOURCE OF TRUTH for the equipment too: a dumbbell
- * sits at the hand because the renderer reads `joints.near.grip`, a machine
- * roller rides the ankle because it reads `joints.near.ankle`, and a cable is a
- * line to a pulley the props declared. `holdAnchors` is that promise made
- * explicit — one function saying where every load actually is, which both the
- * renderer and the tests read. Nothing is positioned twice, so a pose can never
- * drift away from the weight it is supposed to be moving.
+ * sits at the hand because `holdSvg` reads `joints.near.grip`, a machine roller
+ * rides the ankle because it reads `joints.near.ankle`, and a cable is a line
+ * to a pulley the props declared. Nothing is positioned twice, so a pose can
+ * never drift away from the weight it is supposed to be moving.
  *
- * Everything here is a PURE function of numbers — no DOM, no clock, no
- * randomness — which is what lets `tests/coachFigure.test.ts` assert the
- * geometry of every keyframe of every exercise.
+ * Everything here is a PURE function of numbers to an SVG string — no DOM, no
+ * clock, no randomness — which is what lets `tests/coachFigure.test.ts` assert
+ * the geometry of every keyframe of every exercise.
  */
 
 /* ------------------------------------------------------------------ types */
@@ -119,6 +117,9 @@ export const RIG = {
   shoulderHalf: 9,
   /** Half the hip span, front view. */
   hipHalf: 5.5,
+  /** Half-thickness of the torso silhouette at the shoulders / at the hips. */
+  chestHalf: 5.5,
+  waistHalf: 4.5,
 } as const;
 
 /** How far the FAR limbs sit from the near ones in the side view. */
@@ -255,17 +256,221 @@ export function lerpPose(a: Pose, b: Pose, t: number): Pose {
   };
 }
 
+/** Fallback for an empty frame list — a figure standing to attention. */
+const FALLBACK: Pose = {
+  x: 80, y: 66, torso: -90, head: -90,
+  arm: [90, 90], armF: [90, 90], leg: [90, 90, 20], legF: [90, 90, 20],
+};
+
+/**
+ * The pose `u` (0–1) of the way ALONG the authored keyframes — two, three or
+ * more, walked at a constant rate and blended pairwise. This is the movement
+ * itself; how much of the clock each direction gets is the caller's business
+ * (`ui/exerciseDemo.ts`).
+ */
+export function frameAt(frames: readonly Pose[], u: number): Pose {
+  const last = frames.length - 1;
+  const first = frames[0] ?? FALLBACK;
+  if (last <= 0) return first;
+  const p = Math.min(1, Math.max(0, u)) * last;
+  const i = Math.min(last - 1, Math.floor(p));
+  const a = frames[i] ?? first;
+  const b = frames[i + 1] ?? first;
+  return lerpPose(a, b, p - i);
+}
+
 /** Cosine ease-in-out: a rep starts and ends slow, like a controlled one. */
 export function ease(t: number): number {
   const c = t <= 0 ? 0 : t >= 1 ? 1 : t;
   return 0.5 - 0.5 * Math.cos(c * Math.PI);
 }
 
-/* ----------------------------------------------------------------- output */
+/* ---------------------------------------------------------------- drawing */
 
 /** Round to 1 decimal — keeps the markup small and the tests readable. */
 export function n(v: number): string {
   return String(Math.round(v * 10) / 10);
+}
+
+function line(a: Vec, b: Vec): string {
+  return `M ${n(a.x)} ${n(a.y)} L ${n(b.x)} ${n(b.y)}`;
+}
+
+function poly(pts: readonly Vec[]): string {
+  return pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${n(p.x)} ${n(p.y)}`).join(' ') + ' Z';
+}
+
+function limbPath(s: SideJoints, cls: string): string {
+  return (
+    `<path class="cd-limb ${cls}" d="${line(s.hip, s.knee)} ${line(s.knee, s.ankle)} ${line(s.ankle, s.toe)}"/>` +
+    `<path class="cd-limb ${cls}" d="${line(s.shoulder, s.elbow)} ${line(s.elbow, s.wrist)}"/>`
+  );
+}
+
+function torsoPath(j: Joints, view: View): string {
+  if (view === 'front') {
+    return poly([j.near.shoulder, j.far.shoulder, j.far.hip, j.near.hip]);
+  }
+  const perp = angleOf(j.pelvis, j.shoulders) + 90;
+  return poly([
+    step(j.pelvis, perp, RIG.waistHalf),
+    step(j.shoulders, perp, RIG.chestHalf),
+    step(j.shoulders, perp + 180, RIG.chestHalf),
+    step(j.pelvis, perp + 180, RIG.waistHalf),
+  ]);
+}
+
+function dot(p: Vec): string {
+  return `<circle class="cd-joint" cx="${n(p.x)}" cy="${n(p.y)}" r="1.8"/>`;
+}
+
+/**
+ * The figure itself. Draw order is depth order: the far limbs, then the solid
+ * torso + head, then the near limbs on top, then the accent joints.
+ */
+export function figureSvg(j: Joints, view: View): string {
+  return (
+    `<g class="cd-figure">` +
+    limbPath(j.far, 'far') +
+    `<path class="cd-torso" d="${torsoPath(j, view)}"/>` +
+    `<path class="cd-neck" d="${line(j.shoulders, j.head)}"/>` +
+    `<circle class="cd-head" cx="${n(j.head.x)}" cy="${n(j.head.y)}" r="${RIG.headR}"/>` +
+    limbPath(j.near, 'near') +
+    dot(j.near.shoulder) +
+    dot(j.near.elbow) +
+    dot(j.near.hip) +
+    dot(j.near.knee) +
+    `</g>`
+  );
+}
+
+/* -------------------------------------------------------------- equipment */
+
+/**
+ * A padded bench. `(x, y)` is the LOW (hip) end of the pad, `angle` its rise
+ * (0 flat, negative = the head end climbs to the right), `len` its length.
+ * Legs drop from both ends to the floor, so an incline bench reads as a bench
+ * and not as a floating slab.
+ */
+export function benchProp(o: {
+  x: number;
+  y: number;
+  len: number;
+  angle?: number;
+  floorY?: number;
+  /** A horizontal seat pad extending backwards from the low end. */
+  seat?: number;
+}): string {
+  const a = o.angle ?? 0;
+  const lo: Vec = { x: o.x, y: o.y };
+  const hi = step(lo, a, o.len);
+  const floorY = o.floorY ?? STAGE.floorY;
+  const seat: Vec | null = o.seat ? { x: o.x - o.seat, y: o.y } : null;
+  const foot = (p: Vec): string => `<path class="cd-frame" d="${line(p, { x: p.x, y: floorY })}"/>`;
+  return (
+    (seat ? padProp(seat, lo) + foot(seat) : '') +
+    padProp(lo, hi) +
+    foot(lo) +
+    foot(hi) +
+    `<path class="cd-frame" d="${line({ x: (seat ?? lo).x, y: floorY }, { x: hi.x, y: floorY })}"/>`
+  );
+}
+
+/** A bare padded surface — a bench top, a thigh pad, a machine backrest. */
+export function padProp(a: Vec, b: Vec): string {
+  return `<path class="cd-pad" d="${line(a, b)}"/>`;
+}
+
+/** A machine's rotation axis, drawn where the joint it tracks actually sits. */
+export function pivotProp(x: number, y: number): string {
+  return `<circle class="cd-frame cd-wheel" cx="${n(x)}" cy="${n(y)}" r="3"/>`;
+}
+
+/** A mat: the thin pad the floor work happens on. */
+export function matProp(x1: number, x2: number, y: number): string {
+  return `<rect class="cd-mat" x="${n(Math.min(x1, x2))}" y="${n(y)}" width="${n(Math.abs(x2 - x1))}" height="3.4" rx="1.7"/>`;
+}
+
+/** The floor line. */
+export function floorProp(x1: number, x2: number, y: number = STAGE.floorY): string {
+  return `<path class="cd-floor" d="${line({ x: x1, y }, { x: x2, y })}"/>`;
+}
+
+/**
+ * A Smith machine rail: one guided vertical track with catch notches. The whole
+ * point of the machine is that the bar CANNOT leave this line, so the rail is
+ * drawn through the full travel and the bar is always painted on it.
+ */
+export function railProp(x: number, y1: number, y2: number): string {
+  const notches: string[] = [];
+  for (let y = y1 + 8; y < y2 - 4; y += 9) {
+    notches.push(`<path class="cd-frame" d="${line({ x, y }, { x: x + 4, y })}"/>`);
+  }
+  return `<path class="cd-frame cd-rail" d="${line({ x, y: y1 }, { x, y: y2 })}"/>` + notches.join('');
+}
+
+/** A cable pulley: the wheel the cable leaves from, on its upright. */
+export function pulleyProp(x: number, y: number, o: { top?: number; post?: number; stack?: boolean } = {}): string {
+  const top = o.top ?? 8;
+  const post = o.post ?? 40;
+  const stack = o.stack
+    ? `<rect class="cd-mat" x="${n(x - 5)}" y="${n(y + 14)}" width="10" height="26" rx="2"/>` +
+      `<path class="cd-frame" d="${line({ x: x - 5, y: y + 22 }, { x: x + 5, y: y + 22 })} ${line({ x: x - 5, y: y + 30 }, { x: x + 5, y: y + 30 })}"/>`
+    : '';
+  return (
+    `<path class="cd-frame" d="${line({ x, y: top }, { x, y: y + post })}"/>` +
+    `<circle class="cd-frame cd-wheel" cx="${n(x)}" cy="${n(y)}" r="3.2"/>` +
+    stack
+  );
+}
+
+/** A pull-up / hanging bar, hung from the top of the stage. */
+export function barProp(x1: number, x2: number, y: number, top = 8): string {
+  return (
+    `<path class="cd-iron cd-bar" d="${line({ x: x1, y }, { x: x2, y })}"/>` +
+    `<path class="cd-frame" d="${line({ x: x1 + 3, y }, { x: x1 + 3, y: top })} ${line({ x: x2 - 3, y }, { x: x2 - 3, y: top })}"/>`
+  );
+}
+
+/** Parallel (dip) bars: the bar the hands sit on, on its uprights. */
+export function dipBarsProp(x1: number, x2: number, y: number, floorY = STAGE.floorY): string {
+  return (
+    `<path class="cd-iron cd-bar" d="${line({ x: x1, y }, { x: x2, y })}"/>` +
+    `<path class="cd-frame" d="${line({ x: x1 + 2, y }, { x: x1 + 2, y: floorY })} ${line({ x: x2 - 2, y }, { x: x2 - 2, y: floorY })}"/>` +
+    floorProp(x1 - 14, x2 + 14, floorY)
+  );
+}
+
+/** A machine frame: an upright with a foot, the skeleton every station shares. */
+export function frameProp(x: number, y1: number, y2: number): string {
+  return `<path class="cd-frame" d="${line({ x, y: y1 }, { x, y: y2 })}"/>`;
+}
+
+/** One weight plate seen edge-on — how a loaded bar reads from the side. */
+function plateSvg(p: Vec, r = 5.6): string {
+  return (
+    `<circle class="cd-iron-fill" cx="${n(p.x)}" cy="${n(p.y)}" r="${n(r)}"/>` +
+    `<circle class="cd-hub" cx="${n(p.x)}" cy="${n(p.y)}" r="1.5"/>`
+  );
+}
+
+/** A dumbbell: a short handle with a block at each end. */
+function dumbbellSvg(p: Vec, deg: number, len = 5.2): string {
+  const a = step(p, deg, len);
+  const b = step(p, deg + 180, len);
+  return (
+    `<path class="cd-iron" d="${line(a, b)}"/>` +
+    `<path class="cd-iron cd-bell" d="${line(step(a, deg + 90, 3), step(a, deg - 90, 3))} ${line(step(b, deg + 90, 3), step(b, deg - 90, 3))}"/>`
+  );
+}
+
+/** A machine roller pad — the thing a leg curl / extension pushes against. */
+function rollerSvg(p: Vec): string {
+  return `<circle class="cd-roller" cx="${n(p.x)}" cy="${n(p.y)}" r="4.4"/>`;
+}
+
+function cableSvg(from: Vec, to: Vec): string {
+  return `<path class="cd-cable" d="${line(from, to)}"/>`;
 }
 
 /* ----------------------------------------------------------- what is held */
@@ -279,17 +484,7 @@ export type Hold =
   /** One dumbbell per hand. `axis` is the bar's direction: across the forearm
    *  (a normal grip, seen from the side) or along it (a neutral/hammer grip
    *  seen from the front). */
-  | {
-      readonly k: 'db';
-      readonly axis?: 'cross' | 'along';
-      /**
-       * Seen BROADSIDE rather than three-quarter. A normally-gripped dumbbell
-       * points at the camera in the sagittal plane, so it is drawn foreshortened
-       * — but looking DOWN on a lifter lying on a bench, the same bar lies flat
-       * across the frame and the whole bell is visible.
-       */
-      readonly broad?: boolean;
-    }
+  | { readonly k: 'db'; readonly axis?: 'cross' | 'along' }
   /** One dumbbell, near hand only (the one-arm row). */
   | { readonly k: 'dbNear' }
   /** One weight in BOTH hands — held at the midpoint of the two grips. */
@@ -311,10 +506,13 @@ function mid(a: Vec, b: Vec): Vec {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
 
+function forearmAngle(s: SideJoints): number {
+  return angleOf(s.elbow, s.wrist);
+}
+
 /**
- * WHERE a hold sits, as points — the same numbers the renderer draws with,
- * exposed so the pose tests can assert that the iron is anchored to the right
- * joint, and so the load-path guide can be sampled from the load itself.
+ * WHERE a hold sits, as points — the same numbers `holdSvg` draws with, exposed
+ * so the pose tests can assert that the iron is anchored to the right joint.
  */
 export function holdAnchors(hold: Hold, j: Joints): Vec[] {
   switch (hold.k) {
@@ -337,5 +535,59 @@ export function holdAnchors(hold: Hold, j: Joints): Vec[] {
       return [j.near.grip, j.far.grip];
     case 'roller':
       return [hold.joint === 'ankle' ? j.near.ankle : j.near.knee];
+  }
+}
+
+export function holdSvg(hold: Hold, j: Joints): string {
+  switch (hold.k) {
+    case 'none':
+      return '';
+    case 'db': {
+      const along = hold.axis === 'along';
+      return (
+        dumbbellSvg(j.far.grip, forearmAngle(j.far) + (along ? 0 : 90), 4.6) +
+        dumbbellSvg(j.near.grip, forearmAngle(j.near) + (along ? 0 : 90))
+      );
+    }
+    case 'dbNear':
+      return dumbbellSvg(j.near.grip, forearmAngle(j.near) + 90);
+    case 'plate':
+      return plateSvg(mid(j.near.grip, j.far.grip), hold.r ?? 5.6);
+    case 'bar':
+      return plateSvg(j.near.grip);
+    case 'barBack': {
+      const a = angleOf(j.far.shoulder, j.near.shoulder);
+      return plateSvg(step(j.near.shoulder, a, 1.5), 5);
+    }
+    case 'rope': {
+      const from: Vec = { x: hold.from[0] ?? 0, y: hold.from[1] ?? 0 };
+      const hands = mid(j.near.grip, j.far.grip);
+      const a = angleOf(from, hands);
+      return (
+        cableSvg(from, hands) +
+        `<path class="cd-rope" d="${line(hands, step(hands, a - 26, 8))} ${line(hands, step(hands, a + 26, 8))}"/>`
+      );
+    }
+    case 'handle': {
+      const from: Vec = { x: hold.from[0] ?? 0, y: hold.from[1] ?? 0 };
+      const hands = mid(j.near.grip, j.far.grip);
+      const a = angleOf(from, hands);
+      const bar = hold.wide
+        ? `<path class="cd-iron cd-bar" d="${line(step(hands, a + 90, 13), step(hands, a - 90, 13))}"/>`
+        : `<path class="cd-iron cd-bar" d="${line(step(hands, a + 90, 5), step(hands, a - 90, 5))}"/>`;
+      return cableSvg(from, hands) + bar;
+    }
+    case 'cables': {
+      const a = hold.from[0];
+      const b = hold.from[1];
+      return (
+        (a ? cableSvg({ x: a[0], y: a[1] }, j.far.grip) : '') +
+        (b ? cableSvg({ x: b[0], y: b[1] }, j.near.grip) : '') +
+        `<circle class="cd-hub" cx="${n(j.far.grip.x)}" cy="${n(j.far.grip.y)}" r="2.2"/>` +
+        `<circle class="cd-hub" cx="${n(j.near.grip.x)}" cy="${n(j.near.grip.y)}" r="2.2"/>`
+      );
+    }
+    case 'roller':
+      return rollerSvg(hold.joint === 'ankle' ? j.near.ankle : j.near.knee);
   }
 }

@@ -15,11 +15,6 @@
  *     host — the mid-rep pose is painted once and NOTHING is scheduled;
  *   - gone, because the drawer was closed or the screen re-rendered — the
  *     element is removed and the pending frame is cancelled.
- *
- * WHAT COUNTS AS "PAINTED" is the volumetric figure: the moving group carries a
- * `cd-figure` wrapper, a torso clip path rebuilt on every frame because the
- * torso deforms, and a `cd-hi` muscle patch. Those are the markers asserted
- * here, in place of the stick renderer's ones.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -31,7 +26,7 @@ import { CUSTOM_ID_PREFIX, type PlanDoc } from '../src/data/planTypes.ts';
 import { defaultPlanDoc, makePlanDay, savePlan } from '../src/core/plan.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import { createApp } from '../src/ui/app.ts';
-import { clipIdOf, mountExerciseDemo, poseAt, stillPose } from '../src/ui/exerciseDemo.ts';
+import { mountExerciseDemo, poseAt, stillPose } from '../src/ui/exerciseDemo.ts';
 import { RestTimer } from '../src/ui/timer.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
 
@@ -96,32 +91,12 @@ describe('mounting a demo', () => {
 
     const svg = host.querySelector('svg.cd-svg');
     expect(svg).not.toBeNull();
-    // the camera is per-demo now: a1 crops the stage around the bench
-    expect(svg?.getAttribute('viewBox')).toBe('26 32 100 75');
+    expect(svg?.getAttribute('viewBox')).toBe('0 0 160 120');
     expect(svg?.getAttribute('role')).toBe('img');
-    expect(svg?.getAttribute('data-view')).toBe('side');
     expect(host.querySelector('.ex-demo')?.getAttribute('data-demo')).toBe('a1');
-    // props painted once into their own group, the volumetric figure into the
-    // live one, with its muscle patch and its own torso clip
-    const live = svg?.querySelector('.cd-live')?.innerHTML ?? '';
-    expect(svg?.querySelector('.cd-static')?.innerHTML).toContain('cd-arc');
-    expect(live).toContain('cd-figure');
-    expect(live).toContain('cd-hi');
-    expect(live).toContain(`<clipPath id="${clipIdOf(demoFor('a1')!)}">`);
-    h?.destroy();
-  });
-
-  it('names the working muscle under the picture', () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const h = mountExerciseDemo(host, 'c2');
-    const chip = host.querySelector('.cd-legend .cd-chip');
-    expect(chip).not.toBeNull();
-    expect(chip?.textContent).toContain('ירך אחורית · ישבן');
-    expect(chip?.textContent).toContain('זוקפי גב');
-    // the chip is OUTSIDE the svg — it is text, and a screen reader should read
-    // it as text rather than as part of the picture's label
-    expect(host.querySelector('svg .cd-legend')).toBeNull();
+    // props painted once into their own group, the figure into the live one
+    expect(svg?.querySelector('.cd-static')?.innerHTML).toContain('cd-rail');
+    expect(svg?.querySelector('.cd-live')?.innerHTML).toContain('cd-torso');
     h?.destroy();
   });
 
@@ -249,12 +224,13 @@ describe('the still', () => {
     expect(h?.running()).toBe(false);
     expect(raf.scheduled).toBe(0);
 
-    // …and what it shows is the far end of the rep, not the start
+    // …and what it shows is the MIDDLE of the movement, not the start
     const d = demoFor('a3');
     expect(d).not.toBeNull();
     const still = stillPose(d!);
     expect(still.y).toBeGreaterThan((d!.frames[0]?.y ?? 0) + 4);
-    expect(host.querySelector('.cd-live')?.innerHTML).toContain('cd-figure');
+    expect(still.y).toBeLessThan(d!.frames[d!.frames.length - 1]?.y ?? 0);
+    expect(host.querySelector('.cd-live')?.innerHTML).toContain('cd-torso');
     h?.destroy();
   });
 
@@ -264,7 +240,7 @@ describe('the still', () => {
     document.body.appendChild(host);
     const h = mountExerciseDemo(host, 'a3');
     expect(h?.running()).toBe(false);
-    expect(host.querySelector('.cd-live')?.innerHTML).toContain('cd-figure');
+    expect(host.querySelector('.cd-live')?.innerHTML).toContain('cd-torso');
     h?.start(); // even asked directly, a still stays a still
     expect(h?.running()).toBe(false);
     h?.destroy();
@@ -286,7 +262,7 @@ describe('the tempo', () => {
   it('lands exactly on the authored ends, and turns at forwardShare', () => {
     const d = demoFor('a3');
     expect(d).not.toBeNull();
-    const last = (d!.frames.length - 1) as number;
+    const last = d!.frames.length - 1;
     const start = poseAt(d!, 0);
     const turn = poseAt(d!, d!.loopMs * d!.forwardShare);
     expect(start.y).toBeCloseTo(d!.frames[0]?.y ?? 0, 6);
@@ -301,7 +277,6 @@ describe('the tempo', () => {
     // 60% of the loop and NOT at halfway — which is exactly what a symmetric
     // yoyo could never say.
     const d = demoFor('c2');
-    expect(d).not.toBeNull();
     expect(d!.forwardShare).toBe(0.6);
     const bottom = d!.frames[d!.frames.length - 1]?.torso ?? 0;
     expect(poseAt(d!, d!.loopMs * 0.6).torso).toBeCloseTo(bottom, 6);
@@ -312,21 +287,6 @@ describe('the tempo', () => {
     const top = p!.frames[p!.frames.length - 1]?.arm[0] ?? 0;
     expect(poseAt(p!, p!.loopMs * p!.forwardShare).arm[0]).toBeCloseTo(top, 6);
     expect(poseAt(p!, p!.loopMs * 0.5).arm[0]).not.toBeCloseTo(top, 1);
-  });
-
-  it('shows the MIDDLE of the movement when it cannot animate', () => {
-    for (const id of ['a1', 'c2', 'c6']) {
-      const d = demoFor(id);
-      const still = stillPose(d!);
-      const mid = Math.floor((d!.frames.length - 1) / 2);
-      // three keyframes: the still IS the middle one
-      if (d!.frames.length === 3) expect(still.torso).toBeCloseTo(d!.frames[mid]?.torso ?? 0, 6);
-      // two keyframes: half way between them, never either end
-      else {
-        expect(still.torso).not.toBe(d!.frames[0]?.torso);
-        expect(still.torso).not.toBe(d!.frames[1]?.torso);
-      }
-    }
   });
 });
 

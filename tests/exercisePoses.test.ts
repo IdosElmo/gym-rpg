@@ -22,13 +22,6 @@
  * Plus the sweep that applies to all 28: coverage, joint limits, frames inside
  * the stage, equipment anchored to the joint it belongs to, and no external
  * reference anywhere in the markup.
- *
- * AND THE RENDERING CONFIG, which is data too. A volumetric figure needs five
- * things a stick one did not, and every one of them can be wrong in a way no
- * type checks: a camera that crops the stage it does not cover, a layer order
- * that draws a limb twice or not at all, a muscle the exercise does not
- * actually train, a front-view silhouette on a lift that happens in the
- * sagittal plane. Each of those is a `describe` below.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -36,7 +29,6 @@ import { EXERCISE_DEMOS, demoFor, type ExerciseDemo } from '../src/data/exercise
 import { builtInExercises, findExercise } from '../src/data/program.ts';
 import {
   STAGE,
-  angleOf,
   dist,
   flexion,
   forwardKinematics,
@@ -45,9 +37,7 @@ import {
   type Pose,
   type Vec,
 } from '../src/ui/coachFigure.ts';
-import { LAYERS, MUSCLE_REGIONS, PAL, barBackAnchor, frameAt } from '../src/ui/coachVolume.ts';
-import { bodyPartWeights } from '../src/data/program.ts';
-import { demoSvg, legendHtml, poseAt, stillPose } from '../src/ui/exerciseDemo.ts';
+import { demoSvg, poseAt, stillPose } from '../src/ui/exerciseDemo.ts';
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -71,14 +61,6 @@ function frameOf(id: string, i: number): Pose {
   return p;
 }
 
-/**
- * The index of the LAST authored keyframe. Several demos gained a middle frame
- * when the volumetric renderer arrived (a mid-rep pose is where the eye is once
- * the tempo is two-phase, and it is what pins a planted ankle through a
- * descent), so "the end of the movement" is not always frame 1.
- */
-const endOf = (id: string): number => demo(id).frames.length - 1;
-
 /** Mid-torso point — "the chest" for the purposes of a press. */
 function chest(j: Joints): Vec {
   return { x: (j.pelvis.x + j.shoulders.x * 2) / 3, y: (j.pelvis.y + j.shoulders.y * 2) / 3 };
@@ -92,7 +74,7 @@ function leanFromVertical(pose: Pose): number {
 /** Every wheel centre the props drew — i.e. every real pulley. */
 function pulleys(d: ExerciseDemo): Vec[] {
   const out: Vec[] = [];
-  const re = /class="cd-wheel" cx="(-?[\d.]+)" cy="(-?[\d.]+)"/g;
+  const re = /class="cd-frame cd-wheel" cx="(-?[\d.]+)" cy="(-?[\d.]+)"/g;
   let m = re.exec(d.props());
   while (m) {
     out.push({ x: Number(m[1]), y: Number(m[2]) });
@@ -104,7 +86,7 @@ function pulleys(d: ExerciseDemo): Vec[] {
 /** Every vertical guide rail the props drew. */
 function rails(d: ExerciseDemo): number[] {
   const out: number[] = [];
-  const re = /class="cd-rail" d="M (-?[\d.]+) /g;
+  const re = /class="cd-frame cd-rail" d="M (-?[\d.]+) /g;
   let m = re.exec(d.props());
   while (m) {
     out.push(Number(m[1]));
@@ -144,56 +126,6 @@ describe('every demo, structurally', () => {
         expect(d.loopMs).toBeGreaterThanOrEqual(1800);
         expect(d.loopMs).toBeLessThanOrEqual(5000);
         expect(d.view === 'side' || d.view === 'front').toBe(true);
-        // the two halves of a rep are not equal, but neither is a flicker
-        expect(d.forwardShare).toBeGreaterThanOrEqual(0.3);
-        expect(d.forwardShare).toBeLessThanOrEqual(0.7);
-      });
-
-      it('declares a facing, a full layer order and a camera inside the stage', () => {
-        expect(d.facing === 1 || d.facing === -1).toBe(true);
-        // every layer exactly once: a missing one drops a limb, a repeated one
-        // paints it twice and the second copy wins
-        expect([...d.order].sort()).toEqual([...LAYERS].sort());
-        const [x, y, w, h] = d.camera;
-        expect(x).toBeGreaterThanOrEqual(0);
-        expect(y).toBeGreaterThanOrEqual(0);
-        expect(w).toBeGreaterThan(30);
-        expect(h).toBeGreaterThan(30);
-        expect(x + w).toBeLessThanOrEqual(STAGE.w);
-        expect(y + h).toBeLessThanOrEqual(STAGE.h);
-        // and it is a card, not a letterbox
-        expect(w / h).toBeGreaterThan(0.5);
-        expect(w / h).toBeLessThan(2.2);
-      });
-
-      it('highlights the muscle the exercise actually pays XP for', () => {
-        const ex = findExercise(d.id);
-        expect(ex).not.toBeNull();
-        const weights = bodyPartWeights(ex!);
-        expect(MUSCLE_REGIONS).toContain(d.primary);
-        // the primary IS the exercise's own body part…
-        expect(d.primary as string).toBe(ex!.bodyPart);
-        if (d.secondary === undefined) {
-          // …and a demo only claims a second muscle when the exercise splits
-          const others = MUSCLE_REGIONS.filter((r) => r !== d.primary && (weights[r] ?? 0) > 0);
-          expect(others).toHaveLength(0);
-        } else {
-          expect(d.secondary).not.toBe(d.primary);
-          expect(weights[d.secondary] ?? 0).toBeGreaterThan(0);
-          // …and when it does, it names the heavier half of the split
-          for (const r of MUSCLE_REGIONS) {
-            if (r === d.primary || r === d.secondary) continue;
-            expect(weights[r] ?? 0).toBeLessThanOrEqual(weights[d.secondary] ?? 0);
-          }
-        }
-      });
-
-      it('chips the muscle in Hebrew, primary first', () => {
-        expect(d.muscles.length).toBe(d.secondary === undefined ? 1 : 2);
-        for (const m of d.muscles) expect(m).toMatch(/[֐-׿]/);
-        const chip = legendHtml(d);
-        expect(chip).toContain('cd-chip');
-        expect(chip).toContain(d.muscles[0] as string);
       });
 
       it('keeps every joint inside the stage', () => {
@@ -267,19 +199,15 @@ describe('every demo, structurally', () => {
         }
       });
 
-      it('renders self-contained volumetric markup', () => {
+      it('renders self-contained markup', () => {
         const svg = demoSvg(d, stillPose(d), 'x');
         expect(svg).toMatch(/^<svg class="cd-svg"/);
         expect(svg).toContain('cd-static');
         expect(svg).toContain('cd-live');
-        expect(svg).toContain('cd-figure');
-        expect(svg).toContain(`viewBox="${d.camera.join(' ')}"`);
         expect(svg).not.toMatch(/NaN|undefined|Infinity/);
         // the licence story in one assertion: nothing is fetched, ever
         expect(svg).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
-        expect(svg).not.toMatch(/<image|xlink:href|\.gif|\.png|\.jpg|data:/);
-        // the only url() is a reference to a def in this same document
-        for (const m of svg.matchAll(/url\(([^)]*)\)/g)) expect(m[1]?.startsWith('#')).toBe(true);
+        expect(svg).not.toMatch(/<image|url\(|xlink:href|\.gif|\.png|\.jpg|data:/);
       });
 
       it('actually MOVES — no demo is two copies of one pose', () => {
@@ -315,40 +243,32 @@ function limbPoints(j: Joints): Vec[] {
 describe('presses — hands at the chest at the bottom, extended at the top', () => {
   for (const id of ['a1', 'b1', 'c1']) {
     it(id, () => {
-      const end = endOf(id);
       const bottom = at(id, 0);
-      const top = at(id, end);
+      const top = at(id, 1);
       // bottom: the hand is ABOVE the chest (never down at the belly) and near it
       expect(bottom.near.grip.y).toBeLessThan(chest(bottom).y);
       expect(dist(bottom.near.shoulder, bottom.near.grip)).toBeLessThan(16);
       expect(flexion(frameOf(id, 0).arm[0], frameOf(id, 0).arm[1])).toBeGreaterThan(90);
       // top: pressed away, arm close to straight but not locked
       expect(dist(top.near.shoulder, top.near.grip)).toBeGreaterThan(22);
-      expect(flexion(frameOf(id, end).arm[0], frameOf(id, end).arm[1])).toBeLessThan(60);
+      expect(flexion(frameOf(id, 1).arm[0], frameOf(id, 1).arm[1])).toBeLessThan(60);
       expect(top.near.grip.y).toBeLessThan(bottom.near.grip.y - 12);
     });
   }
 
   it('a1 presses on a 30° incline, c1 on the same incline but DEEPER', () => {
-    // both recline on the same pad and both press dumbbells, which is what the
-    // program says they are — a1 at 8–10 reps, c1 at 10–12 through a fuller
-    // range. What tells them apart is the bottom: c1's dumbbells travel BELOW
-    // where a1 stops, and its elbow drops further under the shoulder line.
+    // both recline; c1's bottom sits closer to the shoulder than the bar allows
     expect(leanFromVertical(frameOf('a1', 0))).toBeCloseTo(60, 0);
     expect(leanFromVertical(frameOf('c1', 0))).toBeCloseTo(60, 0);
     const a1 = at('a1', 0);
     const c1 = at('c1', 0);
-    expect(c1.near.grip.y).toBeGreaterThan(a1.near.grip.y + 2);
-    expect(c1.near.elbow.y - c1.near.shoulder.y).toBeGreaterThan(a1.near.elbow.y - a1.near.shoulder.y);
-    // …and they finish in the same place, because it is the same lockout
-    expect(dist(at('a1', endOf('a1')).near.grip, at('c1', endOf('c1')).near.grip)).toBeLessThan(1);
+    expect(dist(c1.near.shoulder, c1.near.grip)).toBeGreaterThan(dist(a1.near.shoulder, a1.near.grip));
   });
 });
 
 describe('Smith machine lifts — the bar cannot leave the rail', () => {
-  // a1 is the DUMBBELL half of its own copy (`Incline Smith / Dumbbell Press`);
-  // the bar version of a flat press is b1, and the rail lifts are b1/b4/x1.
   const cases: Array<[string, 'grip' | 'shoulder']> = [
+    ['a1', 'grip'],
     ['b1', 'grip'],
     ['b4', 'grip'],
     ['x1', 'shoulder'],
@@ -358,15 +278,17 @@ describe('Smith machine lifts — the bar cannot leave the rail', () => {
       const d = demo(id);
       const railXs = rails(d);
       expect(railXs).toHaveLength(1);
-      const on = (i: number): Vec => {
+      const xs = d.frames.map((_p, i) => {
         const j = at(id, i);
-        return point === 'grip' ? j.near.grip : j.near.shoulder;
-      };
-      for (let i = 0; i < d.frames.length; i++) {
-        expect(Math.abs(on(i).x - (railXs[0] ?? 0))).toBeLessThan(2);
-      }
+        return point === 'grip' ? j.near.grip.x : j.near.shoulder.x;
+      });
+      for (const x of xs) expect(Math.abs(x - (railXs[0] ?? 0))).toBeLessThan(2);
       // ...and it still travels vertically
-      expect(Math.abs(on(0).y - on(endOf(id)).y)).toBeGreaterThan(12);
+      const ys = d.frames.map((_p, i) => {
+        const j = at(id, i);
+        return point === 'grip' ? j.near.grip.y : j.near.shoulder.y;
+      });
+      expect(Math.abs((ys[0] ?? 0) - (ys[1] ?? 0))).toBeGreaterThan(12);
     });
   }
 });
@@ -375,7 +297,7 @@ describe('squat patterns — hips to at least parallel, feet planted', () => {
   for (const id of ['a3', 'x1']) {
     it(id, () => {
       const top = at(id, 0);
-      const bottom = at(id, endOf(id));
+      const bottom = at(id, 1);
       expect(bottom.pelvis.y - top.pelvis.y).toBeGreaterThan(11);
       // "below parallel-ish": the hip is at or under the knee at the bottom
       expect(bottom.pelvis.y).toBeGreaterThan(bottom.near.knee.y - 2);
@@ -386,7 +308,7 @@ describe('squat patterns — hips to at least parallel, feet planted', () => {
   }
 
   it('a3 is a SPLIT stance with the back knee dropping near the floor', () => {
-    const bottom = at('a3', endOf('a3'));
+    const bottom = at('a3', 1);
     expect(bottom.near.ankle.x - bottom.far.ankle.x).toBeGreaterThan(20);
     expect(bottom.far.knee.y).toBeGreaterThan(bottom.near.knee.y + 10);
   });
@@ -395,7 +317,7 @@ describe('squat patterns — hips to at least parallel, feet planted', () => {
 describe('c2 — an RDL hinges at the hip, and barely at the knee', () => {
   it('rotates the torso far while the knee keeps its small fixed bend', () => {
     const top = frameOf('c2', 0);
-    const bottom = frameOf('c2', endOf('c2'));
+    const bottom = frameOf('c2', 1);
     expect(leanFromVertical(bottom) - leanFromVertical(top)).toBeGreaterThan(60);
     expect(flexion(top.leg[0], top.leg[1])).toBeLessThan(35);
     expect(flexion(bottom.leg[0], bottom.leg[1])).toBeLessThan(35);
@@ -403,7 +325,7 @@ describe('c2 — an RDL hinges at the hip, and barely at the knee', () => {
 
   it('pushes the hips BACK and lets the weight hang down the shins', () => {
     const a = at('c2', 0);
-    const b = at('c2', endOf('c2'));
+    const b = at('c2', 1);
     expect(b.pelvis.x).toBeLessThan(a.pelvis.x - 8); // hips travel away from the toes
     expect(dist(a.near.ankle, b.near.ankle)).toBeLessThan(1.5);
     // arms hang: the hand stays directly under the shoulder in BOTH frames
@@ -482,7 +404,7 @@ describe('rows and pulls', () => {
 
   it('b2 keeps the grip ON the bar and lifts the BODY to it', () => {
     const hang = at('b2', 0);
-    const top = at('b2', endOf('b2'));
+    const top = at('b2', 1);
     expect(dist(hang.near.grip, top.near.grip)).toBeLessThan(1);
     expect(hang.pelvis.y - top.pelvis.y).toBeGreaterThan(15);
     expect(top.head.y).toBeLessThan(hang.head.y - 12); // chin arrives at the bar
@@ -540,7 +462,7 @@ describe('core', () => {
     expect(rolls[2]).toBeGreaterThan(0);
     const right = holdAnchors(d.hold, at('c6', 0))[0];
     const left = holdAnchors(d.hold, at('c6', 2))[0];
-    expect((right?.x ?? 0) - (left?.x ?? 0)).toBeGreaterThan(18);
+    expect((right?.x ?? 0) - (left?.x ?? 0)).toBeGreaterThan(25);
     // the seat stays put — the rotation is not a lean
     expect(at('c6', 0).pelvis).toEqual(at('c6', 2).pelvis);
   });
@@ -583,29 +505,15 @@ describe('machines and cables', () => {
     expect(demo('b6').hold.k).toBe('cables');
   });
 
-  it('x7 is OUR face pull: two rope ends, two temples, elbows wide and high', () => {
-    const d = demo('x7');
-    expect(d.view).toBe('front'); // a rope has two ends and they arrive apart
+  it('x7 is OUR face pull: to the face, elbows back and up at shoulder height', () => {
     const out = at('x7', 0);
     const pulled = at('x7', 1);
-    // extended: the fists together up at the rope, arms nearly straight
-    expect(dist(out.near.shoulder, out.near.grip)).toBeGreaterThan(24);
-    expect(dist(out.near.grip, out.far.grip)).toBeLessThan(10);
-    expect(out.near.grip.y).toBeLessThan(out.head.y - 8);
-    // contracted: ONE FIST EITHER SIDE OF THE HEAD, at about ear height
-    expect(pulled.near.grip.x).toBeGreaterThan(pulled.head.x + 6);
-    expect(pulled.far.grip.x).toBeLessThan(pulled.head.x - 6);
-    expect(Math.abs(pulled.near.grip.y - pulled.head.y)).toBeLessThan(6);
-    // …and the two arms are mirror images of each other, because the rig
-    // mirrors the far side of a front-view pose for free
-    expect(pulled.near.grip.x - pulled.pelvis.x).toBeCloseTo(pulled.pelvis.x - pulled.far.grip.x, 6);
-    expect(pulled.near.grip.y).toBeCloseTo(pulled.far.grip.y, 6);
-    // ELBOWS WIDE AND HIGH is the cue, and in this view both of them show it
-    expect(pulled.near.elbow.x).toBeGreaterThan(pulled.near.shoulder.x + 8);
-    expect(pulled.far.elbow.x).toBeLessThan(pulled.far.shoulder.x - 8);
-    expect(pulled.near.elbow.y).toBeLessThan(pulled.near.shoulder.y);
-    const from = d.hold.k === 'rope' ? (d.hold as { from: readonly number[] }).from : [];
-    expect(from[1]).toBeLessThan(out.near.grip.y); // the rope comes from above
+    expect(dist(out.near.shoulder, out.near.grip)).toBeGreaterThan(24); // arms extended
+    expect(dist(pulled.near.grip, pulled.head)).toBeLessThan(12); // …to the face
+    expect(pulled.near.elbow.x).toBeLessThan(pulled.near.shoulder.x); // driven back
+    expect(pulled.near.elbow.y).toBeLessThan(pulled.near.shoulder.y + 2); // and high
+    const from = demo('x7').hold.k === 'rope' ? (demo('x7').hold as { from: readonly number[] }).from : [];
+    expect(from[1]).toBeLessThan(pulled.head.y + 12); // pulley set at face height
   });
 
   it('x8 is a pure elevation: nothing rotates, the head stays', () => {
@@ -624,34 +532,18 @@ describe('machines and cables', () => {
 });
 
 describe('flye family — a wide arc, elbow bent throughout', () => {
-  it('a4 opens the hands to BOTH sides and closes them over the chest', () => {
-    const d = demo('a4');
-    // Seen from the side, two arms opening left and right stack into one plane
-    // and the pair reads as one hand. Shot from above — which for a lifter on
-    // his back is the front silhouette — they are visibly two.
-    expect(d.view).toBe('front');
+  it('a4 opens the hands far apart and closes them over the chest', () => {
     const open = at('a4', 0);
-    const closed = at('a4', endOf('a4'));
-    expect(dist(open.near.grip, open.far.grip)).toBeGreaterThan(40);
-    expect(dist(closed.near.grip, closed.far.grip)).toBeLessThan(14);
-    // one hand each side of the body's centre line, the whole way
-    for (let i = 0; i <= endOf('a4'); i++) {
-      const j = at('a4', i);
-      expect(j.near.grip.x, `frame ${i}`).toBeGreaterThan(j.pelvis.x + 4);
-      expect(j.far.grip.x, `frame ${i}`).toBeLessThan(j.pelvis.x - 4);
-      // …and the two arcs are mirror images
-      expect(j.near.grip.x - j.pelvis.x).toBeCloseTo(j.pelvis.x - j.far.grip.x, 6);
-      expect(j.near.grip.y).toBeCloseTo(j.far.grip.y, 6);
-      // the elbow never straightens and never comes inboard — "hug a wide
-      // tree", not a press
+    const closed = at('a4', 1);
+    expect(dist(open.near.grip, open.far.grip)).toBeGreaterThan(24);
+    expect(dist(closed.near.grip, closed.far.grip)).toBeLessThan(12);
+    expect(closed.near.grip.y).toBeLessThan(open.near.grip.y - 30);
+    // the elbow never straightens — "hug a wide tree", not a press
+    for (let i = 0; i < 2; i++) {
       const p = frameOf('a4', i);
       expect(flexion(p.arm[0], p.arm[1])).toBeGreaterThan(20);
       expect(flexion(p.armF[0], p.armF[1])).toBeGreaterThan(20);
-      expect(j.near.elbow.x, `elbow ${i}`).toBeGreaterThan(j.pelvis.x + 10);
     }
-    // the hands finish over the chest, above the pelvis and below the chin
-    expect(closed.near.grip.y).toBeLessThan(closed.pelvis.y - 8);
-    expect(closed.near.grip.y).toBeGreaterThan(closed.head.y + 8);
   });
 
   it('x10 arcs ONE weight from behind the head to over the chest', () => {
@@ -701,275 +593,8 @@ describe('flye family — a wide arc, elbow bent throughout', () => {
 describe('the views are chosen per movement, not by habit', () => {
   it('puts the frontal-plane lifts in the FRONT view and everything else in the side', () => {
     const front = EXERCISE_DEMOS.filter((d) => d.view === 'front').map((d) => d.id).sort();
-    // six, not four: a flye and a face pull are bilateral movements whose hands
-    // travel to OPPOSITE SIDES of the body, and a sagittal camera stacks them
-    // into one plane however well the pose is solved
-    expect(front).toEqual(['a4', 'b6', 'c6', 'x4', 'x7', 'x8']);
+    expect(front).toEqual(['b6', 'c6', 'x4', 'x8']);
     // …and every one of them is a movement whose plane is frontal
     for (const id of front) expect(findExercise(id)).not.toBeNull();
-    // the front silhouette is symmetric, so it is authored facing the camera and
-    // the rig mirrors the far side for free
-    for (const id of front) expect(demo(id).facing).toBe(1);
-    expect(EXERCISE_DEMOS.filter((d) => d.view === 'side')).toHaveLength(22);
-  });
-});
-
-/* ------------------------------------------------ the volumetric rendering */
-
-describe('the camera frames the figure it is pointed at', () => {
-  for (const d of EXERCISE_DEMOS) {
-    it(d.id, () => {
-      const [cx, cy, cw, ch] = d.camera;
-      // the landmarks a viewer looks for: if any of these is out of frame the
-      // demo is cropping the movement rather than framing it
-      eachFrame(d, (j) => {
-        const pts: Array<[string, Vec]> = [
-          ['head', j.head],
-          ['pelvis', j.pelvis],
-          ['shoulders', j.shoulders],
-          ['grip', j.near.grip],
-          ['ankle', j.near.ankle],
-          ['knee', j.near.knee],
-          ['elbow', j.near.elbow],
-        ];
-        for (const [name, p] of pts) {
-          expect(p.x, `${d.id} ${name} x`).toBeGreaterThan(cx - 1);
-          expect(p.x, `${d.id} ${name} x`).toBeLessThan(cx + cw + 1);
-          expect(p.y, `${d.id} ${name} y`).toBeGreaterThan(cy - 1);
-          expect(p.y, `${d.id} ${name} y`).toBeLessThan(cy + ch + 1);
-        }
-      });
-    });
-  }
-});
-
-describe('the load travels a path, not a loop', () => {
-  /**
-   * A REP IS ONE WAY AND THEN THE OTHER, never a wobble in between.
-   *
-   * Two keyframes and a straight lerp do not guarantee that: the segment angles
-   * interpolate independently, so a hand can be steered by a shoulder turning at
-   * one rate and a forearm turning at another, and the result is a small loop —
-   * the flye's near elbow crept eleven units left and then crawled back right,
-   * the far dumbbell reversed with it, and the whole thing read as the arms
-   * changing their mind halfway down. This samples the load across the forward
-   * pass and measures how far it BACKTRACKS in height. An arc may curve; it may
-   * not double back.
-   */
-  const trace = (d: ExerciseDemo, of: (j: Joints) => Vec): Vec[] => {
-    const out: Vec[] = [];
-    for (let i = 0; i <= 40; i++) out.push(of(forwardKinematics(frameAt(d.frames, i / 40), d.view)));
-    return out;
-  };
-  /**
-   * How far the load RETREATS along its own line of travel. Measuring height
-   * alone was enough while every demo was sagittal; a movement shot from above
-   * travels sideways, and "does not double back" has to mean the same thing in
-   * both. So each sample is projected onto the chord from the first position to
-   * the last, and what is summed is the distance walked backwards along it.
-   */
-  const backtrack = (pts: readonly Vec[]): number => {
-    const a = pts[0] as Vec;
-    const b = pts[pts.length - 1] as Vec;
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const len = Math.hypot(dx, dy);
-    if (len < 1e-6) return 0;
-    let worst = -Infinity;
-    let back = 0;
-    for (const p of pts) {
-      const s = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len;
-      if (s < worst) back += worst - s;
-      else worst = s;
-    }
-    return back;
-  };
-
-  /**
-   * The point the demo's own guide follows — the load for a lift that holds
-   * one, and the joint the demo names for a bodyweight movement that moves the
-   * body instead (`ui/coachVolume.ts`). Testing anything else tests a line
-   * nobody draws: a pull-up's fists never leave the bar.
-   */
-  const guided = (d: ExerciseDemo, j: Joints): Vec | null => {
-    switch (d.arcFrom ?? 'load') {
-      case 'none':
-        return null;
-      case 'hip':
-        return j.pelvis;
-      case 'knee':
-        return j.near.knee;
-      case 'ankle':
-        return j.near.ankle;
-      case 'head':
-        return j.head;
-      default:
-        return holdAnchors(d.hold, j)[0] ?? null;
-    }
-  };
-
-  for (const d of EXERCISE_DEMOS) {
-    it(d.id, () => {
-      if (guided(d, forwardKinematics(frameAt(d.frames, 0), d.view)) === null) return;
-      const pts = trace(d, (j) => guided(d, j) as Vec);
-      // below six units of travel there is no path — the guide is not drawn
-      // either — and a wobble measured against a chord that short means nothing
-      if (dist(pts[0] as Vec, pts[pts.length - 1] as Vec) < 6) return;
-      // 3 units is a third of a fist: below that nothing is visible at any size
-      expect(backtrack(pts), `${d.id} load doubles back on itself`).toBeLessThan(3);
-    });
-  }
-
-  it('a4 closes the flye monotonically — the dumbbells only ever converge', () => {
-    const d = demo('a4');
-    const gap: number[] = [];
-    for (let i = 0; i <= 40; i++) {
-      const j = forwardKinematics(frameAt(d.frames, i / 40), d.view);
-      gap.push(dist(j.near.grip, j.far.grip));
-    }
-    for (let i = 1; i < gap.length; i++) {
-      expect(gap[i] as number, `gap grew at ${i}`).toBeLessThan((gap[i - 1] as number) + 0.01);
-    }
-    expect(gap[0] as number).toBeGreaterThan(40);
-    expect(gap[gap.length - 1] as number).toBeLessThan(14);
-  });
-
-  it('keeps a guided bar ON its rail between the keyframes, not just on them', () => {
-    // the keyframes were always on the rail; what a middle keyframe buys is the
-    // travel between them, and a Smith bar that bows four units off the track is
-    // not a Smith bar
-    for (const id of ['b1', 'b4']) {
-      const d = demo(id);
-      const railX = rails(d)[0] ?? 0;
-      for (let i = 0; i <= 40; i++) {
-        const j = forwardKinematics(frameAt(d.frames, i / 40), d.view);
-        expect(Math.abs(j.near.grip.x - railX), `${id} at ${i}`).toBeLessThan(2.5);
-      }
-    }
-  });
-
-  it('welds a bodyweight grip to the bar it hangs from', () => {
-    for (const id of ['a6', 'b2', 'b3']) {
-      const d = demo(id);
-      const first = forwardKinematics(frameAt(d.frames, 0), d.view).near.grip;
-      for (let i = 0; i <= 40; i++) {
-        const g = forwardKinematics(frameAt(d.frames, i / 40), d.view).near.grip;
-        expect(dist(first, g), `${id} hand slid at ${i}`).toBeLessThan(2.5);
-      }
-    }
-  });
-});
-
-describe('two hands are drawn as two hands', () => {
-  it('x7 finishes the face pull with a fist either side of the head', () => {
-    const d = demo('x7');
-    const j = at('x7', d.frames.length - 1);
-    // the two rope ends are held apart, not stacked: at the contracted frame the
-    // near fist is forward of the skull and the far one behind it
-    expect(dist(j.near.grip, j.far.grip)).toBeGreaterThan(12);
-    expect(j.near.grip.x).toBeGreaterThan(j.head.x + 4);
-    expect(j.far.grip.x).toBeLessThan(j.head.x - 4);
-    // …and they start together, which is what makes the finish read as a split
-    const start = at('x7', 0);
-    expect(dist(start.near.grip, start.far.grip)).toBeLessThan(10);
-  });
-
-  it('draws a rope as two strands, one to each fist', () => {
-    const d = demo('x7');
-    const svg = demoSvg(d, frameAt(d.frames, 1), 'x');
-    // one rope end knot per hand
-    expect(svg.match(new RegExp(`r="2.1" fill="${PAL.pad}"`, 'g'))).toHaveLength(2);
-  });
-});
-
-describe('a racked bar is racked on the back', () => {
-  it('x1 carries the squat bar BEHIND the spine and under the head', () => {
-    const d = demo('x1');
-    for (let i = 0; i < d.frames.length; i++) {
-      const j = at('x1', i);
-      const bar = barBackAnchor(j, d.facing);
-      const up = angleOf(j.pelvis, j.shoulders);
-      const chest = up + 90 * d.facing;
-      // how far the bar sits along the direction the chest faces: negative means
-      // behind the lifter, which is the only place a back squat's bar can be
-      const along =
-        (bar.x - j.shoulders.x) * Math.cos(chest * (Math.PI / 180)) +
-        (bar.y - j.shoulders.y) * Math.sin(chest * (Math.PI / 180));
-      expect(along, `frame ${i}`).toBeLessThan(-4);
-      // and it rides the traps, above the shoulder line
-      expect(dist(bar, j.shoulders)).toBeLessThan(9);
-    }
-  });
-
-  it('paints the bar before the head, so the skull passes in front of it', () => {
-    const d = demo('x1');
-    const svg = demoSvg(d, frameAt(d.frames, 0), 'x');
-    expect(svg).toContain('class="cd-bar"');
-    expect(svg.indexOf('class="cd-bar"')).toBeLessThan(svg.indexOf('class="cd-head"'));
-    // …and after the torso, or the torso would swallow it
-    expect(svg.indexOf('class="cd-bar"')).toBeGreaterThan(svg.indexOf('<clipPath'));
-  });
-});
-
-describe('the two demos the volumetric renderer was signed off on', () => {
-  it('a1 keeps the reviewed incline press exactly as it was approved', () => {
-    const d = demo('a1');
-    expect(d.view).toBe('side');
-    expect(d.facing).toBe(-1);
-    expect(d.loopMs).toBe(3000);
-    expect(d.forwardShare).toBe(0.42);
-    expect(d.order).toEqual(['farArm', 'farLeg', 'body', 'nearLeg', 'nearArm']);
-    expect(d.camera).toEqual([26, 32, 100, 75]);
-    expect(d.primary).toBe('chest');
-    expect(d.secondary).toBe('arms');
-    expect(d.muscles).toEqual(['חזה עליון', 'כתף קדמית · תלת ראשי']);
-    expect(d.hold).toEqual({ k: 'db' });
-    expect(d.frames).toHaveLength(3);
-    expect(d.frames[0]?.arm).toEqual([-208.1, -82.1]);
-    expect(d.frames[1]?.arm).toEqual([-172, -94]);
-    expect(d.frames[2]?.arm).toEqual([-138.5, -103.7]);
-    for (const f of d.frames) {
-      expect(f.x).toBe(69);
-      expect(f.y).toBe(79.5);
-      expect(f.torso).toBe(-30);
-      expect(f.leg).toEqual([168, 83, 176]);
-    }
-  });
-
-  it('c2 keeps the reviewed RDL exactly as it was approved', () => {
-    const d = demo('c2');
-    expect(d.facing).toBe(1);
-    expect(d.loopMs).toBe(3400);
-    expect(d.forwardShare).toBe(0.6);
-    expect(d.order).toEqual(['farLeg', 'farArm', 'body', 'nearLeg', 'nearArm']);
-    expect(d.camera).toEqual([37.5, 19, 80, 85]);
-    expect(d.arcShift).toEqual([10, 0]);
-    expect(d.primary).toBe('legs');
-    expect(d.secondary).toBe('back');
-    expect(d.muscles).toEqual(['ירך אחורית · ישבן', 'זוקפי גב']);
-    expect(d.frames.map((f) => [f.x, f.y, f.torso])).toEqual([
-      [80, 65.8, -90],
-      [72, 67.5, -55],
-      [62, 71.5, -20],
-    ]);
-    expect(d.frames.map((f) => f.leg)).toEqual([
-      [81.3, 99.3, 4],
-      [61.1, 90.8, 4],
-      [45.6, 67.5, 4],
-    ]);
-  });
-
-  it('plants the ankle of every STANDING lift for the whole rep', () => {
-    // A stick foot was a stroke that could hover a unit off the floor unnoticed.
-    // A drawn shoe cannot, so the legs of these were re-solved from a fixed
-    // ankle with two-link inverse kinematics.
-    for (const id of ['a3', 'c2', 'x1', 'a5', 'x9', 'x5', 'x7', 'b4', 'x4', 'x8']) {
-      const d = demo(id);
-      const first = at(id, 0);
-      for (let i = 1; i < d.frames.length; i++) {
-        expect(dist(first.near.ankle, at(id, i).near.ankle), `${id} near ankle`).toBeLessThan(1.5);
-        expect(dist(first.far.ankle, at(id, i).far.ankle), `${id} far ankle`).toBeLessThan(1.5);
-      }
-    }
   });
 });

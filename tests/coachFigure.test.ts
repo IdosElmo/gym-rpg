@@ -9,11 +9,6 @@
  * straight down is exactly `thigh + shin` below the hip, `-90` is exactly
  * `torso` above the pelvis, a front-view far limb is the mirror of the near
  * one, and a shrug moves the shoulders WITHOUT carrying the head with them.
- *
- * NOTHING HERE DRAWS. The rig stopped owning any paint when the volumetric
- * renderer took over; what the picture looks like is
- * `tests/coachVolume.test.ts`'s business, and what the demos DO with the rig is
- * `tests/exercisePoses.test.ts`'s. This file is the arithmetic underneath both.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -21,12 +16,17 @@ import {
   RIG,
   STAGE,
   angleOf,
+  benchProp,
   dist,
   ease,
+  figureSvg,
   flexion,
   forwardKinematics,
   holdAnchors,
+  holdSvg,
   lerpPose,
+  pulleyProp,
+  railProp,
   step,
   type Pose,
 } from '../src/ui/coachFigure.ts';
@@ -179,6 +179,32 @@ describe('lerpPose / ease', () => {
   });
 });
 
+describe('drawing', () => {
+  const j = forwardKinematics(STANDING, 'side');
+
+  it('emits a bold silhouette with no NaN anywhere', () => {
+    const svg = figureSvg(j, 'side');
+    expect(svg).toContain('cd-torso');
+    expect(svg).toContain('cd-head');
+    expect(svg).toContain('cd-limb far');
+    expect(svg).toContain('cd-limb near');
+    expect(svg).toContain('cd-joint');
+    expect(svg).not.toMatch(/NaN|undefined|Infinity/);
+  });
+
+  it('paints the far limbs BEFORE the torso and the near limbs after it', () => {
+    const svg = figureSvg(j, 'side');
+    expect(svg.indexOf('cd-limb far')).toBeLessThan(svg.indexOf('cd-torso'));
+    expect(svg.indexOf('cd-torso')).toBeLessThan(svg.indexOf('cd-limb near'));
+  });
+
+  it('keeps every prop free of external references', () => {
+    const props = benchProp({ x: 40, y: 84, len: 60 }) + railProp(90, 20, 90) + pulleyProp(100, 20, { stack: true });
+    expect(props).not.toMatch(/https?:|url\(|<image|xlink/);
+    expect(props).not.toMatch(/NaN|undefined/);
+  });
+});
+
 describe('what the hands hold is read off the joints', () => {
   const j = forwardKinematics(STANDING, 'side');
 
@@ -196,17 +222,15 @@ describe('what the hands hold is read off the joints', () => {
     expect(holdAnchors({ k: 'roller', joint: 'knee' }, j)).toEqual([j.near.knee]);
   });
 
-  it('puts a two-handed weight at the midpoint of the two grips, not at one', () => {
-    const rope = holdAnchors({ k: 'rope', from: [100, 18] }, j)[0];
-    const handle = holdAnchors({ k: 'handle', from: [100, 18] }, j)[0];
-    const mid = { x: (j.near.grip.x + j.far.grip.x) / 2, y: (j.near.grip.y + j.far.grip.y) / 2 };
-    near(rope?.x ?? 0, mid.x);
-    near(handle?.y ?? 0, mid.y);
-    // a crossover has one cable per hand, so it has two anchors
-    expect(holdAnchors({ k: 'cables', from: [[10, 10], [150, 10]] }, j)).toEqual([j.near.grip, j.far.grip]);
+  it('draws a cable from the declared pulley to the hands', () => {
+    const svg = holdSvg({ k: 'rope', from: [100, 18] }, j);
+    expect(svg).toContain('cd-cable');
+    expect(svg).toContain('M 100 18');
+    expect(svg).toContain('cd-rope');
   });
 
-  it('gives an empty hold no anchor at all', () => {
+  it('gives an empty hold no markup at all', () => {
+    expect(holdSvg({ k: 'none' }, j)).toBe('');
     expect(holdAnchors({ k: 'none' }, j)).toEqual([]);
   });
 });
