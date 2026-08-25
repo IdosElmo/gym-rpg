@@ -35,8 +35,43 @@ import type { DataStore } from '../storage/DataStore.ts';
 import type { RestTimer } from './timer.ts';
 import { queuePartPulse } from './character.ts';
 import { esc } from './dom.ts';
+import { mountExerciseDemo, type DemoHandle } from './exerciseDemo.ts';
 import { toast } from './toast.ts';
 import { flyXp, fmtXp } from './xpfx.ts';
+
+/**
+ * THE LIVE DEMONSTRATIONS, by exercise id.
+ *
+ * A demo owns a `requestAnimationFrame` loop, so it must be disposed rather
+ * than dropped: every re-render of this screen tears the whole map down first,
+ * and closing a panel disposes just that one. (The loop also parks itself the
+ * moment its element leaves the document — see `ui/exerciseDemo.ts` — so a
+ * navigation away can never leave one spinning either; this map is what makes
+ * the common cases deterministic instead of one frame late.)
+ */
+const demos = new Map<string, DemoHandle>();
+
+function disposeDemos(): void {
+  for (const d of demos.values()) d.destroy();
+  demos.clear();
+}
+
+/** Mount the demo of an OPEN card, if that exercise has poses at all. */
+function openDemo(card: Element | null, ex: Exercise): void {
+  if (!card || demos.has(ex.id)) return;
+  const panel = card.querySelector<HTMLElement>('.form-panel');
+  if (!panel) return;
+  const handle = mountExerciseDemo(panel, ex.id, { label: `הדגמת ביצוע: ${ex.he}` });
+  if (!handle) return;
+  // The demo leads the drawer: picture first, then the numbered steps.
+  panel.insertBefore(handle.el, panel.firstChild);
+  demos.set(ex.id, handle);
+}
+
+function closeDemo(exId: string): void {
+  demos.get(exId)?.destroy();
+  demos.delete(exId);
+}
 
 export interface WorkoutDeps {
   store: DataStore;
@@ -47,6 +82,7 @@ export interface WorkoutDeps {
 
 export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps): void {
   const { store } = deps;
+  disposeDemos();
   const state = store.getState();
   // The user's plan when there is one, the built-in PROGRAM object itself when
   // there isn't — so an un-edited install renders exactly the same objects.
@@ -152,6 +188,12 @@ function bind(
 ): void {
   const { store, timer, refreshHeader } = deps;
 
+  // Panels that are already open when the screen renders get their demo now;
+  // the rest get one the moment they are opened.
+  for (const ex of dayOf(program, view)?.exercises ?? []) {
+    if (store.getState().ui.open[ex.id]) openDemo(document.getElementById('card-' + ex.id), ex);
+  }
+
   main.querySelectorAll<HTMLButtonElement>('.form-toggle').forEach((b) => {
     b.addEventListener('click', () => {
       const id = b.dataset['toggle'];
@@ -159,7 +201,13 @@ function bind(
       store.update((draft) => {
         draft.ui.open[id] = !draft.ui.open[id];
       });
-      b.closest('.ex-card')?.classList.toggle('open');
+      const card = b.closest('.ex-card');
+      card?.classList.toggle('open');
+      // A closed drawer keeps NO demo: the element goes away with its loop, so
+      // a page of collapsed cards costs exactly nothing.
+      const ex = findEx(program, view, id);
+      if (ex && card?.classList.contains('open')) openDemo(card, ex);
+      else closeDemo(id);
     });
   });
 

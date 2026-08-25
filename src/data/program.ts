@@ -1,11 +1,17 @@
 /**
  * The 3-day hypertrophy program.
  *
- * Ported VERBATIM from the legacy `legacy/index.html` PROGRAM object — every
- * Hebrew string, step, cue, mistake, rest time and unit is byte-identical.
+ * Ported from the legacy `legacy/index.html` PROGRAM object. The port was
+ * VERBATIM; since then two kinds of deliberate changes exist, both guarded by
+ * `tests/program.test.ts`:
+ *   - APPENDED exercises (b6, c6) — the legacy exercises keep their order.
+ *   - AMENDED coaching copy on a few legacy exercises (grip width on a1/b1,
+ *     plank elbow position on b5, the curl's starting grip on a5, the row's
+ *     bar path on b4) — technical fixes from an instruction audit against the
+ *     MIT-licensed exercises-dataset; every amended field is enumerated in the
+ *     test so nothing else can drift silently.
  *
- * The only ADDITION is the `bodyPart` / `split` metadata (see BodyPart below),
- * which Phase 1 (XP + character) consumes. It changes no existing behaviour.
+ * The `bodyPart` / `split` metadata is an addition the game layer consumes.
  */
 
 /** The six trainable body parts of the RPG character. */
@@ -158,7 +164,7 @@ export const PROGRAM: BuiltInProgram = {
         unit: 'חזרות',
         steps: [
           'כוונו ספסל לזווית ‎30°‎.',
-          'כווצו שכמות לאחור והצמידו לספסל.',
+          'כווצו שכמות לאחור והצמידו לספסל; אחיזה מעט רחבה מרוחב הכתפיים.',
           'הורידו את המוט/משקולות באיטיות (2–3 שניות) אל החזה העליון.',
           'דחפו בפיצוץ למעלה מבלי לנעול מרפקים.',
         ],
@@ -239,7 +245,7 @@ export const PROGRAM: BuiltInProgram = {
         rest: 60,
         unit: 'חזרות',
         steps: [
-          'בעמידה או בישיבה, מרפקים צמודים לצלעות.',
+          'בעמידה או בישיבה, מרפקים צמודים לצלעות ואחיזה ניטרלית (אגודלים כלפי מעלה).',
           'גלגלו את המשקולת מעלה בתנועה חלקה.',
           'סובבו את כף היד (סופינציה) תוך כדי עלייה.',
           'הורידו לאט ובשליטה מלאה.',
@@ -287,7 +293,7 @@ export const PROGRAM: BuiltInProgram = {
         rest: 90,
         unit: 'חזרות',
         steps: [
-          'שכבו מתחת למכונת הסמית׳.',
+          'שכבו מתחת למכונת הסמית׳ ואחזו את המוט מעט רחב מרוחב הכתפיים.',
           'שחררו את המוט והורידו בשליטה לאמצע עצם החזה.',
           'עצרו קלות ולחצו חזק למעלה.',
           'שמרו על כפות רגליים נטועות ברצפה.',
@@ -352,11 +358,11 @@ export const PROGRAM: BuiltInProgram = {
         steps: [
           'כופפו ברכיים מעט והטו אגן לאחור לזווית ‎45°‎.',
           'גב ישר לחלוטין.',
-          'משכו את המוט/משקולות אל הבטן התחתונה.',
+          'משכו את המוט/משקולות אל תחתית עצם החזה, מרפקים בזווית ‎45°‎ מהגוף.',
           'הורידו באיטיות ובשליטה.',
         ],
         cue: 'כווצו את השכמות זו לזו בשיא הכיווץ.',
-        mistake: 'טעות נפוצה: עיגול הגב התחתון או משיכה גבוהה מדי לחזה.',
+        mistake: 'טעות נפוצה: עיגול הגב התחתון או משיכה עם הידיים במקום עם המרפקים.',
         bodyPart: 'back',
         split: { back: 0.8, arms: 0.2 },
       },
@@ -371,7 +377,7 @@ export const PROGRAM: BuiltInProgram = {
         rest: 60,
         unit: 'שניות',
         steps: [
-          'אמות על המזרן, גוף בקו ישר אחד.',
+          'אמות על המזרן, מרפקים בדיוק מתחת לכתפיים, גוף בקו ישר אחד.',
           'כווצו ישבן חזק.',
           'משכו את הטבור פנימה לכיוון עמוד השדרה.',
           'נשמו באופן סדיר לאורך ההחזקה.',

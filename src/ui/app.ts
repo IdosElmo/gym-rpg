@@ -371,6 +371,21 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     // Battles run ONLY while the קרב tab is on screen — every render tears the
     // previous loop down before the new screen is mounted.
     stopBattle();
+    // Canonicalise BEFORE painting anything: the stored view can point at a day
+    // the plan no longer has (a preset picked in the editor, a cloud pull that
+    // deleted a day on another device, a plan saved over a store that booted on
+    // a different weekday's default). `setView` already resolves that case for
+    // taps; the boot/plain-render path must do the same or those users land on
+    // an empty workout screen.
+    {
+      const stored = store.getState().ui.view;
+      const resolved = resolveView(stored);
+      if (resolved !== stored) {
+        store.update((draft) => {
+          draft.ui.view = resolved;
+        });
+      }
+    }
     renderTabs();
     renderHeader();
     const view = store.getState().ui.view;
