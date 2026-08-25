@@ -39,8 +39,10 @@ import {
   emptyDuels,
   emptyEquipment,
   emptyGame,
+  emptyLeague,
   isoToTs,
   rebuildGame,
+  weekStartISO,
   type PendingEvent,
 } from '../core/xp.ts';
 import { derivedProgress } from '../core/combat.ts';
@@ -60,6 +62,7 @@ import {
   type EventType,
   type GameState,
   type GhostDuelState,
+  type LeagueState,
   type PartsProgress,
   type Session,
   type SetEntry,
@@ -405,6 +408,96 @@ function normalizeDuels(raw: unknown): GhostDuelState {
 }
 
 /**
+ * הליגה's ledgers (v11).
+ *
+ * Only the four FOLDED maps are read — `coins`, `coinsEarned`, `coinsSpent` and
+ * `months` are DERIVED and are recomputed by `finalizeGame` right after this, so
+ * a hand-edited blob cannot claim a purse its ledgers do not support. Every key
+ * is validated the way the reducer validates it (a week key must be a real
+ * SUNDAY, a month key a real `'YYYY-MM'`), because those keys ARE the
+ * idempotency units: a junk key would sit in the ledger for ever, silently
+ * consuming a week that was never graded or an item that was never redeemed.
+ */
+function normalizeLeague(raw: unknown): LeagueState {
+  const out = emptyLeague();
+  if (!isRecord(raw)) return out;
+  const B = BALANCE.league;
+  const unit = (v: unknown): number => Math.min(1, Math.max(0, numOr(v, 0)));
+
+  const weeks = raw['weeks'];
+  if (isRecord(weeks)) {
+    for (const weekKey of Object.keys(weeks).sort()) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(weekKey) || weekStartISO(weekKey) !== weekKey) continue;
+      const week = weeks[weekKey];
+      if (!isRecord(week)) continue;
+      out.weeks[weekKey] = {
+        score: Math.min(100, Math.max(0, numOr(week['score'], 0))),
+        c: unit(week['c']),
+        q: unit(week['q']),
+        l: unit(week['l']),
+        p: unit(week['p']),
+        coin: week['coin'] === true,
+        volume: Math.max(0, numOr(week['volume'], 0)),
+        days: Math.max(0, Math.floor(numOr(week['days'], 0))),
+        prs: Math.max(0, Math.floor(numOr(week['prs'], 0))),
+      };
+    }
+  }
+
+  const redemptions = raw['redemptions'];
+  if (isRecord(redemptions)) {
+    for (const key of Object.keys(redemptions).sort()) {
+      const entry = redemptions[key];
+      if (!isRecord(entry)) continue;
+      const [month, itemFromKey] = key.split('|');
+      const itemId = typeof entry['itemId'] === 'string' ? entry['itemId'] : '';
+      // The id inside the row has to agree with the key it is filed under, or
+      // the row could park a redemption in a slot the reducer never chose.
+      if (!month || !isLeagueMonthKey(month) || !itemId || itemId !== itemFromKey) continue;
+      const kind = entry['kind'];
+      out.redemptions[key] = {
+        itemId,
+        kind: kind === 'gift' || kind === 'experience' || kind === 'challenge' ? kind : 'gift',
+        cost: Math.min(B.maxCost, Math.max(0, numOr(entry['cost'], 0))),
+      };
+    }
+  }
+
+  const challenges = raw['challenges'];
+  if (isRecord(challenges)) {
+    for (const month of Object.keys(challenges).sort()) {
+      if (!isLeagueMonthKey(month)) continue;
+      const entry = challenges[month];
+      if (!isRecord(entry)) continue;
+      const challengeId = typeof entry['challengeId'] === 'string' ? entry['challengeId'] : '';
+      if (!challengeId) continue;
+      out.challenges[month] = {
+        challengeId,
+        cost: Math.min(B.maxCost, Math.max(0, numOr(entry['cost'], 0))),
+      };
+    }
+  }
+
+  const completions = raw['completions'];
+  if (isRecord(completions)) {
+    for (const key of Object.keys(completions).sort()) {
+      const [month, challengeId] = key.split('|');
+      if (!month || !isLeagueMonthKey(month) || !challengeId) continue;
+      out.completions[key] = Math.min(B.maxBonus, Math.max(0, numOr(completions[key], 0)));
+    }
+  }
+
+  return out;
+}
+
+/** `'YYYY-MM'` with a month between 01 and 12 — the league's month key. */
+function isLeagueMonthKey(v: string): boolean {
+  if (!/^\d{4}-\d{2}$/.test(v)) return false;
+  const m = Number(v.slice(5, 7));
+  return m >= 1 && m <= 12;
+}
+
+/**
  * Validate a persisted `game` blob. Returns `null` for anything missing or from
  * a version we don't know — the caller (`ensureGameState`) then rebuilds it from
  * the event log, which is always authoritative.
@@ -430,7 +523,11 @@ function normalizeDuels(raw: unknown): GhostDuelState {
  * already spent. v9 -> v10 (dev mode) added `devUsed` + `devKeys` + `devCycles`,
  * for the fourth: an empty default would say "this account never used a dev
  * grant" — dropping the 🛠 flag off the published ghost — and would hand back a
- * daily/duel reset cycle the log already opened.
+ * daily/duel reset cycle the log already opened. v10 -> v11 (הליגה) added
+ * `league`, whose `weeks` map is the ledger that decides which weeks have been
+ * graded; a fifth time, an empty default would be worse than wrong — it would
+ * say "no week was ever closed", letting the lazy close re-close every week in
+ * the backfill window and re-mint its 🔵. Rejected and replayed instead.
  */
 export function normalizeGame(raw: unknown): GameState | null {
   if (!isRecord(raw)) return null;
@@ -466,6 +563,7 @@ export function normalizeGame(raw: unknown): GameState | null {
     characters: normalizeCharacters(raw['characters']),
     daily: normalizeDaily(raw['daily']),
     duels: normalizeDuels(raw['duels']),
+    league: normalizeLeague(raw['league']),
     devUsed: raw['devUsed'] === true,
     devKeys: normalizeFlagMap(raw['devKeys']),
     devCycles: normalizeCycleMap(raw['devCycles']),

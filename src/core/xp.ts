@@ -42,6 +42,7 @@ import {
   type ResolvedProgram,
 } from '../data/program.ts';
 import { weeklyTargetOfPlanPayload } from '../data/planTypes.ts';
+import type { LeagueItemKind } from '../data/leaguePools.ts';
 import { BALANCE } from './balance.ts';
 import { bestDailyStreak, dailyStreak } from './daily.ts';
 import { duelKey, normalizeHandle } from './handle.ts';
@@ -89,6 +90,9 @@ import {
   type GhostDuelPayload,
   type GhostDuelRecord,
   type GhostDuelState,
+  type LeagueMonthTotal,
+  type LeagueState,
+  type LeagueWeekRecord,
   type PartsProgress,
   type Session,
   type SetEntry,
@@ -255,6 +259,26 @@ export function weekStartISO(date: string): string {
   return tsToIso(ts - dow * DAY_MS);
 }
 
+/** The SATURDAY that closes the Sun–Sat week starting at `weekStart`. */
+export function weekEndISO(weekStart: string): string {
+  return addDays(weekStart, 6);
+}
+
+/**
+ * The month (`'YYYY-MM'`) a Sun–Sat week belongs to: the one containing its
+ * SATURDAY. That rule partitions the year's weeks into months with none counted
+ * twice and none dropped — הליגה rests on it (see `core/league.ts`), and the
+ * league's derived monthly totals are folded here, so it lives here.
+ */
+export function monthOfWeekISO(weekStart: string): string {
+  return weekEndISO(weekStart).slice(0, 7);
+}
+
+/** Round to one decimal — the league's score precision. */
+function round1(v: number): number {
+  return Math.round(v * 10) / 10;
+}
+
 /* ------------------------------------------------- the weekly-target history */
 
 /**
@@ -395,9 +419,31 @@ export function emptyGame(): GameState {
     characters: emptyCharacters(),
     daily: emptyDaily(),
     duels: emptyDuels(),
+    league: emptyLeague(),
     devUsed: false,
     devKeys: {},
     devCycles: {},
+  };
+}
+
+/**
+ * A fresh league: no week closed, no 🔵 minted, nothing staked or redeemed.
+ *
+ * The four LEDGERS are the state; `coins`, `coinsEarned`, `coinsSpent` and
+ * `months` are DERIVED from them by `finalizeLeague` and start at zero for the
+ * same reason the daily totals do — a derived field that could be written would
+ * be a field that can disagree with the log.
+ */
+export function emptyLeague(): LeagueState {
+  return {
+    coins: 0,
+    coinsEarned: 0,
+    coinsSpent: 0,
+    weeks: {},
+    redemptions: {},
+    challenges: {},
+    completions: {},
+    months: {},
   };
 }
 
@@ -493,6 +539,18 @@ function isBodyPart(v: string): v is BodyPart {
 
 function isEquipmentSlot(v: string): v is EquipmentSlot {
   return (EQUIPMENT_SLOTS as readonly string[]).includes(v);
+}
+
+/** A league week key: an ISO date that really is the SUNDAY of its own week. */
+function isWeekKeyString(v: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) && weekStartISO(v) === v;
+}
+
+/** A league month key: `'YYYY-MM'` with a month between 01 and 12. */
+function isMonthKeyString(v: string): boolean {
+  if (!/^\d{4}-\d{2}$/.test(v)) return false;
+  const m = Number(v.slice(5, 7));
+  return m >= 1 && m <= 12;
 }
 
 /**
@@ -760,6 +818,111 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
       };
       break;
     }
+    /**
+     * ONE closed week of הליגה — the only event that can ever mint a 🔵.
+     *
+     * IDEMPOTENT PER WEEK, the `daily_challenge` idiom with a week key instead
+     * of a date: `weekKey` is the semantic key, the event applies only while
+     * `league.weeks[weekKey]` is empty, and a duplicate is a total no-op. Two
+     * devices that each closed the same week offline therefore converge — in
+     * EITHER merge order — on the close that comes FIRST in the log's `(ts, id)`
+     * order, because that order is a property of the event SET. They agree on
+     * the CONTENT too: closing is a deterministic function of the log, so the
+     * two payloads say the same thing anyway.
+     *
+     * THE COIN IS NOT FOLDED. `league.coins` is DERIVED from this ledger in
+     * `finalizeLeague`, so "the 🔵 arrives exactly when the ledger accepts the
+     * week" is true by construction — there is no counter to double-count.
+     *
+     * The payload is AUTHORITATIVE (the score and its four components ride in
+     * it), so a retune of `BALANCE.league` never re-grades a closed week, and a
+     * week keeps its grade even if the sessions behind it are re-imported later.
+     * It is believed only within its own bounds: the components are clamped to
+     * 0…1 and the score to 0…100, and a `weekKey` that is not a real SUNDAY is
+     * rejected outright — a junk key would otherwise sit in the ledger for ever,
+     * silently consuming a week that was never graded.
+     */
+    case 'league_week_closed': {
+      const weekKey = typeof payload['weekKey'] === 'string' ? payload['weekKey'] : '';
+      if (!isWeekKeyString(weekKey)) break;
+      const L = game.league;
+      if (L.weeks[weekKey]) break;
+      L.weeks[weekKey] = {
+        score: round1(clamp(toNumber(payload['score']), 0, 100)),
+        c: round2(clamp(toNumber(payload['c']), 0, 1)),
+        q: round2(clamp(toNumber(payload['q']), 0, 1)),
+        l: round2(clamp(toNumber(payload['l']), 0, 1)),
+        p: round2(clamp(toNumber(payload['p']), 0, 1)),
+        coin: payload['coin'] === true,
+        volume: Math.max(0, round2(toNumber(payload['volume']))),
+        days: Math.max(0, Math.floor(toNumber(payload['days']))),
+        prs: Math.max(0, Math.floor(toNumber(payload['prs']))),
+      };
+      break;
+    }
+    /**
+     * ONE pool item redeemed for 🔵 — idempotent per (MONTH, ITEM).
+     *
+     * The price rides in the payload (so a retune never rewrites what last
+     * month's gift cost) and is believed only up to `BALANCE.league.maxCost`.
+     * The purse is derived, so a redemption can never take it below zero.
+     *
+     * It deliberately does NOT check who WON the month: that is a cross-account
+     * fact and the opponent's scores are not in this log. Spending rights are a
+     * UI + social-contract layer; the ledger enforces once-per-month, and
+     * `buildLeagueRedemption` (core/league.ts) enforces affordability BEFORE the
+     * write, exactly like every other purchase in the game.
+     */
+    case 'league_reward_redeemed': {
+      const month = typeof payload['month'] === 'string' ? payload['month'] : '';
+      const itemId = typeof payload['itemId'] === 'string' ? payload['itemId'] : '';
+      if (!isMonthKeyString(month) || !itemId) break;
+      const key = `${month}|${itemId}`;
+      const L = game.league;
+      if (L.redemptions[key]) break;
+      const raw = payload['kind'];
+      const kind: LeagueItemKind =
+        raw === 'gift' || raw === 'experience' || raw === 'challenge' ? raw : 'gift';
+      L.redemptions[key] = {
+        itemId,
+        kind,
+        cost: clamp(toNumber(payload['cost']), 0, BALANCE.league.maxCost),
+      };
+      break;
+    }
+    /**
+     * The ONE challenge staked for a month. First in the `(ts, id)` order wins,
+     * so two devices that each picked one offline converge on the same stake and
+     * charge it once — the `daily_challenge` rule, keyed by month.
+     */
+    case 'league_challenge_set': {
+      const month = typeof payload['month'] === 'string' ? payload['month'] : '';
+      const challengeId = typeof payload['challengeId'] === 'string' ? payload['challengeId'] : '';
+      if (!isMonthKeyString(month) || !challengeId) break;
+      const L = game.league;
+      if (L.challenges[month]) break;
+      L.challenges[month] = {
+        challengeId,
+        cost: clamp(toNumber(payload['cost']), 0, BALANCE.league.maxCost),
+      };
+      break;
+    }
+    /**
+     * A staked challenge claimed as done (self-reported — see the payload doc).
+     * Idempotent per (MONTH, CHALLENGE); the bonus is clamped here and is PAID
+     * by `finalizeLeague` only when the month's staked challenge is this one, so
+     * a completion of something nobody staked mints nothing at all.
+     */
+    case 'league_challenge_completed': {
+      const month = typeof payload['month'] === 'string' ? payload['month'] : '';
+      const challengeId = typeof payload['challengeId'] === 'string' ? payload['challengeId'] : '';
+      if (!isMonthKeyString(month) || !challengeId) break;
+      const L = game.league;
+      const key = `${month}|${challengeId}`;
+      if (L.completions[key] !== undefined) break;
+      L.completions[key] = clamp(toNumber(payload['bonus']), 0, BALANCE.league.maxBonus);
+      break;
+    }
     /** Put an item on, or (with `itemId: null`) take the slot's item off. */
     case 'item_equipped': {
       const slot = typeof payload['slot'] === 'string' ? payload['slot'] : '';
@@ -891,7 +1054,61 @@ export function finalizeGame(game: GameState, today: string, targets: WeeklyTarg
   game.streak = computeStreak(game.workoutDays, today, targets);
   finalizeDaily(game.daily, today);
   finalizeDuels(game.duels);
+  finalizeLeague(game.league);
   finalizeBattleProgress(game.battle);
+}
+
+/**
+ * Recompute the 🔵 purse and the monthly totals from הליגה's four ledgers.
+ *
+ * DERIVED, not folded — the same rule as the daily challenge's totals and the
+ * six body-part levels, and the reason the feature converges without a single
+ * defensive counter:
+ *
+ *   earned = one 🔵 per week the LEDGER accepted with `coin: true`
+ *          + the bonus of every completion that matches the month's STAKED
+ *            challenge (a completion of something nobody staked mints nothing,
+ *            which is what stops a crafted event printing coins);
+ *   spent  = every redemption's price + every stake's price;
+ *   coins  = max(0, earned − spent), so no fold order can produce a negative
+ *            purse even if a redemption is merged in before the week that paid
+ *            for it.
+ *
+ * `months` is the same arithmetic grouped by the month each week's SATURDAY
+ * falls in — the league's month rule, in one place.
+ */
+export function finalizeLeague(league: LeagueState): void {
+  const months: Record<string, LeagueMonthTotal> = {};
+  let earned = 0;
+
+  for (const weekKey of Object.keys(league.weeks).sort()) {
+    const week = league.weeks[weekKey] as LeagueWeekRecord;
+    const month = monthOfWeekISO(weekKey);
+    const total = months[month] ?? { month, score: 0, weeks: 0, coins: 0 };
+    total.score = round1(total.score + week.score);
+    total.weeks += 1;
+    if (week.coin) {
+      total.coins += BALANCE.league.coinPerWeek;
+      earned += BALANCE.league.coinPerWeek;
+    }
+    months[month] = total;
+  }
+
+  let spent = 0;
+  for (const key of Object.keys(league.redemptions).sort()) {
+    spent += (league.redemptions[key] as { cost: number }).cost;
+  }
+  for (const month of Object.keys(league.challenges).sort()) {
+    const stake = league.challenges[month] as { challengeId: string; cost: number };
+    spent += stake.cost;
+    const bonus = league.completions[`${month}|${stake.challengeId}`];
+    if (bonus !== undefined) earned += bonus;
+  }
+
+  league.coinsEarned = round2(earned);
+  league.coinsSpent = round2(spent);
+  league.coins = round2(Math.max(0, earned - spent));
+  league.months = months;
 }
 
 /**
