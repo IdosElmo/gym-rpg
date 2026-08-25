@@ -40,7 +40,7 @@ import { fmtDate, todayISO } from '../src/core/workout.ts';
 import { poolOfMonth, priceOf } from '../src/data/leaguePools.ts';
 import { PLAN_DOC_VERSION, type PlanDoc, type PlanExercise } from '../src/data/planTypes.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
-import type { AppEvent, Session, SetEntry } from '../src/storage/DataStore.ts';
+import type { AppEvent, LeagueWeekRecord, Session, SetEntry } from '../src/storage/DataStore.ts';
 import { makeEvent, rebuildFromEvents, type StorageLike } from '../src/storage/migrate.ts';
 import { createApp } from '../src/ui/app.ts';
 import { hubOf, GAME_TABS } from '../src/ui/nav.ts';
@@ -285,6 +285,54 @@ function rivalRowsFrom(store: LocalStore): unknown[] {
   return publishableWeeks(gameOf(store).league.weeks, TODAY) as unknown[];
 }
 
+
+/**
+ * A store whose LEDGER holds exactly the grades named — closed weeks written as
+ * the events that close them, which is the only way a week ever gets into the
+ * ledger. Used to reproduce the two phones from the bug report to the decimal.
+ */
+function storeWithGrades(
+  sessions: Record<string, Session>,
+  grades: ReadonlyArray<{ week: string } & LeagueWeekRecord>,
+): LocalStore {
+  const events: AppEvent[] = [
+    makeEvent(
+      'plan_updated',
+      { plan: planToRecord(PLAN), revision: 1, date: '2026-01-01' },
+      Date.parse('2026-01-01T00:00:00.000Z'),
+    ),
+  ];
+  for (const date of Object.keys(sessions).sort()) {
+    const s = sessions[date] as Session;
+    events.push(makeEvent('session_imported', { date, day: s.day, ex: s.ex, source: 'json_import' }, tsOf(date)));
+  }
+  for (const g of grades) {
+    const { week, ...record } = g;
+    events.push(makeEvent('league_week_closed', { weekKey: week, date: TODAY, ...record }, tsOf(TODAY)));
+  }
+  const store = new LocalStore(fakeStorage());
+  store.replaceAll(rebuildFromEvents(events, tsOf(TODAY)), events);
+  return store;
+}
+
+/** A grade whose score really is what its components add up to. */
+function grade(week: string, c: number, q: number, l: number, p: number, extra: Partial<LeagueWeekRecord> = {}) {
+  const score = Math.round((100 * (0.4 * c + 0.3 * q + 0.2 * l + 0.1 * p)) * 10) / 10;
+  return {
+    week,
+    score,
+    c,
+    q,
+    l,
+    p,
+    coin: c >= 1 && q >= 0.8,
+    volume: 1000,
+    days: 4,
+    prs: 0,
+    ...extra,
+  };
+}
+
 /* ==================================================== 1. the tab and hub */
 
 describe('the 🏆 ליגה tab', () => {
@@ -443,6 +491,93 @@ describe('המרוץ החודשי — my month against the rival’s', () => {
     expect(theirs).toBeGreaterThan(0);
     expect(mine).toBeGreaterThan(theirs);
     expect(text('.lg-leader')).toContain('אתם מובילים');
+  });
+
+  /**
+   * THE TOTALS ROW, from the bug report: two phones, one race, two different
+   * answers to "who is winning".
+   *
+   * Her column summed her CLOSED weeks AND her week in progress (58.3 + 100 +
+   * 45.8 = 204.1) against his closed weeks alone (168.2) — so the screen told
+   * her she was ahead by 35.9 in a race she was in fact losing by 9.9. His
+   * column could not do the same thing even in principle: only a CLOSED week is
+   * ever published, so a rival's live week is not unknown, it is unknowable.
+   * Closed against closed is the only comparison that means anything.
+   */
+  describe('the totals row compares like with like', () => {
+    /** Her month: 58.3 + 100 closed = 158.3, and a live week still moving. */
+    const HERS = [grade(W4, 1, 0.5, 0.16, 0.01), grade(W5, 1, 1, 1, 1)];
+    /** His month: two weeks of 84.1 = 168.2 closed. */
+    const HIS = [grade(W4, 1, 1, 0.7, 0.01), grade(W5, 1, 1, 0.7, 0.01)];
+
+    /** The live week is trained, so it has a score to be excluded. */
+    function withLive(grades: ReturnType<typeof grade>[]): LocalStore {
+      return storeWithGrades(fullWeek(steady(), LIVE), grades);
+    }
+
+    async function race(mine: ReturnType<typeof grade>[], theirs: ReturnType<typeof grade>[]): Promise<void> {
+      const cloud = new FakeCloud();
+      cloud.rivalRows = publishableWeeks(gameOf(storeWithGrades({}, theirs)).league.weeks, TODAY) as unknown[];
+      cloud.recentList = ['idos'];
+      paint(withLive(mine), cloud);
+      await settle();
+    }
+
+    it('totals CLOSED weeks only, on both sides, and names the leader from those', async () => {
+      await race(HERS, HIS);
+
+      expect(text('[data-total="mine"]')).toBe('158.3');
+      expect(text('[data-total="theirs"]')).toBe('168.2');
+      // 158.3 + the live week would have been 204.1 — and a lie.
+      expect(text('[data-total="mine"]')).not.toBe('204.1');
+      expect(text('.lg-leader')).toContain('idos מוביל/ה ב־9.9');
+      expect(main().querySelector('.lg-leader')?.classList.contains('warn')).toBe(true);
+    });
+
+    it('states the live week BESIDE my total, never inside it', async () => {
+      await race(HERS, HIS);
+
+      // The row is still there and still marked as moving…
+      expect(text(`.lg-week[data-week="${LIVE}"] .lg-cell.mine`)).toContain('בהתהוות');
+      const live = Number(
+        main().querySelector('[data-total-live]')?.getAttribute('data-total-live') ?? '0',
+      );
+      expect(live).toBeGreaterThan(0);
+      // …and its contribution is annotated next to the compared score, behind a
+      // LEFT-TO-RIGHT MARK so the sign hugs the number in an RTL line.
+      expect(text('[data-total-live]')).toBe(`\u200e+${String(live)} בהתהוות`);
+      expect(Number(text('[data-total="mine"]'))).toBe(158.3);
+      expect(text('[data-closed-only]')).toContain('שבועות סגורים בלבד');
+    });
+
+    it('gives the same race the opposite name on HIS phone', async () => {
+      await race(HIS, HERS);
+      expect(text('[data-total="mine"]')).toBe('168.2');
+      expect(text('[data-total="theirs"]')).toBe('158.3');
+      expect(text('.lg-leader')).toContain('אתם מובילים ב־9.9');
+      expect(main().querySelector('.lg-leader')?.classList.contains('ok')).toBe(true);
+    });
+
+    it('does not dim the shop on a lead the totals row does not show', async () => {
+      // Behind on CLOSED weeks — the live week must not talk the shop out of
+      // saying so, and must not talk it into saying so either.
+      await race(HERS, HIS);
+      expect(main().querySelector('.lg-shop')?.getAttribute('data-behind')).toBe('1');
+      await race(HIS, HERS);
+      expect(main().querySelector('.lg-shop')?.getAttribute('data-behind')).toBe('0');
+    });
+
+    it('says nothing about a live week that has not been trained', async () => {
+      const cloud = new FakeCloud();
+      cloud.rivalRows = publishableWeeks(gameOf(storeWithGrades({}, HIS)).league.weeks, TODAY) as unknown[];
+      cloud.recentList = ['idos'];
+      paint(storeWithGrades(steady(), HERS), cloud);
+      await settle();
+
+      expect(text('[data-total="mine"]')).toBe('158.3');
+      expect(main().querySelector('[data-total-live]')).toBeNull();
+      expect(main().querySelector('[data-closed-only]')).toBeNull();
+    });
   });
 
   it('says nothing about freshness when the rows were just read', async () => {

@@ -282,6 +282,98 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/* ------------------------------------------ the fresh phone (the bug report) */
+
+/**
+ * HER PHONE, EXACTLY AS IT HAPPENED.
+ *
+ * Account B has a full year in the cloud and one phone whose local log was
+ * nearly empty when the league shipped. The app boots, `closeDueWeeks` runs
+ * synchronously from THAT log, and the finished weeks are graded from data the
+ * device has not pulled yet. Under the ledger that shipped those grades were
+ * final: the pull landed seconds later and nothing could act on it — a week she
+ * trained four days out of four stayed a 55 with no 🔵, for ever, on both
+ * devices and on the wire.
+ */
+describe('a phone that signed in before its history arrived', () => {
+  /** The account's whole log, already on the server, published by an old install. */
+  async function accountWithHistory(backend: MemoryBackend): Promise<Person> {
+    const old = makePerson(
+      'user-hers',
+      'rotem',
+      backend,
+      ROTEM_PLAN,
+      sessionsFor(ROTEM_DAYS, [...JUNE_WEEKS, ...JULY_WEEKS], '20', '10'),
+    );
+    // The league had not shipped yet: the history is on the server, ungraded.
+    await old.engine.onSignedIn(old.userId);
+    old.engine.dispose();
+    return old;
+  }
+
+  /** The same account on a phone that holds ONE day of training and nothing else. */
+  function freshPhone(backend: MemoryBackend): Person {
+    const oneDay = sessionsFor(ROTEM_DAYS.slice(0, 1), [JULY_WEEKS[3] as string], '20', '10');
+    return makePerson('user-hers', 'rotem', backend, ROTEM_PLAN, oneDay);
+  }
+
+  it('grades the week from half a log, then heals itself once it is caught up', async () => {
+    const backend = new MemoryBackend();
+    const truth = await accountWithHistory(backend);
+    closeDueWeeks(truth.store, NOW);
+    const honest = gameOf(truth.store).league;
+
+    const phone = freshPhone(backend);
+    // 1. THE GATE. Before the first cycle the engine says so out loud: an
+    //    account is linked and its history is NOT here. This is precisely when
+    //    `main.ts` holds the boot close back.
+    expect(phone.engine.hasAccount()).toBe(false);
+    expect(phone.engine.isCaughtUp()).toBe(false);
+
+    // 2. WHAT SHIPPED: closing anyway, from the log the device happens to hold.
+    closeDueWeeks(phone.store, NOW);
+    const poisoned = gameOf(phone.store).league.weeks[JULY_WEEKS[3] as string];
+    expect(poisoned?.coin).toBe(false);
+    expect(poisoned?.score).toBeLessThan(honest.weeks[JULY_WEEKS[3] as string]?.score ?? 0);
+    expect(gameOf(phone.store).league.coins).toBe(0);
+
+    // 3. THE PULL LANDS — and the filed grade does not move by itself.
+    await phone.engine.onSignedIn(phone.userId);
+    expect(phone.engine.isCaughtUp()).toBe(true);
+    expect(gameOf(phone.store).league.weeks[JULY_WEEKS[3] as string]?.score).toBe(poisoned?.score);
+
+    // 4. THE NEXT CLOSE HEALS IT — every week, coin for coin, exactly what the
+    //    device that never lost anything holds.
+    const healed = closeDueWeeks(phone.store, NOW);
+    expect(healed.regraded).toContain(JULY_WEEKS[3]);
+    expect(gameOf(phone.store).league.weeks).toEqual(honest.weeks);
+    expect(gameOf(phone.store).league.coins).toBe(honest.coins);
+    expect(gameOf(phone.store).league.coins).toBeGreaterThan(0);
+
+    // 5. AND THE RIVAL SEES THE CORRECTION: the publisher diffs on the GRADE,
+    //    so the row that carried the wrong number is overwritten.
+    await phone.engine.sync();
+    const rowsSeen = opponentMonth(await backend.fetchLeagueMonth('rotem', JULY), JULY);
+    expect(rowsSeen.monthlyScore).toBe(monthlyScore(honest.weeks, JULY));
+    expect(rowsSeen.weeks[JULY_WEEKS[3] as string]?.coin).toBe(true);
+
+    // 6. CONVERGENCE: her log now holds TWO closes of that week, and it folds
+    //    to the same ledger whichever way it is merged.
+    const log = phone.store.getEvents();
+    const closes = log.filter(
+      (e) => e.type === 'league_week_closed' && e.payload['weekKey'] === JULY_WEEKS[3],
+    );
+    expect(closes).toHaveLength(2);
+    const forward = rebuildFromEvents(log, NOW.getTime()).game;
+    const backward = rebuildFromEvents([...log].reverse(), NOW.getTime()).game;
+    expect(forward?.league).toEqual(backward?.league);
+    expect(forward?.league.weeks).toEqual(honest.weeks);
+
+    phone.engine.dispose();
+    truth.engine.dispose();
+  });
+});
+
 /* ------------------------------------------------------------ the story */
 
 describe('two accounts, one month', () => {

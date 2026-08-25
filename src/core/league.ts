@@ -545,6 +545,45 @@ export function dueWeeks(ctx: LeagueContext, league: LeagueState, today: string)
   return out;
 }
 
+/**
+ * Weeks the ledger has ALREADY closed that this log now grades HIGHER, oldest
+ * first — the self-heal, and the other half of `buildWeekCloses`.
+ *
+ * WHY A CLOSED WEEK IS EVER RE-GRADED. A close is a function of the log the
+ * device held AT THE MOMENT IT CLOSED, and a device can hold less than the
+ * account does: a fresh install signs in, boots, grades the finished weeks from
+ * a log the first pull has not filled yet, and files a 55 with no 🔵 for a week
+ * that was trained four days out of four and deserved 80. The sessions arrive seconds later — and under a
+ * first-wins ledger nothing could ever act on them. So the grade is re-derived
+ * from the log as it stands now, and when the log has MORE to say than the
+ * ledger does, a corrective close is appended.
+ *
+ * STRICTLY HIGHER, NEVER LOWER, and the asymmetry is the point: data arrives, it
+ * does not depart. A device whose log was pruned (or that pulled only part of
+ * the account) must not be able to erase a 🔵 somebody earned; the reducer
+ * enforces the same rule a second time, so neither a crafted event nor a stale
+ * device can downgrade a week. The cost is that a grade inflated by a genuinely
+ * partial log is never walked back — accepted, and cheap: the components that
+ * dominate the score (C and Q, 70% of it) can only ever RISE as sessions arrive.
+ *
+ * It terminates: once the correction is folded the ledger equals the recompute,
+ * so the next call finds nothing and `closeDueWeeks` stays idempotent.
+ */
+export function regradedWeeks(ctx: LeagueContext, league: LeagueState, today: string): string[] {
+  if (!ctx.firstDate) return [];
+  const currentWeek = weekKeyOf(today);
+  const earliest = addDays(currentWeek, -7 * BALANCE.league.backfillWeeks);
+  const firstWeek = weekKeyOf(ctx.firstDate);
+  let week = firstWeek > earliest ? firstWeek : earliest;
+  const out: string[] = [];
+  for (let guard = 0; week < currentWeek && guard < 5200; guard += 1) {
+    const filed = league.weeks[week];
+    if (filed && weekScore(ctx, week).score > filed.score) out.push(week);
+    week = addDays(week, 7);
+  }
+  return out;
+}
+
 /** The payload one closed week writes. */
 export function weekClosedPayload(score: WeekScore, date: string): LeagueWeekClosedPayload {
   return {
@@ -575,6 +614,13 @@ export function weekClosedPayload(score: WeekScore, date: string): LeagueWeekClo
  * A week is closed even when NOTHING was trained in it: a zero is a fact about
  * the month, and a ledger with holes could not tell "not closed yet" from
  * "closed empty".
+ *
+ * AND IT RE-CLOSES what the log now grades higher (`regradedWeeks`): a week
+ * graded from an incomplete log is corrected the moment the rest of the log
+ * arrives, which is what the ledger's best-grade rule exists to accept. Both
+ * lists come out oldest first and share one ascending `ts` run, so the events
+ * are as deterministic as before — two devices holding the same log still emit
+ * semantically identical payloads.
  */
 export function buildWeekCloses(
   input: LeagueInput,
@@ -585,7 +631,8 @@ export function buildWeekCloses(
   const ctx = leagueContext(input);
   const out: PendingEvent[] = [];
   let offset = 0;
-  for (const week of dueWeeks(ctx, league, today)) {
+  const weeks = [...dueWeeks(ctx, league, today), ...regradedWeeks(ctx, league, today)].sort();
+  for (const week of weeks) {
     out.push({
       type: 'league_week_closed',
       payload: weekClosedPayload(weekScore(ctx, week), today),

@@ -675,10 +675,10 @@ describe('the adventure feed', () => {
 describe('the game blob version', () => {
   it('carries the roster at the CURRENT version', () => {
     // v6 introduced the roster; v7 (equipment upgrades), v8 (the daily
-    // challenge ledger), v9 (ghost duels), v10 (dev mode) and v11 (הליגה) ride
-    // on the same blob.
-    expect(GAME_STATE_VERSION).toBe(11);
-    expect(emptyGame().version).toBe(11);
+    // challenge ledger), v9 (ghost duels), v10 (dev mode), v11 (הליגה) and v12
+    // (the league's best-grade ledger) ride on the same blob.
+    expect(GAME_STATE_VERSION).toBe(12);
+    expect(emptyGame().version).toBe(GAME_STATE_VERSION);
     expect(emptyGame().characters).toEqual({ owned: [], selected: 'hero_m' });
   });
 

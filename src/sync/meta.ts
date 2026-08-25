@@ -88,6 +88,21 @@ export interface SyncMeta {
    */
   leagueWeeks: string[];
   /**
+   * weekKey -> `leagueRowFingerprint` of the row that was published for it.
+   *
+   * The companion to the list above, and for one reason: a closed week can be
+   * RE-GRADED (a week closed before the first pull landed is corrected when the
+   * sessions arrive — `core/league.ts`), so "this week has been published" is
+   * not the same question as "the published row still says what the ledger
+   * says". A week whose fingerprint is missing or has moved is re-uploaded.
+   *
+   * Purely an optimisation, exactly like the list: a missing entry means "no
+   * idea", which costs one upsert over a primary key. That is also what makes it
+   * safe to read a notebook written before this field existed — every week in it
+   * is simply republished once.
+   */
+  leagueHashes: Record<string, string>;
+  /**
    * The last opponent month that was fetched, cached so the screen has
    * something to show when the network does not.
    *
@@ -130,6 +145,7 @@ export function emptySyncMeta(deviceId = ''): SyncMeta {
     ghostRecent: [],
     leagueHandle: null,
     leagueWeeks: [],
+    leagueHashes: {},
     leagueMonth: null,
   };
 }
@@ -175,6 +191,14 @@ export function normalizeSyncMeta(raw: unknown, deviceId = ''): SyncMeta {
   const leagueWeeks = Array.isArray(raw['leagueWeeks'])
     ? raw['leagueWeeks'].filter((w): w is string => typeof w === 'string' && w.length > 0)
     : [];
+  const hashesRaw = raw['leagueHashes'];
+  const leagueHashes: Record<string, string> = {};
+  if (isRecord(hashesRaw)) {
+    for (const week of leagueWeeks) {
+      const hash = hashesRaw[week];
+      if (typeof hash === 'string' && hash) leagueHashes[week] = hash;
+    }
+  }
   return {
     v: SYNC_META_VERSION,
     deviceId: storedDevice || deviceId,
@@ -190,6 +214,7 @@ export function normalizeSyncMeta(raw: unknown, deviceId = ''): SyncMeta {
     ghostRecent: [...new Set(recent)].slice(0, GHOST_RECENT_MAX),
     leagueHandle: typeof raw['leagueHandle'] === 'string' && raw['leagueHandle'] ? raw['leagueHandle'] : null,
     leagueWeeks: [...new Set(leagueWeeks)],
+    leagueHashes,
     leagueMonth: normalizeCachedMonth(raw['leagueMonth']),
   };
 }

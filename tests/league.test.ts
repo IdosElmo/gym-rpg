@@ -42,6 +42,7 @@ import {
   monthProgress,
   monthlyCoins,
   monthlyScore,
+  regradedWeeks,
   weekClosedPayload,
   weekEndOf,
   weekKeyOf,
@@ -69,6 +70,7 @@ import {
 } from '../src/data/leaguePools.ts';
 import { PLAN_DOC_VERSION, type PlanDoc, type PlanExercise } from '../src/data/planTypes.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
+import { mergeIntoStore } from '../src/storage/merge.ts';
 import { GAME_STATE_VERSION, type AppEvent, type GameState, type Session, type SetEntry } from '../src/storage/DataStore.ts';
 import { makeEvent, normalizeGame, rebuildFromEvents, type StorageLike } from '../src/storage/migrate.ts';
 
@@ -689,6 +691,182 @@ describe('the 🔵 rule — a complete week, honestly done', () => {
   });
 });
 
+/* ============================== 5b. the best-grade ledger and the self-heal */
+
+/**
+ * THE BUG THIS BLOCK EXISTS FOR — reported from a real pair of phones.
+ *
+ * A phone signs into an account that already holds a year of training in the
+ * cloud. `closeDueWeeks` runs at BOOT, synchronously, from the LOCAL log — which
+ * at that instant holds almost nothing, because the first pull has not landed
+ * yet. So it grades the finished weeks from data it cannot see, files 55s with
+ * no 🔵 for weeks that were trained in full… and under the first-in-`(ts, id)`
+ * ledger that shipped, those grades were PERMANENT: the sessions arrived
+ * seconds later and nothing in the system was able to act on them, on any
+ * device, ever.
+ *
+ * The fix is two halves, and both are here: the ledger accepts a BETTER grade
+ * for a week it already holds, and `closeDueWeeks` appends one when the log now
+ * grades a closed week higher than the ledger does.
+ */
+describe('a week graded from half a log — the fresh-device repro', () => {
+  const NOW = new Date(Date.parse(`${TODAY}T12:00:00.000Z`));
+  /** A boot the next morning: the same week, a later clock. */
+  const LATER = new Date(Date.parse(`${TODAY}T21:00:00.000Z`));
+
+  /** Everything the ACCOUNT holds — five full weeks of player A. */
+  function accountEvents(): AppEvent[] {
+    const { sessions } = steady('A');
+    const events: AppEvent[] = [planEvent(PLAN_A, Date.parse('2026-01-01T00:00:00.000Z'), 'plan-0')];
+    for (const date of Object.keys(sessions).sort()) {
+      const s = sessions[date] as Session;
+      events.push(makeEvent('session_imported', { date, day: s.day, ex: s.ex, source: 'json_import' }, tsOf(date)));
+    }
+    return events;
+  }
+
+  /**
+   * The fresh phone, mid-sign-in: one day of the last week is all it has.
+   * (An entirely empty log closes NOTHING — `dueWeeks` needs a first session —
+   * so the damaging case is precisely the partially-filled one.)
+   */
+  function freshDevice(): LocalStore {
+    const sessions: Record<string, Session> = {};
+    const day = A_DAYS[0] as (typeof A_DAYS)[number];
+    sessions[iso(W5, 0)] = session(day.key, day.ids, day.sets, '20', '10');
+    return storeWith(sessions, PLAN_A);
+  }
+
+  it('files a grade the log cannot support, and then corrects it when the pull lands', () => {
+    const phone = freshDevice();
+
+    // 1. THE POISONED CLOSE. One day of four, no history to measure load
+    //    against: 55 points and no coin, for a week that was trained in full.
+    const boot = closeDueWeeks(phone, NOW);
+    expect(boot.closed).toEqual([W5]);
+    expect(boot.regraded).toEqual([]);
+    expect(gameOf(phone).league.weeks[W5]).toMatchObject({ score: 55, c: 0.25, coin: false });
+    expect(gameOf(phone).league.coins).toBe(0);
+
+    // 2. THE PULL LANDS. The account's whole history merges in — and the
+    //    ledger, on its own, still says 55: a grade is a filed fact, not a
+    //    recomputation, which is exactly why the close must be re-run.
+    mergeIntoStore(phone, accountEvents(), NOW.getTime());
+    expect(gameOf(phone).league.weeks[W5]?.score).toBe(55);
+
+    // 3. THE NEXT CLOSE HEALS IT. W1…W4 are due for the first time, and W5 is
+    //    re-graded because the log now says more about it than the ledger does.
+    const healed = closeDueWeeks(phone, LATER);
+    expect(healed.closed).toEqual([W1, W2, W3, W4, W5]);
+    expect(healed.regraded).toEqual([W5]);
+    expect(gameOf(phone).league.weeks[W5]).toMatchObject({ score: 80, c: 1, q: 1, coin: true });
+    expect(gameOf(phone).league.coins).toBe(5);
+
+    // 4. AND IT AGREES, WEEK FOR WEEK AND COIN FOR COIN, with the device that
+    //    never lost anything — which is the whole point of a convergent ledger.
+    const clean = storeWith(steady('A').sessions, PLAN_A);
+    closeDueWeeks(clean, NOW);
+    expect(gameOf(phone).league.weeks).toEqual(gameOf(clean).league.weeks);
+    expect(gameOf(phone).league.coins).toBe(gameOf(clean).league.coins);
+
+    // 5. Running it again writes nothing: the ledger now equals the recompute.
+    const before = phone.getEvents().length;
+    expect(closeDueWeeks(phone, LATER).closed).toEqual([]);
+    expect(phone.getEvents().length).toBe(before);
+  });
+
+  it('converges on the better grade in EITHER merge order, and mints one 🔵', () => {
+    const phone = freshDevice();
+    closeDueWeeks(phone, NOW);
+    mergeIntoStore(phone, accountEvents(), NOW.getTime());
+    closeDueWeeks(phone, LATER);
+
+    const log = phone.getEvents();
+    expect(log.filter((e) => e.type === 'league_week_closed' && e.payload['weekKey'] === W5)).toHaveLength(2);
+
+    const forward = rebuildGame(log, TODAY).league;
+    const backward = rebuildGame([...log].reverse(), TODAY).league;
+    expect(forward).toEqual(backward);
+    expect(forward.weeks[W5]?.score).toBe(80);
+    // TWO closes of one week, ONE coin: the purse is derived from the ledger,
+    // and the ledger holds one record per week however many closes it saw.
+    expect(forward.weeks[W5]?.coin).toBe(true);
+    expect(forward.coins).toBe(5);
+  });
+
+  it('refuses a downgrade — a pruned log can never erase a 🔵 somebody earned', () => {
+    const { ctx } = steady('A');
+    const honest = weekClosedPayload(weekScore(ctx, W5), TODAY);
+    const game = emptyGame();
+    applyGameEvent(game, 'league_week_closed', honest);
+    // A second device, holding half the log, closes the same week at 55.
+    applyGameEvent(game, 'league_week_closed', { ...honest, score: 55, c: 0.25, coin: false });
+    finalizeLeague(game.league);
+    expect(game.league.weeks[W5]).toMatchObject({ score: 80, coin: true });
+    expect(game.league.coins).toBe(1);
+
+    // …and the same pair in the other order lands on the same record.
+    const poor = makeEvent('league_week_closed', { ...honest, score: 55, c: 0.25, coin: false }, tsOf(TODAY));
+    const good = makeEvent('league_week_closed', honest, tsOf(TODAY) + 60_000);
+    expect(rebuildGame([poor, good], TODAY).league).toEqual(rebuildGame([good, poor], TODAY).league);
+    expect(rebuildGame([poor, good], TODAY).league.weeks[W5]?.score).toBe(80);
+  });
+
+  it('keeps the EARLIER event when two closes tie, so the fold is a max over (score, ts, id)', () => {
+    const { ctx } = steady('A');
+    const payload = weekClosedPayload(weekScore(ctx, W5), TODAY);
+    // Same score, different content (a hand-edited days count) — the tie is
+    // broken by the log's own total order, which both devices agree on.
+    const first = makeEvent('league_week_closed', { ...payload, days: 4 }, tsOf(TODAY));
+    const second = makeEvent('league_week_closed', { ...payload, days: 9 }, tsOf(TODAY) + 1);
+    expect(rebuildGame([first, second], TODAY).league.weeks[W5]?.days).toBe(4);
+    expect(rebuildGame([second, first], TODAY).league.weeks[W5]?.days).toBe(4);
+  });
+
+  it('lists only the weeks the log now grades HIGHER', () => {
+    const { sessions, ctx } = steady('A');
+    const closed = emptyLeague();
+    // A ledger that already holds the truth about W5 and a lie about W4.
+    closed.weeks[W5] = { ...weekScore(ctx, W5) };
+    closed.weeks[W4] = { ...weekScore(ctx, W4), score: 12, c: 0.25, coin: false };
+    const full = leagueContext(inputOf(sessions, PLAN_A));
+    expect(regradedWeeks(full, closed, TODAY)).toEqual([W4]);
+
+    // Nothing to say about a ledger that matches the log…
+    closed.weeks[W4] = { ...weekScore(ctx, W4) };
+    expect(regradedWeeks(full, closed, TODAY)).toEqual([]);
+    // …and nothing at all when the log has no sessions to grade from.
+    expect(regradedWeeks(leagueContext(inputOf({}, PLAN_A)), closed, TODAY)).toEqual([]);
+  });
+
+  it('rehydrates the PURSE from the ledger on a boot that folds no event', () => {
+    // The other half of the reported screenshot: the race table drew the week
+    // straight from the ledger — 80 and its 🔵, correctly — while the header
+    // said "🔵 0" and the history list was empty. `normalizeGame` deliberately
+    // hands every DERIVED field back at zero (a hand-edited blob may not claim
+    // a purse its ledgers do not support) and nothing on the quiet boot path
+    // derived them again, so the screen contradicted itself until the next
+    // event was folded.
+    const storage = fakeStorage();
+    const events: AppEvent[] = [planEvent(PLAN_A, Date.parse('2026-01-01T00:00:00.000Z'), 'plan-0')];
+    for (const [date, s] of Object.entries(steady('A').sessions).sort()) {
+      events.push(makeEvent('session_imported', { date, day: s.day, ex: s.ex, source: 'json_import' }, tsOf(date)));
+    }
+    const first = new LocalStore(storage);
+    first.replaceAll(rebuildFromEvents(events, tsOf(TODAY)), events);
+    closeDueWeeks(first, NOW);
+    expect(gameOf(first).league.coins).toBe(5);
+
+    // A reboot: same storage, nothing folded, no event written.
+    const rebooted = new LocalStore(storage, NOW.getTime());
+    const league = gameOf(rebooted).league;
+    expect(league.weeks[W5]).toMatchObject({ score: 80, coin: true });
+    expect(league.coins).toBe(5);
+    expect(league.coinsEarned).toBe(5);
+    expect(Object.keys(league.months)).toEqual(['2026-06', '2026-07']);
+  });
+});
+
 /* ================================================ 6. spending the coins */
 
 /** A game with `n` 🔵 in the purse, minted by that many closed weeks. */
@@ -972,7 +1150,7 @@ describe('the driver — closing weeks through the store', () => {
 
 /* ===================================================== 8. the wipe & bump */
 
-describe('data_cleared and the v10 -> v11 blob bump', () => {
+describe('data_cleared and the v10 -> v12 blob bumps', () => {
   it('a wipe takes the whole league with it', () => {
     const game = purse(5);
     applyGameEvent(game, 'league_challenge_set', {
@@ -1000,7 +1178,10 @@ describe('data_cleared and the v10 -> v11 blob bump', () => {
   });
 
   it('reports the current version and starts with an empty league', () => {
-    expect(GAME_STATE_VERSION).toBe(11);
+    // v12 changed no field at all: it changed what a fold of the same events
+    // MEANS (best grade per week, not first), and a v11 cache of the old fold
+    // can disagree with a replay of its own log — so it is rejected too.
+    expect(GAME_STATE_VERSION).toBe(12);
     expect(emptyGame().league).toEqual(emptyLeague());
   });
 
@@ -1014,7 +1195,7 @@ describe('data_cleared and the v10 -> v11 blob bump', () => {
     expect(normalizeGame({ ...emptyGame() } as unknown as Record<string, unknown>)).not.toBeNull();
   });
 
-  it('replays a v10 save into a v11 one with every week intact', () => {
+  it('replays a v10 save into a current one with every week intact', () => {
     const { sessions } = steady('A');
     const store = storeWith(sessions, PLAN_A);
     closeDueWeeks(store, new Date(Date.parse(`${TODAY}T12:00:00.000Z`)));

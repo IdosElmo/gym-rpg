@@ -426,9 +426,26 @@ function leaderHe(mine: number, theirs: number, name: string): string {
  *
  * `''` when there is no account behind the app: absent, not disabled. Somebody
  * using the offline app must never be shown a cloud feature they cannot have.
+ *
+ * THE TOTAL COMPARES LIKE WITH LIKE — closed weeks only, on BOTH sides, which is
+ * the one rule this row cannot bend. A rival's column is built from published
+ * rows, and only a CLOSED week is ever published (`publishableWeeks`), so their
+ * week in progress is not merely unknown, it is unknowable. Adding my own live
+ * week to my own total therefore does not make the race more current, it makes
+ * it wrong: it awards me points for a week they are also training and cannot
+ * report. The live week keeps its row (marked בהתהוות, moving with every set)
+ * and its contribution is stated NEXT TO the total — never inside it — so a
+ * person can see both what is settled and what is still in play.
  */
-function raceCard(game: GameState, month: string, live: WeekScore, mineTotal: number, cloud?: LeagueCloudDeps): string {
+function raceCard(
+  game: GameState,
+  month: string,
+  progress: { liveWeek: WeekScore; closed: number; live: number },
+  cloud?: LeagueCloudDeps,
+): string {
   if (!cloud || !cloud.signedIn()) return '';
+  const live = progress.liveWeek;
+  const mineTotal = progress.closed;
 
   const view = rival.month;
   const theirWeeks = view?.month.weeks ?? {};
@@ -506,11 +523,24 @@ function raceCard(game: GameState, month: string, live: WeekScore, mineTotal: nu
       ${rows}
       <div class="lg-week total" data-week="total">
         <div class="lg-wk">סה״כ</div>
-        <div class="lg-cell mine" data-side="mine"><b class="lg-total" data-total="mine">${fmtScore(mineTotal)}</b></div>
+        <div class="lg-cell mine" data-side="mine">
+          <b class="lg-total" data-total="mine">${fmtScore(mineTotal)}</b>${
+            progress.live > 0
+              ? `<span class="lg-total-live" data-total-live="${progress.live}">‎+${fmtScore(
+                  progress.live,
+                )} בהתהוות</span>`
+              : ''
+          }
+        </div>
         <div class="lg-cell theirs" data-side="theirs"><b class="lg-total" data-total="theirs">${fmtScore(theirTotal)}</b></div>
       </div>
     </div>
     <p class="lg-leader ${mineTotal >= theirTotal ? 'ok' : 'warn'}">${esc(leaderHe(mineTotal, theirTotal, rival.handle))}</p>
+    ${
+      progress.live > 0
+        ? '<p class="lg-note dim" data-closed-only="1">הסה״כ סופר שבועות סגורים בלבד — משני הצדדים. השבוע שבהתהוות ייכנס כשייסגר.</p>'
+        : ''
+    }
     ${stale ? `<p class="lg-stale" data-stale="1">${esc(stale)}</p>` : ''}
   </section>`;
 }
@@ -673,12 +703,14 @@ export function leagueHtml(deps: LeagueDeps, today: string): string {
   const dates = redemptionDates(deps.store.getEvents());
   const theirTotal = rival.month?.month.monthlyScore ?? 0;
   // "Behind" is only knowable with a rival on screen; without one nothing is
-  // de-emphasised, because nobody has been beaten.
-  const behind = rival.month !== null && theirTotal > progress.total;
+  // de-emphasised, because nobody has been beaten. It is the SAME comparison the
+  // race's leader line makes — closed weeks against closed weeks — so the shop
+  // can never dim on a lead the totals row does not show.
+  const behind = rival.month !== null && theirTotal > progress.closed;
 
   return `
   ${liveCard(progress.liveWeek)}
-  ${raceCard(game, month, progress.liveWeek, progress.total, deps.cloud)}
+  ${raceCard(game, month, progress, deps.cloud)}
   ${shopCard(game, month, behind, dates)}
   ${historyCard(game, month)}`;
 }
