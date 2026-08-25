@@ -934,8 +934,12 @@ describe('redeeming — once per (month, item), and never on credit', () => {
 
   it('refuses an item that is not in THAT month\'s pool, and an unknown id', () => {
     const game = purse(9);
-    expect(buildLeagueRedemption(game, '2026-08', GIFT, TODAY, 1).error).toBe('wrong_month');
-    expect(buildLeagueRedemption(game, 'later', GIFT, TODAY, 1).error).toBe('wrong_month');
+    // A SEASONAL gift belongs to its month alone…
+    const seasonal = poolOfMonth(MONTH).rewards.find((i) => i.id.startsWith('gift_'))!.id;
+    expect(buildLeagueRedemption(game, '2026-08', seasonal, TODAY, 1).error).toBe('wrong_month');
+    expect(buildLeagueRedemption(game, 'later', seasonal, TODAY, 1).error).toBe('wrong_month');
+    // …while a base-pool prize is at home in EVERY month.
+    expect(buildLeagueRedemption(game, '2026-08', GIFT, TODAY, 1).ok).toBe(true);
     expect(buildLeagueRedemption(game, MONTH, 'no_such_item', TODAY, 1).error).toBe('unknown_item');
     // A challenge is staked, never bought.
     const challengeId = poolOfMonth(MONTH).challenges[0]!.id;
@@ -1313,11 +1317,22 @@ describe('the twelve pools', () => {
     expect(poolOfMonth('2026-13').month).toBe(1); // junk falls back, never null
     expect(itemInMonth('2026-08', 'gift_08_1')).toBe(true);
     expect(itemInMonth('2026-07', 'gift_08_1')).toBe(false);
+    // The couple's base pool does not rotate — it is in every month.
+    expect(itemInMonth('2026-08', 'base_1')).toBe(true);
+    expect(itemInMonth('2026-07', 'base_1')).toBe(true);
+  });
+
+  it("leads every month's rewards with the couple's base pool", () => {
+    const baseIds = ['base_1', 'base_3', 'base_4', 'base_5', 'base_2', 'base_6', 'base_7'];
+    for (let m = 1; m <= 12; m++) {
+      const pool = poolOfMonth(`2026-${String(m).padStart(2, '0')}`);
+      expect(pool.rewards.slice(0, baseIds.length).map((i) => i.id)).toEqual(baseIds);
+    }
   });
 
   it('gives every item a unique id, Hebrew copy and an emoji', () => {
     const items = allLeagueItems();
-    expect(items).toHaveLength(12 * 8);
+    expect(items).toHaveLength(7 + 12 * 8); // the base pool once, then twelve seasonal pools
     const ids = new Set(items.map((i) => i.id));
     expect(ids.size).toBe(items.length);
     for (const item of items) {

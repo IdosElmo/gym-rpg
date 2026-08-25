@@ -72,6 +72,24 @@ function challenge(id: string, he: string, detail: string, bonus: number): Leagu
   return { id, kind: 'challenge', he, detail, emoji: '⚔️', bonus };
 }
 
+
+/**
+ * THE COUPLE'S BASE POOL — the prizes that are ALWAYS on offer, every month,
+ * ahead of the rotating seasonal items. These are the real stakes this league
+ * is played for; the once-per-month redemption ledger makes each of them
+ * re-earnable monthly (a foot massage redeemed in August does not consume
+ * September's). Ids are permanent — the copy is yours to tune.
+ */
+const BASE_REWARDS: readonly LeagueItem[] = [
+  { id: 'base_1', kind: 'gift', he: 'יומיים חופש מכלים', detail: 'המפסיד/ה שוטף/ת את כל הכלים יומיים ברצף.', emoji: '🍽️', bonus: 0 },
+  { id: 'base_3', kind: 'gift', he: 'עיסוי כפות רגליים', detail: 'עיסוי כפות רגליים מסור, עשרים דקות לפחות.', emoji: '🦶', bonus: 0 },
+  { id: 'base_4', kind: 'gift', he: 'עיסוי גב', detail: 'עיסוי גב מלא, שמן לבחירת הזוכה.', emoji: '💆', bonus: 0 },
+  { id: 'base_5', kind: 'gift', he: 'משלוח קפה מארומה', detail: 'הקפה הקבוע של הזוכה, עד הבית, על חשבון המפסיד/ה.', emoji: '☕', bonus: 0 },
+  { id: 'base_2', kind: 'experience', he: 'דייט הפתעה', detail: 'המפסיד/ה מארגן/ת דייט הפתעה עד סוף החודש — היעד סודי עד הרגע האחרון.', emoji: '💘', bonus: 0 },
+  { id: 'base_6', kind: 'experience', he: 'זמן איכות מבן/בת הזוג', detail: 'הזוכה מגדיר/ה, המפסיד/ה מפנק/ת. בלי שאלות.', emoji: '😏', bonus: 0 },
+  { id: 'base_7', kind: 'experience', he: 'טונגה לאירוע', detail: 'המפסיד/ה מגיע/ה עם טונגה לאירוע הקרוב. כבוד המשחק מחייב.', emoji: '👙', bonus: 0 },
+];
+
 /** 🔵 price of an item — always derived from its kind, never stored per item. */
 export function priceOf(kind: LeagueItemKind): number {
   return BALANCE.league.prices[kind];
@@ -292,14 +310,21 @@ function monthNumber(monthKey: string): number {
  * all falls back to January's pool rather than to nothing: a screen with the
  * wrong pool is a smaller bug than a screen with none.
  */
+// The couple's base pool leads every month; the seasonal items follow. Built
+// once so `poolOfMonth` stays referentially stable — same month, same object.
+const MERGED_POOLS: readonly LeaguePool[] = LEAGUE_POOLS.map((pool) => ({
+  ...pool,
+  rewards: [...BASE_REWARDS, ...pool.rewards],
+}));
+
 export function poolOfMonth(monthKey: string): LeaguePool {
   const n = monthNumber(monthKey);
-  return (LEAGUE_POOLS[(n > 0 ? n : 1) - 1] ?? LEAGUE_POOLS[0]) as LeaguePool;
+  return (MERGED_POOLS[(n > 0 ? n : 1) - 1] ?? MERGED_POOLS[0]) as LeaguePool;
 }
 
 /** Every item of every pool, in pool order — the id index is built from this. */
 export function allLeagueItems(): LeagueItem[] {
-  const out: LeagueItem[] = [];
+  const out: LeagueItem[] = [...BASE_REWARDS];
   for (const pool of LEAGUE_POOLS) out.push(...pool.rewards, ...pool.challenges);
   return out;
 }
