@@ -13,7 +13,8 @@
  *                 occurrence (`scheduleTabs`), plus the plan editor (`PL`),
  *                 which is still reached from the ⚙️ header button rather than
  *                 from a tab of its own.
- *   🎮 קרב     — the game hub: קרב (`BT`) and דמות (`CH`).
+ *   🎮 קרב     — the game hub: קרב (`BT`), דמות (`CH`) and 🏆 ליגה (`LG` — the
+ *                 monthly leaderboard fought with weekly 🔵).
  *   ⚙️ הגדרות  — the settings hub: הגדרות (`ST` — account, plan card, data
  *                 actions), היסטוריה (`H` — the workout log + the feed) and
  *                 📊 סטטיסטיקות (`SS` — what that log adds up to).
@@ -56,10 +57,20 @@ export interface InnerTab {
   readonly subtitle: string;
 }
 
-/** The game hub's inner row — the arena first, since that is what it is for. */
+/**
+ * The game hub's inner row — the arena first, since that is what it is for,
+ * then the character it is fought with, then 🏆 הליגה.
+ *
+ * The league sits LAST for the same reason statistics sits last in the settings
+ * hub: קרב and דמות are things you DO, and the league is what the doing adds up
+ * to over a month. It belongs to the game hub rather than to הגדרות because it
+ * is played, not configured — its currency (🔵) is minted by training and spent
+ * on the month's pool, which is a game loop, just a slower one than a wave.
+ */
 export const GAME_TABS: readonly InnerTab[] = [
   { viewId: 'BT', title: '⚔️ קרב', subtitle: '' },
   { viewId: 'CH', title: '🦸 דמות', subtitle: '' },
+  { viewId: 'LG', title: '🏆 ליגה', subtitle: '' },
 ] as const;
 
 /**
@@ -82,13 +93,13 @@ export const SETTINGS_TABS: readonly InnerTab[] = [
 ] as const;
 
 /**
- * The hub a view belongs to. TOTAL: anything that is not one of the four
+ * The hub a view belongs to. TOTAL: anything that is not one of the six
  * reserved non-training screens is a workout day, and workout days are the
  * training hub — which is also the right answer for a day key this build has
  * never seen (one minted by a plan on another device).
  */
 export function hubOf(view: string): HubId {
-  if (view === 'BT' || view === 'CH') return 'GM';
+  if (view === 'BT' || view === 'CH' || view === 'LG') return 'GM';
   if (view === 'ST' || view === 'H' || view === 'SS') return 'SE';
   return 'TR'; // every day view, and the plan editor
 }

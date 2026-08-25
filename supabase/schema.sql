@@ -274,3 +274,150 @@ create policy ghosts_update_own on public.ghosts
 -- row through `on delete cascade`.
 
 grant select, insert, update on public.ghosts to authenticated;
+
+-- =====================================================================
+--  LEAGUE (run this block if upgrading)
+--  ---------------------------------------------------------------------
+--  Everything above is the sync schema plus the ghost-duel table. If your
+--  project already has them, paste ONLY this block into the SQL editor and
+--  run it — every statement below is idempotent (`if not exists` and a
+--  `drop policy if exists` before each `create policy`), so running it on a
+--  fresh project or a second time is equally safe.
+--
+--  WHAT IT IS. הליגה is a monthly leaderboard between two people. Each
+--  Sun–Sat week is graded 0…100 from the player's OWN log — consistency,
+--  completion, load and PRs, each relative to that player's own plan and
+--  their own recent weeks — and the month is the sum of its weeks. This
+--  table is how one account's CLOSED weeks become visible to the other.
+--
+--  ONE ROW PER (ACCOUNT, WEEK), and like `ghosts` it is NOT the event log:
+--
+--    * `events` is APPEND-ONLY, private, and the single source of truth for
+--      an account's own state. A closed week is an event there; the row
+--      here is a COPY of the grade that event already fixed.
+--    * `league_weeks` is a side channel: overwritten in place by a
+--      re-publish, readable by everyone. Nothing in it is ever folded back
+--      into anybody's log — an opponent's score is displayed, never
+--      replayed. Losing the whole table costs each player one re-publish.
+--
+--  ---------------------------------------------------------------------
+--  THE SHARING BOUNDARY — read this before changing the select policy
+--  ---------------------------------------------------------------------
+--  `league_weeks_select_all` lets ANY SIGNED-IN USER read ANY row, for
+--  exactly the reason `ghosts_select_all` does: there is no server here, so
+--  "let my partner see my score" has to be expressible as a row somebody
+--  else may select.
+--
+--  What that exposes, in full:
+--    * `handle`    — the same display name the ghost table carries;
+--    * `week_key` / `month_key` — WHICH week, never what was done in it;
+--    * `score`, `c`, `q`, `l`, `p`, `coin` — the grade and its four
+--      components, each a ratio in 0…1 against that player's own plan and
+--      their own past;
+--    * `volume`, `days`, `prs` — the three numbers that explain the grade
+--      (volume points, distinct training days, personal records).
+--
+--  What it does NOT expose: no exercises, no weights, no reps, no dates of
+--  training, no sessions, no plan, no XP, no levels, no gear, no energy, no
+--  email and no user id (the client never selects `user_id` — see
+--  LEAGUE_COLUMNS in `src/sync/supabaseBackend.ts`).
+--
+--  DELIBERATELY NOT PUBLISHED: redemptions, staked challenges and their
+--  completions — i.e. WHAT SOMEBODY SPENT THEIR 🔵 ON. That is private
+--  between the two people and their real-world bargain; the league needs to
+--  know who trained better, not who cashed it in for what. It is also not
+--  needed: a month's standing is a function of the weekly scores alone.
+--  There is no column here for it and there should never be one.
+--
+--  The residual exposure is the same bounded one the ghosts have:
+--  enumeration of handles and scores by a signed-in client. Ordinary use
+--  never enumerates — a lookup is `handle = $1 and month_key = $2`.
+--
+--  ---------------------------------------------------------------------
+--  WHY THE WRITE POLICIES CHECK `ghosts`
+--  ---------------------------------------------------------------------
+--  `handle` is plain text written by the client, so without a check any
+--  account could publish rows under somebody else's name and pollute their
+--  month. `ghosts.handle` is already UNIQUE and already proves ownership of
+--  a name, so the insert/update policies pin this table's handle to the
+--  writer's own ghost row. One name, one owner, one league identity — and a
+--  spoofed row is rejected by the DATABASE, not merely ignored by a client.
+--  (Publishing therefore requires a ghost row to exist first, which is
+--  exactly the order the sync cycle writes them in.)
+--
+--  The client still treats every fetched row as hostile: `week_key` must be
+--  a real Sunday, `month_key` must be the month of that week's Saturday,
+--  the components must be in 0…1 and the score must be EXACTLY what its own
+--  components add up to (`normalizeLeagueRow` in `src/core/leagueSync.ts`).
+-- =====================================================================
+
+create table if not exists public.league_weeks (
+  -- The owner. Not selected by the client; here for the policies and for
+  -- the primary key that makes a re-publish an overwrite.
+  user_id    uuid        not null references auth.users (id) on delete cascade,
+  -- The publisher's שם לוחם, pinned to their `ghosts` row by the policies
+  -- below. This is the lookup key: the opponent knows a name, not an id.
+  handle     text        not null,
+  -- The week's SUNDAY, ISO (`2026-08-02`). Weeks are Sun–Sat, the same
+  -- convention the streak uses.
+  week_key   text        not null,
+  -- The month containing the week's SATURDAY — the rule that partitions the
+  -- weeks of a year into months with none counted twice and none dropped.
+  month_key  text        not null,
+  -- The grade: 0…100, one decimal, and its four components, each 0…1.
+  -- `real` is plenty for two decimals of a ratio, and the client re-checks
+  -- the arithmetic anyway.
+  score      real        not null default 0,
+  c          real        not null default 0,
+  q          real        not null default 0,
+  l          real        not null default 0,
+  p          real        not null default 0,
+  -- Did the week mint its 🔵 (C ≥ 1 and Q ≥ 0.8)? Published for display; the
+  -- reader DERIVES it from c/q rather than believing it.
+  coin       boolean     not null default false,
+  -- The three numbers that explain the grade.
+  volume     real        not null default 0,
+  days       int         not null default 0,
+  prs        int         not null default 0,
+  updated_at timestamptz not null default now(),
+  -- One grade per week per account: a re-publish overwrites in place, so
+  -- the client may retry a batch freely.
+  primary key (user_id, week_key)
+);
+
+-- The only query a lookup ever runs:
+--   where handle = $1 and month_key = $2
+create index if not exists league_weeks_handle_month_idx
+  on public.league_weeks (handle, month_key);
+
+alter table public.league_weeks enable row level security;
+
+-- READ: every signed-in user, any row. This is the sharing mechanism — see
+-- the boundary note above before narrowing or widening it.
+drop policy if exists league_weeks_select_all on public.league_weeks;
+create policy league_weeks_select_all on public.league_weeks
+  for select to authenticated using (true);
+
+-- WRITE: your own rows, under your OWN handle (see the note above).
+drop policy if exists league_weeks_insert_own on public.league_weeks;
+create policy league_weeks_insert_own on public.league_weeks
+  for insert to authenticated
+  with check (
+    auth.uid() = user_id
+    and handle = (select g.handle from public.ghosts g where g.user_id = auth.uid())
+  );
+
+drop policy if exists league_weeks_update_own on public.league_weeks;
+create policy league_weeks_update_own on public.league_weeks
+  for update to authenticated
+  using (auth.uid() = user_id)
+  with check (
+    auth.uid() = user_id
+    and handle = (select g.handle from public.ghosts g where g.user_id = auth.uid())
+  );
+
+-- NO DELETE POLICY, like the event log and the ghosts: a publish overwrites
+-- in place, and deleting the ACCOUNT still removes the rows through
+-- `on delete cascade`.
+
+grant select, insert, update on public.league_weeks to authenticated;

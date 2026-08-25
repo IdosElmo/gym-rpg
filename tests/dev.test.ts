@@ -686,7 +686,8 @@ describe('the feed marks every dev line', () => {
 
 describe('the v9 -> v10 blob bump', () => {
   it('reports the current version and starts with no dev history', () => {
-    expect(GAME_STATE_VERSION).toBe(10);
+    // The dev ledgers arrived in v10; v11 (הליגה) rides on the same blob.
+    expect(GAME_STATE_VERSION).toBe(11);
     const fresh = emptyGame();
     expect(fresh.devUsed).toBe(false);
     expect(fresh.devKeys).toEqual({});

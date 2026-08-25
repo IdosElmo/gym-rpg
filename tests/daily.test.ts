@@ -472,9 +472,9 @@ describe('lifetime challenge stats', () => {
 
 describe('the v7 -> v8 blob bump', () => {
   it('reports the current version and starts with an empty ledger', () => {
-    // The daily ledger arrived in v8; v9 (ghost duels) and v10 (dev mode)
-    // ride on the same blob.
-    expect(GAME_STATE_VERSION).toBe(10);
+    // The daily ledger arrived in v8; v9 (ghost duels), v10 (dev mode) and
+    // v11 (הליגה) ride on the same blob.
+    expect(GAME_STATE_VERSION).toBe(11);
     expect(emptyGame().daily).toEqual(emptyDaily());
   });
 

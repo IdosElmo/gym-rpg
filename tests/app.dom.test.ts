@@ -392,8 +392,10 @@ describe('the three-hub navigation', () => {
     expect(hubOf('PL')).toBe('TR');
     expect(hubOf('BT')).toBe('GM');
     expect(hubOf('CH')).toBe('GM');
+    expect(hubOf('LG')).toBe('GM');
     expect(hubOf('ST')).toBe('SE');
     expect(hubOf('H')).toBe('SE');
+    expect(hubOf('SS')).toBe('SE');
     // a day key minted by a plan on another device is still a workout day
     expect(hubOf('d_whatever')).toBe('TR');
   });
@@ -412,6 +414,7 @@ describe('the three-hub navigation', () => {
     expect(innerTabs().every((t) => !t.classList.contains('active'))).toBe(true); // …but to no tab of it
     expect(of('BT')).toBe('GM');
     expect(of('CH')).toBe('GM');
+    expect(of('LG')).toBe('GM');
     expect(of('ST')).toBe('SE');
     expect(of('H')).toBe('SE');
     expect(of('SS')).toBe('SE');
@@ -422,9 +425,10 @@ describe('the three-hub navigation', () => {
     expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['A', 'B', 'C']);
 
     clickHub('GM');
-    expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['BT', 'CH']);
+    expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['BT', 'CH', 'LG']);
     expect(innerTabs()[0]?.textContent).toContain('קרב');
     expect(innerTabs()[1]?.textContent).toContain('דמות');
+    expect(innerTabs()[2]?.textContent).toContain('ליגה');
 
     clickHub('SE');
     expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['ST', 'H', 'SS']);

@@ -13,6 +13,7 @@
  */
 
 import type { EquipmentSlot } from '../data/gameContent.ts';
+import type { LeagueItemKind } from '../data/leaguePools.ts';
 import type { PlanDoc } from '../data/planTypes.ts';
 import type { BodyPart, DayKey } from '../data/program.ts';
 
@@ -40,27 +41,29 @@ export interface Session {
 }
 
 /**
- * A day key = one workout screen, plus six RESERVED keys: `CH` = דמות,
- * `BT` = קרב (battle), `ST` = הגדרות (settings), `H` = היסטוריה,
- * `SS` = סטטיסטיקות (the 📊 screen), `PL` = תוכנית (the plan editor). A plan may
- * not use those as day keys (`isDayKey` refuses them).
+ * A day key = one workout screen, plus seven RESERVED keys: `CH` = דמות,
+ * `BT` = קרב (battle), `LG` = ליגה (the 🏆 monthly league), `ST` = הגדרות
+ * (settings), `H` = היסטוריה, `SS` = סטטיסטיקות (the 📊 screen),
+ * `PL` = תוכנית (the plan editor). A plan may not use those as day keys
+ * (`isDayKey` refuses them).
  *
  * The nav is TWO levels (see `ui/nav.ts`): three fixed hubs, each with its own
  * inner tab row. Every view above belongs to exactly one hub — day keys and
- * `PL` to אימון, `BT`/`CH` to קרב, `ST`/`H` to הגדרות — so the stored view
- * alone still decides the whole screen, exactly as it did with one flat bar.
+ * `PL` to אימון, `BT`/`CH`/`LG` to קרב, `ST`/`H`/`SS` to הגדרות — so the stored
+ * view alone still decides the whole screen, exactly as it did with one flat bar.
  *
  * `PL` deliberately has NO tab of its own: it is reached from the ⚙️ button in
  * the workout header and from the plan card on the settings screen.
  *
  * `ST` was the ONE view id the two-level redesign added; `SS` (📊 סטטיסטיקות,
- * the settings hub's third inner tab) is the one the statistics screen adds.
+ * the settings hub's third inner tab) came with the statistics screen, and `LG`
+ * (🏆 הליגה, the game hub's third inner tab) is the newest.
  * Everything a build ever persisted — including a bare `'H'` — is still a valid
  * view and still lands on the screen it always named: view ids are only ever
  * ADDED, never renamed or reused, which is what makes an install left on any
  * older screen open on exactly that screen after the update.
  */
-export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL' | 'ST' | 'SS';
+export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL' | 'ST' | 'SS' | 'LG';
 
 export interface UiState {
   view: ViewKey;
@@ -100,8 +103,14 @@ export interface UiState {
  * empty ones would say "this account never used a dev grant" — which would drop
  * the 🛠 flag off the published ghost and hand back a daily/duel reset the log
  * already recorded. Rejected and replayed, which is lossless.
+ * v11 (הליגה) added `league` — the weekly-score ledger, the 🔵 purse and the
+ * monthly redemption / challenge ledgers. A FIFTH time the same argument: a v10
+ * blob has no such field, and inventing an empty one would say "no week was ever
+ * closed" — which would let a lazy close re-close weeks the log already closed
+ * and re-mint their coins. Rejected and replayed, which restores every week,
+ * every coin and every redemption exactly.
  */
-export const GAME_STATE_VERSION = 10;
+export const GAME_STATE_VERSION = 11;
 
 /** XP pool of one body part. `level` is DERIVED from `xp` (see core/xp.ts). */
 export interface PartProgress {
@@ -247,6 +256,100 @@ export interface GhostDuelState {
   byOpponent: Record<string, GhostDuelTally>;
 }
 
+/* ------------------------------------------------------------- הליגה */
+
+/**
+ * ONE closed week of the league — the authoritative grade of a Sun–Sat week.
+ *
+ * Everything here is folded verbatim from the `league_week_closed` payload
+ * rather than recomputed on read, for the same reason `wave_cleared` carries its
+ * own coins: the sessions a week was graded on can be edited later (a JSON
+ * import, a merge), and a closed week must keep saying what it said. The score
+ * IS the record.
+ */
+export interface LeagueWeekRecord {
+  /** 0…100, one decimal — `100 × (0.4C + 0.3Q + 0.2L + 0.1P)`. */
+  score: number;
+  /** The four components, 0…1 each (see `core/league.ts`). */
+  c: number;
+  q: number;
+  l: number;
+  p: number;
+  /** True when the week minted its 🔵 (C ≥ 1 and Q ≥ 0.8). */
+  coin: boolean;
+  /** Volume points the week actually lifted — what the next weeks compare to. */
+  volume: number;
+  /** Distinct training days. */
+  days: number;
+  /** PRs the week produced (dev grants excluded), uncapped. */
+  prs: number;
+}
+
+/** ONE redeemed pool item — once per (month, item), whatever it cost. */
+export interface LeagueRedemption {
+  itemId: string;
+  kind: LeagueItemKind;
+  /** 🔵 charged, already clamped to `BALANCE.league.maxCost` on the way in. */
+  cost: number;
+}
+
+/** The ONE challenge staked for a month — first in `(ts, id)` order wins. */
+export interface LeagueChallengeStake {
+  challengeId: string;
+  /** 🔵 staked. */
+  cost: number;
+}
+
+/** Derived per-month totals — the leaderboard row this account contributes. */
+export interface LeagueMonthTotal {
+  /** 'YYYY-MM'. */
+  month: string;
+  /** Σ of the month's weekly scores, one decimal. */
+  score: number;
+  /** How many of its weeks are closed. */
+  weeks: number;
+  /** 🔵 those weeks minted. */
+  coins: number;
+}
+
+/**
+ * הליגה — the monthly leaderboard fought with weekly 🔵.
+ *
+ * FOUR LEDGERS AND NOTHING ELSE. `weeks`, `redemptions`, `challenges` and
+ * `completions` are the only folded fields, and each is a map keyed by its own
+ * semantic key, so the union of two devices' logs unions exactly:
+ *
+ *   weeks[weekKey]                  — one grade per Sun–Sat week
+ *   redemptions["<month>|<itemId>"] — one redemption per item per month
+ *   challenges[month]               — one staked challenge per month
+ *   completions["<month>|<id>"]     — the 🔵 bonus a completion claimed
+ *
+ * EVERYTHING ELSE IS DERIVED in `finalizeGame` — `coins`, `coinsEarned`,
+ * `coinsSpent` and `months` — exactly like the daily challenge's totals and the
+ * six body-part levels. A derived total cannot disagree with the log after a
+ * merge, whereas a purse incremented per event would have to be defended against
+ * every duplicate. That is the whole convergence story of the feature: the coins
+ * accrue because the LEDGER accepted a week, never because an event arrived.
+ */
+export interface LeagueState {
+  /** Derived: `max(0, earned − spent)` — the 🔵 purse. */
+  coins: number;
+  /** Derived: 🔵 ever minted (weeks + completed challenge bonuses). */
+  coinsEarned: number;
+  /** Derived: 🔵 ever spent (redemptions + challenge stakes). */
+  coinsSpent: number;
+  /** weekKey (the week's SUNDAY, ISO) -> its one closing grade. */
+  weeks: Record<string, LeagueWeekRecord>;
+  /** "YYYY-MM|itemId" -> the one redemption of that item that month. */
+  redemptions: Record<string, LeagueRedemption>;
+  /** "YYYY-MM" -> the one challenge staked for that month. */
+  challenges: Record<string, LeagueChallengeStake>;
+  /** "YYYY-MM|challengeId" -> the 🔵 bonus its completion claimed. */
+  completions: Record<string, number>;
+  /** Derived: 'YYYY-MM' -> the month's totals. */
+  months: Record<string, LeagueMonthTotal>;
+}
+
 /**
  * Which combination the player is playing, and which SKINS they bought.
  *
@@ -333,6 +436,8 @@ export interface GameState {
   daily: DailyChallengeState;
   /** Phase 8 — ghost duels: one fight per opponent per calendar date. */
   duels: GhostDuelState;
+  /** Phase 11 — הליגה: one grade per closed week, 🔵 and the monthly ledgers. */
+  league: LeagueState;
   /**
    * Phase 9 — DEV MODE. True while this save carries at least one dev grant
    * that a `dev_purge` has not covered.
@@ -424,6 +529,12 @@ export type EventType =
   | 'daily_challenge'
   // Phase 8 — ghost duels. ONE event per duel, idempotent per (DATE, OPPONENT).
   | 'ghost_duel'
+  // Phase 11 — הליגה. One close per WEEK, one redemption per (MONTH, ITEM), one
+  // staked challenge per MONTH and one completion per (MONTH, CHALLENGE).
+  | 'league_week_closed'
+  | 'league_reward_redeemed'
+  | 'league_challenge_set'
+  | 'league_challenge_completed'
   // Phase 5 — the cosmetic character roster
   | 'character_purchased'
   | 'character_selected'
@@ -741,6 +852,110 @@ export interface GhostDuelPayload extends Record<string, unknown> {
   snapshotHash: string;
   outcome: 'complete' | 'defeated' | 'forfeit';
   durationMs: number;
+}
+
+/* ------------------------------------------------- Phase 11 הליגה payloads */
+
+/**
+ * ONE closed week of the league — the event the whole scoring engine exists to
+ * write, and the only place a 🔵 can come from.
+ *
+ * AUTHORITATIVE, exactly like `daily_challenge`: the score, its four components
+ * and the volume the week lifted ride in the payload as DATA, so a replay never
+ * re-grades a week against today's `BALANCE.league` and a closed week keeps
+ * saying what it said even after the sessions behind it are re-imported.
+ *
+ * IDEMPOTENT PER WEEK — the rule the feature rests on. `weekKey` (the week's
+ * SUNDAY, `YYYY-MM-DD`) is the semantic key, so the reducer applies the event
+ * only while `league.weeks[weekKey]` is empty:
+ *
+ *   - a duplicate of a week already closed is a total no-op — no second 🔵;
+ *   - two devices that each closed the same week offline write two events with
+ *     different uuids and the SAME `weekKey`; folding the union in EITHER order
+ *     keeps the FIRST in the log's `(ts, id)` order and mints ONE coin. Both
+ *     devices land on the same record because that order is a property of the
+ *     event SET — and because closing is a deterministic function of the log,
+ *     the two events say the same thing anyway;
+ *   - the close that "loses" is not lost data: it stays in the log for ever and
+ *     is simply not counted, exactly like a duplicate retro grant.
+ *
+ * The 🔵 itself is NOT a field here and is never folded: the purse is DERIVED
+ * from the ledger in `finalizeGame`, so "the coin arrives when the ledger
+ * accepts the week" is true by construction rather than by careful bookkeeping.
+ */
+export interface LeagueWeekClosedPayload extends Record<string, unknown> {
+  /** The week's SUNDAY (YYYY-MM-DD) — the idempotency key. */
+  weekKey: string;
+  /** ISO date the close was written on (bookkeeping, like every payload). */
+  date: string;
+  /** 0…100, one decimal. */
+  score: number;
+  /** Consistency, completion, load, PRs — each 0…1. */
+  c: number;
+  q: number;
+  l: number;
+  p: number;
+  /** Did the week mint its 🔵? */
+  coin: boolean;
+  /** Volume points lifted — what later weeks' baselines are drawn from. */
+  volume: number;
+  /** Distinct training days. */
+  days: number;
+  /** PRs the week produced. */
+  prs: number;
+}
+
+/**
+ * ONE pool item redeemed for 🔵 — once per (month, item).
+ *
+ * The reducer enforces exactly two things: the ledger key is free, and the price
+ * is believed only up to `BALANCE.league.maxCost`. It deliberately does NOT
+ * enforce WHO may spend: winning the month is a CROSS-ACCOUNT fact (it depends
+ * on the opponent's scores, which are not in this log at all), so gating the
+ * spend on it here would make the fold depend on data the fold cannot see.
+ * Spending rights are therefore a UI + social-contract layer (stages 3/4); the
+ * ledger's job is "once per month, and only what you can afford".
+ */
+export interface LeagueRewardRedeemedPayload extends Record<string, unknown> {
+  /** 'YYYY-MM' — half the idempotency key. */
+  month: string;
+  /** The pool item's id — the other half. */
+  itemId: string;
+  kind: LeagueItemKind;
+  /** 🔵 charged, clamped by the reducer. */
+  cost: number;
+  date: string;
+}
+
+/**
+ * The ONE challenge staked for a month. First in the `(ts, id)` order wins, so
+ * two devices that each picked a challenge offline converge on the same one —
+ * and the stake is charged once.
+ */
+export interface LeagueChallengeSetPayload extends Record<string, unknown> {
+  /** 'YYYY-MM' — the idempotency key (one slot per month). */
+  month: string;
+  challengeId: string;
+  /** 🔵 staked, clamped by the reducer. */
+  cost: number;
+  date: string;
+}
+
+/**
+ * A staked challenge was completed — SELF-REPORTED in v1, which is the right
+ * level of trust for a two-person league.
+ *
+ * Idempotent per (month, challenge). The bonus is clamped to
+ * `BALANCE.league.maxBonus`, and it is only PAID when the month's staked
+ * challenge is this one — a completion of a challenge nobody staked mints
+ * nothing, which is what stops a crafted event from printing 🔵.
+ */
+export interface LeagueChallengeCompletedPayload extends Record<string, unknown> {
+  month: string;
+  challengeId: string;
+  /** 🔵 the completion claims. */
+  bonus: number;
+  date: string;
 }
 
 /* ------------------------------------------------ Phase 5 roster payloads */

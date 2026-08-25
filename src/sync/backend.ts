@@ -11,6 +11,7 @@
  * "put these events somewhere" and "give me what I haven't seen yet".
  */
 
+import type { LeagueWeekUpload } from '../core/leagueSync.ts';
 import type { AppEvent, Unsubscribe } from '../storage/DataStore.ts';
 
 /** One page of remote events, in ascending server order. */
@@ -39,6 +40,17 @@ export interface GhostRow {
   /** ms epoch of the last publish, when the backend knows it. */
   updatedAt: number | null;
 }
+
+/**
+ * One row of the `league_weeks` table, VERBATIM as the database handed it over.
+ *
+ * A bare record for the same reason `GhostRow.payload` is one: the backend is a
+ * dumb pipe and must not understand what it carries. It does not even rename the
+ * columns — `core/leagueSync.ts` (`normalizeLeagueRow`) reads `week_key` and
+ * `weekKey` alike, and it is the one place these values are allowed to become
+ * numbers.
+ */
+export type LeagueRawRow = Record<string, unknown>;
 
 export interface SyncBackend {
   /**
@@ -75,6 +87,30 @@ export interface SyncBackend {
    * there is no listing, no search and no way to enumerate accounts.
    */
   fetchGhost(handle: string): Promise<GhostRow | null>;
+
+  /**
+   * Upsert MY closed league weeks under `handle`, keyed `(user_id, week_key)`.
+   *
+   * IDEMPOTENT BY CONSTRUCTION: publishing the same week twice overwrites one
+   * row rather than adding a second, so the engine may retry a batch freely and
+   * a rename simply rewrites the rows it owns under the new name.
+   *
+   * Like a ghost, a league row is a side channel beside the log and never in it
+   * (`core/leagueSync.ts`): failing forever costs the user visibility on the
+   * leaderboard and nothing else, which is why the engine swallows the error.
+   */
+  publishLeagueWeeks(userId: string, handle: string, rows: readonly LeagueWeekUpload[]): Promise<void>;
+
+  /**
+   * Every row somebody published for ONE month under an EXACT handle (already
+   * canonical — see `core/handle.ts`). Four or five rows; an empty array means
+   * "that name has published nothing for that month", which is an ordinary
+   * answer and not a failure.
+   *
+   * The rows are UNTRUSTED input written by another client: they are only ever
+   * read through `normalizeLeagueRow`.
+   */
+  fetchLeagueMonth(handle: string, monthKey: string): Promise<LeagueRawRow[]>;
 }
 
 /**

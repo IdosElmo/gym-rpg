@@ -8,8 +8,8 @@
  *     so the thing you press to change context never moves under your thumb.
  *   * the INNER row — the tabs OF the active hub, at a lighter visual weight:
  *     the plan's workout occurrences for אימון (`scheduleTabs`, see
- *     core/plan.ts), קרב/דמות for the game, הגדרות/היסטוריה/📊 סטטיסטיקות for
- *     settings.
+ *     core/plan.ts), קרב/דמות/🏆 ליגה for the game, הגדרות/היסטוריה/📊
+ *     סטטיסטיקות for settings.
  *     Only this row can ever scroll, and only when a plan defines more workout
  *     occurrences than fit.
  *
@@ -56,6 +56,7 @@ import type { GhostDuelDeps } from './ghost.ts';
 import { exitCharacterPreview, renderCharacter } from './character.ts';
 import { esc, must } from './dom.ts';
 import { renderHistory } from './history.ts';
+import { renderLeague, type LeagueCloudDeps } from './league.ts';
 import {
   GAME_TABS,
   HUBS,
@@ -92,6 +93,12 @@ export interface AppHooks {
    * rendered at all, which is the offline app's normal state.
    */
   ghost?: GhostDuelDeps;
+  /**
+   * The cloud half of 🏆 הליגה — the rival's month. Absent = the race section is
+   * not rendered at all; the rest of the league screen (my week, the shop, the
+   * history) is local and works offline either way.
+   */
+  league?: LeagueCloudDeps;
   /** Fired at the end of every full render (lets main.ts clear a deferred repaint). */
   onRender?: () => void;
 }
@@ -128,9 +135,9 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     if (isRememberableInner(v)) lastInner[hubOf(v)] = v;
   }
 
-  /** True for the six screens that are not a workout day. */
+  /** True for the seven screens that are not a workout day. */
   function isScreen(v: ViewKey): boolean {
-    return v === 'CH' || v === 'BT' || v === 'H' || v === 'PL' || v === 'ST' || v === 'SS';
+    return v === 'CH' || v === 'BT' || v === 'H' || v === 'PL' || v === 'ST' || v === 'SS' || v === 'LG';
   }
 
   /**
@@ -311,6 +318,12 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       <p class="day-meta">רמה <b>${game.level}</b> · כל סט אמיתי מחזק חלק אחר בגוף</p>${energyPill()}`;
       return;
     }
+    if (view === 'LG') {
+      const game = gameOf(store);
+      headerEl.innerHTML = `<h1 class="app-title">הליגה <span class="en">League</span></h1>
+      <p class="day-meta">🔵 <b>${game.league.coins}</b> מטבעות ליגה · שבוע מלא = מטבע</p>${energyPill()}`;
+      return;
+    }
     if (view === 'BT') {
       const game = gameOf(store);
       const world = worldById(game.battle.world);
@@ -360,6 +373,17 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     renderCharacter(mainEl, { store, rerender: renderCharacterScreen });
   }
 
+  /**
+   * Repaint the league in place after a 🔵 spend: the purse in the header and
+   * the cards below both change, and re-rendering the whole shell would throw
+   * the reader back to the top of a long screen.
+   */
+  function renderLeagueScreen(): void {
+    if (store.getState().ui.view !== 'LG') return;
+    renderHeader();
+    renderLeague(mainEl, { store, rerender: renderLeagueScreen, ...(hooks.league ? { cloud: hooks.league } : {}) });
+  }
+
   /** Re-render the editor in place (draft edits must not reset the scroll). */
   function renderPlanScreen(): void {
     if (store.getState().ui.view !== 'PL') return;
@@ -399,6 +423,8 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       renderHistory(mainEl, { store });
     } else if (view === 'SS') {
       renderStats(mainEl, { store });
+    } else if (view === 'LG') {
+      renderLeague(mainEl, { store, rerender: renderLeagueScreen, ...(hooks.league ? { cloud: hooks.league } : {}) });
     } else if (view === 'PL') {
       renderPlanEditor(mainEl, { store, rerender: renderPlanScreen, close: () => setView(returnView) });
     } else if (view === 'CH') {

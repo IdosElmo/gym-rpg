@@ -371,6 +371,84 @@ export const BALANCE = {
     maxStreakTier: 200,
   },
 
+  /* --------------------------------------------------------------- הליגה */
+  /**
+   * THE LEAGUE — a monthly leaderboard fought with weekly 🔵 blue coins.
+   *
+   * ONE WEEK, ONE SCORE, MAYBE ONE COIN. Every closed Sun–Sat week is graded on
+   * four components and turned into a 0–100 score; a week that was BOTH complete
+   * (every planned training day turned up for) and honest (the sets of those days
+   * actually done) additionally mints one 🔵. The month's score is the sum of its
+   * weeks' scores, and a week belongs to the month containing its SATURDAY.
+   *
+   * WHY THESE FOUR, AND WHY THESE WEIGHTS. The league is played between two
+   * people whose plans are not the same — a 4-day-a-week trainee doing many light
+   * sets against a 3-day-a-week trainee doing few heavy ones — so every component
+   * had to be RELATIVE TO THE PLAYER'S OWN PLAN, or the leaderboard would simply
+   * rank whoever wrote the bigger plan:
+   *
+   *   C (0.4) consistency — training days ÷ THEIR plan's weekly target. Turning
+   *     up is the biggest share, because it is the thing the whole app is for.
+   *   Q (0.3) completion  — sets done ÷ sets THEIR plan asked for, on the days
+   *     they trained. Half a workout is not a workout.
+   *   L (0.2) load        — this week's volume ÷ THEIR OWN rolling baseline. A
+   *     ratio, never an absolute: 40 kg × 12 and 120 kg × 5 both score 1.0 when
+   *     they match that lifter's own recent weeks. Clamped to ±50% so a single
+   *     heroic week cannot buy the month, and self-relative so a heroic week
+   *     RAISES the bar for the weeks after it.
+   *   P (0.1) records     — up to three PRs. A garnish, deliberately: PRs are
+   *     luck-adjacent (a first-ever set of an exercise cannot be one) and must
+   *     never be the thing worth chasing.
+   *
+   * Both trainees executing their own plan in full therefore land on the SAME
+   * score (0.4 + 0.3 + 0.2×0.5 = 80 with no PRs), which is exactly the property
+   * the feature needs: the league measures FIDELITY TO YOUR OWN PLAN, and the
+   * winner is whoever kept theirs better this month.
+   *
+   * THE PRICES are the whole economy: a perfect month mints 4–5 🔵, a gift costs
+   * 3, an experience 5 and staking a monthly challenge 2 (paid back with interest
+   * when it is completed). So a good month buys one real-world thing — which is
+   * the point of the coins being scarce and the pools being small.
+   */
+  league: {
+    /** Component weights — they sum to 1, and the score is `100 × Σ w·x`. */
+    weights: { consistency: 0.4, completion: 0.3, load: 0.2, prs: 0.1 },
+    /** Non-empty weeks the rolling load baseline is the MEDIAN of. */
+    baselineWeeks: 4,
+    /** `load ratio` is clamped here before it is rescaled to 0…1. */
+    loadRatioMin: 0.5,
+    loadRatioMax: 1.5,
+    /**
+     * L for a week that trained but has NO prior non-empty week to compare with
+     * — "neutral-good". A first week cannot be measured against a baseline that
+     * does not exist, and scoring it 0 would punish starting.
+     */
+    loadNeutral: 0.75,
+    /** PRs that saturate P (more in one week is not worth more). */
+    prTarget: 3,
+    /** A week mints its 🔵 only when C ≥ this AND Q ≥ this. */
+    coinConsistency: 1,
+    coinCompletion: 0.8,
+    /** 🔵 one qualifying week is worth. */
+    coinPerWeek: 1,
+    /**
+     * How far back a lazy close may reach. Weeks close by the passing of time,
+     * so an install that was not opened for a year would otherwise write a year
+     * of events on boot; half a year of history is plenty for a monthly board.
+     */
+    backfillWeeks: 26,
+    /** 🔵 prices, by pool item kind. */
+    prices: { gift: 3, experience: 5, challenge: 2 },
+    /**
+     * SECURITY CEILINGS, not balance. A redemption / challenge event carries its
+     * own price and bonus (so a retune never rewrites history), and the reducer
+     * believes them only this far — a crafted or replayed event can neither mint
+     * a fortune nor drive the purse to nonsense.
+     */
+    maxCost: 10,
+    maxBonus: 5,
+  },
+
   /* --------------------------------------------------------------- skills */
   /**
    * BODY-PART SKILLS — six active abilities, one per body part, unlocked by
