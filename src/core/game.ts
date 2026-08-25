@@ -19,9 +19,22 @@ import type {
   DataStore,
   GameState,
   GhostDuelState,
+  LeagueState,
   WaveClearedPayload,
 } from '../storage/DataStore.ts';
 import type { BossResult, ChallengeResult, WaveResult } from './combat.ts';
+import { BALANCE } from './balance.ts';
+import {
+  buildLeagueChallengeComplete,
+  buildLeagueChallengeSet,
+  buildLeagueRedemption,
+  buildWeekCloses,
+  leagueContext,
+  type LeagueContext,
+  type LeagueInput,
+  type LeagueSpendError,
+  type LeagueSpendPlan,
+} from './league.ts';
 import { todayISO } from './workout.ts';
 import type { BodyGeometry } from '../data/characters.ts';
 import {
@@ -435,6 +448,111 @@ export function selectBody(store: DataStore, body: BodyGeometry, now: Date = new
   if (pending.length === 0) return false;
   commit(store, pending, now);
   return true;
+}
+
+/* ---------------------------------------------------------------- הליגה */
+
+/** The league's inputs as this store holds them — sessions plus the whole log. */
+export function leagueInputOf(store: DataStore): LeagueInput {
+  return { sessions: store.getState().sessions, events: store.getEvents() };
+}
+
+/** The grading context of this store — pure, and cheap enough to rebuild. */
+export function leagueContextOf(store: DataStore): LeagueContext {
+  return leagueContext(leagueInputOf(store));
+}
+
+export interface WeekCloseResult {
+  /** Week keys closed by this call, oldest first (empty when nothing was due). */
+  closed: string[];
+  /** 🔵 those weeks minted. */
+  coins: number;
+  league: LeagueState;
+}
+
+/**
+ * CLOSE EVERY FINISHED WEEK THE LOG HAS NOT GRADED YET.
+ *
+ * The league's counterpart to `refreshStreak`, and for the same reason: weeks
+ * end by the passing of time, not by anything the user does, so something has to
+ * notice. Called on boot and after a workout.
+ *
+ * LAZY, DETERMINISTIC AND BOUNDED. Each due week is graded from the log alone
+ * (`buildWeekCloses`), so a device that has been offline for a month writes the
+ * same four events another device would have written week by week — and the
+ * reducer's per-week ledger means the union of the two logs still holds ONE
+ * grade and ONE 🔵 per week, in either merge order. The backfill reaches at most
+ * `BALANCE.league.backfillWeeks` weeks, so a long-dormant install cannot dump a
+ * year of events into the log on its next boot.
+ */
+export function closeDueWeeks(store: DataStore, now: Date = new Date()): WeekCloseResult {
+  const pending = buildWeekCloses(leagueInputOf(store), gameOf(store).league, todayISO(now), now.getTime());
+  if (pending.length === 0) return { closed: [], coins: 0, league: gameOf(store).league };
+  commit(store, pending, now);
+  const league = gameOf(store).league;
+  const closed = pending.map((p) => String(p.payload['weekKey']));
+  return {
+    closed,
+    coins: closed.reduce((sum, week) => sum + (league.weeks[week]?.coin ? BALANCE.league.coinPerWeek : 0), 0),
+    league,
+  };
+}
+
+export interface LeagueSpendResult {
+  ok: boolean;
+  error?: LeagueSpendError;
+  /** 🔵 charged (0 when refused, and 0 for a challenge completion — it PAYS). */
+  cost: number;
+  league: LeagueState;
+}
+
+function spend(store: DataStore, plan: LeagueSpendPlan, now: Date): LeagueSpendResult {
+  if (!plan.ok) {
+    const out: LeagueSpendResult = { ok: false, cost: 0, league: gameOf(store).league };
+    if (plan.error) out.error = plan.error;
+    return out;
+  }
+  commit(store, plan.events, now);
+  return { ok: true, cost: plan.cost, league: gameOf(store).league };
+}
+
+/**
+ * Redeem one item of a month's pool for 🔵.
+ *
+ * Same contract as `buyItem`: `core/league.ts` decides (the item, the month, the
+ * ledger, the purse) BEFORE anything is appended, so a refused redemption leaves
+ * no trace in the log at all.
+ */
+export function redeemLeagueReward(
+  store: DataStore,
+  month: string,
+  itemId: string,
+  now: Date = new Date(),
+): LeagueSpendResult {
+  return spend(store, buildLeagueRedemption(gameOf(store), month, itemId, todayISO(now), now.getTime()), now);
+}
+
+/** Stake this month's challenge (one slot per month, paid for up front). */
+export function setLeagueChallenge(
+  store: DataStore,
+  month: string,
+  challengeId: string,
+  now: Date = new Date(),
+): LeagueSpendResult {
+  return spend(
+    store,
+    buildLeagueChallengeSet(gameOf(store), month, challengeId, todayISO(now), now.getTime()),
+    now,
+  );
+}
+
+/** Claim the month's staked challenge as done — self-reported, pays its bonus. */
+export function completeLeagueChallenge(
+  store: DataStore,
+  month: string,
+  now: Date = new Date(),
+): LeagueSpendResult {
+  return spend(store, buildLeagueChallengeComplete(gameOf(store), month, todayISO(now), now.getTime()), now);
 }
 
 export interface StreakRefresh {
