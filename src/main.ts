@@ -22,6 +22,8 @@ import type { DataStore } from './storage/DataStore.ts';
 import { gameOf, refreshStreak } from './core/game.ts';
 import { buildGhost, ghostHash } from './core/ghost.ts';
 import { defaultHandle } from './core/handle.ts';
+import { publishableWeeks } from './core/leagueSync.ts';
+import { todayISO } from './core/workout.ts';
 import { defaultDay } from './core/plan.ts';
 import { createDevApi } from './dev/actions.ts';
 import { devGateOpen } from './dev/gate.ts';
@@ -124,6 +126,16 @@ function wireSync(store: DataStore): SyncWiring {
         return { payload: payload as unknown as Record<string, unknown>, hash: ghostHash(payload) };
       },
       defaultHandle: (id: string) => defaultHandle(email, id),
+    },
+    /**
+     * THE LEAGUE PUBLISHER. Same division of labour as the ghost's: the engine
+     * owns "when" (after a successful cycle, only what is not published yet);
+     * this owns "what" — the closed weeks of the current and previous month,
+     * read straight off the ledger the log folds to. It reads and never writes:
+     * a published week is a copy of a fact the log already holds.
+     */
+    league: {
+      rows: () => publishableWeeks(gameOf(store).league.weeks, todayISO(new Date())),
     },
   });
 

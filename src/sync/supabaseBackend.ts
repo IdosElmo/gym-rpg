@@ -19,6 +19,9 @@
  *          up by EXACT handle. That table is the ghost-duel sharing mechanism:
  *          readable by every signed-in user, writable only by its owner, and it
  *          carries a display name plus game stats — no email, no history.
+ *   league — the same shape one table over: upsert MY closed weeks (keyed
+ *          `(user_id, week_key)`) and read one handle's month. Scores only; what
+ *          the coins were spent on never leaves the device.
  *
  * The client is created LAZILY and only when `syncConfigured()` is true: with
  * the placeholder config (or on `file://`) not one line below ever runs, and
@@ -27,6 +30,7 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
+import type { LeagueWeekUpload } from '../core/leagueSync.ts';
 import type { AppEvent, Unsubscribe } from '../storage/DataStore.ts';
 import { normalizeEvent, type StorageLike } from '../storage/migrate.ts';
 import {
@@ -35,6 +39,7 @@ import {
   type AuthPort,
   type AuthUser,
   type GhostRow,
+  type LeagueRawRow,
   type PullPage,
   type SyncBackend,
 } from './backend.ts';
@@ -54,6 +59,15 @@ const GHOSTS_TABLE = 'ghosts';
  * back a character and a name, never an account identifier.
  */
 const GHOST_COLUMNS = 'handle,payload,updated_at';
+
+/** הליגה: one row per (account, closed week) — see `supabase/schema.sql`. */
+const LEAGUE_TABLE = 'league_weeks';
+
+/**
+ * Columns a league lookup reads. Without `user_id`, exactly like `GHOST_COLUMNS`:
+ * a month lookup hands back scores and a name, never an account identifier.
+ */
+const LEAGUE_COLUMNS = 'handle,week_key,month_key,score,c,q,l,p,coin,volume,days,prs,updated_at';
 
 export interface SupabaseSyncOptions {
   /** Where the auth session is persisted (the app's own `localStorage`). */
@@ -239,6 +253,54 @@ export function createSupabaseSync(opts: SupabaseSyncOptions): SupabaseSync | nu
         payload,
         updatedAt: Number.isFinite(updatedAt) ? updatedAt : null,
       };
+    },
+
+    /**
+     * Upsert MY closed weeks. `onConflict: 'user_id,week_key'` is the table's
+     * primary key, so re-publishing a week overwrites that one row — a retry
+     * costs nothing and an account can never accumulate two grades for a week.
+     *
+     * Unlike a ghost there is no uniqueness conflict to translate: the handle is
+     * pinned to this account's `ghosts` row by the insert policy (see the schema),
+     * so a name that is not ours is rejected by RLS as an ordinary failure and
+     * the engine simply tries again next cycle.
+     */
+    async publishLeagueWeeks(userId: string, handle: string, rows: readonly LeagueWeekUpload[]): Promise<void> {
+      if (rows.length === 0) return;
+      const now = new Date().toISOString();
+      const payload = rows.map((r) => ({
+        user_id: userId,
+        handle,
+        week_key: r.weekKey,
+        month_key: r.monthKey,
+        score: r.score,
+        c: r.c,
+        q: r.q,
+        l: r.l,
+        p: r.p,
+        coin: r.coin,
+        volume: r.volume,
+        days: r.days,
+        prs: r.prs,
+        updated_at: now,
+      }));
+      const { error } = await db().from(LEAGUE_TABLE).upsert(payload, { onConflict: 'user_id,week_key' });
+      if (error) throw toSyncError(error, 'league publish failed');
+    },
+
+    /**
+     * One handle's rows for one month, handed on VERBATIM — column names and
+     * all. Nothing is interpreted here; `normalizeLeagueRow` is the boundary.
+     */
+    async fetchLeagueMonth(handle: string, monthKey: string): Promise<LeagueRawRow[]> {
+      const { data, error } = await db()
+        .from(LEAGUE_TABLE)
+        .select(LEAGUE_COLUMNS)
+        .eq('handle', handle)
+        .eq('month_key', monthKey);
+      if (error) throw toSyncError(error, 'league lookup failed');
+      const rows: unknown[] = Array.isArray(data) ? (data as unknown[]) : [];
+      return rows.filter((row): row is LeagueRawRow => typeof row === 'object' && row !== null && !Array.isArray(row));
     },
   };
 

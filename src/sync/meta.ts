@@ -17,6 +17,7 @@
  * full re-push / re-pull), so a corrupt or missing blob is simply reset.
  */
 
+import { normalizeLeagueRow, type LeagueWeekRow } from '../core/leagueSync.ts';
 import type { StorageLike } from '../storage/migrate.ts';
 
 export const SYNC_META_KEY = 'gymrpg_sync_v1';
@@ -64,6 +65,53 @@ export interface SyncMeta {
   ghostHash: string | null;
   /** Handles fought recently, newest first — the duel card's shortlist. */
   ghostRecent: string[];
+
+  /* ------------------------------------------------------------- הליגה */
+  /**
+   * The handle this device's PUBLISHED league weeks were published under.
+   *
+   * Kept beside the set below rather than assumed to equal `ghostHandle`: a
+   * rename changes the name a row must carry, so the publisher compares this
+   * with the handle in force and, when they differ, treats everything as
+   * unpublished and rewrites the window under the new name — exactly what the
+   * ghost publisher does when its fingerprint no longer matches.
+   */
+  leagueHandle: string | null;
+  /**
+   * Week keys already published under `leagueHandle`, pruned to the publish
+   * window (the current + previous month — see `publishableWeeks`).
+   *
+   * PURELY AN OPTIMISATION, and that is what makes it safe: the truth is the
+   * ledger in the event log, and every cycle diffs the ledger's closed weeks in
+   * the window against this set. Losing the notebook re-publishes at most a
+   * couple of months of rows, over a primary key, which changes nothing.
+   */
+  leagueWeeks: string[];
+  /**
+   * The last opponent month that was fetched, cached so the screen has
+   * something to show when the network does not.
+   *
+   * ONE SLOT: the league is two people, and the UI asks for one (handle, month)
+   * at a time — a fetch for a different pair replaces this one rather than
+   * accumulating. See `SyncEngine.loadLeagueMonth` for the staleness rules.
+   */
+  leagueMonth: CachedLeagueMonth | null;
+}
+
+/**
+ * An opponent's month as it was last read from the server.
+ *
+ * The rows are stored ALREADY NORMALIZED (they passed `normalizeLeagueRow` when
+ * they arrived) and are normalized AGAIN on read: this blob is ordinary browser
+ * storage, so it is no more trusted on the way out than the network was on the
+ * way in, and the boundary is idempotent.
+ */
+export interface CachedLeagueMonth {
+  handle: string;
+  monthKey: string;
+  /** ms epoch of the fetch these rows came from. */
+  fetchedAt: number;
+  rows: LeagueWeekRow[];
 }
 
 /** How many opponents the duel card remembers. */
@@ -80,6 +128,9 @@ export function emptySyncMeta(deviceId = ''): SyncMeta {
     ghostHandle: null,
     ghostHash: null,
     ghostRecent: [],
+    leagueHandle: null,
+    leagueWeeks: [],
+    leagueMonth: null,
   };
 }
 
@@ -116,6 +167,14 @@ export function normalizeSyncMeta(raw: unknown, deviceId = ''): SyncMeta {
   const recent = Array.isArray(raw['ghostRecent'])
     ? raw['ghostRecent'].filter((h): h is string => typeof h === 'string' && h.length > 0)
     : [];
+  // The three league fields are read the same TOLERANT way, for the same reason:
+  // a notebook written before the league existed simply has none of them, and
+  // "nothing published yet, nothing cached" is the right reading of that. It
+  // must not cost the cursor and the outbox — a version bump here would mean a
+  // full re-push and re-pull for three optional fields.
+  const leagueWeeks = Array.isArray(raw['leagueWeeks'])
+    ? raw['leagueWeeks'].filter((w): w is string => typeof w === 'string' && w.length > 0)
+    : [];
   return {
     v: SYNC_META_VERSION,
     deviceId: storedDevice || deviceId,
@@ -129,7 +188,27 @@ export function normalizeSyncMeta(raw: unknown, deviceId = ''): SyncMeta {
     ghostHandle: typeof raw['ghostHandle'] === 'string' && raw['ghostHandle'] ? raw['ghostHandle'] : null,
     ghostHash: typeof raw['ghostHash'] === 'string' && raw['ghostHash'] ? raw['ghostHash'] : null,
     ghostRecent: [...new Set(recent)].slice(0, GHOST_RECENT_MAX),
+    leagueHandle: typeof raw['leagueHandle'] === 'string' && raw['leagueHandle'] ? raw['leagueHandle'] : null,
+    leagueWeeks: [...new Set(leagueWeeks)],
+    leagueMonth: normalizeCachedMonth(raw['leagueMonth']),
   };
+}
+
+/** The cached opponent month, re-checked on the way out of storage. */
+function normalizeCachedMonth(raw: unknown): CachedLeagueMonth | null {
+  if (!isRecord(raw)) return null;
+  const handle = typeof raw['handle'] === 'string' ? raw['handle'] : '';
+  const monthKey = typeof raw['monthKey'] === 'string' ? raw['monthKey'] : '';
+  if (!handle || !monthKey) return null;
+  const fetchedAt = numOr(raw['fetchedAt'], 0);
+  const rows: LeagueWeekRow[] = [];
+  if (Array.isArray(raw['rows'])) {
+    for (const row of raw['rows']) {
+      const normalized = normalizeLeagueRow(row, monthKey);
+      if (normalized) rows.push(normalized);
+    }
+  }
+  return { handle, monthKey, fetchedAt, rows };
 }
 
 export function readSyncMeta(storage: StorageLike, deviceId = ''): SyncMeta {

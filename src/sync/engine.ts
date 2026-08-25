@@ -10,10 +10,11 @@
  * the account, or the whole backend degrades the app to exactly what it was
  * before this file existed: a fast offline app.
  *
- * ONE CYCLE = flush coalesced → push outbox → pull pages → merge → (ghost).
- * The last step is the ghost-duel snapshot, and it is deliberately last and
- * deliberately failure-tolerant: a ghost is presence data that lives BESIDE the
- * log, never in it, so it can never delay or break a backup.
+ * ONE CYCLE = flush coalesced → push outbox → pull pages → merge → (ghost) →
+ * (league weeks). The last two steps are the side channels — the ghost-duel
+ * snapshot and the closed league weeks — and they are deliberately last and
+ * deliberately failure-tolerant: both live BESIDE the log, never in it, so
+ * neither can delay or break a backup.
  * Cycles never overlap (`this.cycle`); a request that arrives mid-cycle sets a
  * rerun flag instead of racing.
  *
@@ -46,6 +47,12 @@
  * with fake timers and an in-memory backend (`tests/sync.engine.test.ts`).
  */
 
+import {
+  emptyOpponentMonth,
+  opponentMonth,
+  type LeagueWeekUpload,
+  type OpponentMonth,
+} from '../core/leagueSync.ts';
 import type { AppEvent, DataStore, Unsubscribe } from '../storage/DataStore.ts';
 import { mergeIntoStore } from '../storage/merge.ts';
 import { ensureDeviceId, type StorageLike } from '../storage/migrate.ts';
@@ -158,6 +165,11 @@ export interface SyncEngineOptions {
    * never touches the `ghosts` table at all.
    */
   ghost?: GhostPublisher;
+  /**
+   * The league publisher, when this build has הליגה. Absent = the engine never
+   * touches the `league_weeks` table at all.
+   */
+  league?: LeaguePublisher;
 }
 
 /**
@@ -176,6 +188,44 @@ export interface GhostPublisher {
   snapshot(handle: string): { payload: Record<string, unknown>; hash: string } | null;
   /** A handle to use when the device has not chosen one (derived from the account). */
   defaultHandle(userId: string): string;
+}
+
+/**
+ * What the engine needs in order to publish league weeks — and no more.
+ *
+ * The engine knows nothing about scores, weeks or months: it asks for the rows
+ * that are eligible right now (the closed weeks of the current and previous
+ * month — `core/leagueSync.ts` → `publishableWeeks`), diffs them against the set
+ * it has already published, and uploads the difference. `main.ts` supplies the
+ * function that reads the ledger and today's date, so this module stays free of
+ * both the game layer and the clock.
+ *
+ * WHY THE WHOLE ELIGIBLE LIST RATHER THAN "WHAT JUST CLOSED": because the answer
+ * to "what just closed" is not knowledge this device necessarily has. A week can
+ * close while the app is signed out, on another device, or between two installs;
+ * `closeDueWeeks` returns the weeks IT closed, and nothing returns the weeks
+ * somebody else's cycle closed. Diffing the ledger against the notebook makes
+ * the publisher self-healing instead: whatever is closed and not yet published
+ * goes up, whenever it was closed and whoever closed it.
+ */
+export interface LeaguePublisher {
+  /** Closed weeks eligible for publishing right now, oldest first. */
+  rows(): readonly LeagueWeekUpload[];
+}
+
+/** An opponent's month, plus how fresh it is — what the league screen reads. */
+export interface LeagueMonthView {
+  handle: string;
+  monthKey: string;
+  month: OpponentMonth;
+  /** ms epoch these rows were read from the server; `null` = never read. */
+  fetchedAt: number | null;
+  /**
+   * True when this did NOT come from the network just now: the cached copy of
+   * an earlier fetch, or an empty month because the device is offline / signed
+   * out. The numbers may be behind; they are never wrong-by-invention.
+   */
+  stale: boolean;
 }
 
 type TimerId = ReturnType<typeof setTimeout>;
@@ -215,6 +265,7 @@ export class SyncEngine {
   private readonly isOnline: () => boolean;
   private readonly isVisible: () => boolean;
   private readonly ghost: GhostPublisher | null;
+  private readonly league: LeaguePublisher | null;
 
   private meta: SyncMeta;
   /**
@@ -277,6 +328,7 @@ export class SyncEngine {
     this.isOnline = opts.isOnline ?? defaultOnline;
     this.isVisible = opts.isVisible ?? defaultVisible;
     this.ghost = opts.ghost ?? null;
+    this.league = opts.league ?? null;
 
     // The device id belongs to the INSTALL, not to the engine: it already sits
     // in this same storage (`LocalStore` minted it), so the notebook records the
@@ -494,10 +546,12 @@ export class SyncEngine {
     try {
       await this.pushOutbox(userId);
       await this.pullAll(userId);
-      // The ghost rides at the END of a successful cycle, and its failures are
-      // its own (see `publishGhost`): the backup must never be held hostage to a
-      // vanity snapshot.
+      // The ghost and the league rows ride at the END of a successful cycle, and
+      // their failures are their own (see `publishGhost` / `publishLeague`): the
+      // backup must never be held hostage to a vanity snapshot or a scoreboard.
+      // The ghost goes first because the league publishes under ITS handle.
       await this.publishGhost(userId);
+      await this.publishLeague(userId);
       this.failures = 0;
       this.message = undefined;
       this.meta.lastSyncAt = this.now();
@@ -638,6 +692,18 @@ export class SyncEngine {
    * is swallowed and simply leaves the stored hash alone, which makes the next
    * cycle try again. Nothing about the user's data depends on it.
    */
+  /**
+   * The name this account publishes under: the chosen one, or the one derived
+   * from the account. `null` when this build has no ghost publisher at all — the
+   * handle is ONE identity across the whole social surface, so a build without
+   * it publishes nothing anywhere rather than inventing a second name.
+   */
+  private handleFor(userId: string): string | null {
+    if (this.meta.ghostHandle) return this.meta.ghostHandle;
+    const derived = this.ghost?.defaultHandle(userId);
+    return derived ? derived : null;
+  }
+
   private async publishGhost(userId: string): Promise<void> {
     const ghost = this.ghost;
     if (!ghost) return;
@@ -683,6 +749,128 @@ export class SyncEngine {
     this.meta.ghostHash = snap.hash;
     this.persist();
     return true;
+  }
+
+  /* --------------------------------------------------------------- הליגה */
+
+  /**
+   * Publish the closed weeks the server does not have yet.
+   *
+   * THE DIFF IS AGAINST THE LEDGER, NOT AGAINST AN EVENT. Every cycle asks the
+   * publisher for the weeks that are closed AND inside the publish window, and
+   * subtracts the ones this notebook says it already uploaded. Three properties
+   * fall out of that and each is a test:
+   *
+   *   * PUBLISH ON CLOSE — a week that closed since the last cycle is in the
+   *     list and not in the set, so it goes up on the very next cycle;
+   *   * NOTHING TO SAY IS FREE — a cycle where the two agree makes NO request,
+   *     the same discipline `publishGhost`'s fingerprint enforces;
+   *   * SELF-HEALING — a week closed while signed out (or on a device whose
+   *     notebook was wiped, or by another device that pushed the event before
+   *     this one was linked) is simply "in the ledger, not in the set", so it is
+   *     noticed and uploaded without anything having to remember it happened.
+   *
+   * A RENAME REPUBLISHES, exactly like the ghost's: the rows carry the name, so
+   * when the handle in force differs from the one the set belongs to the whole
+   * window is treated as unpublished and rewritten under the new name. Rows
+   * older than the window keep the old name — they are outside the league's
+   * living memory, and `opponentMonth` breaks the resulting (very rare) tie by
+   * `updated_at`.
+   *
+   * FAILURE IS FREE, like the ghost's: the log is already safe on the server by
+   * the time this runs, the notebook is left alone, and the next cycle retries.
+   */
+  private async publishLeague(userId: string): Promise<void> {
+    const league = this.league;
+    if (!league) return;
+    const handle = this.handleFor(userId);
+    if (!handle) return;
+
+    const rows = league.rows();
+    const renamed = this.meta.leagueHandle !== handle;
+    const published = renamed ? new Set<string>() : new Set(this.meta.leagueWeeks);
+    const due = rows.filter((row) => !published.has(row.weekKey));
+
+    if (due.length === 0) {
+      // Nothing to upload — but the notebook may still be carrying week keys
+      // that have fallen out of the window. Pruning here is what keeps it small
+      // for ever (a window is 8–10 weeks) without a second pass.
+      const inWindow = this.meta.leagueWeeks.filter((week) => rows.some((row) => row.weekKey === week));
+      if (inWindow.length !== this.meta.leagueWeeks.length) {
+        this.meta.leagueWeeks = inWindow;
+        this.persist();
+      }
+      return;
+    }
+
+    try {
+      await this.backend.publishLeagueWeeks(userId, handle, due);
+      this.meta.leagueHandle = handle;
+      // Everything in the window is now published: what was already there, plus
+      // what just went up. Stated as the window itself, so the set prunes itself.
+      this.meta.leagueWeeks = rows.map((row) => row.weekKey);
+      this.persist();
+    } catch {
+      /* offline, RLS, a rename mid-flight — try again next cycle; nothing lost */
+    }
+  }
+
+  /** The week keys this device believes are published (probe, and for tests). */
+  getPublishedLeagueWeeks(): readonly string[] {
+    return [...this.meta.leagueWeeks];
+  }
+
+  /**
+   * READ an opponent's month — from the server when possible, from the cache
+   * when not.
+   *
+   * STALENESS, stated plainly, because the UI has to say it in Hebrew:
+   *   * a successful fetch returns `stale: false` and the instant it was read;
+   *   * a FAILED fetch (offline, RLS, a server on fire) returns the cached rows
+   *     with `stale: true` and the instant THEY were read — never an error and
+   *     never a zero, because "your partner scored 0 this month" is a lie that a
+   *     dropped connection must not be allowed to tell;
+   *   * signed out, or a build with sync switched off, returns an empty month
+   *     with `stale: true` and `fetchedAt: null` — the feature is dark, exactly
+   *     like every other cloud surface;
+   *   * asking for a DIFFERENT (handle, month) than the cached one and failing
+   *     returns an empty month rather than somebody else's numbers.
+   *
+   * The rows go through `normalizeLeagueRow` (inside `opponentMonth`) on the way
+   * in and again on the way out of storage: what is cached is only ever what was
+   * already believable.
+   */
+  async loadLeagueMonth(handle: string, monthKey: string): Promise<LeagueMonthView> {
+    const cached = this.cachedLeagueMonth(handle, monthKey);
+    if (!this.canSync() || !this.isOnline()) return cached;
+    try {
+      const raw = await this.backend.fetchLeagueMonth(handle, monthKey);
+      const month = opponentMonth(raw, monthKey);
+      this.meta.leagueMonth = { handle, monthKey, fetchedAt: this.now(), rows: month.rows };
+      this.persist();
+      return { handle, monthKey, month, fetchedAt: this.meta.leagueMonth.fetchedAt, stale: false };
+    } catch {
+      return cached;
+    }
+  }
+
+  /** The cached month WITHOUT a request — what a first paint renders. */
+  getLeagueMonth(handle: string, monthKey: string): LeagueMonthView {
+    return this.cachedLeagueMonth(handle, monthKey);
+  }
+
+  private cachedLeagueMonth(handle: string, monthKey: string): LeagueMonthView {
+    const cache = this.meta.leagueMonth;
+    if (!cache || cache.handle !== handle || cache.monthKey !== monthKey) {
+      return { handle, monthKey, month: emptyOpponentMonth(monthKey), fetchedAt: null, stale: true };
+    }
+    return {
+      handle,
+      monthKey,
+      month: opponentMonth(cache.rows, monthKey),
+      fetchedAt: cache.fetchedAt,
+      stale: true,
+    };
   }
 
   /** Opponents fought recently, newest first. */
@@ -793,6 +981,6 @@ export class SyncEngine {
 
   /** A copy of the persisted bookkeeping — for the UI and for tests. */
   getMeta(): SyncMeta {
-    return { ...this.meta, outbox: [...this.meta.outbox] };
+    return { ...this.meta, outbox: [...this.meta.outbox], leagueWeeks: [...this.meta.leagueWeeks] };
   }
 }

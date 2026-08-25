@@ -66,7 +66,14 @@ import { LocalStore } from '../src/storage/LocalStore.ts';
 import { GAME_STATE_VERSION, type AppEvent, type GameState } from '../src/storage/DataStore.ts';
 import { normalizeGame, rebuildFromEvents, type StorageLike } from '../src/storage/migrate.ts';
 import { SyncEngine } from '../src/sync/engine.ts';
-import { GhostHandleTakenError, type GhostRow, type PullPage, type SyncBackend } from '../src/sync/backend.ts';
+import type { LeagueWeekUpload } from '../src/core/leagueSync.ts';
+import {
+  GhostHandleTakenError,
+  type GhostRow,
+  type LeagueRawRow,
+  type PullPage,
+  type SyncBackend,
+} from '../src/sync/backend.ts';
 import { readSyncMeta } from '../src/sync/meta.ts';
 import { buildFeed } from '../src/ui/feed.ts';
 
@@ -922,6 +929,43 @@ class MemoryBackend implements SyncBackend {
     this.lookups += 1;
     for (const row of this.ghosts.values()) if (row.handle === handle) return row;
     return null;
+  }
+
+  /* -------------------------------------------------------- league weeks */
+
+  /**
+   * The `league_weeks` table: one row per `(user_id, week_key)` — its primary
+   * key, so a re-publish overwrites — readable by anybody who knows the handle,
+   * the same asymmetry the ghosts have.
+   */
+  readonly leagueRows = new Map<string, LeagueRawRow>();
+  leaguePublishes = 0;
+
+  async publishLeagueWeeks(userId: string, handle: string, rows: readonly LeagueWeekUpload[]): Promise<void> {
+    this.leaguePublishes += 1;
+    for (const row of rows) {
+      // Stored under the DATABASE's column names, so every read is exercised
+      // against exactly the shape PostgREST hands back.
+      this.leagueRows.set(`${userId}|${row.weekKey}`, {
+        handle,
+        week_key: row.weekKey,
+        month_key: row.monthKey,
+        score: row.score,
+        c: row.c,
+        q: row.q,
+        l: row.l,
+        p: row.p,
+        coin: row.coin,
+        volume: row.volume,
+        days: row.days,
+        prs: row.prs,
+        updated_at: new Date(Date.now()).toISOString(),
+      });
+    }
+  }
+
+  async fetchLeagueMonth(handle: string, monthKey: string): Promise<LeagueRawRow[]> {
+    return [...this.leagueRows.values()].filter((r) => r['handle'] === handle && r['month_key'] === monthKey);
   }
 }
 
