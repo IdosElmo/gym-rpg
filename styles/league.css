@@ -1,0 +1,234 @@
+/**
+ * 🏆 הליגה (src/ui/league.ts).
+ *
+ * Mobile first and card-stacked like every other screen: nothing here has a
+ * fixed pixel width, the race table is a THREE-COLUMN GRID rather than a
+ * `<table>` (so the two score columns keep equal widths at any font size and the
+ * week label can shrink), and every control is ≥44px on its short side.
+ *
+ * RTL. The whole screen inherits the document's `dir="rtl"`, so the week label
+ * sits at the RIGHT of a race row, "אני" is the first (right-hand) score column
+ * and the rival is the second — the reading order a Hebrew speaker expects.
+ * Only the bar tracks are direction-agnostic: a track is filled from its own
+ * inline start, which RTL already means "from the right".
+ *
+ * COLOUR follows the app's tokens and their existing meanings. The four
+ * component bars are ONE hue (`--accent`) at one strength — they are four
+ * measurements of the same thing, not four categories — while `--ok` and
+ * `--warn` keep saying what they say everywhere else: earned / still missing.
+ * 🔵 needs no colour of its own; it is an emoji in the copy.
+ *
+ * MOTION. The only movement is a bar growing to its width on first paint, and
+ * `styles/responsive.css` already switches every animation off under
+ * `prefers-reduced-motion`. The rule is repeated at the bottom of this file
+ * (transitions are NOT animations and that global rule does not cover them), so
+ * a screen that must be read while dizzy is fully readable with zero motion:
+ * every bar's resting state IS its final width.
+ */
+
+/* ---------- the card ---------- */
+.lg-card{
+  background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  padding:14px 13px; margin:0 0 12px;
+}
+.lg-title{
+  margin:0 0 10px; font-size:16px; font-weight:900; color:var(--text);
+  display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;
+}
+.lg-sub-title{
+  margin:14px 0 8px; font-size:13.5px; font-weight:800; color:var(--text);
+  display:flex; align-items:baseline; gap:7px; flex-wrap:wrap;
+}
+.lg-sub{font-size:12px; font-weight:700; color:var(--muted)}
+.lg-note{margin:9px 0 0; font-size:12.5px; line-height:1.5; color:var(--muted)}
+.lg-note.dim{color:var(--dim)}
+.lg-note.warn, .warn{color:var(--warn)}
+.lg-error{
+  margin:8px 0 0; font-size:13px; font-weight:800; color:var(--danger);
+  background:#EF444416; border:1px solid #EF444444; border-radius:10px; padding:8px 10px;
+}
+
+/* ---------- השבוע שלי ---------- */
+.lg-score{display:flex; align-items:baseline; gap:8px; margin:0 0 10px}
+.lg-score b{
+  font-size:clamp(30px,10vw,40px); font-weight:900; line-height:1;
+  color:var(--text); direction:ltr; unicode-bidi:isolate;
+}
+.lg-score span{font-size:12.5px; font-weight:700; color:var(--muted)}
+
+/* ---------- THE bar component (both columns of the race use it) ---------- */
+.lg-bars{display:grid; gap:6px}
+.lg-bar{
+  display:grid; grid-template-columns:56px 1fr auto; align-items:center; gap:8px;
+  font-size:11.5px; line-height:1.3;
+}
+.lb-k{font-weight:800; color:var(--muted)}
+.lb-track{
+  height:8px; border-radius:99px; background:var(--card-2);
+  border:1px solid var(--line); overflow:hidden; display:block; min-width:40px;
+}
+.lb-track i{
+  display:block; height:100%; background:var(--accent); border-radius:99px;
+  transition:width .45s cubic-bezier(.2,.7,.3,1);
+}
+.lb-v{font-weight:700; color:var(--dim); white-space:nowrap}
+
+/* The 🔵 verdict — the one line on this screen worth colouring. */
+.lg-coin{
+  margin:11px 0 0; padding:9px 11px; border-radius:11px; font-size:13px; font-weight:800;
+  background:var(--card-2); border:1px solid var(--line); min-height:44px;
+  display:flex; align-items:center;
+}
+.lg-coin.ok{color:var(--ok); border-color:#10B98144; background:#10B98114}
+.lg-coin.warn{color:var(--warn); border-color:#F59E0B44; background:#F59E0B14}
+
+/* ---------- המרוץ החודשי ---------- */
+.lg-race-head{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 9px}
+.lg-chip{
+  background:var(--card-2); border:1px solid var(--line); border-radius:99px;
+  padding:4px 10px; font-size:12px; font-weight:800; color:var(--text);
+}
+.lg-chip b{font-weight:900}
+.lg-dev{font-size:12px}
+
+.lg-search{margin:0 0 10px}
+.lg-label{display:block; font-size:12px; font-weight:700; color:var(--muted); margin:0 0 5px}
+.lg-row{display:flex; gap:7px}
+.lg-input{
+  flex:1; min-width:0; min-height:44px; padding:0 10px;
+  background:var(--card-2); border:1px solid var(--line); border-radius:11px;
+  color:var(--text); font-size:14px; font-weight:700; font-family:inherit;
+}
+.lg-input:focus{outline:2px solid var(--accent); outline-offset:1px}
+.lg-find{
+  flex:0 0 auto; min-height:44px; min-width:44px; padding:0 12px; cursor:pointer;
+  background:var(--card-2); border:1px solid var(--line); border-radius:11px;
+  color:var(--text); font-size:13px; font-weight:800; font-family:inherit;
+}
+.lg-find:disabled{opacity:.55; cursor:default}
+
+/* The table: week label + two equal score columns, at every width. */
+.lg-cols{display:grid; gap:7px; margin:4px 0 0}
+.lg-colhead, .lg-week{
+  display:grid; grid-template-columns:minmax(58px,auto) 1fr 1fr; gap:8px; align-items:start;
+}
+.lg-colhead{
+  font-size:12px; font-weight:900; color:var(--muted);
+  padding:0 0 4px; border-bottom:1px solid var(--line);
+}
+.lg-week{
+  background:var(--card-2); border:1px solid var(--line); border-radius:11px; padding:8px;
+}
+.lg-week.total{background:transparent; border-color:transparent; align-items:center}
+.lg-wk{
+  font-size:11.5px; font-weight:800; color:var(--muted);
+  direction:ltr; unicode-bidi:isolate; text-align:start;
+}
+.lg-cell{min-width:0; display:block}
+.lg-cell-score{
+  display:block; font-size:15px; font-weight:900; color:var(--text);
+  direction:ltr; unicode-bidi:isolate; text-align:start; margin:0 0 5px;
+}
+.lg-livechip{
+  display:inline-block; font-size:10px; font-weight:800; color:var(--accent);
+  background:#3B82F618; border:1px solid #3B82F644; border-radius:99px;
+  padding:1px 7px; margin:0 0 5px;
+}
+.lg-empty{color:var(--dim); font-weight:800}
+.lg-total{font-size:19px; direction:ltr; unicode-bidi:isolate}
+.lg-leader{
+  margin:11px 0 0; font-size:13.5px; font-weight:800; min-height:44px;
+  display:flex; align-items:center;
+}
+.lg-leader.ok{color:var(--ok)}
+.lg-leader.warn{color:var(--warn)}
+.lg-stale{margin:4px 0 0; font-size:11.5px; color:var(--dim)}
+
+/* The rival's bars are tighter than mine — two columns of them must fit a phone. */
+.lg-week .lg-bar{grid-template-columns:44px 1fr; font-size:10px; gap:6px}
+.lg-week .lb-v{grid-column:1 / -1; font-size:10px}
+
+/* ---------- חנות החודש ---------- */
+.lg-purse{
+  display:flex; align-items:baseline; gap:9px; flex-wrap:wrap;
+  background:var(--card-2); border:1px solid var(--line); border-radius:12px;
+  padding:10px 12px; margin:0 0 9px;
+}
+.lg-purse b{font-size:20px; font-weight:900; color:var(--text)}
+.lg-purse span{font-size:11.5px; color:var(--muted)}
+.lg-honor{
+  margin:0 0 4px; font-size:13px; font-weight:800; color:var(--warn);
+}
+
+/* BEHIND: dimmed, never disabled. The rule is social, so the weight is visual
+   — every button below still works, and still writes a real event. */
+.lg-shop.behind .lg-pool{opacity:.55}
+.lg-shop.behind .lg-purse{opacity:.8}
+
+.lg-pool{display:grid; gap:8px}
+.lg-item{
+  background:var(--card-2); border:1px solid var(--line); border-radius:12px; padding:10px;
+}
+.lg-item[data-state="claimed"], .lg-item[data-state="done"]{border-color:#10B98144; background:#10B98110}
+.lg-item.staked{border-color:#F59E0B44; background:#F59E0B10}
+.li-head{display:flex; align-items:baseline; gap:7px}
+.li-head b{font-size:14px; font-weight:900; color:var(--text)}
+.li-emoji{font-size:15px}
+.li-detail{margin:4px 0 0; font-size:12px; line-height:1.5; color:var(--muted)}
+.li-foot{
+  display:flex; align-items:center; justify-content:space-between; gap:9px;
+  flex-wrap:wrap; margin:9px 0 0;
+}
+.li-price{font-size:12.5px; font-weight:800; color:var(--muted)}
+.li-claimed{font-size:12.5px; font-weight:800; color:var(--ok); min-height:44px; display:flex; align-items:center}
+
+/* ---------- buttons + the confirmation sheet ---------- */
+.lg-btn{
+  min-height:44px; padding:0 14px; cursor:pointer; font-family:inherit;
+  background:var(--card); border:1px solid var(--line); border-radius:11px;
+  color:var(--text); font-size:13px; font-weight:800;
+}
+.lg-btn:disabled{opacity:.5; cursor:default}
+.lg-btn.buy{background:var(--accent); border-color:var(--accent); color:#fff}
+.lg-btn.done{background:var(--ok); border-color:var(--ok); color:#06281C}
+.lg-btn.off{background:var(--card-2)}
+.li-btn{flex:0 0 auto}
+
+.lg-sheet{
+  background:var(--card-2); border:1px solid var(--accent); border-radius:12px;
+  padding:12px; margin:0 0 10px;
+}
+.ls-head{display:flex; flex-direction:column; gap:3px}
+.ls-head b{font-size:15px; font-weight:900; color:var(--text)}
+.ls-head span{font-size:12px; color:var(--muted)}
+.ls-price{margin:8px 0 0; font-size:13px; font-weight:700; color:var(--muted)}
+.ls-price b{color:var(--text)}
+.ls-actions{display:flex; gap:8px; margin:10px 0 0}
+.ls-actions .lg-btn{flex:1}
+
+/* ---------- היסטוריה ---------- */
+.lg-months{list-style:none; margin:0; padding:0; display:grid; gap:6px}
+.lg-month{
+  display:grid; grid-template-columns:1fr auto auto auto; gap:9px; align-items:center;
+  background:var(--card-2); border:1px solid var(--line); border-radius:11px;
+  padding:9px 10px; font-size:12.5px; color:var(--muted); min-height:44px;
+}
+.lm-name{font-weight:800; color:var(--text)}
+.lm-score b{font-size:15px; font-weight:900; color:var(--text); direction:ltr; unicode-bidi:isolate}
+.lm-coins{font-weight:800; color:var(--text)}
+
+/* ---------- narrow phones ---------- */
+@media (max-width:360px){
+  .lg-bar{grid-template-columns:48px 1fr; }
+  .lg-bar .lb-v{grid-column:1 / -1}
+  .lg-colhead, .lg-week{grid-template-columns:minmax(50px,auto) 1fr 1fr; gap:6px}
+  .lg-month{grid-template-columns:1fr auto auto; row-gap:4px}
+}
+
+/* ---------- reduced motion ---------- */
+/* The global rule in responsive.css kills ANIMATIONS; a transition is not one,
+   so the bars' growth is switched off here explicitly. Nothing is lost: a bar's
+   resting state is already its final width. */
+@media (prefers-reduced-motion:reduce){
+  .lb-track i{transition:none}
+}

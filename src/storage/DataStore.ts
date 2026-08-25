@@ -41,27 +41,29 @@ export interface Session {
 }
 
 /**
- * A day key = one workout screen, plus six RESERVED keys: `CH` = דמות,
- * `BT` = קרב (battle), `ST` = הגדרות (settings), `H` = היסטוריה,
- * `SS` = סטטיסטיקות (the 📊 screen), `PL` = תוכנית (the plan editor). A plan may
- * not use those as day keys (`isDayKey` refuses them).
+ * A day key = one workout screen, plus seven RESERVED keys: `CH` = דמות,
+ * `BT` = קרב (battle), `LG` = ליגה (the 🏆 monthly league), `ST` = הגדרות
+ * (settings), `H` = היסטוריה, `SS` = סטטיסטיקות (the 📊 screen),
+ * `PL` = תוכנית (the plan editor). A plan may not use those as day keys
+ * (`isDayKey` refuses them).
  *
  * The nav is TWO levels (see `ui/nav.ts`): three fixed hubs, each with its own
  * inner tab row. Every view above belongs to exactly one hub — day keys and
- * `PL` to אימון, `BT`/`CH` to קרב, `ST`/`H` to הגדרות — so the stored view
- * alone still decides the whole screen, exactly as it did with one flat bar.
+ * `PL` to אימון, `BT`/`CH`/`LG` to קרב, `ST`/`H`/`SS` to הגדרות — so the stored
+ * view alone still decides the whole screen, exactly as it did with one flat bar.
  *
  * `PL` deliberately has NO tab of its own: it is reached from the ⚙️ button in
  * the workout header and from the plan card on the settings screen.
  *
  * `ST` was the ONE view id the two-level redesign added; `SS` (📊 סטטיסטיקות,
- * the settings hub's third inner tab) is the one the statistics screen adds.
+ * the settings hub's third inner tab) came with the statistics screen, and `LG`
+ * (🏆 הליגה, the game hub's third inner tab) is the newest.
  * Everything a build ever persisted — including a bare `'H'` — is still a valid
  * view and still lands on the screen it always named: view ids are only ever
  * ADDED, never renamed or reused, which is what makes an install left on any
  * older screen open on exactly that screen after the update.
  */
-export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL' | 'ST' | 'SS';
+export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL' | 'ST' | 'SS' | 'LG';
 
 export interface UiState {
   view: ViewKey;

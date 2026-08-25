@@ -19,7 +19,7 @@ import '../styles/index.css';
 
 import { LocalStore } from './storage/LocalStore.ts';
 import type { DataStore } from './storage/DataStore.ts';
-import { gameOf, refreshStreak } from './core/game.ts';
+import { closeDueWeeks, gameOf, refreshStreak } from './core/game.ts';
 import { buildGhost, ghostHash } from './core/ghost.ts';
 import { defaultHandle } from './core/handle.ts';
 import { publishableWeeks } from './core/leagueSync.ts';
@@ -36,6 +36,7 @@ import { createSupabaseSync } from './sync/supabaseBackend.ts';
 import { createApp, type App, type AppHooks } from './ui/app.ts';
 import type { SettingsDeps } from './ui/settings.ts';
 import type { GhostDuelDeps, GhostLookupRow } from './ui/ghost.ts';
+import type { LeagueCloudDeps } from './ui/league.ts';
 import { initImportInput } from './ui/settings.ts';
 import { createRestTimer } from './ui/timer.ts';
 import { initToast } from './ui/toast.ts';
@@ -48,6 +49,12 @@ function boot(): void {
   // Weeks close by the passing of time, not by a user action: re-evaluate the
   // streak once per boot so a missed week is reflected before anything renders.
   refreshStreak(store);
+  // And for exactly the same reason, grade every league week that finished
+  // while the app was closed. Lazy, deterministic and bounded (see
+  // `closeDueWeeks`): the events it writes are the ones another device would
+  // have written week by week, so the union of two logs still holds one grade
+  // and one 🔵 per week. Idempotent, so a second call costs nothing.
+  closeDueWeeks(store);
   const timer = createRestTimer();
 
   const sync = wireSync(store);
@@ -152,6 +159,31 @@ function wireSync(store: DataStore): SyncWiring {
     fetch: (handle: string): Promise<GhostLookupRow | null> => supabase.backend.fetchGhost(handle),
   };
 
+  /**
+   * What 🏆 הליגה needs from the cloud. Same shape of pass-through as the duel
+   * card's: the engine owns the cache, the notebook and the staleness contract,
+   * and this object holds no state of its own.
+   *
+   * IT SHARES THE DUEL'S RECENT LIST on purpose — `getRecentOpponents` /
+   * `rememberOpponent`, not a second notebook slot. A handle is one identity
+   * across the whole social surface, so the person you duel is the person you
+   * race, and the league screen opens on the rival you last met without anybody
+   * typing a name twice.
+   *
+   * `fetchGhost` is here only for the 🛠 marker: a `league_weeks` row carries no
+   * dev flag (and this stage adds no column), while the `ghosts` row already
+   * does — so the rival's flag is read from the table that has it.
+   */
+  const league: LeagueCloudDeps = {
+    signedIn: () => isSignedIn(status),
+    myHandle: () => ghost.myHandle(),
+    recent: () => engine.getRecentOpponents(),
+    remember: (handle: string) => engine.rememberOpponent(handle),
+    cached: (handle: string, monthKey: string) => engine.getLeagueMonth(handle, monthKey),
+    load: (handle: string, monthKey: string) => engine.loadLeagueMonth(handle, monthKey),
+    fetchGhost: (handle: string) => supabase.backend.fetchGhost(handle),
+  };
+
   const account: AccountDeps = {
     getStatus: () => status,
     getEmail: () => email,
@@ -241,6 +273,7 @@ function wireSync(store: DataStore): SyncWiring {
     hooks: {
       settings: settingsHooks,
       ghost,
+      league,
       onRender: () => {
         deferred = false;
       },

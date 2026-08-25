@@ -93,7 +93,7 @@ describe('battle tab', () => {
       .querySelector<HTMLButtonElement>('#tabs .hub[data-hub="GM"]')!
       .dispatchEvent(new MouseEvent('click', { bubbles: true }));
     const views = [...document.querySelectorAll<HTMLElement>('#tabs .tab')].map((t) => t.dataset['view']);
-    expect(views).toEqual(['BT', 'CH']);
+    expect(views).toEqual(['BT', 'CH', 'LG']);
     const battleTab = document.querySelector('#tabs .tab[data-view="BT"]');
     expect(battleTab?.textContent).toContain('קרב');
     expect(battleTab?.classList.contains('active')).toBe(true);

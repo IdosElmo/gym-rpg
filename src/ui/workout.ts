@@ -30,7 +30,7 @@ import {
   todayISO,
 } from '../core/workout.ts';
 import { resolveProgram } from '../core/plan.ts';
-import { onSetCompleted, onWorkoutFinished, type GrantResult } from '../core/game.ts';
+import { closeDueWeeks, onSetCompleted, onWorkoutFinished, type GrantResult } from '../core/game.ts';
 import type { DataStore } from '../storage/DataStore.ts';
 import type { RestTimer } from './timer.ts';
 import { queuePartPulse } from './character.ts';
@@ -273,6 +273,13 @@ function bind(
         const grant = onSetCompleted(store, { date: today, day: view, ex, setIndex: i, w, r });
         celebrateSet(btn, ex, grant);
         maybeFinishWorkout(store, view, today, btn, program);
+        // THE LEAGUE'S "time passed" hook, beside `refreshStreak`'s on boot.
+        // A week closes by the calendar, so the app has to notice — and the
+        // first set of a session is the moment it is certainly awake, even if
+        // it has been open since before Saturday midnight. `closeDueWeeks` is
+        // idempotent and returns without writing (or committing) anything when
+        // nothing is due, which is every call but the first of a new week.
+        closeDueWeeks(store);
       }
       refreshHeader();
     });
