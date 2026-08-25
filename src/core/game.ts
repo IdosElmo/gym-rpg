@@ -463,19 +463,23 @@ export function leagueContextOf(store: DataStore): LeagueContext {
 }
 
 export interface WeekCloseResult {
-  /** Week keys closed by this call, oldest first (empty when nothing was due). */
+  /** Week keys written by this call, oldest first (empty when nothing was due). */
   closed: string[];
-  /** 🔵 those weeks minted. */
+  /** Of those, the ones that were ALREADY closed and have now been re-graded. */
+  regraded: string[];
+  /** 🔵 this call actually minted — a week that already had its coin adds none. */
   coins: number;
   league: LeagueState;
 }
 
 /**
- * CLOSE EVERY FINISHED WEEK THE LOG HAS NOT GRADED YET.
+ * CLOSE EVERY FINISHED WEEK THE LOG HAS NOT GRADED YET — and re-close every
+ * week the log now grades BETTER than the ledger does.
  *
  * The league's counterpart to `refreshStreak`, and for the same reason: weeks
  * end by the passing of time, not by anything the user does, so something has to
- * notice. Called on boot and after a workout.
+ * notice. Called on boot (once the device is caught up with its account — see
+ * `main.ts`) and after a workout.
  *
  * LAZY, DETERMINISTIC AND BOUNDED. Each due week is graded from the log alone
  * (`buildWeekCloses`), so a device that has been offline for a month writes the
@@ -484,16 +488,31 @@ export interface WeekCloseResult {
  * grade and ONE 🔵 per week, in either merge order. The backfill reaches at most
  * `BALANCE.league.backfillWeeks` weeks, so a long-dormant install cannot dump a
  * year of events into the log on its next boot.
+ *
+ * SELF-HEALING. A week graded from a log that was missing sessions (a fresh
+ * install that closed before its first pull landed) is corrected the next time
+ * this runs, because the ledger accepts a better grade for a week it already
+ * holds (`regradedWeeks` + `applyGameEvent`). Running it again after that
+ * changes nothing: the ledger then equals the recompute.
  */
 export function closeDueWeeks(store: DataStore, now: Date = new Date()): WeekCloseResult {
-  const pending = buildWeekCloses(leagueInputOf(store), gameOf(store).league, todayISO(now), now.getTime());
-  if (pending.length === 0) return { closed: [], coins: 0, league: gameOf(store).league };
+  const before = gameOf(store).league;
+  const known = { ...before.weeks };
+  const pending = buildWeekCloses(leagueInputOf(store), before, todayISO(now), now.getTime());
+  if (pending.length === 0) return { closed: [], regraded: [], coins: 0, league: before };
   commit(store, pending, now);
   const league = gameOf(store).league;
   const closed = pending.map((p) => String(p.payload['weekKey']));
   return {
     closed,
-    coins: closed.reduce((sum, week) => sum + (league.weeks[week]?.coin ? BALANCE.league.coinPerWeek : 0), 0),
+    regraded: closed.filter((week) => known[week] !== undefined),
+    // What this call MINTED: a re-close of a week that already had its 🔵 pays
+    // nothing, and the purse itself is derived, so neither can double-count.
+    coins: closed.reduce(
+      (sum, week) =>
+        sum + (league.weeks[week]?.coin && !known[week]?.coin ? BALANCE.league.coinPerWeek : 0),
+      0,
+    ),
     league,
   };
 }

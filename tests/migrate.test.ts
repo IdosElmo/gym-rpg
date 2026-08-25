@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { emptyGame } from '../src/core/xp.ts';
+import { emptyGame, finalizeDerived } from '../src/core/xp.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { AppEvent, EventType, Session } from '../src/storage/DataStore.ts';
 import {
@@ -412,13 +412,18 @@ describe('JSON import — both formats', () => {
   it('accepts the new gym-rpg export blob, including the game slot', () => {
     const state = emptyState(500);
     state.sessions['2025-03-03'] = { day: 'A', ex: { a1: [{ w: '30', r: '12', done: true }] } };
-    // a fully-formed game blob round-trips byte for byte (no re-grant)
+    // a fully-formed game blob round-trips byte for byte (no re-grant) — with
+    // every DERIVED field derived on the way in, which is what an import is:
+    // `normalizeGame` hands the ledgers back with the totals at zero and
+    // `ensureGameState` recomputes them (`finalizeDerived`), so the part LEVEL
+    // that belongs to 250 xp is restored rather than believed.
     const game = emptyGame();
     game.parts.chest.xp = 250;
     game.energy = 70;
     game.granted['2025-03-03|a1|0'] = true;
     game.best['a1'] = 360;
     state.game = game;
+    finalizeDerived(game, '2025-03-03');
     const events: AppEvent[] = [{ id: 'e1', ts: 10, type: 'set_completed', payload: { date: '2025-03-03' } }];
     const blob = buildExport(state, events, 600);
 

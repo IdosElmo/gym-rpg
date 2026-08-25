@@ -809,9 +809,9 @@ describe('the entry fee', () => {
 
 describe('the v8 -> v9 blob bump', () => {
   it('reports the current version and starts with an empty duel ledger', () => {
-    // The duel ledger arrived in v9; v10 (dev mode) and v11 (הליגה) ride on
-    // the same blob.
-    expect(GAME_STATE_VERSION).toBe(11);
+    // The duel ledger arrived in v9; v10 (dev mode), v11 (הליגה) and v12 (the
+    // league's best-grade ledger) ride on the same blob.
+    expect(GAME_STATE_VERSION).toBe(12);
     expect(emptyGame().duels).toEqual(emptyDuels());
   });
 

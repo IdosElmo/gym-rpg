@@ -150,6 +150,38 @@ export function publishableWeeks(
   return out;
 }
 
+/**
+ * The CONTENT of a published week, as one short string — the publisher's
+ * fingerprint, and the league's answer to `ghostHash`.
+ *
+ * WHY A WEEK KEY IS NOT ENOUGH. The publisher diffs the eligible weeks against
+ * the ones its notebook says are already up, and a set of keys can only ever
+ * answer "has this week been published at all". Since a closed week can be
+ * RE-graded — a week closed from a log that was missing sessions is corrected
+ * the moment they arrive (`core/league.ts` → `regradedWeeks`) — a key-only diff
+ * would leave the rival reading the wrong number for ever, on a row this device
+ * knows to be stale. Fingerprinting the grade makes the diff notice a week whose
+ * CONTENT moved, which is the same self-healing property one level down.
+ *
+ * Every field a row carries is in it (the four components, the score, the 🔵 and
+ * the three explaining numbers), formatted exactly as the ledger stores them, so
+ * two devices holding the same record produce the same string and an unchanged
+ * week is free.
+ */
+export function leagueRowFingerprint(week: LeagueWeekRecord): string {
+  return [
+    week.score,
+    week.c,
+    week.q,
+    week.l,
+    week.p,
+    week.coin ? 1 : 0,
+    week.volume,
+    week.days,
+    week.prs,
+  ].join('|');
+}
+
 /* ------------------------------------------------------------ the boundary */
 
 function isRecord(v: unknown): v is Record<string, unknown> {

@@ -35,6 +35,7 @@ import { closeDueWeeks, gameOf } from '../src/core/game.ts';
 import { monthlyScore, weeksOfMonth } from '../src/core/league.ts';
 import {
   emptyOpponentMonth,
+  leagueRowFingerprint,
   normalizeLeagueRow,
   opponentMonth,
   prevMonth,
@@ -44,6 +45,7 @@ import {
 import { planToRecord } from '../src/core/plan.ts';
 import { PLAN_DOC_VERSION, type PlanDoc, type PlanExercise } from '../src/data/planTypes.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
+import { mergeIntoStore } from '../src/storage/merge.ts';
 import type { AppEvent, LeagueWeekRecord, Session, SetEntry } from '../src/storage/DataStore.ts';
 import { makeEvent, rebuildFromEvents, type StorageLike } from '../src/storage/migrate.ts';
 import {
@@ -134,12 +136,8 @@ function week(sessions: Record<string, Session>, weekStart: string, days = 4, w 
   return sessions;
 }
 
-/**
- * A store built the way a real one is: a LOG, replayed into state. Events are
- * stamped at their own dates — `store.append` would stamp them "now", which
- * would put the plan into force after the weeks it is meant to grade.
- */
-function storeWith(sessions: Record<string, Session>, storage: StorageLike = fakeStorage()): LocalStore {
+/** The plan plus one `session_imported` per date — a log, as the account holds it. */
+function eventsFor(sessions: Record<string, Session>): AppEvent[] {
   const events: AppEvent[] = [
     makeEvent(
       'plan_updated',
@@ -151,6 +149,16 @@ function storeWith(sessions: Record<string, Session>, storage: StorageLike = fak
     const s = sessions[date] as Session;
     events.push(makeEvent('session_imported', { date, day: s.day, ex: s.ex, source: 'json_import' }, tsOf(date)));
   }
+  return events;
+}
+
+/**
+ * A store built the way a real one is: a LOG, replayed into state. Events are
+ * stamped at their own dates — `store.append` would stamp them "now", which
+ * would put the plan into force after the weeks it is meant to grade.
+ */
+function storeWith(sessions: Record<string, Session>, storage: StorageLike = fakeStorage()): LocalStore {
+  const events: AppEvent[] = eventsFor(sessions);
   const store = new LocalStore(storage);
   store.replaceAll(rebuildFromEvents(events, tsOf(TODAY)), events);
   return store;
@@ -285,6 +293,8 @@ function makeRig(
     ghost?: boolean;
     /** `false` builds an engine that knows nothing about the league. */
     league?: boolean;
+    /** Fired at the end of every cycle — what a deferred boot close hangs off. */
+    onCycleEnd?: () => void;
   } = {},
 ): Rig {
   const backend = opts.backend ?? new MemoryBackend();
@@ -300,6 +310,7 @@ function makeRig(
     doc: null,
     isOnline: () => online.value,
     isVisible: () => false,
+    ...(opts.onCycleEnd ? { onCycleEnd: opts.onCycleEnd } : {}),
     ...(opts.ghost === false
       ? {}
       : {
@@ -740,6 +751,169 @@ describe('publishing my closed weeks', () => {
     expect(readSyncMeta(rig.storage).leagueWeeks).toEqual([]);
     rig.engine.dispose();
   });
+
+  it('re-publishes a week whose grade IMPROVED — the diff is on CONTENT, not on keys', async () => {
+    // The phone that closed before its pull landed: one day of W5 was all it
+    // had, so W5 went up as a 55 with no 🔵 — and the rival read that.
+    const half: Record<string, Session> = {};
+    week(half, W5, 1);
+    const store = storeWith(half);
+    closeDueWeeks(store, NOW);
+    const rig = makeRig(store);
+    await rig.engine.onSignedIn('user-1');
+    expect(rig.backend.leaguePublishes).toBe(1);
+    expect(rig.backend.rowsOf(HANDLE).find((r) => r['week_key'] === W5)).toMatchObject({
+      score: 55,
+      coin: false,
+    });
+
+    // The rest of the account arrives and the next close corrects the week.
+    mergeIntoStore(store, eventsFor(steady()), NOW.getTime());
+    expect(closeDueWeeks(store, NOW).regraded).toEqual([W5]);
+
+    // A key-only diff would have said "W5? already published" and left the lie
+    // standing for ever. The fingerprint says the grade moved.
+    await rig.engine.sync();
+    expect(rig.backend.leaguePublishes).toBe(2);
+    expect(rig.backend.lastBatch.map((r) => r.weekKey)).toContain(W5);
+    expect(rig.backend.rowsOf(HANDLE).find((r) => r['week_key'] === W5)).toMatchObject({
+      score: 80,
+      coin: true,
+    });
+    // One row per week, still — a re-publish overwrites (user_id, week_key).
+    expect(rig.backend.rowsOf(HANDLE).filter((r) => r['week_key'] === W5)).toHaveLength(1);
+
+    // …and now that the notebook agrees with the ledger, nothing goes up again.
+    await rig.engine.sync();
+    await rig.engine.sync();
+    expect(rig.backend.leaguePublishes).toBe(2);
+    rig.engine.dispose();
+  });
+
+  it('republishes ONCE from a notebook written before grades were fingerprinted', async () => {
+    const store = storeWith(steady());
+    closeDueWeeks(store, NOW);
+    // A notebook from the build that recorded week KEYS and nothing else: the
+    // weeks are "published", but what they said is unknown — so they are sent
+    // once and then left alone.
+    const storage = fakeStorage({
+      [SYNC_META_KEY]: JSON.stringify({
+        v: 1,
+        deviceId: 'dev-1',
+        cursor: 0,
+        outbox: [],
+        userId: 'user-1',
+        lastSyncAt: null,
+        ghostHandle: HANDLE,
+        ghostHash: 'hash:rotem',
+        leagueHandle: HANDLE,
+        leagueWeeks: [WE, W1, W2, W3, W4, W5],
+      }),
+    });
+    expect(normalizeSyncMeta(storage.getItem(SYNC_META_KEY)).leagueHashes).toEqual({});
+
+    const rig = makeRig(store, { storage });
+    await rig.engine.sync();
+    expect(rig.backend.leaguePublishes).toBe(1);
+    expect(rig.backend.lastBatch).toHaveLength(6);
+    await rig.engine.sync();
+    expect(rig.backend.leaguePublishes).toBe(1);
+    rig.engine.dispose();
+  });
+
+  it('fingerprints the whole grade, so any part of it moving is noticed', () => {
+    const base: LeagueWeekRecord = {
+      score: 80,
+      c: 1,
+      q: 1,
+      l: 0.5,
+      p: 0,
+      coin: true,
+      volume: 9600,
+      days: 4,
+      prs: 0,
+    };
+    expect(leagueRowFingerprint(base)).toBe(leagueRowFingerprint({ ...base }));
+    for (const changed of [
+      { ...base, score: 80.1 },
+      { ...base, c: 0.9 },
+      { ...base, q: 0.9 },
+      { ...base, l: 0.6 },
+      { ...base, p: 0.1 },
+      { ...base, coin: false },
+      { ...base, volume: 9601 },
+      { ...base, days: 5 },
+      { ...base, prs: 1 },
+    ]) {
+      expect(leagueRowFingerprint(changed)).not.toBe(leagueRowFingerprint(base));
+    }
+  });
+});
+
+/* ============================================ 4b. catching up before grading */
+
+/**
+ * WHY THE ENGINE HAS A "CAUGHT UP" LIGHT AT ALL.
+ *
+ * הליגה grades a finished week and FILES the grade as an event. That is a
+ * judgement about the log — so on a device whose log is still a subset of its
+ * account (a fresh install between "signed in" and "history arrived"), it is a
+ * judgement about data the device cannot see. `main.ts` therefore defers the
+ * boot close until the first cycle has settled; these are the two probes it
+ * hangs off, and the promise that a cycle ALWAYS settles.
+ */
+describe('the catch-up gate', () => {
+  it('knows whether an account is linked, and whether its history is here yet', async () => {
+    const store = storeWith(steady());
+    const rig = makeRig(store);
+    // Signed out: nothing to wait for — the log is all there will ever be.
+    expect(rig.engine.hasAccount()).toBe(false);
+    expect(rig.engine.isCaughtUp()).toBe(false);
+
+    await rig.engine.onSignedIn('user-1');
+    expect(rig.engine.hasAccount()).toBe(true);
+    expect(rig.engine.isCaughtUp()).toBe(true);
+
+    // Signing out forgets the account — and with it the claim to be caught up.
+    rig.engine.stop();
+    expect(rig.engine.hasAccount()).toBe(false);
+    expect(rig.engine.isCaughtUp()).toBe(false);
+    rig.engine.dispose();
+  });
+
+  it('ends its cycle even with no network, so a deferred close is never stranded', async () => {
+    const store = storeWith(steady());
+    let ends = 0;
+    const rig = makeRig(store, { onCycleEnd: () => void (ends += 1) });
+    rig.online.value = false;
+
+    await rig.engine.onSignedIn('user-1');
+    // Nothing could be pulled — the device is NOT caught up and says so — but
+    // the cycle finished, which is what releases the boot close.
+    expect(rig.engine.getStatus().kind).toBe('offline');
+    expect(rig.engine.isCaughtUp()).toBe(false);
+    expect(ends).toBeGreaterThan(0);
+
+    // Back on the network, the same probe flips.
+    rig.online.value = true;
+    await rig.engine.sync();
+    expect(rig.engine.isCaughtUp()).toBe(true);
+    rig.engine.dispose();
+  });
+
+  it('is not caught up again after switching to another account', async () => {
+    const store = storeWith(steady());
+    const rig = makeRig(store);
+    await rig.engine.onSignedIn('user-1');
+    expect(rig.engine.isCaughtUp()).toBe(true);
+
+    rig.online.value = false;
+    await rig.engine.onSignedIn('user-2');
+    // A different account's history is a different question, and none of it is
+    // here: grading now would grade user-2's weeks from user-1's device.
+    expect(rig.engine.isCaughtUp()).toBe(false);
+    rig.engine.dispose();
+  });
 });
 
 /* ========================================================== 5. the reader */
@@ -863,6 +1037,7 @@ describe('the sync notebook', () => {
     // …and "nothing published yet, nothing cached" is the right reading.
     expect(meta.leagueHandle).toBeNull();
     expect(meta.leagueWeeks).toEqual([]);
+    expect(meta.leagueHashes).toEqual({});
     expect(meta.leagueMonth).toBeNull();
   });
 
@@ -906,6 +1081,9 @@ describe('the sync notebook', () => {
     const meta = normalizeSyncMeta(raw);
     expect(meta.leagueHandle).toBe(HANDLE);
     expect(meta.leagueWeeks).toEqual([WE, W1, W2, W3, W4, W5]);
+    // The grades ride with the keys, so a week that is re-graded later is
+    // noticed as CHANGED rather than as already-done.
+    expect(Object.keys(meta.leagueHashes).sort()).toEqual([WE, W1, W2, W3, W4, W5].sort());
     expect(meta.leagueMonth?.monthKey).toBe('2026-07');
     expect(meta.leagueMonth?.rows).toHaveLength(2);
   });

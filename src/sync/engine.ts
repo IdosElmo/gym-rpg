@@ -49,6 +49,7 @@
 
 import {
   emptyOpponentMonth,
+  leagueRowFingerprint,
   opponentMonth,
   type LeagueWeekUpload,
   type OpponentMonth,
@@ -150,6 +151,15 @@ export interface SyncEngineOptions {
   onStatus?: (status: SyncStatus) => void;
   /** Called after a pull actually changed local state, so the UI can repaint. */
   onRemoteApplied?: () => void;
+  /**
+   * Called once every cycle has finished, whatever its outcome — the hook a
+   * boot-time job that must wait for this device to CATCH UP hangs off.
+   *
+   * `isCaughtUp()` says whether the account's history is actually here yet;
+   * this fires either way, because a device that cannot reach the server (a
+   * tunnel, a dead token) must not be left waiting for ever.
+   */
+  onCycleEnd?: () => void;
   /** `false` keeps the engine inert and reports `disabled`. */
   enabled?: boolean;
   /** `window`-ish (online/offline/pagehide). `null` = no listeners (tests). */
@@ -240,6 +250,13 @@ function defaultVisible(): boolean {
   return typeof doc?.visibilityState === 'string' ? doc.visibilityState === 'visible' : true;
 }
 
+/** weekKey -> grade fingerprint, for the rows a publish has just made true. */
+function fingerprintsOf(rows: readonly LeagueWeekUpload[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const row of rows) out[row.weekKey] = leagueRowFingerprint(row);
+  return out;
+}
+
 /** `date|exId|setIndex` — the identity of a logged set, and the coalesce key. */
 function coalesceKey(payload: Readonly<Record<string, unknown>>): string | null {
   const date = payload['date'];
@@ -258,6 +275,7 @@ export class SyncEngine {
   private readonly now: () => number;
   private readonly statusCb: (status: SyncStatus) => void;
   private readonly remoteCb: () => void;
+  private readonly cycleEndCb: () => void;
   private readonly timing: SyncTiming;
   private readonly enabled: boolean;
   private readonly win: EngineTarget | null;
@@ -286,6 +304,16 @@ export class SyncEngine {
 
   private cycle: Promise<void> | null = null;
   private rerun = false;
+  /**
+   * Has this session finished a PULL for the linked account?
+   *
+   * "Caught up" in the only sense the app needs: everything the account had
+   * written before this cycle started is now in the local log, so anything that
+   * grades the log (הליגה's weekly close, above all) is grading the account's
+   * history rather than whatever this install happened to hold at boot. Reset by
+   * `stop()`, because a different account's history is a different question.
+   */
+  private caught = false;
   private failures = 0;
   private kind: SyncStatusKind;
   private message: string | undefined;
@@ -321,6 +349,7 @@ export class SyncEngine {
     this.now = opts.now ?? (() => Date.now());
     this.statusCb = opts.onStatus ?? ((): void => undefined);
     this.remoteCb = opts.onRemoteApplied ?? ((): void => undefined);
+    this.cycleEndCb = opts.onCycleEnd ?? ((): void => undefined);
     this.timing = { ...DEFAULT_TIMING, ...opts.timing };
     this.enabled = opts.enabled !== false;
     this.win = opts.win === undefined ? (globalThis.window ?? null) : opts.win;
@@ -366,6 +395,7 @@ export class SyncEngine {
     this.coalesced.clear();
     clearSyncMeta(this.storage);
     this.meta = emptySyncMeta(this.meta.deviceId);
+    this.caught = false;
     this.failures = 0;
     this.message = undefined;
     this.setStatus('signedOut');
@@ -397,6 +427,7 @@ export class SyncEngine {
   async linkAccount(userId: string): Promise<void> {
     const switching = this.meta.userId !== null && this.meta.userId !== userId;
     this.meta.userId = userId;
+    this.caught = false;
     if (switching) {
       // A different account's cursor means nothing here.
       this.meta.cursor = 0;
@@ -539,6 +570,7 @@ export class SyncEngine {
 
     if (!this.isOnline()) {
       this.setStatus('offline');
+      this.cycleEndCb();
       return;
     }
 
@@ -546,6 +578,9 @@ export class SyncEngine {
     try {
       await this.pushOutbox(userId);
       await this.pullAll(userId);
+      // Everything the account had is here now: whatever was waiting for this
+      // device to catch up (the league's weekly close) may run.
+      this.caught = true;
       // The ghost and the league rows ride at the END of a successful cycle, and
       // their failures are their own (see `publishGhost` / `publishLeague`): the
       // backup must never be held hostage to a vanity snapshot or a scoreboard.
@@ -560,6 +595,9 @@ export class SyncEngine {
     } catch (err) {
       this.onFailure(err);
     }
+    // Whatever happened — pulled, offline, refused — the cycle is over and the
+    // deferred boot work must not be stranded. `isCaughtUp()` says which it was.
+    this.cycleEndCb();
   }
 
   private onFailure(err: unknown): void {
@@ -770,6 +808,15 @@ export class SyncEngine {
    *     this one was linked) is simply "in the ledger, not in the set", so it is
    *     noticed and uploaded without anything having to remember it happened.
    *
+   * THE DIFF IS ON CONTENT, NOT ON KEYS, which is the fourth property and the
+   * one a set of week keys could not express: a closed week can be RE-GRADED.
+   * A week closed from a log that was still missing sessions (a fresh install
+   * that graded at boot, before its first pull landed) is corrected as soon as
+   * they arrive — the ledger accepts the better grade and `closeDueWeeks`
+   * appends the corrective close — and the row the rival reads has to follow.
+   * So each eligible week is fingerprinted (`leagueRowFingerprint`) and a week
+   * whose fingerprint moved, or that the notebook has none for, is republished.
+   *
    * A RENAME REPUBLISHES, exactly like the ghost's: the rows carry the name, so
    * when the handle in force differs from the one the set belongs to the whole
    * window is treated as unpublished and rewritten under the new name. Rows
@@ -788,8 +835,13 @@ export class SyncEngine {
 
     const rows = league.rows();
     const renamed = this.meta.leagueHandle !== handle;
-    const published = renamed ? new Set<string>() : new Set(this.meta.leagueWeeks);
-    const due = rows.filter((row) => !published.has(row.weekKey));
+    const published = new Map<string, string>();
+    if (!renamed) {
+      for (const week of this.meta.leagueWeeks) {
+        published.set(week, this.meta.leagueHashes[week] ?? '');
+      }
+    }
+    const due = rows.filter((row) => published.get(row.weekKey) !== leagueRowFingerprint(row));
 
     if (due.length === 0) {
       // Nothing to upload — but the notebook may still be carrying week keys
@@ -798,6 +850,7 @@ export class SyncEngine {
       const inWindow = this.meta.leagueWeeks.filter((week) => rows.some((row) => row.weekKey === week));
       if (inWindow.length !== this.meta.leagueWeeks.length) {
         this.meta.leagueWeeks = inWindow;
+        this.meta.leagueHashes = fingerprintsOf(rows);
         this.persist();
       }
       return;
@@ -807,8 +860,11 @@ export class SyncEngine {
       await this.backend.publishLeagueWeeks(userId, handle, due);
       this.meta.leagueHandle = handle;
       // Everything in the window is now published: what was already there, plus
-      // what just went up. Stated as the window itself, so the set prunes itself.
+      // what just went up. Stated as the window itself, so the set prunes itself
+      // — and stated WITH the grades, so a week that is re-graded later is
+      // noticed as changed rather than as already-done.
       this.meta.leagueWeeks = rows.map((row) => row.weekKey);
+      this.meta.leagueHashes = fingerprintsOf(rows);
       this.persist();
     } catch {
       /* offline, RLS, a rename mid-flight — try again next cycle; nothing lost */
@@ -962,6 +1018,23 @@ export class SyncEngine {
   }
 
   /* --------------------------------------------------------------- probes */
+
+  /** Is an account linked on this device? (Signed in, cursor and outbox owned.) */
+  hasAccount(): boolean {
+    return this.meta.userId !== null;
+  }
+
+  /**
+   * Has a pull for the linked account completed in this session?
+   *
+   * FALSE means the local log may be a strict subset of the account's — the
+   * state a fresh install is in between "signed in" and "history arrived" — and
+   * anything that would write a permanent JUDGEMENT about the log (הליגה grades
+   * a finished week and files it) has to wait, or it judges data it cannot see.
+   */
+  isCaughtUp(): boolean {
+    return this.caught;
+  }
 
   getStatus(): SyncStatus {
     const base: SyncStatus = {

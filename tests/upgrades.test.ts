@@ -486,9 +486,9 @@ describe('upgrades are a pure function of the log', () => {
 
 describe('the v6 -> v7 blob bump', () => {
   it('reports the current version and starts with an empty upgrade ledger', () => {
-    // The upgrade ledger arrived in v7; every bump since (v8–v11) rides on the
+    // The upgrade ledger arrived in v7; every bump since (v8–v12) rides on the
     // same blob and leaves this field alone.
-    expect(GAME_STATE_VERSION).toBe(11);
+    expect(GAME_STATE_VERSION).toBe(12);
     expect(emptyGame().equipment).toEqual({ owned: [], equipped: {}, upgrades: {} });
   });
 

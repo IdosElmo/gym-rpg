@@ -821,14 +821,36 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
     /**
      * ONE closed week of הליגה — the only event that can ever mint a 🔵.
      *
-     * IDEMPOTENT PER WEEK, the `daily_challenge` idiom with a week key instead
-     * of a date: `weekKey` is the semantic key, the event applies only while
-     * `league.weeks[weekKey]` is empty, and a duplicate is a total no-op. Two
-     * devices that each closed the same week offline therefore converge — in
-     * EITHER merge order — on the close that comes FIRST in the log's `(ts, id)`
-     * order, because that order is a property of the event SET. They agree on
-     * the CONTENT too: closing is a deterministic function of the log, so the
-     * two payloads say the same thing anyway.
+     * IDEMPOTENT PER WEEK, and the per-week rule is BEST GRADE WINS: a close
+     * applies while the week is empty, or while it scores STRICTLY MORE than the
+     * grade already filed. A duplicate — same week, same score — is a total
+     * no-op, and a close that grades the week LOWER is refused outright.
+     *
+     * WHY MAX AND NOT "THE FIRST ONE" (which is what shipped first). Closing is
+     * a function of THE LOG THIS DEVICE HOLDS, and a device can hold less than
+     * the account does: a fresh install that signs in grades the finished weeks
+     * at boot, from a log the initial pull has not filled yet, and files a grade
+     * built on sessions it simply had not seen. Under a first-wins ledger that
+     * grade was permanent — no later event, on any device, could ever correct it
+     * — so a week that really was trained stayed a 55 with no 🔵 for ever.
+     * `closeDueWeeks` now appends a corrective close when the log grades a
+     * closed week HIGHER than the ledger does (`core/league.ts`), and this is
+     * the rule that lets that correction land.
+     *
+     * IT STILL CONVERGES, and for a stronger reason than first-wins did. The
+     * ledger entry for a week is `argmax` over that week's closes of the key
+     * `(score, then the (ts, id) order)` — and a maximum over a TOTAL order is
+     * associative, commutative and idempotent, so the fold reaches the same
+     * record whatever order the union is merged in and however many times an
+     * event appears. (The fold always walks the log in `(ts, id)` order, which
+     * is a property of the event SET, so "strictly greater replaces" IS that
+     * argmax: equal scores keep the earlier event.) `coin` rides with the
+     * winning record, so the purse follows the grade rather than a counter.
+     *
+     * THE ASYMMETRY IS DELIBERATE: grades only ever improve as data arrives.
+     * A downgrade would let a device with a PRUNED or partial log erase a 🔵
+     * that was honestly earned — the exact failure this rule exists to undo —
+     * so a lower re-grade is dropped and the better one stands.
      *
      * THE COIN IS NOT FOLDED. `league.coins` is DERIVED from this ledger in
      * `finalizeLeague`, so "the 🔵 arrives exactly when the ledger accepts the
@@ -846,9 +868,11 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
       const weekKey = typeof payload['weekKey'] === 'string' ? payload['weekKey'] : '';
       if (!isWeekKeyString(weekKey)) break;
       const L = game.league;
-      if (L.weeks[weekKey]) break;
+      const score = round1(clamp(toNumber(payload['score']), 0, 100));
+      const filed = L.weeks[weekKey];
+      if (filed && score <= filed.score) break;
       L.weeks[weekKey] = {
-        score: round1(clamp(toNumber(payload['score']), 0, 100)),
+        score,
         c: round2(clamp(toNumber(payload['c']), 0, 1)),
         q: round2(clamp(toNumber(payload['q']), 0, 1)),
         l: round2(clamp(toNumber(payload['l']), 0, 1)),
@@ -1040,6 +1064,37 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
 }
 
 /**
+ * Recompute every derived field EXCEPT the streak: the six part levels, the
+ * headline level, the daily totals, the duel record, the 🔵 purse and the
+ * world/wave marker.
+ *
+ * Split out of `finalizeGame` because it is a pure function of the state's own
+ * LEDGERS — it needs no plan history and it writes no event — which makes it
+ * the thing to run when a persisted blob is HYDRATED rather than folded.
+ * `storage/migrate.ts` deliberately drops every derived field on the way out of
+ * storage (a hand-edited blob may not claim a purse its ledgers do not support),
+ * so something has to put them back; before this existed, a boot that folded no
+ * event at all left the purse, the duel record and the monthly totals at zero
+ * beside ledgers that were perfectly intact.
+ *
+ * THE STREAK IS NOT HERE ON PURPOSE. It is derived too, but re-deriving it is
+ * `refreshStreak`'s job precisely because a MOVE has to be recorded as a
+ * `streak_changed` event; silently re-deriving it during hydration would leave
+ * `refreshStreak` comparing the new value with itself and the log would lose the
+ * event.
+ */
+export function finalizeDerived(game: GameState, today: string): void {
+  for (const part of BODY_PARTS) {
+    game.parts[part].level = levelForXp(game.parts[part].xp);
+  }
+  game.level = characterLevel(game.parts);
+  finalizeDaily(game.daily, today);
+  finalizeDuels(game.duels);
+  finalizeLeague(game.league);
+  finalizeBattleProgress(game.battle);
+}
+
+/**
  * Recompute every derived field (levels, headline level, streak).
  *
  * `targets` is the plan's weekly-target history (`weeklyTargetsFromEvents`).
@@ -1047,15 +1102,8 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
  * reason it is a parameter rather than something read from the state.
  */
 export function finalizeGame(game: GameState, today: string, targets: WeeklyTargets = []): void {
-  for (const part of BODY_PARTS) {
-    game.parts[part].level = levelForXp(game.parts[part].xp);
-  }
-  game.level = characterLevel(game.parts);
+  finalizeDerived(game, today);
   game.streak = computeStreak(game.workoutDays, today, targets);
-  finalizeDaily(game.daily, today);
-  finalizeDuels(game.duels);
-  finalizeLeague(game.league);
-  finalizeBattleProgress(game.battle);
 }
 
 /**

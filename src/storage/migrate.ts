@@ -40,6 +40,7 @@ import {
   emptyEquipment,
   emptyGame,
   emptyLeague,
+  finalizeDerived,
   isoToTs,
   rebuildGame,
   weekStartISO,
@@ -528,6 +529,11 @@ function isLeagueMonthKey(v: string): boolean {
  * graded; a fifth time, an empty default would be worse than wrong — it would
  * say "no week was ever closed", letting the lazy close re-close every week in
  * the backfill window and re-mint its 🔵. Rejected and replayed instead.
+ * v11 -> v12 (the league's best-grade ledger) adds NO FIELD: it changes what a
+ * fold of the same events MEANS — `league.weeks[week]` is now the best-scoring
+ * close of that week rather than the first one — and a cached fold under the old
+ * rule can disagree with a replay of its own log without anything being able to
+ * tell. Rejected for that reason alone (see `GAME_STATE_VERSION`).
  */
 export function normalizeGame(raw: unknown): GameState | null {
   if (!isRecord(raw)) return null;
@@ -859,6 +865,17 @@ function materialize(pending: readonly PendingEvent[]): AppEvent[] {
  * All of it is expressed as EVENTS (`buildRetroactiveGrants`) appended to the
  * log, so the rebuilt game state stays a pure function of the log forever after.
  * Running it twice is a no-op: every grant is guarded per (date, exercise, set).
+ *
+ * AND A FOURTH, ON EVERY SINGLE BOOT: a blob that is already at the current
+ * version is REHYDRATED, not replayed — but `normalizeGame` deliberately hands
+ * back every DERIVED field at zero (see `normalizeLeague` / `normalizeDuels`:
+ * a hand-edited blob may not claim a purse or a win record its ledgers do not
+ * support). Something has to derive them again, and until this call existed
+ * nothing did on the quiet path: a boot that folded no event left 🔵 0 and an
+ * empty league history sitting beside a ledger full of closed, coin-minting
+ * weeks — the screen contradicting itself, exactly as reported. It is a pure
+ * function of the ledgers, so it is cheap, idempotent, and NOT a change worth
+ * writing back (`changed` stays false; the next real write persists it).
  */
 export function ensureGameState(
   state: AppState,
@@ -866,6 +883,7 @@ export function ensureGameState(
   now: number = Date.now(),
 ): EnsureGameResult {
   if (state.game && state.game.version === GAME_STATE_VERSION) {
+    finalizeDerived(state.game, todayISO(new Date(now)));
     return { state, events: [...events], changed: false };
   }
 

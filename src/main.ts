@@ -49,15 +49,20 @@ function boot(): void {
   // Weeks close by the passing of time, not by a user action: re-evaluate the
   // streak once per boot so a missed week is reflected before anything renders.
   refreshStreak(store);
-  // And for exactly the same reason, grade every league week that finished
-  // while the app was closed. Lazy, deterministic and bounded (see
-  // `closeDueWeeks`): the events it writes are the ones another device would
-  // have written week by week, so the union of two logs still holds one grade
-  // and one 🔵 per week. Idempotent, so a second call costs nothing.
-  closeDueWeeks(store);
   const timer = createRestTimer();
 
   const sync = wireSync(store);
+  // And for exactly the same reason, grade every league week that finished
+  // while the app was closed — but ONLY once this device holds the account's
+  // history. Closing is a judgement about the LOG, and on a device that has
+  // just signed in the log is a subset of the account: grading there files 40s
+  // with no 🔵 for weeks that were fully trained, and the ledger would then have
+  // to be talked out of them. So a linked install waits for the first cycle
+  // (`sync.closeWeeksWhenReady`, at most a moment) and an unlinked one — the
+  // offline app, the signed-out app, the single-file build — closes right here,
+  // exactly as it always did.
+  if (sync.closesWeeksNow()) closeDueWeeks(store);
+  else sync.closeWeeksWhenReady();
   const app = createApp(store, timer, sync.hooks);
   sync.attach(app);
   initImportInput(store, () => app.render(), {
@@ -77,6 +82,13 @@ interface SyncWiring {
   attach(app: App): void;
   isSignedIn(): boolean;
   onLocalMerge(): void;
+  /**
+   * Is there nothing to wait for? TRUE with no account linked on this device —
+   * the log is all there will ever be, so the boot close can run immediately.
+   */
+  closesWeeksNow(): boolean;
+  /** Otherwise: close the due weeks as soon as the first sync cycle settles. */
+  closeWeeksWhenReady(): void;
 }
 
 /**
@@ -97,6 +109,8 @@ function wireSync(store: DataStore): SyncWiring {
     attach: () => undefined,
     isSignedIn: () => false,
     onLocalMerge: () => undefined,
+    closesWeeksNow: () => true,
+    closeWeeksWhenReady: () => undefined,
   };
   if (!syncConfigured()) return inert;
 
@@ -110,6 +124,22 @@ function wireSync(store: DataStore): SyncWiring {
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   let userId: string | null = null;
+  /** The boot close is still owed — see `closeWeeksWhenReady` below. */
+  let closePending = false;
+
+  /**
+   * Grade every finished week the log has not graded yet, and correct every
+   * week the log now grades better than the ledger does (`closeDueWeeks`).
+   *
+   * Called when the device is caught up, and again after every merge that
+   * actually brought something in: a pull that lands sessions from another
+   * device — or the account's whole history, on a fresh install — is exactly
+   * the moment a grade filed from less data can be improved.
+   */
+  function closeWeeks(): void {
+    closePending = false;
+    if (closeDueWeeks(store).closed.length > 0) repaint();
+  }
 
   const engine = new SyncEngine({
     store,
@@ -120,7 +150,18 @@ function wireSync(store: DataStore): SyncWiring {
       // Cheap and local: only the card repaints, never the whole screen.
       refreshAccountCard(account);
     },
-    onRemoteApplied: () => repaint(),
+    onRemoteApplied: () => {
+      // New events landed. Re-grade before repainting, so the screen and the
+      // ledger tell the same story in one paint rather than two.
+      closeWeeks();
+      repaint();
+    },
+    onCycleEnd: () => {
+      // The first cycle has settled — caught up, or unable to reach the server
+      // at all. Either way the boot close waits no longer: an install that can
+      // never sync must still grade its own weeks.
+      if (closePending) closeWeeks();
+    },
     /**
      * THE GHOST PUBLISHER. The engine owns "when" (after a successful cycle,
      * only when the fingerprint moved); this owns "what" — a snapshot of the
@@ -302,6 +343,10 @@ function wireSync(store: DataStore): SyncWiring {
     onLocalMerge: () => {
       engine.enqueueAll();
       void engine.sync();
+    },
+    closesWeeksNow: () => !engine.hasAccount(),
+    closeWeeksWhenReady: () => {
+      closePending = true;
     },
   };
 }

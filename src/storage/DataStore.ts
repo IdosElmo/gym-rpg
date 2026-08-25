@@ -109,8 +109,18 @@ export interface UiState {
  * closed" — which would let a lazy close re-close weeks the log already closed
  * and re-mint their coins. Rejected and replayed, which restores every week,
  * every coin and every redemption exactly.
+ * v12 (the league's best-grade ledger) changes NO FIELD AT ALL — and is bumped
+ * anyway, which is the one case worth spelling out. This blob is a CACHE OF A
+ * FOLD, and v12 changed the fold's rule: `league.weeks[week]` used to hold the
+ * FIRST close of that week in the `(ts, id)` order and now holds the BEST-scoring
+ * one (`applyGameEvent`, and the corrective re-close in `core/league.ts` that
+ * needs it). A v11 cache can therefore disagree with a replay of its own log —
+ * the shape matches, so nothing would ever notice, and a device could sit on a
+ * week that was graded from an incomplete log for ever. Rejecting it replays the
+ * log under the new rule on the first boot after the update, which is exactly
+ * what the migration path is for and costs one rebuild.
  */
-export const GAME_STATE_VERSION = 11;
+export const GAME_STATE_VERSION = 12;
 
 /** XP pool of one body part. `level` is DERIVED from `xp` (see core/xp.ts). */
 export interface PartProgress {
