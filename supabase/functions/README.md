@@ -8,7 +8,23 @@ calls this function through supabase-js (`functions.invoke`), authenticated by
 the signed-in user's JWT. **The key must never be committed to this repository
 — not in code, not in docs, not in a `.env` file.**
 
-### One-time deployment (from the owner's machine)
+### One-time deployment — dashboard (no CLI needed)
+
+The same flow as running `schema.sql` in the SQL editor, one screen over:
+
+1. **The secret** — Dashboard → **Edge Functions → Secrets** → *Add new secret*:
+   name `GEMINI_API_KEY`, value = your key from Google AI Studio.
+2. **The function** — Dashboard → **Edge Functions → Deploy a new function →
+   Via Editor**: name it exactly `estimate-meal`, paste the whole of
+   `estimate-meal/index.ts` from this folder, and deploy.
+3. **JWT verification** — in the function's *Details* page, leave
+   **Enforce JWT verification** ON (the default): only signed-in users of this
+   project may spend the key.
+
+Redeploying after a code change is the same editor, edit → deploy. Changing the
+secret takes effect without redeploying.
+
+### One-time deployment — CLI (equivalent alternative)
 
 ```bash
 supabase link --project-ref omiqettlrjbcafnmomrm
@@ -17,7 +33,7 @@ supabase functions deploy estimate-meal
 ```
 
 Deploy with JWT verification **on** (the default — do not pass
-`--no-verify-jwt`): only signed-in users of this project may spend the key.
+`--no-verify-jwt`).
 
 ### Key hygiene
 
