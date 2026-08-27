@@ -84,6 +84,22 @@ export interface PlanDay {
    */
   weekdays?: number[];
   exercises: PlanExercise[];
+  /**
+   * SUPERSETS — pairs of exercises performed back to back, with ONE rest.
+   *
+   * Each pair is `[first, second]` and both ids must belong to this day and be
+   * ADJACENT in `exercises` (`first` immediately before `second`); an id may
+   * appear in at most one pair. The field is optional and additive on purpose:
+   * a `plan_updated` payload written before supersets existed simply has none,
+   * and an older client that reads a payload WITH them ignores the key instead
+   * of rejecting the document (which is why the document version stays at 2).
+   *
+   * The linkage lives here and only here. It changes how the workout screen
+   * renders and what one ✓ tap does — it never adds an event type: a superset
+   * tap appends the same two ordinary `set_completed` events the two checkboxes
+   * would have appended on their own.
+   */
+  supersets?: readonly (readonly [string, string])[];
 }
 
 /**

@@ -155,6 +155,98 @@ export function newDayKey(): string {
   return DAY_ID_PREFIX + uuid().replace(/-/g, '').slice(0, 8);
 }
 
+/* ---------------------------------------------------------- supersets */
+
+/**
+ * ONE superset link: `[first, second]`, two exercise ids of the SAME day.
+ *
+ * The pair is ordered exactly like the day is: `first` is the card the user
+ * meets first, `second` the one they go straight into with no rest between.
+ */
+export type SupersetPair = readonly [string, string];
+
+/**
+ * THE rule of a legal superset, in one place: both ids exist in the day, they
+ * are ADJACENT in its order (`first` immediately before `second`), and no id is
+ * claimed by two pairs.
+ *
+ * Everything that stores a day runs its pairs through this, so an illegal pair
+ * cannot survive a normalisation, a clone or a save. It DROPS rather than
+ * throws: a document merged from another device (or hand-edited, or written by
+ * a build whose editor allowed something this one does not) must still open —
+ * losing a link is recoverable in one tap, a workout screen that refuses to
+ * render is not. The editor refuses the same pairs loudly, before saving.
+ */
+export function legalPairs(
+  pairs: readonly SupersetPair[] | undefined,
+  rows: readonly PlanExercise[],
+): SupersetPair[] {
+  if (!pairs || pairs.length === 0) return [];
+  const index = new Map<string, number>();
+  rows.forEach((r, i) => index.set(r.id, i));
+  const out: SupersetPair[] = [];
+  const claimed = new Set<string>();
+  for (const pair of pairs) {
+    if (!Array.isArray(pair) || pair.length !== 2) continue;
+    const [a, b] = pair;
+    if (typeof a !== 'string' || typeof b !== 'string' || a === b) continue;
+    const ia = index.get(a);
+    const ib = index.get(b);
+    if (ia === undefined || ib === undefined || ib !== ia + 1) continue;
+    if (claimed.has(a) || claimed.has(b)) continue;
+    claimed.add(a);
+    claimed.add(b);
+    out.push([a, b]);
+  }
+  return out;
+}
+
+/** Raw (untrusted) pairs of a stored day, before they are judged legal. */
+function rawPairs(raw: unknown): SupersetPair[] {
+  if (!Array.isArray(raw)) return [];
+  const out: SupersetPair[] = [];
+  for (const p of raw) {
+    if (!Array.isArray(p) || p.length !== 2) continue;
+    const a = p[0];
+    const b = p[1];
+    if (typeof a !== 'string' || typeof b !== 'string') continue;
+    out.push([a.trim(), b.trim()]);
+  }
+  return out;
+}
+
+/** The superset pairs of a day (empty for a day that has none, or no day). */
+export function supersetPairs(day: PlanDay | null | undefined): readonly SupersetPair[] {
+  return day?.supersets ?? [];
+}
+
+/**
+ * The OTHER exercise of `exId`'s superset, or `null` when it has none.
+ *
+ * This is what the workout screen asks per checkbox: a tap on a set of an
+ * exercise with a partner completes the same set of the partner too.
+ */
+export function supersetPartner(day: PlanDay | null | undefined, exId: string): string | null {
+  for (const [a, b] of supersetPairs(day)) {
+    if (a === exId) return b;
+    if (b === exId) return a;
+  }
+  return null;
+}
+
+/** The pair `exId` belongs to, in DAY order, or `null` — the UI needs both ids. */
+export function supersetPairOf(day: PlanDay | null | undefined, exId: string): SupersetPair | null {
+  for (const pair of supersetPairs(day)) {
+    if (pair[0] === exId || pair[1] === exId) return pair;
+  }
+  return null;
+}
+
+/** True when the exercise is half of a superset. */
+export function isSuperset(day: PlanDay | null | undefined, exId: string): boolean {
+  return supersetPartner(day, exId) !== null;
+}
+
 /* ------------------------------------------------------------- the default */
 
 /**
@@ -171,9 +263,14 @@ export function makePlanDay(
   label: string,
   weekdays: readonly number[],
   exercises: PlanExercise[],
+  supersets: readonly SupersetPair[] = [],
 ): PlanDay {
   const out: PlanDay = { key, label, exercises };
   if (weekdays.length > 0) out.weekdays = [...weekdays];
+  // Only legal pairs are ever stored, and an empty list is stored as NO field
+  // at all — same rule as `weekdays`, same reason (see the doc comment above).
+  const pairs = legalPairs(supersets, exercises);
+  if (pairs.length > 0) out.supersets = pairs;
   return out;
 }
 
@@ -287,7 +384,13 @@ export function clonePlanDoc(doc: PlanDoc): PlanDoc {
 }
 
 function cloneDay(d: PlanDay): PlanDay {
-  return makePlanDay(d.key, d.label, d.weekdays ?? [], d.exercises.map((r) => ({ ...r })));
+  return makePlanDay(
+    d.key,
+    d.label,
+    d.weekdays ?? [],
+    d.exercises.map((r) => ({ ...r })),
+    supersetPairs(d).map(([a, b]) => [a, b] as SupersetPair),
+  );
 }
 
 /** One day of a document by key, or `null` — days are an ARRAY from v2 on. */
@@ -426,7 +529,9 @@ function normalizeV2Day(raw: unknown, known: (id: string) => Exercise | null): P
   if (exercises.length === 0) return null;
   const fallbackLabel = isBuiltInDayKey(key) ? PROGRAM[key].label : key;
   const label = str(raw['label']).trim().slice(0, PLAN_LIMITS.maxNameLength) || fallbackLabel;
-  return makePlanDay(key, label, normalizeWeekdays(raw['weekdays']), exercises);
+  // `makePlanDay` drops any pair the (possibly repaired) row list no longer
+  // supports — an id that vanished with its row, or a pair torn apart by it.
+  return makePlanDay(key, label, normalizeWeekdays(raw['weekdays']), exercises, rawPairs(raw['supersets']));
 }
 
 /**
@@ -840,6 +945,43 @@ export function validatePlanDoc(doc: PlanDoc): string[] {
         errors.push(`${name}: זמן המנוחה חייב להיות בין ${PLAN_LIMITS.minRest} ל־${PLAN_LIMITS.maxRest} שניות`);
       }
     }
+    errors.push(...supersetErrors(day, resolve));
+  }
+  return errors;
+}
+
+/**
+ * The superset half of `validatePlanDoc`, in Hebrew: a pair must name two
+ * exercises OF THIS DAY that stand next to each other, and no exercise may be
+ * linked twice. `normalizePlanDoc` silently drops such pairs (a document from
+ * elsewhere still has to open); a save from the editor is refused instead, so a
+ * bug in the editor can never quietly delete the user's link.
+ */
+function supersetErrors(day: PlanDay, resolve: ExerciseResolver): string[] {
+  const errors: string[] = [];
+  const label = day.label || day.key;
+  const named = (id: string): string => resolve(id)?.he ?? id;
+  const index = new Map<string, number>();
+  day.exercises.forEach((r, i) => index.set(r.id, i));
+  const claimed = new Set<string>();
+  for (const pair of supersetPairs(day)) {
+    const [a, b] = pair;
+    const ia = index.get(a);
+    const ib = index.get(b);
+    if (ia === undefined || ib === undefined) {
+      errors.push(`${label}: סופר־סט מפנה לתרגיל שאינו ביום הזה`);
+      continue;
+    }
+    if (ib !== ia + 1) {
+      errors.push(`${label}: סופר־סט אפשרי רק בין שני תרגילים סמוכים (${named(a)} ו${named(b)})`);
+      continue;
+    }
+    if (claimed.has(a) || claimed.has(b)) {
+      errors.push(`${label}: תרגיל יכול להשתתף רק בסופר־סט אחד`);
+      continue;
+    }
+    claimed.add(a);
+    claimed.add(b);
   }
   return errors;
 }

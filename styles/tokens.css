@@ -4,4 +4,6 @@
   --accent:#3B82F6; --ok:#10B981; --warn:#F59E0B; --danger:#EF4444;
   --text:#E8EDF5; --muted:#8B96AB; --dim:#5D6B85;
   --radius:14px;
+  /* Supersets: the one colour that means "these two are one thing". */
+  --ss:#8B5CF6; --ss-soft:#C4B5FD;
 }

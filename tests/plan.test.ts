@@ -47,7 +47,9 @@ import {
   deriveWeeklyTarget,
   isBuiltInWeekdayMap,
   isDefaultPlan,
+  isSuperset,
   isTabView,
+  legalPairs,
   libraryExercises,
   defaultDay,
   makeResolver,
@@ -63,6 +65,9 @@ import {
   resolveTab,
   savePlan,
   scheduleTabs,
+  supersetPairOf,
+  supersetPairs,
+  supersetPartner,
   validatePlanDoc,
   viewDayKey,
 } from '../src/core/plan.ts';
@@ -1148,5 +1153,195 @@ describe('deriveWeeklyTarget', () => {
     expect(deriveWeeklyTarget(days)).toBe(2);
     expect(assignedWeekdays(days)).toEqual([0, 3]);
     expect(deriveWeeklyTarget([])).toBe(1);
+  });
+});
+
+/* -------------------------------------------------------------- supersets */
+
+/**
+ * SUPERSETS live in the PLAN and nowhere else.
+ *
+ * The properties that matter here are the ones the workout screen and the
+ * merge rest on: a pair is two ADJACENT exercises of the same day, an exercise
+ * belongs to at most one pair, an illegal pair is DROPPED on the way in (a
+ * document from another device must still open) and REFUSED on the way out (a
+ * save from the editor must never silently lose a link), and a payload written
+ * before the field existed still folds — which is what makes the whole feature
+ * additive: no new event type, no state version.
+ */
+describe('supersets', () => {
+  /** Day A of the built-in program with its first two exercises linked. */
+  function paired(): { doc: PlanDoc; day: PlanDay; a: string; b: string; c: string } {
+    const doc = defaultPlanDoc();
+    const day = pday(doc, 'A');
+    const a = day.exercises[0]?.id ?? '';
+    const b = day.exercises[1]?.id ?? '';
+    const c = day.exercises[2]?.id ?? '';
+    day.supersets = [[a, b]];
+    return { doc, day, a, b, c };
+  }
+
+  it('is absent by default — the built-in program has no supersets at all', () => {
+    const doc = defaultPlanDoc();
+    for (const day of doc.days) {
+      expect(day.supersets).toBeUndefined();
+      expect(supersetPairs(day)).toEqual([]);
+    }
+    expect(JSON.stringify(planToRecord(doc))).not.toContain('supersets');
+  });
+
+  it('answers the two questions the workout screen asks: pairs, and who is my partner', () => {
+    const { day, a, b, c } = paired();
+    expect(supersetPairs(day)).toEqual([[a, b]]);
+    expect(supersetPartner(day, a)).toBe(b);
+    expect(supersetPartner(day, b)).toBe(a);
+    expect(supersetPartner(day, c)).toBeNull();
+    expect(supersetPartner(null, a)).toBeNull();
+    expect(supersetPairOf(day, b)).toEqual([a, b]);
+    expect(supersetPairOf(day, c)).toBeNull();
+    expect(isSuperset(day, a)).toBe(true);
+    expect(isSuperset(day, c)).toBe(false);
+  });
+
+  it('keeps only pairs that are adjacent, present, in order and unclaimed', () => {
+    const rows = ['x1', 'x2', 'x3', 'x4'].map((id) => ({ id, sets: 3, reps: '10', rest: 90 }));
+    expect(legalPairs([['x1', 'x2']], rows)).toEqual([['x1', 'x2']]);
+    expect(legalPairs([['x1', 'x2'], ['x3', 'x4']], rows)).toEqual([['x1', 'x2'], ['x3', 'x4']]);
+    // not adjacent
+    expect(legalPairs([['x1', 'x3']], rows)).toEqual([]);
+    // adjacent but backwards — the pair is ORDERED, first then second
+    expect(legalPairs([['x2', 'x1']], rows)).toEqual([]);
+    // an id this day does not have
+    expect(legalPairs([['x1', 'nope']], rows)).toEqual([]);
+    // one exercise cannot be in two pairs: the first claim wins, the rest go
+    expect(legalPairs([['x1', 'x2'], ['x2', 'x3']], rows)).toEqual([['x1', 'x2']]);
+    // junk of every shape
+    expect(legalPairs([['x1', 'x1']], rows)).toEqual([]);
+    expect(legalPairs(undefined, rows)).toEqual([]);
+    expect(legalPairs([['x1'] as unknown as readonly [string, string]], rows)).toEqual([]);
+  });
+
+  it('survives the JSON round trip of a real document, pair and all', () => {
+    const { doc, a, b } = paired();
+    const back = normalizePlanDoc(JSON.parse(JSON.stringify(planToRecord(doc))) as unknown);
+    expect(back).not.toBeNull();
+    expect(supersetPairs(pday(back as PlanDoc, 'A'))).toEqual([[a, b]]);
+  });
+
+  it('DROPS an illegal pair on the way in instead of refusing the document', () => {
+    const { doc, a, c } = paired();
+    // a document from another device (or a hand-edited blob) claiming a pair
+    // across a gap: the plan still opens, it simply has no link.
+    pday(doc, 'A').supersets = [[a, c]];
+    const back = normalizePlanDoc(planToRecord(doc));
+    expect(back).not.toBeNull();
+    expect(pday(back as PlanDoc, 'A').supersets).toBeUndefined();
+    expect(pday(back as PlanDoc, 'A').exercises).toHaveLength(pday(doc, 'A').exercises.length);
+  });
+
+  it('drops a pair whose row was removed, and keeps the surviving half', () => {
+    const { doc, a, b } = paired();
+    const day = pday(doc, 'A');
+    day.exercises = day.exercises.filter((r) => r.id !== b);
+    const back = normalizePlanDoc(planToRecord(doc));
+    expect(pday(back as PlanDoc, 'A').supersets).toBeUndefined();
+    expect(pday(back as PlanDoc, 'A').exercises.some((r) => r.id === a)).toBe(true);
+  });
+
+  it('folds a payload that predates the field — no supersets, no key', () => {
+    const raw = planToRecord(defaultPlanDoc()) as { days: unknown[] };
+    // exactly what an older client wrote: days with no `supersets` at all
+    expect(JSON.stringify(raw)).not.toContain('supersets');
+    const back = normalizePlanDoc(raw);
+    expect(back).not.toBeNull();
+    for (const day of (back as PlanDoc).days) expect(day.supersets).toBeUndefined();
+  });
+
+  it('clones deeply — a pair of the clone is not a pair of the original', () => {
+    const { doc, a, b } = paired();
+    const copy = clonePlanDoc(doc);
+    expect(supersetPairs(pday(copy, 'A'))).toEqual([[a, b]]);
+    pday(copy, 'A').supersets = [];
+    expect(supersetPairs(pday(doc, 'A'))).toEqual([[a, b]]);
+  });
+
+  it('counts as an unsaved change, and stops counting once saved', () => {
+    const { doc } = paired();
+    expect(planIsDirty(doc, null)).toBe(true);
+    const store = new LocalStore(fakeStorage());
+    const res = savePlan(store, doc);
+    expect(res.ok).toBe(true);
+    // the key ORDER has to round-trip too: `planIsDirty` compares JSON
+    expect(planIsDirty(store.getState().plan as PlanDoc, store.getState().plan)).toBe(false);
+  });
+
+  /* ------------------------------------------------------------ validation */
+
+  it('validates an adjacent pair and refuses every other kind', () => {
+    const { doc, a, b, c } = paired();
+    expect(validatePlanDoc(doc)).toEqual([]);
+
+    const gap = clonePlanDoc(doc);
+    pday(gap, 'A').supersets = [[a, c]];
+    expect(validatePlanDoc(gap).join(' ')).toContain('סמוכים');
+
+    const missing = clonePlanDoc(doc);
+    pday(missing, 'A').supersets = [[a, 'nope']];
+    expect(validatePlanDoc(missing).join(' ')).toContain('שאינו ביום הזה');
+
+    const twice = clonePlanDoc(doc);
+    pday(twice, 'A').supersets = [[a, b], [b, c]];
+    expect(validatePlanDoc(twice).join(' ')).toContain('סופר־סט אחד');
+  });
+
+  it('refuses to SAVE an invalid pair and appends no event', () => {
+    const { doc, a, c } = paired();
+    pday(doc, 'A').supersets = [[a, c]];
+    const store = new LocalStore(fakeStorage());
+    const res = savePlan(store, doc);
+    expect(res.ok).toBe(false);
+    expect(store.getEvents().filter((e) => e.type === 'plan_updated')).toHaveLength(0);
+    expect(store.getState().plan).toBeNull();
+  });
+
+  /* ------------------------------------------------------------- the fold */
+
+  it('travels in the plan_updated payload and folds back out of the log', () => {
+    const { doc, a, b } = paired();
+    const store = new LocalStore(fakeStorage());
+    const res = savePlan(store, doc);
+    expect(res.ok).toBe(true);
+    expect(supersetPairs(pday(store.getState().plan as PlanDoc, 'A'))).toEqual([[a, b]]);
+
+    const folded = planFromEvents(store.getEvents());
+    expect(supersetPairs(pday(folded as PlanDoc, 'A'))).toEqual([[a, b]]);
+    // …and the generic replay agrees with the plan-only fold, as always
+    const replayed = rebuildFromEvents(store.getEvents());
+    expect(JSON.stringify(replayed.plan)).toBe(JSON.stringify(store.getState().plan));
+  });
+
+  it('is last-writer-wins like any other plan edit, in both merge orders', () => {
+    const { doc, a, b } = paired();
+    const linked = eventOf('plan_updated', 1000, 'e1', { plan: planToRecord(doc) });
+    const unlinked = eventOf('plan_updated', 2000, 'e2', { plan: planToRecord(defaultPlanDoc()) });
+    expect(pday(planFromEvents([linked, unlinked]) as PlanDoc, 'A').supersets).toBeUndefined();
+    expect(pday(planFromEvents([unlinked, linked]) as PlanDoc, 'A').supersets).toBeUndefined();
+    // the other way round, the link is what stands
+    const later = eventOf('plan_updated', 3000, 'e3', { plan: planToRecord(doc) });
+    for (const log of [[unlinked, later], [later, unlinked]]) {
+      expect(supersetPairs(pday(planFromEvents(log) as PlanDoc, 'A'))).toEqual([[a, b]]);
+    }
+  });
+
+  it('reaches the workout screen through resolveProgram unchanged', () => {
+    // The resolved program is exercises only — the linkage stays in the plan,
+    // which is exactly why the built-in program can never have one.
+    const { doc, a, b } = paired();
+    const program = resolveProgram(doc);
+    const day = rday(program, 'A');
+    expect(day.exercises[0]?.id).toBe(a);
+    expect(day.exercises[1]?.id).toBe(b);
+    expect(supersetPairs(planDay(doc, 'A'))).toEqual([[a, b]]);
+    expect(supersetPairs(planDay(null, 'A'))).toEqual([]);
   });
 });

@@ -9,13 +9,24 @@
 
 const FLY_MS = 1150;
 
+/**
+ * One floating label: plain text, or text plus an extra class.
+ *
+ * The class exists for the superset fly-up, which sends up the tapped
+ * exercise's XP in the usual green and its partner's in violet (`ss`) from the
+ * same ✓ — one tap, two exercises paid.
+ */
+export type FlyLine = string | { text: string; cls?: string };
+
 /** Float "+8 XP חזה!" labels up from an anchor element (usually the ✓ button). */
-export function flyXp(anchor: Element, texts: readonly string[]): void {
+export function flyXp(anchor: Element, texts: readonly FlyLine[]): void {
   if (texts.length === 0 || typeof document === 'undefined') return;
   const rect = anchor.getBoundingClientRect();
-  texts.forEach((text, i) => {
+  texts.forEach((line, i) => {
+    const text = typeof line === 'string' ? line : line.text;
+    const cls = typeof line === 'string' ? '' : (line.cls ?? '');
     const el = document.createElement('div');
-    el.className = 'xp-fly';
+    el.className = cls ? `xp-fly ${cls}` : 'xp-fly';
     el.textContent = text;
     el.style.left = `${rect.left + rect.width / 2}px`;
     el.style.top = `${rect.top + rect.height / 2 - i * 20}px`;

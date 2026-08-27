@@ -50,6 +50,8 @@ import {
   defaultPlanDoc,
   deriveWeeklyTarget,
   isDefaultPlan,
+  isSuperset,
+  legalPairs,
   libraryExercises,
   makePlanDay,
   makeResolver,
@@ -59,6 +61,9 @@ import {
   planIsDirty,
   planRows,
   savePlan,
+  supersetPairs,
+  supersetPartner,
+  type SupersetPair,
 } from '../core/plan.ts';
 import { PLAN_PRESETS, presetById } from '../data/presets.ts';
 import type { DataStore } from '../storage/DataStore.ts';
@@ -199,13 +204,31 @@ function targetText(doc: PlanDoc): string {
   return `יעד שבועי: ${doc.weeklyTarget} ימי אימון (משפיע על רצף השבוע המושלם)`;
 }
 
-function rowHtml(doc: PlanDoc, row: PlanExercise, idx: number, total: number): string {
+/**
+ * ONE row card. `tag` is `li` for a row that stands on its own (the row IS the
+ * list item) and `div` for a row inside a `.pl-ss-pair` — the pair is then the
+ * list item, which is what keeps the list valid HTML while a superset renders
+ * as one bracketed block.
+ *
+ * `shared` marks the two fields a superset SHARES (sets + rest): both rows show
+ * the same number and editing either one moves both, so they are drawn as one
+ * value rather than as two that happen to agree.
+ */
+function rowHtml(
+  doc: PlanDoc,
+  row: PlanExercise,
+  idx: number,
+  total: number,
+  tag: 'li' | 'div' = 'li',
+  shared = false,
+): string {
   const def = makeResolver(doc)(row.id);
   const name = def ? def.he : row.id;
   const en = def ? def.en : '';
   const unit = def ? def.unit : 'חזרות';
   const custom = isCustomId(row.id);
-  return `<li class="pl-row" data-row="${esc(row.id)}">
+  const sh = shared ? ' rest-shared' : '';
+  return `<${tag} class="pl-row" data-row="${esc(row.id)}">
     <div class="pl-row-head">
       <span class="pl-idx">${idx + 1}</span>
       <div class="pl-names">
@@ -220,7 +243,7 @@ function rowHtml(doc: PlanDoc, row: PlanExercise, idx: number, total: number): s
       </div>
     </div>
     <div class="pl-fields">
-      <label class="pl-field">
+      <label class="pl-field${sh}">
         <span>סטים</span>
         <input type="number" inputmode="numeric" min="${PLAN_LIMITS.minSets}" max="${PLAN_LIMITS.maxSets}"
           value="${row.sets}" data-edit="sets" data-id="${esc(row.id)}">
@@ -230,12 +253,78 @@ function rowHtml(doc: PlanDoc, row: PlanExercise, idx: number, total: number): s
         <input type="text" maxlength="${PLAN_LIMITS.maxRepsLength}" value="${esc(row.reps)}"
           data-edit="reps" data-id="${esc(row.id)}">
       </label>
-      <label class="pl-field">
+      <label class="pl-field${sh}">
         <span>מנוחה (שנ׳)</span>
         <input type="number" inputmode="numeric" step="5" min="${PLAN_LIMITS.minRest}" max="${PLAN_LIMITS.maxRest}"
           value="${row.rest}" data-edit="rest" data-id="${esc(row.id)}">
       </label>
     </div>
+  </${tag}>`;
+}
+
+/* --------------------------------------------------------- superset rows */
+
+/**
+ * The day's rows, with every superset welded into ONE bracketed block and a 🔗
+ * control between every two adjacent rows.
+ *
+ * The control is what CREATES a link, so it lives between the rows it would
+ * join — the gesture and the result are in the same place. A row that is
+ * already half of a superset shows the control DISABLED toward its other
+ * neighbours: an exercise belongs to at most one pair, and hiding the control
+ * outright would make the list jump around as pairs are made and broken.
+ */
+function rowsHtml(doc: PlanDoc, day: PlanDay): string {
+  const rows = day.exercises;
+  const out: string[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    const row = rows[i];
+    if (!row) break;
+    const next = rows[i + 1];
+    const pair = supersetPairs(day).find((p) => p[0] === row.id);
+    if (pair && next && next.id === pair[1]) {
+      out.push(pairHtml(doc, row, next, i, rows.length));
+      i += 2;
+    } else {
+      out.push(rowHtml(doc, row, i, rows.length));
+      i += 1;
+    }
+    // …and the control toward whatever comes next, if anything does.
+    const last = rows[i - 1];
+    const after = rows[i];
+    if (last && after) out.push(linkHtml(doc, day, last, after));
+  }
+  return out.join('');
+}
+
+/** The dashed "🔗 צרו סופר־סט" pill between two rows that are not linked. */
+function linkHtml(doc: PlanDoc, day: PlanDay, a: PlanExercise, b: PlanExercise): string {
+  const resolve = makeResolver(doc);
+  const nameA = resolve(a.id)?.he ?? a.id;
+  const nameB = resolve(b.id)?.he ?? b.id;
+  const taken = isSuperset(day, a.id) || isSuperset(day, b.id);
+  const title = taken ? 'התרגיל כבר משובץ בסופר־סט אחר' : `קישור ${nameA} ו${nameB} לסופר־סט`;
+  return `<li class="pl-sslink">
+    <button type="button" data-sslink="${esc(a.id)}" ${taken ? 'disabled' : ''}
+      title="${esc(title)}" aria-label="${esc(title)}">🔗 צרו סופר־סט</button>
+  </li>`;
+}
+
+/** Two linked rows: one violet bracket, one shared rest, one way out of it. */
+function pairHtml(doc: PlanDoc, a: PlanExercise, b: PlanExercise, idx: number, total: number): string {
+  const resolve = makeResolver(doc);
+  const nameA = resolve(a.id)?.he ?? a.id;
+  const nameB = resolve(b.id)?.he ?? b.id;
+  return `<li class="pl-ss-pair" data-ss-pair="${esc(a.id)}">
+    <span class="pl-ss-tag">🔗 סופר־סט</span>
+    ${rowHtml(doc, a, idx, total, 'div', true)}
+    <div class="pl-sslink on">
+      <button type="button" data-ssunlink="${esc(a.id)}"
+        aria-label="${esc(`ביטול הסופר־סט בין ${nameA} ל${nameB}`)}">🔗 מקושר · ביטול</button>
+    </div>
+    ${rowHtml(doc, b, idx + 1, total, 'div', true)}
+    <div class="pl-ss-rest-note">⏱ מנוחה משותפת — נספרת פעם אחת, אחרי שני התרגילים</div>
   </li>`;
 }
 
@@ -342,7 +431,7 @@ export function renderPlanEditor(main: HTMLElement, deps: PlanEditorDeps): void 
   <section class="plan-editor">
     ${dayTabs(doc)}
     ${dayCard(doc, day)}
-    <ol class="pl-rows">${rows.map((r, i) => rowHtml(doc, r, i, rows.length)).join('')}</ol>
+    <ol class="pl-rows">${rowsHtml(doc, day)}</ol>
     ${rows.length === 0 ? '<p class="gc-note pl-empty">היום עדיין ריק — הוסיפו לפחות תרגיל אחד לפני השמירה. 🏋️</p>' : ''}
     <button class="pl-add" id="plAdd">+ הוספת תרגיל</button>
     <div class="pl-actions">
@@ -467,6 +556,7 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
       else {
         const n = Number.parseInt(inp.value, 10);
         if (Number.isFinite(n)) row[field] = n;
+        syncPair(main, doc, row, field);
       }
       markDirty(main, deps);
     });
@@ -483,8 +573,24 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
         const fallback = field === 'sets' ? NEW_ROW_DEFAULTS.sets : NEW_ROW_DEFAULTS.rest;
         row[field] = Math.min(hi, Math.max(lo, Number.isFinite(n) ? n : fallback));
         inp.value = String(row[field]);
+        syncPair(main, doc, row, field);
       }
       markDirty(main, deps);
+    });
+  });
+
+  /* ------------------------------------------------- superset link / unlink */
+  main.querySelectorAll<HTMLButtonElement>('[data-sslink]').forEach((b) => {
+    b.addEventListener('click', () => {
+      if (b.disabled) return;
+      linkSuperset(doc, b.dataset['sslink'] ?? '');
+      refresh();
+    });
+  });
+  main.querySelectorAll<HTMLButtonElement>('[data-ssunlink]').forEach((b) => {
+    b.addEventListener('click', () => {
+      unlinkSuperset(doc, b.dataset['ssunlink'] ?? '');
+      refresh();
     });
   });
 
@@ -514,6 +620,8 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
       if (!confirm(`להסיר את ${def ? def.he : id} מ${activeLabel(doc)}?`)) return;
       const idx = rows.findIndex((r) => r.id === id);
       if (idx >= 0) rows.splice(idx, 1);
+      // A removed row takes its superset with it — the other half stays, alone.
+      setPairs(activeDayOf(doc), supersetPairs(activeDayOf(doc)));
       refresh();
     });
   });
@@ -648,11 +756,20 @@ function toggleWeekday(doc: PlanDoc, day: PlanDay, wd: number): void {
   // An empty list is stored as NO field at all, exactly like `makePlanDay` does,
   // so a document compares equal to itself after a save round trip.
   if ((day.weekdays ?? []).length === 0) delete day.weekdays;
+  // …and the key ORDER has to match `makePlanDay`'s too (weekdays, then
+  // supersets), because `planIsDirty` compares documents by their JSON: a
+  // weekday switched off and on again must not look like an unsaved change.
+  const pairs = day.supersets;
+  if (pairs) {
+    delete day.supersets;
+    day.supersets = pairs;
+  }
   doc.weeklyTarget = deriveWeeklyTarget(doc.days);
 }
 
 function move(doc: PlanDoc, id: string, delta: number): void {
-  const rows = rowsOf(doc, activeDay);
+  const day = activeDayOf(doc);
+  const rows = day.exercises;
   const idx = rows.findIndex((r) => r.id === id);
   const next = idx + delta;
   if (idx < 0 || next < 0 || next >= rows.length) return;
@@ -661,6 +778,78 @@ function move(doc: PlanDoc, id: string, delta: number): void {
   if (!a || !b) return;
   rows[idx] = b;
   rows[next] = a;
+  // Swapping the two halves of a superset keeps the superset — they are still
+  // next to each other, the user merely chose to do the other one first — so
+  // the pair is rewritten in the new order instead of being torn up. Every
+  // OTHER move pulls a row out of adjacency, and `setPairs` drops the link.
+  setPairs(
+    day,
+    supersetPairs(day).map((p) => (p[0] === a.id && p[1] === b.id ? ([b.id, a.id] as SupersetPair) : p)),
+  );
+}
+
+/* ------------------------------------------------------------- supersets */
+
+/**
+ * Write the day's pairs back, keeping them LEGAL (both ids present, adjacent,
+ * each exercise in at most one pair) and in the day's own order.
+ *
+ * Every structural edit routes through here, which is what makes "a move or a
+ * removal that separates a pair breaks the link" a property of the draft rather
+ * than a rule each button has to remember. An empty list is stored as no field
+ * at all, so a day without supersets serialises exactly as it did before this
+ * feature existed.
+ */
+function setPairs(day: PlanDay, pairs: readonly SupersetPair[]): void {
+  const index = new Map(day.exercises.map((r, i) => [r.id, i] as const));
+  const legal = legalPairs(pairs, day.exercises).sort(
+    (p, q) => (index.get(p[0]) ?? 0) - (index.get(q[0]) ?? 0),
+  );
+  if (legal.length > 0) day.supersets = legal;
+  else delete day.supersets;
+}
+
+/**
+ * Link a row to the one BELOW it, and make the two numbers a superset shares
+ * agree at once: one rest (the first row's — it is the rest of the pair) and
+ * the larger of the two set counts, so neither exercise silently loses a set.
+ * Reps stay independent; a superset is two different exercises.
+ */
+function linkSuperset(doc: PlanDoc, id: string): void {
+  const day = activeDayOf(doc);
+  const rows = day.exercises;
+  const idx = rows.findIndex((r) => r.id === id);
+  const a = rows[idx];
+  const b = rows[idx + 1];
+  if (!a || !b) return;
+  if (isSuperset(day, a.id) || isSuperset(day, b.id)) return;
+  const sets = Math.max(a.sets, b.sets);
+  a.sets = sets;
+  b.sets = sets;
+  b.rest = a.rest;
+  setPairs(day, [...supersetPairs(day), [a.id, b.id]]);
+}
+
+/** Break the pair that starts at `id` — the rows and their numbers stay put. */
+function unlinkSuperset(doc: PlanDoc, id: string): void {
+  const day = activeDayOf(doc);
+  setPairs(day, supersetPairs(day).filter((p) => p[0] !== id));
+}
+
+/**
+ * Mirror a shared number onto the partner row — draft AND input, without a
+ * re-render, exactly like every other inline edit here (a re-render would steal
+ * the caret mid-number).
+ */
+function syncPair(main: HTMLElement, doc: PlanDoc, row: PlanExercise, field: 'sets' | 'rest'): void {
+  const day = activeDayOf(doc);
+  const partnerId = supersetPartner(day, row.id);
+  if (!partnerId) return;
+  const partner = day.exercises.find((r) => r.id === partnerId);
+  if (!partner) return;
+  partner[field] = row[field];
+  const el = main.querySelector<HTMLInputElement>(`[data-edit="${field}"][data-id="${partnerId}"]`);
+  if (el) el.value = String(partner[field]);
 }
 
 function addRow(doc: PlanDoc, id: string): void {

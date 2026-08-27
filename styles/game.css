@@ -10,6 +10,8 @@
   animation:xpFly 1.15s cubic-bezier(.2,.7,.3,1) forwards;
 }
 .xp-fly.bonus{color:var(--warn); font-size:15px}
+/* The partner half of a superset grant — same tap, the other exercise. */
+.xp-fly.ss{color:var(--ss-soft)}
 @keyframes xpFly{
   0%{opacity:0; transform:translate(-50%,-50%) scale(.75)}
   18%{opacity:1; transform:translate(-50%,-70%) scale(1.08)}

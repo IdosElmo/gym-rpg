@@ -68,6 +68,39 @@
   width:38px; height:38px; border-radius:11px; border:2px solid var(--line);
   background:var(--card-2); color:transparent; font-size:18px; font-weight:900;
   display:flex; align-items:center; justify-content:center; margin:0 auto; transition:.15s;
+  position:relative;
 }
 .chk.on{background:var(--ok); border-color:var(--ok); color:#06281D}
 .rest-hint{font-size:11px; color:var(--dim); text-align:center; margin-top:4px}
+
+/* ---------- Superset: two cards welded into one group ----------
+   The group owns what the pair shares — the chip, the "no rest between"
+   joint and the single rest line — while each card keeps its own numbers,
+   its own history and its own green done-all. */
+.ss-group{
+  position:relative; margin-bottom:14px; padding:5px;
+  border:1.5px solid var(--ss); border-radius:calc(var(--radius) + 4px);
+  background:#8B5CF608;
+}
+.ss-group .ex-card{margin-bottom:0; border-color:transparent}
+.ss-group.done-all{border-color:var(--ok)}
+.ss-head{display:flex; align-items:center; gap:8px; padding:8px 10px 6px; flex-wrap:wrap}
+.ss-chip{
+  background:var(--ss); color:#fff; font-size:11px; font-weight:900;
+  border-radius:99px; padding:3px 12px; letter-spacing:.04em;
+}
+.ss-sub{font-size:11px; color:var(--ss-soft); font-weight:600}
+.ss-joint{display:flex; align-items:center; gap:8px; padding:7px 8px}
+.ss-joint::before,.ss-joint::after{content:""; flex:1; height:1px; background:#8B5CF640}
+.ss-joint span{
+  font-size:10.5px; font-weight:800; color:var(--ss-soft);
+  background:#8B5CF61A; border:1px solid #8B5CF640; border-radius:99px; padding:3px 11px;
+}
+.ss-rest{font-size:11px; color:var(--ss-soft); text-align:center; padding:7px 0 5px; font-weight:600}
+.badge.superset{color:var(--ss-soft); border-color:#8B5CF640; background:#8B5CF614}
+/* a checkbox that was completed BY its twin carries the little link mark */
+.chk .twin{
+  position:absolute; top:-7px; inset-inline-end:-7px; width:17px; height:17px;
+  border-radius:50%; background:var(--ss); color:#fff; font-size:9px;
+  display:grid; place-items:center; pointer-events:none;
+}
