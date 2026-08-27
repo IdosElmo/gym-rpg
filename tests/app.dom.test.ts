@@ -61,7 +61,7 @@ function currentDay(store: LocalStore): BuiltInDayKey {
   return view;
 }
 
-/** The three main tabs, in order. */
+/** The four main tabs, in order. */
 function hubs(): HTMLElement[] {
   return [...document.querySelectorAll<HTMLElement>('#tabs .hub-row .hub')];
 }
@@ -98,9 +98,9 @@ function openDay(date: string): HTMLElement {
 }
 
 describe('workout screen', () => {
-  it('renders the 3 hubs + the 3 day tabs of the built-in plan, and the day exercise cards', () => {
+  it('renders the 4 hubs + the 3 day tabs of the built-in plan, and the day exercise cards', () => {
     const { store } = mount();
-    expect(hubs()).toHaveLength(3);
+    expect(hubs()).toHaveLength(4);
     expect(innerTabs()).toHaveLength(3);
     const view = currentDay(store);
     expect(document.querySelectorAll('#main .ex-card')).toHaveLength(PROGRAM[view].exercises.length);
@@ -215,7 +215,7 @@ describe('schedule-expanded day tabs', () => {
     // The four occurrences are the WHOLE inner row now: דמות/קרב/היסטוריה moved
     // into their own hubs, so a four-day split no longer overflows anything.
     expect(tabs()).toHaveLength(4);
-    expect(hubs()).toHaveLength(3);
+    expect(hubs()).toHaveLength(4);
     expect(tabs().slice(0, 4).map((t) => t.dataset['view'])).toEqual([
       `${alef}@0`,
       `${bet}@2`,
@@ -253,7 +253,7 @@ describe('schedule-expanded day tabs', () => {
     if (!res.ok) throw new Error(res.errors.join(', '));
     mount(store);
     expect(tabs()).toHaveLength(6);
-    expect(hubs()).toHaveLength(3);
+    expect(hubs()).toHaveLength(4);
     expect(document.querySelector('#tabs .sub-row')?.classList.contains('scroll')).toBe(true);
   });
 
@@ -358,12 +358,12 @@ describe('history screen', () => {
 /* ------------------------------------------------------ two-level navigation */
 
 /**
- * The main bar is exactly three hubs — אימון / קרב / הגדרות — and the second
- * row is whatever that hub contains. The hub is DERIVED from `ui.view`, so no
- * stored view had to move for this: every id the app ever persisted still names
- * the same screen, and now also names the hub that screen lives in.
+ * The main bar is exactly four hubs — אימון / קרב / תזונה / הגדרות — and the
+ * second row is whatever that hub contains. The hub is DERIVED from `ui.view`,
+ * so no stored view had to move for this: every id the app ever persisted still
+ * names the same screen, and now also names the hub that screen lives in.
  */
-describe('the three-hub navigation', () => {
+describe('the four-hub navigation', () => {
   function hubIds(): (string | undefined)[] {
     return hubs().map((h) => h.dataset['hub']);
   }
@@ -372,17 +372,17 @@ describe('the three-hub navigation', () => {
     return hubs().find((h) => h.classList.contains('active'))?.dataset['hub'];
   }
 
-  it('always shows exactly three main tabs, whatever screen is open', () => {
+  it('always shows exactly four main tabs, whatever screen is open', () => {
     const { store, render } = mount();
-    for (const view of ['A', 'B', 'C', 'CH', 'BT', 'H', 'ST', 'PL']) {
+    for (const view of ['A', 'B', 'C', 'CH', 'BT', 'H', 'ST', 'PL', 'NT']) {
       store.update((d) => {
         d.ui.view = view;
       });
       render();
-      expect(hubIds()).toEqual(['TR', 'GM', 'SE']);
+      expect(hubIds()).toEqual(['TR', 'GM', 'NU', 'SE']);
       expect(hubs().filter((h) => h.classList.contains('active'))).toHaveLength(1);
     }
-    expect(HUBS.map((h) => h.title)).toEqual(['אימון', 'קרב', 'הגדרות']);
+    expect(HUBS.map((h) => h.title)).toEqual(['אימון', 'קרב', 'תזונה', 'הגדרות']);
   });
 
   it('derives the hub from every view id the store can hold', () => {
@@ -393,6 +393,7 @@ describe('the three-hub navigation', () => {
     expect(hubOf('BT')).toBe('GM');
     expect(hubOf('CH')).toBe('GM');
     expect(hubOf('LG')).toBe('GM');
+    expect(hubOf('NT')).toBe('NU');
     expect(hubOf('ST')).toBe('SE');
     expect(hubOf('H')).toBe('SE');
     expect(hubOf('SS')).toBe('SE');
@@ -415,6 +416,7 @@ describe('the three-hub navigation', () => {
     expect(of('BT')).toBe('GM');
     expect(of('CH')).toBe('GM');
     expect(of('LG')).toBe('GM');
+    expect(of('NT')).toBe('NU');
     expect(of('ST')).toBe('SE');
     expect(of('H')).toBe('SE');
     expect(of('SS')).toBe('SE');
@@ -429,6 +431,10 @@ describe('the three-hub navigation', () => {
     expect(innerTabs()[0]?.textContent).toContain('קרב');
     expect(innerTabs()[1]?.textContent).toContain('דמות');
     expect(innerTabs()[2]?.textContent).toContain('ליגה');
+
+    clickHub('NU');
+    expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['NT']);
+    expect(innerTabs()[0]?.textContent).toContain('תזונה');
 
     clickHub('SE');
     expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['ST', 'H', 'SS']);

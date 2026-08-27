@@ -29,6 +29,7 @@ import {
   resolveProgram,
 } from '../core/plan.ts';
 import type { PlanDoc } from '../data/planTypes.ts';
+import { applyNutritionEvent, emptyNutrition, normalizeNutrition } from '../core/nutrition.ts';
 import { todayISO } from '../core/workout.ts';
 import {
   buildRetroactiveGrants,
@@ -92,11 +93,16 @@ export const LEGACY_UI_KEY = 'hyp3_ui_v1';
  * v3 (editable plans): `plan: PlanDoc | null` joined the state. The step is a
  * pure addition — a v2 blob simply had no plan, i.e. the built-in program.
  * v4 (variable-day plans): the plan document itself went to v2 (days became an
- * ordered array with their own keys, labels and weekdays, plus a weeklyTarget).
+ * ordered array with their own keys, labels and weeklyTarget).
  * The step re-routes the cached plan through `normalizePlanDoc`, which performs
  * the document migration; the rest of the state is untouched.
+ * v5 (the 🍽️ nutrition tracker): `nutrition` joined the state. A pure addition —
+ * a v4 blob simply has no meals. An empty cache is CORRECT here (unlike the
+ * GameState ledgers): a v4 build could not create meal events locally, and any
+ * that were round-tripped through the cloud replay into the cache on the very
+ * next rebuild, because the log — not this blob — is the source of truth.
  */
-export const CURRENT_STATE_VERSION = 4;
+export const CURRENT_STATE_VERSION = 5;
 /**
  * Bump when the shape of `EventLog` changes.
  * v2 (merge-safe core): events may carry an optional `device` stamp and the log
@@ -152,6 +158,7 @@ export function emptyState(now: number = Date.now()): AppState {
     ui: emptyUi(new Date(now)),
     game: null,
     plan: null,
+    nutrition: emptyNutrition(),
     meta: { legacyImported: false, createdAt: now, updatedAt: now },
   };
 }
@@ -641,7 +648,11 @@ const STATE_MIGRATIONS: ReadonlyArray<(blob: Record<string, unknown>) => Record<
   // and the log — which is the source of truth — needs no rewriting at all,
   // because `plan_updated` payloads are normalised on every fold.
   (blob) => ({ ...blob, plan: normalizePlanDoc(blob['plan']), schemaVersion: 4 }),
-  // 4 -> 5: (future) add your step here and bump CURRENT_STATE_VERSION.
+  // 4 -> 5: the nutrition tracker. A v4 blob has no meals; the slot is routed
+  // through `normalizeNutrition` anyway, so a blob that somehow carries one is
+  // validated rather than trusted (same argument as the plan slot above).
+  (blob) => ({ ...blob, nutrition: normalizeNutrition(blob['nutrition']), schemaVersion: 5 }),
+  // 5 -> 6: (future) add your step here and bump CURRENT_STATE_VERSION.
 ];
 
 function readVersion(blob: Record<string, unknown>): number {
@@ -687,6 +698,7 @@ export function migrateState(raw: unknown, now: number = Date.now()): AppState {
     ui: normalizeUi(blob['ui'], new Date(now), plan),
     game: normalizeGame(blob['game']),
     plan,
+    nutrition: normalizeNutrition(blob['nutrition']),
     meta: {
       legacyImported: metaRaw['legacyImported'] === true,
       createdAt,
@@ -1134,8 +1146,10 @@ export function rebuildFromEvents(events: readonly AppEvent[], now: number = Dat
       case 'data_cleared':
         state.sessions = {};
         // A wipe returns the app to the built-in program too, exactly like a
-        // fresh install: the plan is data, and this event erases data.
+        // fresh install: the plan is data, and this event erases data — and so
+        // is the meal tracker.
         state.plan = null;
+        state.nutrition = emptyNutrition();
         break;
       /**
        * The training plan is LAST-WRITER-WINS: the whole document travels in
@@ -1145,6 +1159,14 @@ export function rebuildFromEvents(events: readonly AppEvent[], now: number = Dat
        */
       case 'plan_updated':
         state.plan = normalizePlanDoc(p['plan']);
+        break;
+      // The 🍽️ meal tracker — one shared fold for live path and replay (see
+      // core/nutrition.ts): per-id idempotent meals, tombstone deletes, LWW
+      // targets. All order-free, so a union merge folds identically both ways.
+      case 'meal_logged':
+      case 'meal_deleted':
+      case 'nutrition_targets_set':
+        applyNutritionEvent(state.nutrition, ev.type, p);
         break;
       /**
        * A JSON import carries a snapshot of the sessions it brought in. Folding

@@ -3,13 +3,14 @@
  *
  * THE NAV IS TWO ROWS (see ui/nav.ts for the model):
  *
- *   * the HUB row — exactly three fixed, equal-width tabs, never scrolling:
- *     🏋️ אימון, 🎮 קרב, ⚙️ הגדרות. It is the same three tabs on every screen,
- *     so the thing you press to change context never moves under your thumb.
+ *   * the HUB row — exactly four fixed, equal-width tabs, never scrolling:
+ *     🏋️ אימון, 🎮 קרב, 🍽️ תזונה, ⚙️ הגדרות. It is the same four tabs on every
+ *     screen, so the thing you press to change context never moves under your
+ *     thumb.
  *   * the INNER row — the tabs OF the active hub, at a lighter visual weight:
  *     the plan's workout occurrences for אימון (`scheduleTabs`, see
- *     core/plan.ts), קרב/דמות/🏆 ליגה for the game, הגדרות/היסטוריה/📊
- *     סטטיסטיקות for settings.
+ *     core/plan.ts), קרב/דמות/🏆 ליגה for the game, 🍽️ תזונה for nutrition,
+ *     הגדרות/היסטוריה/📊 סטטיסטיקות for settings.
  *     Only this row can ever scroll, and only when a plan defines more workout
  *     occurrences than fit.
  *
@@ -37,7 +38,9 @@
  */
 
 import { dayOf } from '../data/program.ts';
-import { fmtDate, lastLoggedDate } from '../core/workout.ts';
+import { fmtDate, lastLoggedDate, todayISO } from '../core/workout.ts';
+import { dayTotals } from '../core/nutrition.ts';
+import type { NutritionAiPort } from '../nutrition/aiPort.ts';
 import {
   defaultTabView,
   isDefaultPlan,
@@ -61,12 +64,14 @@ import {
   GAME_TABS,
   HUBS,
   HUB_HOME,
+  NUTRITION_TABS,
   SETTINGS_TABS,
   hubOf,
   isRememberableInner,
   type HubId,
   type InnerTab,
 } from './nav.ts';
+import { renderNutrition } from './nutrition.ts';
 import { renderPlanEditor, resetPlanDraft } from './planEditor.ts';
 import { renderSettings, type SettingsDeps } from './settings.ts';
 import { renderStats } from './stats.ts';
@@ -99,6 +104,12 @@ export interface AppHooks {
    * history) is local and works offline either way.
    */
   league?: LeagueCloudDeps;
+  /**
+   * The Gemini calorie-estimation port for the 🍽️ תזונה screen. Absent = the
+   * ✨ estimate button is not rendered at all — the offline app's normal state;
+   * manual logging works identically either way.
+   */
+  nutrition?: { ai: NutritionAiPort };
   /** Fired at the end of every full render (lets main.ts clear a deferred repaint). */
   onRender?: () => void;
 }
@@ -125,6 +136,7 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
   const lastInner: Record<HubId, ViewKey> = {
     TR: defaultTabView(store.getState().plan),
     GM: HUB_HOME.GM ?? 'BT',
+    NU: HUB_HOME.NU ?? 'NT',
     SE: HUB_HOME.SE ?? 'ST',
   };
   rememberInner(returnView);
@@ -135,9 +147,9 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     if (isRememberableInner(v)) lastInner[hubOf(v)] = v;
   }
 
-  /** True for the seven screens that are not a workout day. */
+  /** True for the eight screens that are not a workout day. */
   function isScreen(v: ViewKey): boolean {
-    return v === 'CH' || v === 'BT' || v === 'H' || v === 'PL' || v === 'ST' || v === 'SS' || v === 'LG';
+    return v === 'CH' || v === 'BT' || v === 'H' || v === 'PL' || v === 'ST' || v === 'SS' || v === 'LG' || v === 'NT';
   }
 
   /**
@@ -216,6 +228,7 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
    */
   function innerTabs(hub: HubId): readonly InnerTab[] {
     if (hub === 'GM') return GAME_TABS;
+    if (hub === 'NU') return NUTRITION_TABS;
     if (hub === 'SE') return SETTINGS_TABS;
     return scheduleTabs(resolveProgram(store.getState().plan)).map((t) => ({
       viewId: t.viewId,
@@ -255,7 +268,7 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
 
     const hubLabel = HUBS.find((h) => h.id === hub)?.innerLabel ?? '';
     // Only the INNER row can ever scroll, and only past four tabs — a five- to
-    // seven-day plan. The three main tabs are fixed, so the thing you press to
+    // seven-day plan. The four main tabs are fixed, so the thing you press to
     // change context never moves.
     tabsEl.innerHTML = `
     <div class="hub-row" role="tablist" aria-label="ניווט ראשי">${hubRow}</div>
@@ -264,7 +277,7 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     tabsEl.querySelectorAll<HTMLButtonElement>('.hub').forEach((b) => {
       b.addEventListener('click', () => {
         const h = b.dataset['hub'];
-        if (h === 'TR' || h === 'GM' || h === 'SE') setHub(h);
+        if (h === 'TR' || h === 'GM' || h === 'NU' || h === 'SE') setHub(h);
       });
     });
     tabsEl.querySelectorAll<HTMLButtonElement>('.tab').forEach((b) => {
@@ -300,6 +313,12 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     if (view === 'SS') {
       headerEl.innerHTML = `<h1 class="app-title">סטטיסטיקות <span class="en">Stats</span></h1>
       <p class="day-meta">כל מה שהאימונים שלכם מסתכמים אליו</p>${energyPill()}`;
+      return;
+    }
+    if (view === 'NT') {
+      const totals = dayTotals(state.nutrition, todayISO());
+      headerEl.innerHTML = `<h1 class="app-title">תזונה <span class="en">Nutrition</span></h1>
+      <p class="day-meta">היום: <b>${totals.calories}</b> קלוריות · <b>${totals.protein}</b> גרם חלבון</p>${energyPill()}`;
       return;
     }
     if (view === 'PL') {
@@ -384,6 +403,17 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     renderLeague(mainEl, { store, rerender: renderLeagueScreen, ...(hooks.league ? { cloud: hooks.league } : {}) });
   }
 
+  /**
+   * Repaint the 🍽️ screen in place after logging or deleting a meal: the
+   * totals in the header and the cards below both change, and re-rendering the
+   * whole shell would reset the scroll and the half-typed form state.
+   */
+  function renderNutritionScreen(): void {
+    if (store.getState().ui.view !== 'NT') return;
+    renderHeader();
+    renderNutrition(mainEl, { store, rerender: renderNutritionScreen, ...(hooks.nutrition ? { ai: hooks.nutrition.ai } : {}) });
+  }
+
   /** Re-render the editor in place (draft edits must not reset the scroll). */
   function renderPlanScreen(): void {
     if (store.getState().ui.view !== 'PL') return;
@@ -423,6 +453,8 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       renderHistory(mainEl, { store });
     } else if (view === 'SS') {
       renderStats(mainEl, { store });
+    } else if (view === 'NT') {
+      renderNutrition(mainEl, { store, rerender: renderNutritionScreen, ...(hooks.nutrition ? { ai: hooks.nutrition.ai } : {}) });
     } else if (view === 'LG') {
       renderLeague(mainEl, { store, rerender: renderLeagueScreen, ...(hooks.league ? { cloud: hooks.league } : {}) });
     } else if (view === 'PL') {

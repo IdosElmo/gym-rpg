@@ -1,0 +1,61 @@
+/* ---------- 🍽️ תזונה — the meal tracker screen ---------- */
+
+/* Day navigation: two arrows around the date, all thumb-sized. */
+.nt-daynav{display:flex; align-items:center; justify-content:space-between; gap:8px; margin:2px 0 12px}
+.nt-daynav .action-btn{flex:0 0 auto; width:auto; min-width:96px; min-height:44px; margin:0}
+.nt-daynav .action-btn.ghost{color:var(--muted)}
+.nt-daynav .action-btn[disabled]{opacity:.4}
+.nt-date{font-size:14px; font-weight:700}
+
+/* Totals: one row per number, a quiet bar only when a target exists. */
+.nt-totals .nt-total-row{margin:10px 0 0}
+.nt-total{font-size:14px}
+.nt-total b{font-size:16px}
+.nt-bar{
+  height:8px; margin-top:6px; border-radius:99px; overflow:hidden;
+  background:var(--card-2); border:1px solid var(--line);
+}
+.nt-bar-fill{height:100%; border-radius:99px; background:var(--accent); transition:width .25s}
+/* Over target IS "attention" — the one legitimate use of --warn here. */
+.nt-bar-fill.over{background:var(--warn)}
+@media (prefers-reduced-motion: reduce){ .nt-bar-fill{transition:none} }
+
+/* The meal list. */
+.nt-meals{list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:8px}
+.nt-meal{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  background:var(--card-2); border:1px solid var(--line); border-radius:11px;
+  padding:9px 12px;
+}
+.nt-meal-main{display:flex; align-items:baseline; gap:8px; min-width:0}
+.nt-meal-name{font-size:14px; font-weight:600; overflow-wrap:anywhere}
+.nt-meal-time{font-size:11.5px}
+.nt-ai{font-size:12px}
+.nt-meal-nums{display:flex; align-items:center; gap:10px; flex:0 0 auto; font-size:12.5px; color:var(--muted)}
+.nt-del{
+  background:none; border:none; color:var(--danger); font-size:16px;
+  min-width:44px; min-height:44px; margin:-8px -10px -8px 0;
+}
+
+/* The add form. */
+.nt-add .nt-field{display:block; font-size:12.5px; color:var(--muted); margin-top:10px}
+.nt-targets .nt-field{display:block; font-size:12.5px; color:var(--muted); margin-top:10px}
+.nt-field .inp{display:block; width:100%; margin-top:5px}
+.nt-field-row{display:flex; gap:10px}
+.nt-field-row .nt-field{flex:1 1 0; min-width:0}
+.nt-add .action-btn, .nt-targets .action-btn{width:100%; margin-top:12px; min-height:46px}
+.nt-est-row{display:flex; gap:10px; margin-top:10px}
+.nt-est-row .action-btn{flex:1; margin-top:0; min-height:44px}
+.nt-est-row .action-btn.ghost{flex:0 0 auto; width:auto; min-width:56px; color:var(--muted)}
+.nt-photo-clear{background:none; border:none; color:var(--danger); font-size:12px; font-weight:700; padding:4px 6px}
+
+/* The 7-day strip. */
+.nt-week{list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:6px}
+.nt-day{
+  display:flex; align-items:baseline; justify-content:space-between; gap:8px;
+  font-size:12.5px; color:var(--muted); padding:5px 2px;
+  border-bottom:1px solid var(--line);
+}
+.nt-day:last-child{border-bottom:none}
+.nt-day.today{color:var(--text); font-weight:700}
+.nt-day-nums{flex:0 0 auto}

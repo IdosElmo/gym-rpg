@@ -135,11 +135,11 @@ describe('plan editor entry points', () => {
 
   it('does NOT add a tab to either row of the nav', () => {
     mount();
-    expect(document.querySelectorAll('#tabs .hub')).toHaveLength(3);
+    expect(document.querySelectorAll('#tabs .hub')).toHaveLength(4);
     expect(document.querySelectorAll('#tabs .tab')).toHaveLength(3);
     openEditor();
     // the editor lives in the אימון hub but claims no tab of its own
-    expect(document.querySelectorAll('#tabs .hub')).toHaveLength(3);
+    expect(document.querySelectorAll('#tabs .hub')).toHaveLength(4);
     expect(document.querySelectorAll('#tabs .tab')).toHaveLength(3);
     expect(document.querySelectorAll('#tabs .tab.active')).toHaveLength(0);
     // the nav still works as an escape hatch

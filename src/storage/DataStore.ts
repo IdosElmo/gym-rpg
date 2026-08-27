@@ -41,29 +41,31 @@ export interface Session {
 }
 
 /**
- * A day key = one workout screen, plus seven RESERVED keys: `CH` = דמות,
+ * A day key = one workout screen, plus eight RESERVED keys: `CH` = דמות,
  * `BT` = קרב (battle), `LG` = ליגה (the 🏆 monthly league), `ST` = הגדרות
  * (settings), `H` = היסטוריה, `SS` = סטטיסטיקות (the 📊 screen),
- * `PL` = תוכנית (the plan editor). A plan may not use those as day keys
- * (`isDayKey` refuses them).
+ * `PL` = תוכנית (the plan editor), `NT` = תזונה (the 🍽️ meal tracker).
+ * A plan may not use those as day keys (`isDayKey` refuses them).
  *
- * The nav is TWO levels (see `ui/nav.ts`): three fixed hubs, each with its own
+ * The nav is TWO levels (see `ui/nav.ts`): four fixed hubs, each with its own
  * inner tab row. Every view above belongs to exactly one hub — day keys and
- * `PL` to אימון, `BT`/`CH`/`LG` to קרב, `ST`/`H`/`SS` to הגדרות — so the stored
- * view alone still decides the whole screen, exactly as it did with one flat bar.
+ * `PL` to אימון, `BT`/`CH`/`LG` to קרב, `NT` to תזונה, `ST`/`H`/`SS` to הגדרות —
+ * so the stored view alone still decides the whole screen, exactly as it did
+ * with one flat bar.
  *
  * `PL` deliberately has NO tab of its own: it is reached from the ⚙️ button in
  * the workout header and from the plan card on the settings screen.
  *
  * `ST` was the ONE view id the two-level redesign added; `SS` (📊 סטטיסטיקות,
- * the settings hub's third inner tab) came with the statistics screen, and `LG`
- * (🏆 הליגה, the game hub's third inner tab) is the newest.
+ * the settings hub's third inner tab) came with the statistics screen, `LG`
+ * (🏆 הליגה, the game hub's third inner tab) with the league, and `NT` — the
+ * first view to bring a whole hub with it — is the newest.
  * Everything a build ever persisted — including a bare `'H'` — is still a valid
  * view and still lands on the screen it always named: view ids are only ever
  * ADDED, never renamed or reused, which is what makes an install left on any
  * older screen open on exactly that screen after the update.
  */
-export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL' | 'ST' | 'SS' | 'LG';
+export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL' | 'ST' | 'SS' | 'LG' | 'NT';
 
 export interface UiState {
   view: ViewKey;
@@ -502,6 +504,14 @@ export interface AppState {
    * `PROGRAM` object itself, so nothing about the app changes until a save.
    */
   plan: PlanDoc | null;
+  /**
+   * The 🍽️ meal tracker — meals, delete-tombstones and daily targets. Like
+   * `sessions` and `plan`, a CACHE of the log: folded from `meal_logged` /
+   * `meal_deleted` / `nutrition_targets_set` by `rebuildFromEvents` via the one
+   * shared fold in core/nutrition.ts. Deliberately NOT part of `GameState` —
+   * meals grant nothing, so the game's version and reducers never move for it.
+   */
+  nutrition: NutritionState;
   meta: AppMeta;
 }
 
@@ -556,7 +566,14 @@ export type EventType =
   // Phase 4 — editable plans and multi-device merges (declared here so an older
   // build can already round-trip them; both reducers ignore what they don't know)
   | 'plan_updated'
-  | 'data_merged';
+  | 'data_merged'
+  // Phase 12 — the 🍽️ nutrition tracker. Meals grant NOTHING (no XP, energy or
+  // coins), so `applyGameEvent` never handles these; they fold into
+  // `state.nutrition` beside sessions/plan (see core/nutrition.ts). One meal per
+  // event, idempotent per meal ID; deletion is a tombstone; targets are LWW.
+  | 'meal_logged'
+  | 'meal_deleted'
+  | 'nutrition_targets_set';
 
 export interface AppEvent {
   readonly id: string;
@@ -1115,6 +1132,80 @@ export interface DataMergedPayload extends Record<string, unknown> {
   added: number;
   /** Device the events came from, when they all share one. */
   from?: string;
+}
+
+/* ------------------------------------------- Phase 12 nutrition payloads */
+
+/** Where a meal's numbers came from. Display-only — nothing re-derives them. */
+export type MealSource = 'manual' | 'gemini_text' | 'gemini_photo';
+
+/** Bookkeeping of an AI estimation, kept on the meal for the 🤖 marker. */
+export interface MealAiInfo {
+  model: string;
+  confidence: 'low' | 'medium' | 'high';
+  /** What the model thought it saw ("אורז", "חזה עוף"…). */
+  items: string[];
+}
+
+/**
+ * ONE logged meal. `id` — a uuid minted at log time — is THE idempotency key:
+ * the fold applies the FIRST `meal_logged` per id in the `(ts, id)` order and
+ * ignores every duplicate, so two devices' logs merge without collisions.
+ */
+export interface MealLoggedPayload extends Record<string, unknown> {
+  id: string;
+  /** 'YYYY-MM-DD' — the day the meal belongs to. */
+  date: string;
+  name: string;
+  calories: number;
+  /** grams */
+  protein: number;
+  /** 'HH:MM' for display, or ''. */
+  time: string;
+  source: MealSource;
+  ai?: MealAiInfo;
+}
+
+/**
+ * Deletion is a TOMBSTONE, not a removal: the id joins a monotone set, so
+ * delete-before-log and log-before-delete converge under union merge, and a
+ * "re-added" meal (a new uuid) is never resurrected-by-mistake.
+ */
+export interface MealDeletedPayload extends Record<string, unknown> {
+  id: string;
+}
+
+/**
+ * Daily targets, carried WHOLE — last `nutrition_targets_set` in the `(ts, id)`
+ * order wins, exactly the `plan_updated` rule. `null` = no target.
+ */
+export interface NutritionTargetsPayload extends Record<string, unknown> {
+  calories: number | null;
+  protein: number | null;
+}
+
+export interface NutritionTargets {
+  calories: number | null;
+  protein: number | null;
+}
+
+/** The stored shape of one meal (the payload minus its id, post-validation). */
+export interface MealRecord {
+  date: string;
+  name: string;
+  calories: number;
+  protein: number;
+  time: string;
+  source: MealSource;
+  ai?: MealAiInfo;
+}
+
+export interface NutritionState {
+  /** By meal id; the fold keeps the FIRST write per id. */
+  meals: Record<string, MealRecord>;
+  /** Tombstones — union-monotone, never pruned. */
+  deleted: Record<string, true>;
+  targets: NutritionTargets;
 }
 
 /* ------------------------------------------------------------------ store */

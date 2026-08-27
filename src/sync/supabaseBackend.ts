@@ -63,6 +63,9 @@ const GHOST_COLUMNS = 'handle,payload,updated_at';
 /** הליגה: one row per (account, closed week) — see `supabase/schema.sql`. */
 const LEAGUE_TABLE = 'league_weeks';
 
+/** The Edge Function that proxies Gemini for the 🍽️ nutrition tracker. */
+const ESTIMATE_FUNCTION = 'estimate-meal';
+
 /**
  * Columns a league lookup reads. Without `user_id`, exactly like `GHOST_COLUMNS`:
  * a month lookup hands back scores and a name, never an account identifier.
@@ -82,9 +85,19 @@ export interface SupabaseSyncOptions {
   redirectTo?: string;
 }
 
+/** The raw outcome of one Edge Function call. `status: 0` = never got an HTTP answer. */
+export type EstimateInvokeResult = { ok: true; data: unknown } | { ok: false; status: number };
+
 export interface SupabaseSync {
   backend: SyncBackend;
   auth: AuthPort;
+  /**
+   * POST the `estimate-meal` Edge Function — the Gemini proxy for the 🍽️
+   * nutrition tracker. The function holds the Gemini API key as a SERVER-SIDE
+   * secret and requires the signed-in user's JWT, which supabase-js attaches on
+   * its own; no key and no third-party origin ever exist in this bundle.
+   */
+  invokeEstimate(body: Record<string, unknown>): Promise<EstimateInvokeResult>;
 }
 
 /* --------------------------------------------------------------- helpers */
@@ -343,5 +356,22 @@ export function createSupabaseSync(opts: SupabaseSyncOptions): SupabaseSync | nu
     },
   };
 
-  return { backend, auth };
+  /** The 🍽️ Gemini proxy — see `supabase/functions/estimate-meal/`. */
+  async function invokeEstimate(body: Record<string, unknown>): Promise<EstimateInvokeResult> {
+    try {
+      const { data, error } = await db().functions.invoke(ESTIMATE_FUNCTION, { body });
+      if (error) {
+        // FunctionsHttpError carries the Response as `context`; a network-level
+        // FunctionsFetchError has none, which reads as status 0 = "no answer".
+        const ctx = (error as { context?: unknown }).context;
+        const status = typeof Response !== 'undefined' && ctx instanceof Response ? ctx.status : 0;
+        return { ok: false, status };
+      }
+      return { ok: true, data };
+    } catch {
+      return { ok: false, status: 0 };
+    }
+  }
+
+  return { backend, auth, invokeEstimate };
 }
