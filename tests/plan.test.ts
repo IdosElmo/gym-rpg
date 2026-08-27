@@ -597,15 +597,15 @@ describe('the plan_updated fold', () => {
 
 /* ------------------------------------------------------------- persistence */
 
-describe('state schema v4', () => {
-  it('is at version 4 and carries a plan slot', () => {
-    expect(CURRENT_STATE_VERSION).toBe(4);
+describe('state schema v5', () => {
+  it('is at version 5 and carries a plan slot', () => {
+    expect(CURRENT_STATE_VERSION).toBe(5);
     const store = new LocalStore(fakeStorage());
     expect(store.getState().plan).toBeNull();
-    expect(store.getState().schemaVersion).toBe(4);
+    expect(store.getState().schemaVersion).toBe(5);
   });
 
-  it('migrates an old v2 blob (no plan field) to v3 with plan: null', () => {
+  it('migrates an old v2 blob (no plan field) to the current version with plan: null', () => {
     const v2 = {
       schemaVersion: 2,
       sessions: { '2025-01-05': { day: 'A', ex: { a1: [{ w: '40', r: '10', done: true }] } } },
@@ -614,7 +614,7 @@ describe('state schema v4', () => {
       meta: { legacyImported: true, createdAt: 1, updatedAt: 1 },
     };
     const state = migrateState(v2, Date.parse('2025-05-02T10:00:00Z'));
-    expect(state.schemaVersion).toBe(4);
+    expect(state.schemaVersion).toBe(CURRENT_STATE_VERSION);
     expect(state.plan).toBeNull();
     expect(state.sessions['2025-01-05']).toBeDefined();
   });

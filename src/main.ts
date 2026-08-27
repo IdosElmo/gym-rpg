@@ -26,6 +26,7 @@ import { publishableWeeks } from './core/leagueSync.ts';
 import { todayISO } from './core/workout.ts';
 import { defaultDay } from './core/plan.ts';
 import { createDevApi } from './dev/actions.ts';
+import { createEdgeAiPort } from './nutrition/edgePort.ts';
 import { devGateOpen } from './dev/gate.ts';
 import { attachDevApi, detachDevApi } from './dev/window.ts';
 import { devResetCooldowns } from './ui/battle.ts';
@@ -315,6 +316,15 @@ function wireSync(store: DataStore): SyncWiring {
       settings: settingsHooks,
       ghost,
       league,
+      // The 🍽️ Gemini port — the Edge Function proxy. Only a signed-in session
+      // renders the ✨ button (`configured()`), and only a configured build has
+      // the port at all: the inert branch above returns `hooks: {}`.
+      nutrition: {
+        ai: createEdgeAiPort({
+          invoke: (body) => supabase.invokeEstimate(body),
+          isSignedIn: () => isSignedIn(status),
+        }),
+      },
       onRender: () => {
         deferred = false;
       },

@@ -15,6 +15,9 @@
  *                 from a tab of its own.
  *   🎮 קרב     — the game hub: קרב (`BT`), דמות (`CH`) and 🏆 ליגה (`LG` — the
  *                 monthly leaderboard fought with weekly 🔵).
+ *   🍽️ תזונה   — the nutrition hub: the meal tracker (`NT`), its single inner
+ *                 tab. A hub of its own because logging a meal is a daily act
+ *                 like training, not a setting you visit.
  *   ⚙️ הגדרות  — the settings hub: הגדרות (`ST` — account, plan card, data
  *                 actions), היסטוריה (`H` — the workout log + the feed) and
  *                 📊 סטטיסטיקות (`SS` — what that log adds up to).
@@ -29,8 +32,8 @@
 
 import type { ViewKey } from '../storage/DataStore.ts';
 
-/** The three fixed hubs of the main bar. */
-export type HubId = 'TR' | 'GM' | 'SE';
+/** The four fixed hubs of the main bar. */
+export type HubId = 'TR' | 'GM' | 'NU' | 'SE';
 
 export interface Hub {
   readonly id: HubId;
@@ -45,6 +48,7 @@ export interface Hub {
 export const HUBS: readonly Hub[] = [
   { id: 'TR', icon: '🏋️', title: 'אימון', innerLabel: 'ימי האימון' },
   { id: 'GM', icon: '🎮', title: 'קרב', innerLabel: 'מסכי המשחק' },
+  { id: 'NU', icon: '🍽️', title: 'תזונה', innerLabel: 'מעקב תזונה' },
   { id: 'SE', icon: '⚙️', title: 'הגדרות', innerLabel: 'הגדרות והיסטוריה' },
 ] as const;
 
@@ -93,13 +97,21 @@ export const SETTINGS_TABS: readonly InnerTab[] = [
 ] as const;
 
 /**
- * The hub a view belongs to. TOTAL: anything that is not one of the six
+ * The nutrition hub's inner row — one tab in v1. Day navigation (אתמול/מחר)
+ * lives INSIDE the screen, because "which day am I looking at" is reading
+ * state, not navigation between kinds of destination.
+ */
+export const NUTRITION_TABS: readonly InnerTab[] = [{ viewId: 'NT', title: '🍽️ תזונה', subtitle: '' }] as const;
+
+/**
+ * The hub a view belongs to. TOTAL: anything that is not one of the seven
  * reserved non-training screens is a workout day, and workout days are the
  * training hub — which is also the right answer for a day key this build has
  * never seen (one minted by a plan on another device).
  */
 export function hubOf(view: string): HubId {
   if (view === 'BT' || view === 'CH' || view === 'LG') return 'GM';
+  if (view === 'NT') return 'NU';
   if (view === 'ST' || view === 'H' || view === 'SS') return 'SE';
   return 'TR'; // every day view, and the plan editor
 }
@@ -113,6 +125,7 @@ export function hubOf(view: string): HubId {
 export const HUB_HOME: Readonly<Record<HubId, ViewKey | null>> = {
   TR: null,
   GM: 'BT',
+  NU: 'NT',
   SE: 'ST',
 };
 
