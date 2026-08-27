@@ -1001,3 +1001,184 @@ describe('no stray timers', () => {
     spy.mockRestore();
   });
 });
+
+/* ---------------------------------------------------------------- supersets */
+
+/**
+ * The 🔗 control, the pair it makes, and the two numbers a pair shares.
+ *
+ * All of it is DRAFT work: nothing reaches the store until 💾, and then the
+ * link travels inside the ONE `plan_updated` event the editor has always
+ * appended — there is no superset event, and there is nothing to migrate.
+ */
+describe('supersets in the plan editor', () => {
+  const A0 = PROGRAM.A.exercises[0]?.id ?? '';
+  const A1 = PROGRAM.A.exercises[1]?.id ?? '';
+  const A2 = PROGRAM.A.exercises[2]?.id ?? '';
+
+  function links(): HTMLButtonElement[] {
+    return [...document.querySelectorAll<HTMLButtonElement>('[data-sslink]')];
+  }
+
+  function field(kind: 'sets' | 'reps' | 'rest', id: string): HTMLInputElement {
+    const el = document.querySelector<HTMLInputElement>(`[data-edit="${kind}"][data-id="${id}"]`);
+    if (!el) throw new Error(`no ${kind} input for ${id}`);
+    return el;
+  }
+
+  /** The pair of the saved day A, as the stored document holds it. */
+  function savedPairs(store: LocalStore): readonly (readonly [string, string])[] {
+    return store.getState().plan?.days.find((d) => d.key === 'A')?.supersets ?? [];
+  }
+
+  it('offers a 🔗 control between every two adjacent rows', () => {
+    mount();
+    openEditor();
+    expect(links()).toHaveLength(PROGRAM.A.exercises.length - 1);
+    expect(links()[0]?.textContent).toContain('צרו סופר־סט');
+    expect(document.querySelector('.pl-ss-pair')).toBeNull();
+  });
+
+  it('links two rows: one bracketed pair, the tag, and the shared numbers agree', () => {
+    mount();
+    openEditor();
+    // different numbers on the two rows first, so the sync is visible
+    type(`[data-edit="rest"][data-id="${A0}"]`, '120');
+    type(`[data-edit="rest"][data-id="${A1}"]`, '45');
+    type(`[data-edit="sets"][data-id="${A1}"]`, '5');
+
+    click(`[data-sslink="${A0}"]`);
+
+    const pair = document.querySelector('.pl-ss-pair');
+    expect(pair).not.toBeNull();
+    expect(pair?.querySelector('.pl-ss-tag')?.textContent).toContain('סופר־סט');
+    expect([...(pair?.querySelectorAll('.pl-row') ?? [])].map((r) => (r as HTMLElement).dataset['row']))
+      .toEqual([A0, A1]);
+    expect(pair?.querySelector('.pl-ss-rest-note')?.textContent).toContain('מנוחה משותפת');
+    // rest := the FIRST row's, sets := the larger of the two
+    expect(field('rest', A0).value).toBe('120');
+    expect(field('rest', A1).value).toBe('120');
+    expect(field('sets', A0).value).toBe('5');
+    expect(field('sets', A1).value).toBe('5');
+    // …and the row order of the day is untouched
+    expect(rowIds()).toEqual(PROGRAM.A.exercises.map((e) => e.id));
+  });
+
+  it('marks the shared fields, and lets the reps of the two stay different', () => {
+    mount();
+    openEditor();
+    click(`[data-sslink="${A0}"]`);
+    type(`[data-edit="reps"][data-id="${A0}"]`, '6–8');
+    expect(field('reps', A0).value).toBe('6–8');
+    expect(field('reps', A1).value).toBe(PROGRAM.A.exercises[1]?.reps);
+    const shared = document.querySelectorAll('.pl-ss-pair .pl-field.rest-shared');
+    expect(shared).toHaveLength(4); // sets + rest, on both rows
+  });
+
+  it('moves rest and sets of a linked pair together, whichever row is edited', () => {
+    const { store } = mount();
+    openEditor();
+    click(`[data-sslink="${A0}"]`);
+
+    type(`[data-edit="rest"][data-id="${A1}"]`, '75');
+    expect(field('rest', A0).value).toBe('75');
+    type(`[data-edit="sets"][data-id="${A0}"]`, '4');
+    expect(field('sets', A1).value).toBe('4');
+
+    click('#plSave');
+    const day = store.getState().plan?.days.find((d) => d.key === 'A');
+    const rows = day?.exercises.filter((r) => r.id === A0 || r.id === A1) ?? [];
+    expect(rows.map((r) => r.rest)).toEqual([75, 75]);
+    expect(rows.map((r) => r.sets)).toEqual([4, 4]);
+  });
+
+  it('refuses to let an exercise join two pairs', () => {
+    mount();
+    openEditor();
+    click(`[data-sslink="${A0}"]`);
+    // the control between the pair's second row and the row after it is dead
+    const next = document.querySelector<HTMLButtonElement>(`[data-sslink="${A1}"]`);
+    expect(next?.disabled).toBe(true);
+    next?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(document.querySelectorAll('.pl-ss-pair')).toHaveLength(1);
+  });
+
+  it('unlinks from inside the pair, leaving both rows and their numbers in place', () => {
+    const { store } = mount();
+    openEditor();
+    click(`[data-sslink="${A0}"]`);
+    expect(document.querySelector('[data-ssunlink]')?.textContent).toContain('ביטול');
+    click(`[data-ssunlink="${A0}"]`);
+    expect(document.querySelector('.pl-ss-pair')).toBeNull();
+    expect(rowIds()).toEqual(PROGRAM.A.exercises.map((e) => e.id));
+    click('#plSave');
+    expect(savedPairs(store)).toEqual([]);
+  });
+
+  it('breaks the link when a move pulls the two rows apart', () => {
+    mount();
+    openEditor();
+    click(`[data-sslink="${A1}"]`); // pair = rows 2 + 3
+    expect(document.querySelectorAll('.pl-ss-pair')).toHaveLength(1);
+    click(`[data-up="${A1}"]`); // …and now row 2 is row 1: no longer adjacent
+    expect(rowIds().slice(0, 3)).toEqual([A1, A0, A2]);
+    expect(document.querySelector('.pl-ss-pair')).toBeNull();
+  });
+
+  it('keeps the link when the two halves merely swap places', () => {
+    mount();
+    openEditor();
+    click(`[data-sslink="${A0}"]`);
+    click(`[data-down="${A0}"]`); // still next to each other, other one first
+    expect(rowIds().slice(0, 2)).toEqual([A1, A0]);
+    const pair = document.querySelector('.pl-ss-pair');
+    expect(pair).not.toBeNull();
+    expect([...(pair?.querySelectorAll('.pl-row') ?? [])].map((r) => (r as HTMLElement).dataset['row']))
+      .toEqual([A1, A0]);
+  });
+
+  it('breaks the link when one of its rows is removed', () => {
+    const { store } = mount();
+    openEditor();
+    click(`[data-sslink="${A0}"]`);
+    click(`[data-remove="${A1}"]`);
+    expect(document.querySelector('.pl-ss-pair')).toBeNull();
+    expect(rowIds()).not.toContain(A1);
+    click('#plSave');
+    expect(savedPairs(store)).toEqual([]);
+  });
+
+  it('saves the pair in exactly ONE plan_updated event, and reloads with it', () => {
+    const { store } = mount();
+    openEditor();
+    click(`[data-sslink="${A0}"]`);
+    click('#plSave');
+
+    expect(planEvents(store)).toHaveLength(1);
+    const doc = planEvents(store)[0]?.payload['plan'] as { days: { key: string; supersets?: unknown }[] };
+    expect(doc.days.find((d) => d.key === 'A')?.supersets).toEqual([[A0, A1]]);
+    expect(savedPairs(store)).toEqual([[A0, A1]]);
+    // and the editor, reopened on the saved plan, shows the pair again
+    click('#plClose');
+    openEditor();
+    expect(document.querySelectorAll('.pl-ss-pair')).toHaveLength(1);
+    expect(document.getElementById('plHint')?.textContent).toContain('שמורה');
+  });
+
+  it('keeps links per day: switching days shows the other day’s own pairs', () => {
+    const { store } = mount();
+    openEditor();
+    click(`[data-sslink="${A0}"]`);
+    click('.pl-day[data-day="B"]');
+    expect(document.querySelector('.pl-ss-pair')).toBeNull();
+    const b0 = PROGRAM.B.exercises[0]?.id ?? '';
+    click(`[data-sslink="${b0}"]`);
+    expect(document.querySelectorAll('.pl-ss-pair')).toHaveLength(1);
+    click('.pl-day[data-day="A"]');
+    expect(document.querySelectorAll('.pl-ss-pair')).toHaveLength(1);
+    click('#plSave');
+    expect(savedPairs(store)).toEqual([[A0, A1]]);
+    expect(store.getState().plan?.days.find((d) => d.key === 'B')?.supersets)
+      .toEqual([[b0, PROGRAM.B.exercises[1]?.id]]);
+  });
+});

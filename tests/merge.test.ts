@@ -30,9 +30,11 @@ import {
 import { compareEvents } from '../src/core/xp.ts';
 import { upgradeStepCost } from '../src/core/upgrades.ts';
 import { equipmentById } from '../src/data/gameContent.ts';
+import { defaultPlanDoc, savePlan } from '../src/core/plan.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import { mergeIntoStore } from '../src/storage/merge.ts';
 import type { AppEvent, AppState } from '../src/storage/DataStore.ts';
+import type { PlanDoc } from '../src/data/planTypes.ts';
 import { findExercise, type Exercise } from '../src/data/program.ts';
 import { LEGACY_KEY, rebuildFromEvents, type StorageLike } from '../src/storage/migrate.ts';
 
@@ -567,5 +569,75 @@ describe('a merge folds the account, not this install', () => {
     const reloaded = new LocalStore(storage);
     expect(reloaded.getState().sessions['2025-01-05']).toBeUndefined();
     expect(Object.keys(reloaded.getState().sessions)).toEqual([TODAY]);
+  });
+});
+
+/* --------------------------------------------------------------- supersets */
+
+/**
+ * A SUPERSET tap is two ordinary set events and two ordinary grants — the
+ * linkage itself lives in the plan, and the log is deliberately none the wiser.
+ * That is the claim this pins down: two devices whose logs contain paired taps
+ * (and the `plan_updated` that linked them) converge in either merge order,
+ * exactly like any other pair of sets. Nothing new is being tested here, and
+ * that is the point.
+ */
+describe('supersets ride on ordinary events', () => {
+  /** The two events + two grants ONE ✓ on a linked pair appends. */
+  function logSupersetTap(store: LocalStore, a: string, b: string, setIndex: number): void {
+    logSet(store, a, setIndex, '60', '10');
+    logSet(store, b, setIndex, '80', '12');
+  }
+
+  function pairedDevices(): { a: AppEvent[]; b: AppEvent[]; plan: PlanDoc } {
+    return withClock(1_700_000_000_000, () => {
+      const plan = defaultPlanDoc();
+      const day = plan.days.find((d) => d.key === 'A');
+      if (!day) throw new Error('no day A');
+      day.exercises = [
+        { id: 'a1', sets: 3, reps: '8–10', rest: 90 },
+        { id: 'a3', sets: 3, reps: '10–12', rest: 90 },
+      ];
+      day.supersets = [['a1', 'a3']];
+
+      const deviceA = new LocalStore(fakeStorage());
+      const res = savePlan(deviceA, plan);
+      if (!res.ok) throw new Error(res.errors.join(', '));
+      const shared = [...deviceA.getEvents()];
+
+      const deviceB = new LocalStore(fakeStorage());
+      deviceB.replaceAll(fold(shared), shared);
+
+      // both devices tap the pair — different sets, no coordination
+      logSupersetTap(deviceA, 'a1', 'a3', 0);
+      logSupersetTap(deviceB, 'a1', 'a3', 1);
+      return { a: [...deviceA.getEvents()], b: [...deviceB.getEvents()], plan };
+    });
+  }
+
+  it('converges in both merge orders, plan link and all', () => {
+    const { a, b } = pairedDevices();
+    const ab = fold(union(a, b));
+    const ba = fold(union(b, a));
+    expect(bytes(ba)).toBe(bytes(ab));
+    // the link survived the merge…
+    expect(ab.plan?.days.find((d) => d.key === 'A')?.supersets).toEqual([['a1', 'a3']]);
+    // …and so did both devices' work, on both exercises
+    const session = ab.sessions[TODAY];
+    expect(session?.ex['a1']?.filter((s) => s?.done)).toHaveLength(2);
+    expect(session?.ex['a3']?.filter((s) => s?.done)).toHaveLength(2);
+    expect(ab.game?.parts.legs.xp).toBeGreaterThan(0);
+    expect(ab.game?.parts.chest.xp).toBeGreaterThan(0);
+  });
+
+  it('pays each half exactly once, however the log is shuffled', () => {
+    const { a, b } = pairedDevices();
+    const merged = union(a, b);
+    const reference = bytes(fold(merged));
+    for (const seed of [3, 21, 512, 65_537]) {
+      expect(bytes(fold(shuffle(merged, seed)))).toBe(reference);
+    }
+    // re-delivering the same paired taps cannot pay twice
+    expect(bytes(fold(union(merged, a, b)))).toBe(reference);
   });
 });

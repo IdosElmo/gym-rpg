@@ -99,6 +99,39 @@
 .pl-field.block input,.pl-field.block select{text-align:start}
 .pl-field input:focus,.pl-field select:focus{outline:2px solid var(--accent); outline-offset:1px}
 
+/* Supersets -------------------------------------------------------------
+   The link control lives BETWEEN the two rows it would join, so the gesture
+   and its result are in the same place; a linked pair is then bracketed by a
+   violet rail with the two numbers it shares marked as shared. */
+.pl-sslink{display:flex; align-items:center; gap:8px; margin-block:-4px}
+.pl-sslink::before,.pl-sslink::after{content:""; flex:1; height:1px; background:var(--line)}
+/* 40px, not the mockup's 32: it is the smallest control this screen already
+   ships (.pl-mini), and a pill wedged between two rows needs the thumb room. */
+.pl-sslink button{
+  min-height:40px; border-radius:99px; padding:5px 14px; font-size:11.5px; font-weight:800;
+  background:var(--card); border:1px dashed var(--dim); color:var(--dim); transition:.15s;
+}
+.pl-sslink button:disabled{opacity:.4}
+.pl-sslink.on{margin:0}
+.pl-sslink.on button{border:1px solid var(--ss); color:var(--ss-soft); background:#8B5CF61A}
+
+.pl-ss-pair{
+  position:relative; display:flex; flex-direction:column; gap:0; padding:5px;
+  border:1.5px solid var(--ss); border-radius:calc(var(--radius) + 4px);
+  background:#8B5CF60A;
+}
+/* the floating tag hangs above the rail — the list's own gap makes room for
+   it everywhere except at the very top of the list */
+.pl-rows>.pl-ss-pair:first-child{margin-top:8px}
+.pl-ss-pair .pl-row{border-color:transparent; background:var(--card)}
+.pl-ss-tag{
+  position:absolute; top:-11px; inset-inline-start:14px;
+  background:var(--ss); color:#fff; font-size:10.5px; font-weight:900;
+  border-radius:99px; padding:3px 11px; letter-spacing:.04em;
+}
+.pl-ss-pair .pl-field.rest-shared input{border-color:#8B5CF666; color:var(--ss-soft)}
+.pl-ss-rest-note{font-size:10.5px; color:var(--ss-soft); text-align:center; padding:4px 0 2px}
+
 /* Actions --------------------------------------------------------------- */
 .pl-add{
   width:100%; min-height:46px; margin-top:12px;
