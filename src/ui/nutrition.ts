@@ -93,7 +93,7 @@ function totalsCard(n: NutritionState, date: string): string {
       ${bar(t.calories, g.calories)}
     </div>
     <div class="nt-total-row">
-      <span class="nt-total">🥩 <b>${t.protein}</b> גרם חלבון${g.protein !== null ? ` מתוך ${g.protein}` : ''}</span>
+      <span class="nt-total">💪 <b>${t.protein}</b> גרם חלבון${g.protein !== null ? ` מתוך ${g.protein}` : ''}</span>
       ${bar(t.protein, g.protein)}
     </div>
     <p class="gc-note dim">${t.meals === 0 ? 'עוד לא תועדו ארוחות ביום הזה' : `${t.meals} ארוחות תועדו`}</p>
@@ -121,7 +121,7 @@ function mealRowHtml(row: MealRow): string {
     </div>
     <div class="nt-meal-nums">
       <span>🔥 ${row.calories}</span>
-      <span>🥩 ${row.protein} ג׳</span>
+      <span>💪 ${row.protein} ג׳</span>
       <button class="nt-del" type="button" data-del="${esc(row.id)}" aria-label="מחיקת ${esc(row.name)}">🗑</button>
     </div>
   </li>`;
@@ -140,7 +140,7 @@ function mealsCard(n: NutritionState, date: string): string {
   </section>`;
 }
 
-function addCard(showAi: boolean): string {
+function addCard(showAi: boolean, date: string, today: string): string {
   const aiRow = showAi
     ? `
     <div class="nt-est-row">
@@ -151,9 +151,12 @@ function addCard(showAi: boolean): string {
     <p class="gc-note" id="ntPhotoNote" hidden>📷 תמונה צורפה <button class="nt-photo-clear" id="ntPhotoClear" type="button">הסרה</button></p>
     <p class="gc-note" id="ntEstMsg" role="status"></p>`
     : '';
+  // On a past day the card says WHERE the meal will land — a forgotten dinner
+  // is logged onto yesterday, not silently onto today.
+  const dayNote = date === today ? '' : ` <span class="gc-sub">ליום ${esc(fmtDate(date))}</span>`;
   return `
   <section class="game-card nt-add">
-    <div class="gc-title">הוספת ארוחה</div>
+    <div class="gc-title">הוספת ארוחה${dayNote}</div>
     <label class="nt-field">תיאור הארוחה
       <input class="inp" id="ntName" type="text" maxlength="120" autocomplete="off"
         placeholder="למשל: חזה עוף עם אורז וסלט">
@@ -182,7 +185,7 @@ function weekCard(n: NutritionState, today: string): string {
       (d) => `
     <li class="nt-day ${d.date === today ? 'today' : ''}">
       <span class="nt-day-date">${esc(fmtDate(d.date))}</span>
-      <span class="nt-day-nums">🔥 ${d.calories} · 🥩 ${d.protein} ג׳</span>
+      <span class="nt-day-nums">🔥 ${d.calories} · 💪 ${d.protein} ג׳</span>
     </li>`,
     )
     .join('');
@@ -227,7 +230,7 @@ export function nutritionHtml(n: NutritionState, date: string, today: string, sh
   ${dayNav(date, today)}
   ${totalsCard(n, date)}
   ${mealsCard(n, date)}
-  ${date === today ? addCard(showAi) : ''}
+  ${addCard(showAi, date, today)}
   ${weekCard(n, today)}
   ${targetsCard(n.targets)}`;
 }
@@ -249,6 +252,12 @@ function refresh(main: HTMLElement, deps: NutritionDeps): void {
 }
 
 /* ----------------------------------------------------------------- wiring */
+
+/** The wall clock as 'HH:MM' — display data, so the UI may read the clock. */
+function nowHHMM(): string {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
 
 function intOf(input: HTMLInputElement | null, max: number): number | null {
   const raw = (input?.value ?? '').trim();
@@ -305,12 +314,16 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
     // The estimate's byline survives only while its numbers do.
     const est = lastEstimate;
     const fromAi = est !== null && est.estimate.calories === calories && est.estimate.proteinG === protein;
+    const typedTime = timeInp?.value && /^\d{2}:\d{2}$/.test(timeInp.value) ? timeInp.value : '';
     const input: MealInput = {
       date,
       name,
       calories,
       protein,
-      time: timeInp?.value && /^\d{2}:\d{2}$/.test(timeInp.value) ? timeInp.value : '',
+      // No time typed: on TODAY the meal is stamped "now" — logging right after
+      // eating is the common case. On a past day "now" would be a lie, so the
+      // time stays empty unless the user says otherwise.
+      time: typedTime !== '' ? typedTime : date === today ? nowHHMM() : '',
       source: fromAi ? est.source : 'manual',
       ...(fromAi
         ? { ai: { model: 'gemini', confidence: est.estimate.confidence, items: est.estimate.items } }

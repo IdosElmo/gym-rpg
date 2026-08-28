@@ -149,14 +149,51 @@ describe('the תזונה screen', () => {
     expect(document.querySelectorAll('.nt-bar')).toHaveLength(2);
   });
 
-  it('walks a day back and hides the add form on a past day', () => {
-    mount();
+  it('walks a day back and still offers the add form — a forgotten dinner lands on yesterday', () => {
+    const { store } = mount();
     openNutrition();
     click('#ntPrev');
-    expect(document.querySelector('#ntAdd')).toBeNull();
     expect(document.querySelector<HTMLButtonElement>('#ntNext')?.disabled).toBe(false);
+    // the card says where the meal will land
+    expect(document.querySelector('.nt-add .gc-title')?.textContent).toContain('ליום');
+
+    type('#ntName', 'ארוחת ערב של אתמול');
+    type('#ntCal', '700');
+    click('#ntAdd');
+    const ev = store.getEvents().find((e) => e.type === 'meal_logged');
+    const today = new Date().toISOString().slice(0, 10);
+    expect(ev?.payload['date']).not.toBe(today);
+    expect(String(ev?.payload['date']) < today).toBe(true);
+    // "now" would be a lie on a past day — no time unless the user typed one
+    expect(ev?.payload['time']).toBe('');
+    // the meal renders on the past day's list, and today stays empty
+    expect(document.querySelector('.nt-meal-name')?.textContent).toBe('ארוחת ערב של אתמול');
     click('#ntNext');
-    expect(document.querySelector('#ntAdd')).not.toBeNull();
+    expect(document.querySelector('.nt-meal')).toBeNull();
+    expect(document.querySelector('.nt-add .gc-title')?.textContent).not.toContain('ליום');
+  });
+
+  it('stamps a meal logged today with the current time when none was typed', () => {
+    const { store } = mount();
+    openNutrition();
+    type('#ntName', 'שייק');
+    type('#ntCal', '300');
+    click('#ntAdd');
+    const ev = store.getEvents().find((e) => e.type === 'meal_logged');
+    expect(ev?.payload['time']).toMatch(/^\d{2}:\d{2}$/);
+  });
+
+  it('keeps a typed time over the current-time default', () => {
+    const { store } = mount();
+    openNutrition();
+    type('#ntName', 'בוקר');
+    type('#ntCal', '250');
+    const timeInp = document.querySelector<HTMLInputElement>('#ntTime');
+    if (!timeInp) throw new Error('no time input');
+    timeInp.value = '07:15';
+    click('#ntAdd');
+    const ev = store.getEvents().find((e) => e.type === 'meal_logged');
+    expect(ev?.payload['time']).toBe('07:15');
   });
 
   it('renders NO estimate button without an ai port — absent, not disabled', () => {
