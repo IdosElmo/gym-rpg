@@ -331,9 +331,10 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
 
     <p class="bt-status" id="btStatus"></p>
 
-    <!-- The boss fight starts by CHOICE: this button appears only when the
-         player stands at the boss wave AND the body-part gate is met — the
-         exact gate that used to start the fight by itself. -->
+    <!-- The boss fight starts by CHOICE: this button stands here the whole
+         time the player is at the boss wave — LOCKED (disabled) while the
+         body-part gate is unmet, pressable once it is met: the exact gate
+         that used to start the fight by itself. -->
     <button class="bt-boss-btn" id="btBossFight" type="button" hidden>🏛 קרב בוס</button>
 
     <div class="bt-meters">
@@ -1063,24 +1064,30 @@ function start(main: HTMLElement, deps: BattleDeps): void {
   }
 
   /**
-   * The boss button — visible exactly when the boss FIGHT is available: the
-   * player stands at the boss wave, the body-part gate is met (the same gate
-   * that used to start the fight by itself), and the fight is not already on.
-   * A locked gate shows no button at all — the gate card and the status line
-   * already name what is missing.
+   * The boss button — present the whole time the player stands at the boss
+   * wave (the sparring stretch), so the arena SAYS why these bouts pay
+   * nothing: the boss is the way forward. While the body-part gate is unmet
+   * it renders LOCKED and disabled — 🔒 plus the same requirements the gate
+   * card lists — and it unlocks (and becomes pressable) the moment the gate
+   * is met: the exact gate that used to start the fight by itself. It only
+   * disappears once the fight itself is on.
    */
   function paintBossBtn(): void {
     if (!bossBtn) return;
     const show =
       !state.challenge &&
       !state.bossRequested &&
-      state.gateOpen &&
       bossStanding(state.world, state.wave, state.defeatedBosses);
     bossBtn.hidden = !show;
     if (!show) return;
     const spec = bossSpec(state.world);
     const boss = worldBossOf(state.world);
-    const label = `🏛 קרב בוס${boss ? `: ${boss.he}` : ''}${spec ? ` · ${spec.energyCost} ⚡` : ''}`;
+    const locked = !state.gateOpen;
+    bossBtn.disabled = locked;
+    bossBtn.classList.toggle('locked', locked);
+    const label = locked
+      ? `🔒 קרב בוס${boss ? `: ${boss.he}` : ''} — נעול, התאמנו כדי לפתוח`
+      : `🏛 קרב בוס${boss ? `: ${boss.he}` : ''}${spec ? ` · ${spec.energyCost} ⚡` : ''}`;
     if (bossBtn.textContent !== label) bossBtn.textContent = label;
   }
 

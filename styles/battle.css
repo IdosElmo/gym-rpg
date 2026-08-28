@@ -179,8 +179,9 @@
   border-radius:12px; font-size:14px; font-weight:800; transition:.15s;
 }
 
-/* The boss-fight button — shown only when the body-part gate is met and the
-   player stands at the boss wave; pressing it is what starts the fight. */
+/* The boss-fight button — standing at the boss wave the whole sparring
+   stretch: LOCKED (disabled, dimmed) while the body-part gate is unmet, lit
+   and pressable once it is met; pressing it is what starts the fight. */
 .bt-boss-btn{
   width:100%; min-height:44px; margin-top:10px;
   background:linear-gradient(90deg,#B91C1C,#EF4444); border:1px solid #FCA5A5AA;
@@ -188,6 +189,11 @@
   box-shadow:0 0 14px #EF444444;
 }
 .bt-boss-btn:active{transform:scale(.98)}
+.bt-boss-btn.locked{
+  background:var(--card-2); border:1px dashed var(--line); color:var(--dim);
+  box-shadow:none; cursor:default;
+}
+.bt-boss-btn.locked:active{transform:none}
 .bt-super-btn.ready{
   background:linear-gradient(90deg,#7C3AED,#DB2777); border-color:#A78BFA; color:#fff;
 }
