@@ -163,7 +163,7 @@ describe('battle tab', () => {
     }
   });
 
-  it('keeps sparring (for nothing) at the boss wave while the gate is locked — no button', () => {
+  it('keeps sparring (for nothing) at the boss wave while the gate is locked — locked button', () => {
     const store = battleStore(12);
     store.update((d) => {
       const g = d.game ?? emptyGame();
@@ -178,8 +178,17 @@ describe('battle tab', () => {
     // …the status says these bouts pay nothing and names the missing training…
     expect(document.getElementById('btStatus')?.textContent).toContain('קרב אימון');
     expect(document.getElementById('btStatus')?.textContent).toContain('חסר');
-    // …and the boss button is gated exactly like the boss itself: absent.
-    expect((document.getElementById('btBossFight') as HTMLButtonElement).hidden).toBe(true);
+    // …and the boss button STANDS here — visible so the player understands what
+    // the sparring is for, but locked and unpressable until the gate is met.
+    const btn = document.getElementById('btBossFight') as HTMLButtonElement;
+    expect(btn.hidden).toBe(false);
+    expect(btn.disabled).toBe(true);
+    expect(btn.classList.contains('locked')).toBe(true);
+    expect(btn.textContent).toContain('🔒');
+    expect(btn.textContent).toContain('קרב בוס');
+    // a click on the locked button starts nothing
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(document.getElementById('btArena')?.classList.contains('boss-fight')).toBe(false);
   });
 
   it('opens the gate — and shows the boss button; pressing it starts the fight', () => {
@@ -201,7 +210,10 @@ describe('battle tab', () => {
     // gated button waits for the player
     const btn = document.getElementById('btBossFight') as HTMLButtonElement;
     expect(btn.hidden).toBe(false);
+    expect(btn.disabled).toBe(false);
+    expect(btn.classList.contains('locked')).toBe(false);
     expect(btn.textContent).toContain('קרב בוס');
+    expect(btn.textContent).not.toContain('🔒');
     expect(document.getElementById('btArena')?.classList.contains('boss-fight')).toBe(false);
     expect(document.getElementById('btStatus')?.textContent).toContain('קרב אימון');
 
