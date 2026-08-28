@@ -14,7 +14,9 @@ import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../src/core/balance.ts';
 import {
   advance,
+  bossStanding,
   createBattle,
+  requestBossFight,
   setEnergy,
   setGate,
   superReady,
@@ -137,7 +139,18 @@ function playUntil(
         setGate(state, !worldGate(g.battle.world, levelsOf(store)).locked, g.battle.bossesDefeated);
       }
     }
-    if (state.status === 'gated' || state.status === 'resting') break;
+    // The engaged player presses the boss button the moment it lights up. A
+    // refusal is the cue to go back to training (the arena would only spar
+    // for nothing from here) — same place the old `gated` status broke.
+    if (
+      state.enemy?.worldBoss !== true &&
+      !state.bossRequested &&
+      bossStanding(state.world, state.wave, state.defeatedBosses)
+    ) {
+      const req = requestBossFight(state);
+      if (!req.ok && (req.reason === 'gate_locked' || req.reason === 'no_energy')) break;
+    }
+    if (state.status === 'resting') break;
   }
 }
 
@@ -170,8 +183,12 @@ describe('the core loop, end to end', () => {
       gateOpen: false,
     });
     advance(blocked, 2000, combatStats(store));
-    expect(blocked.status).toBe('gated');
-    expect(blocked.enemy).toBeNull();
+    // The locked gate no longer empties the arena: a reward-less sparring bout
+    // is on, the boss is not, and the button is refused with the gate's reason.
+    expect(blocked.status).toBe('fighting');
+    expect(blocked.enemy?.worldBoss).toBe(false);
+    expect(blocked.enemy?.sparring).toBe(true);
+    expect(requestBossFight(blocked)).toEqual({ ok: false, reason: 'gate_locked' });
     // and the UI is told exactly which parts are missing, in Hebrew-ready shape
     const missing = worldGate(1, levelsOf(store)).requirements.filter((r) => !r.met);
     expect(missing.length).toBeGreaterThan(0);

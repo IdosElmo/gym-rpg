@@ -13,6 +13,7 @@ import {
   createBattle,
   isEndgame,
   isWorldBossWave,
+  requestBossFight,
   setGate,
   superReady,
   tap,
@@ -168,7 +169,7 @@ export function fight(
         collect(tap(state, stats).events);
       }
     }
-    if (state.status === 'gated' || state.status === 'resting') break;
+    if (state.status === 'resting') break;
     if (bosses.length > 0) break; // one boss per call — that is what we measure
   }
   return { bosses, waves, defeats, ms };
@@ -242,7 +243,7 @@ describe('boss gates', () => {
     }
   });
 
-  it('blocks the fight while the gate is locked, and releases it the moment it opens', () => {
+  it('spars while the gate is locked, and starts the boss only when the button is pressed', () => {
     const stats = statsAt(6);
     const state = createBattle({
       seed: 77,
@@ -253,16 +254,50 @@ describe('boss gates', () => {
       gateOpen: false,
     });
     advance(state, 2000, stats);
-    expect(state.status).toBe('gated');
-    expect(state.enemy).toBeNull();
+    // the gate no longer stops the arena: a reward-less sparring bout is on
+    expect(state.status).toBe('fighting');
+    expect(state.enemy?.worldBoss).toBe(false);
+    expect(state.enemy?.sparring).toBe(true);
 
-    // a level-up mid-session opens the gate without a reload
+    // pressing the button while the gate is locked is refused — the same gate
+    // that used to block the auto-spawn now gates the button
+    expect(requestBossFight(state)).toEqual({ ok: false, reason: 'gate_locked' });
+
+    // a level-up mid-session lights the button without a reload…
     setGate(state, true);
-    expect(state.status).toBe('idle');
+    // …but nothing starts by itself: still sparring, until the player presses
+    advance(state, 2000, stats);
+    expect(state.enemy?.worldBoss ?? false).toBe(false);
+
+    expect(requestBossFight(state)).toEqual({ ok: true });
     advance(state, 2000, stats);
     expect(state.status).toBe('fighting');
     expect(state.enemy?.worldBoss).toBe(true);
     expect(state.enemy?.id).toBe(worldBossOf(1)?.id);
+  });
+
+  it('refuses the boss button without the energy for the fight', () => {
+    const stats = statsAt(6);
+    const state = createBattle({
+      seed: 77,
+      world: 1,
+      wave: BOSS_WAVE,
+      energy: BALANCE.combat.boss.energyCost - 1,
+      stats,
+      gateOpen: true,
+    });
+    advance(state, 2000, stats);
+    expect(requestBossFight(state)).toEqual({ ok: false, reason: 'no_energy' });
+    // sparring is free, so an exhausted player still has something on screen
+    expect(state.status).toBe('fighting');
+    expect(state.enemy?.sparring).toBe(true);
+  });
+
+  it('refuses the boss button away from the boss wave', () => {
+    const stats = statsAt(6);
+    const state = createBattle({ seed: 77, world: 1, wave: 3, energy: 1000, stats, gateOpen: true });
+    advance(state, 2000, stats);
+    expect(requestBossFight(state)).toEqual({ ok: false, reason: 'not_at_boss' });
   });
 });
 
@@ -312,6 +347,7 @@ describe('boss specs', () => {
         energy: 1000,
         stats,
         gateOpen: true,
+        bossRequested: true,
       });
       const res = fight(state, stats);
       expect(res.bosses, `world ${world} boss is unbeatable at its own gate`).toHaveLength(1);
@@ -368,6 +404,7 @@ describe('boss specs', () => {
         energy: 1000,
         stats,
         gateOpen: true,
+        bossRequested: true,
       });
       const res = fight(state, stats);
       expect(res.bosses, `world ${world} boss is unbeatable at its gate + gear`).toHaveLength(1);
@@ -391,6 +428,7 @@ describe('boss specs', () => {
         energy: 1000,
         stats,
         gateOpen: true,
+        bossRequested: true,
       });
       const res = fight(state, stats);
       expect(res.bosses, `world ${world}`).toHaveLength(1);
@@ -421,6 +459,7 @@ describe('boss_defeated', () => {
       energy: gameOf(store).energy,
       stats,
       gateOpen: true,
+      bossRequested: true,
       defeatedBosses: gameOf(store).battle.bossesDefeated,
     });
     const res = fight(state, stats);

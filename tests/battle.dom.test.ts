@@ -163,7 +163,26 @@ describe('battle tab', () => {
     }
   });
 
-  it('opens the gate — and the fight — once the body-part levels are there', () => {
+  it('keeps sparring (for nothing) at the boss wave while the gate is locked — no button', () => {
+    const store = battleStore(12);
+    store.update((d) => {
+      const g = d.game ?? emptyGame();
+      g.battle.wave = bossWaveOf(g.battle.world);
+      d.game = g;
+    });
+    mount(store);
+
+    // fights keep happening — an ordinary enemy is on screen, not the boss…
+    expect(document.querySelector('#btEnemySprite svg')).not.toBeNull();
+    expect(document.getElementById('btArena')?.classList.contains('boss-fight')).toBe(false);
+    // …the status says these bouts pay nothing and names the missing training…
+    expect(document.getElementById('btStatus')?.textContent).toContain('קרב אימון');
+    expect(document.getElementById('btStatus')?.textContent).toContain('חסר');
+    // …and the boss button is gated exactly like the boss itself: absent.
+    expect((document.getElementById('btBossFight') as HTMLButtonElement).hidden).toBe(true);
+  });
+
+  it('opens the gate — and shows the boss button; pressing it starts the fight', () => {
     const store = battleStore(12);
     store.update((d) => {
       const g = d.game ?? emptyGame();
@@ -178,10 +197,20 @@ describe('battle tab', () => {
 
     expect(document.querySelector('.bt-gate')?.classList.contains('open')).toBe(true);
     expect(document.querySelectorAll('.bt-reqs li.unmet')).toHaveLength(0);
-    // the arena went straight into the boss fight, not into the gated state
+    // the fight does NOT start by itself any more: the arena spars and the
+    // gated button waits for the player
+    const btn = document.getElementById('btBossFight') as HTMLButtonElement;
+    expect(btn.hidden).toBe(false);
+    expect(btn.textContent).toContain('קרב בוס');
+    expect(document.getElementById('btArena')?.classList.contains('boss-fight')).toBe(false);
+    expect(document.getElementById('btStatus')?.textContent).toContain('קרב אימון');
+
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(document.getElementById('btFoeName')?.textContent).toContain(WORLD_BOSSES[0]?.he ?? '');
     expect(document.getElementById('btStatus')?.textContent).toContain('קרב בוס');
     expect(document.getElementById('btArena')?.classList.contains('boss-fight')).toBe(true);
+    // once the fight is on, the button steps aside
+    expect(btn.hidden).toBe(true);
   });
 
   it('turns the last world into the endless champion mode once its boss is a trophy', () => {

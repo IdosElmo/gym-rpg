@@ -225,7 +225,10 @@ describe('battle animations', () => {
       d.game = g;
     });
     mount(store);
-    // The gate is wide open at level 40, so the boss fight starts by itself.
+    // The gate is wide open at level 40, so the boss button is up — press it.
+    const bossBtn = document.getElementById('btBossFight') as HTMLButtonElement;
+    expect(bossBtn.hidden).toBe(false);
+    bossBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(document.getElementById('btArena')?.classList.contains('boss-fight')).toBe(true);
     expect(seenDuring(30_000, 'btHeroSprite', 'anim-victory', 100)).toBe(true);
   });

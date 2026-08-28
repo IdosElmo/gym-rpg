@@ -326,7 +326,7 @@ function fightWaves(dev: Device, waves: number, seed = 4242): number {
       setEnergy(state, gameOf(dev.store).energy);
       cleared += 1;
     }
-    if (state.status === 'resting' || state.status === 'gated') break;
+    if (state.status === 'resting') break;
   }
   return cleared;
 }
