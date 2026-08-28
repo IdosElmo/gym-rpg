@@ -133,15 +133,38 @@ describe('wave scaling', () => {
     expect(waveSpec(1, 10).coins).toBeGreaterThan(waveSpec(1, 11).coins);
   });
 
-  it('gates the world boss once the world is out of waves (Phase 3)', () => {
+  it('spars for nothing at the boss wave while the gate is locked', () => {
     expect(isWorldBossWave(1, wavesInWorld(1))).toBe(false);
     expect(isWorldBossWave(1, wavesInWorld(1) + 1)).toBe(true);
 
-    const state = battle({ wave: wavesInWorld(1) + 1 });
-    const events = run(state, BASE, 2000);
-    expect(state.status).toBe('gated');
-    expect(events.some((e) => e.kind === 'gated')).toBe(true);
-    expect(state.enemy).toBeNull();
+    // Gate closed: the arena keeps FIGHTING — sparring bouts, not a dead stop.
+    const stats = statsAt(20);
+    const state = battle({ wave: wavesInWorld(1) + 1, stats });
+    const events = run(state, stats, 120_000);
+    expect(events.some((e) => e.kind === 'spawn')).toBe(true);
+    expect(events.some((e) => e.kind === 'sparring_cleared')).toBe(true);
+    // …but a sparring bout pays NOTHING: no boss, no wave event, no coins, no
+    // energy, and the wave marker never moves off the boss wave.
+    expect(events.some((e) => e.kind === 'boss_spawn')).toBe(false);
+    expect(events.some((e) => e.kind === 'wave_cleared')).toBe(false);
+    expect(state.wave).toBe(wavesInWorld(1) + 1);
+    expect(state.energy).toBe(1000);
+    expect(state.coinsEarned).toBe(0);
+    expect(state.wavesCleared).toBe(0);
+  });
+
+  it('spars too when the gate is OPEN but the boss button was not pressed', () => {
+    const stats = statsAt(20);
+    const state = battle({ wave: wavesInWorld(1) + 1, stats, gateOpen: true });
+    const events = run(state, stats, 60_000);
+    expect(events.some((e) => e.kind === 'boss_spawn')).toBe(false);
+    expect(events.some((e) => e.kind === 'spawn')).toBe(true);
+    expect(state.enemy?.worldBoss ?? false).toBe(false);
+    // pressing the button (bossRequested) is what actually starts the fight
+    const armed = battle({ wave: wavesInWorld(1) + 1, stats, gateOpen: true, bossRequested: true });
+    const bossEvents = run(armed, stats, 2000);
+    expect(bossEvents.some((e) => e.kind === 'boss_spawn')).toBe(true);
+    expect(armed.enemy?.worldBoss).toBe(true);
   });
 
   it('reports the boss gate requirements with met/unmet states', () => {

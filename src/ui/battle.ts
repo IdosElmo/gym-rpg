@@ -67,6 +67,7 @@ import {
   createChallengeBattle,
   forfeitChallenge,
   isEndgame,
+  requestBossFight,
   setEnergy,
   setGate,
   skillPower,
@@ -329,6 +330,11 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
     </div>
 
     <p class="bt-status" id="btStatus"></p>
+
+    <!-- The boss fight starts by CHOICE: this button appears only when the
+         player stands at the boss wave AND the body-part gate is met — the
+         exact gate that used to start the fight by itself. -->
+    <button class="bt-boss-btn" id="btBossFight" type="button" hidden>🏛 קרב בוס</button>
 
     <div class="bt-meters">
       <div class="bt-meter">
@@ -677,8 +683,8 @@ function gateCard(game: GameState): string {
     </div>
     <p class="gc-note">${
       gate.locked
-        ? `הבוס נעול. חסר לכם: <b>${esc(missingHe)}</b> — התאמנו על החלקים האלה וזה ייפתח מעצמו.`
-        : `כל הדרישות הושלמו! הקרב מתחיל לבד ברגע שתגיעו לגל ${bossWaveOf(game.battle.world)}${
+        ? `הבוס נעול. חסר לכם: <b>${esc(missingHe)}</b> — התאמנו על החלקים האלה וזה ייפתח מעצמו. בינתיים הזירה ממשיכה בקרבות אימון — בלי מטבעות ובלי התקדמות.`
+        : `כל הדרישות הושלמו! כפתור ״🏛 קרב בוס״ מחכה לכם בזירה בגל ${bossWaveOf(game.battle.world)}${
             spec ? ` · עולה ${spec.energyCost} ⚡ · מזכה ב־${spec.coins} 🪙` : ''
           }.`
     }</p>
@@ -696,6 +702,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
   const fx = el('btFx');
   const enemyBtn = el<HTMLButtonElement>('btEnemy');
   const superBtn = el<HTMLButtonElement>('btSuper');
+  const bossBtn = el<HTMLButtonElement>('btBossFight');
   const sprite = el('btEnemySprite');
   const heroSprite = el('btHeroSprite');
   const foeName = el('btFoeName');
@@ -1014,21 +1021,16 @@ function start(main: HTMLElement, deps: BattleDeps): void {
       statusEl.className = 'bt-status daily';
       return;
     }
+    // At the boss wave without a boss on screen the campaign is SPARRING:
+    // reward-less fights while the boss blocks the way (or waits to be called).
+    const sparring =
+      state.enemy?.worldBoss !== true &&
+      bossStanding(state.world, state.wave, state.defeatedBosses);
     switch (state.status) {
       case 'resting':
         text = `😴 אין מספיק אנרגיה — הדמות נחה. לכו להתאמן! כל סט מסומן שווה ${BALANCE.energy.perSet} ⚡ וסיום אימון עוד ${BALANCE.energy.perWorkout} ⚡.`;
         cls = 'rest';
         break;
-      case 'gated': {
-        const gate = worldGate(state.world, partLevels(gameOf(store)));
-        const missing = gate.requirements
-          .filter((r) => !r.met)
-          .map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`)
-          .join(' · ');
-        text = `🏛 בוס העולם חוסם את הדרך. חסר: ${missing || 'אימון'} — לכו להתאמן ותחזרו.`;
-        cls = 'gate';
-        break;
-      }
       case 'recovering':
         text = `💀 הופלתם בגל ${state.wave} — הדמות קמה ומנסה שוב.`;
         cls = 'down';
@@ -1037,6 +1039,17 @@ function start(main: HTMLElement, deps: BattleDeps): void {
         if (state.enemy?.worldBoss) {
           text = `🏛 קרב בוס! ${state.enemy.he} — הקישו בלי הפסקה ושחררו כל מהלך על.`;
           cls = 'boss';
+        } else if (sparring && !state.gateOpen) {
+          const gate = worldGate(state.world, partLevels(gameOf(store)));
+          const missing = gate.requirements
+            .filter((r) => !r.met)
+            .map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`)
+            .join(' · ');
+          text = `🥊 קרב אימון — בלי מטבעות ובלי התקדמות. בוס העולם חוסם את הדרך; חסר: ${missing || 'אימון'} — לכו להתאמן ותחזרו.`;
+          cls = 'gate';
+        } else if (sparring) {
+          text = '🥊 קרב אימון — בלי מטבעות ובלי התקדמות. הבוס מוכן: לחצו על ״🏛 קרב בוס״ כשתרצו להתחיל.';
+          cls = 'gate';
         } else {
           text =
             state.streakDefeats >= BALANCE.combat.defeatsBeforeHint
@@ -1047,6 +1060,28 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     }
     statusEl.textContent = text;
     statusEl.className = `bt-status ${cls}`;
+  }
+
+  /**
+   * The boss button — visible exactly when the boss FIGHT is available: the
+   * player stands at the boss wave, the body-part gate is met (the same gate
+   * that used to start the fight by itself), and the fight is not already on.
+   * A locked gate shows no button at all — the gate card and the status line
+   * already name what is missing.
+   */
+  function paintBossBtn(): void {
+    if (!bossBtn) return;
+    const show =
+      !state.challenge &&
+      !state.bossRequested &&
+      state.gateOpen &&
+      bossStanding(state.world, state.wave, state.defeatedBosses);
+    bossBtn.hidden = !show;
+    if (!show) return;
+    const spec = bossSpec(state.world);
+    const boss = worldBossOf(state.world);
+    const label = `🏛 קרב בוס${boss ? `: ${boss.he}` : ''}${spec ? ` · ${spec.energyCost} ⚡` : ''}`;
+    if (bossBtn.textContent !== label) bossBtn.textContent = label;
   }
 
   function paintTotals(): void {
@@ -1520,10 +1555,14 @@ function start(main: HTMLElement, deps: BattleDeps): void {
           if (def) float(`${def.icon} ${def.he}`, 'skill', 'hero');
           break;
         }
+        case 'sparring_cleared':
+          // A sparring partner fell — the collapse plays, but nothing is
+          // persisted and no coins float: the bout was worth exactly nothing.
+          anim(sprite, 'anim-die', ANIM.die);
+          break;
         case 'skill_expired':
         case 'super_ready':
         case 'resting':
-        case 'gated':
           break;
       }
     }
@@ -1531,6 +1570,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     paintMeters();
     paintSkills();
     paintStatus();
+    paintBossBtn();
   }
 
   /* ----------------------------------------------------------- the loop */
@@ -1542,13 +1582,13 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     // Level-ups can happen while the tab is open (another device, an import) —
     // re-derive the stats every frame; it is a handful of multiplications. The
     // boss gate rides along, so hitting the required level while the arena is on
-    // screen releases a `gated` battle straight into the boss fight.
+    // screen makes the boss button light up without a reload.
     const g = gameOf(store);
     stats = statsOf(g);
     // Same story for the skills: they unlock off the part levels, so a level-up
     // while the arena is open lights the slot up without a reload.
     levels = partLevels(g);
-    if (state.status === 'gated') setGate(state, gateOpenFor(g), g.battle.bossesDefeated);
+    if (!state.challenge) setGate(state, gateOpenFor(g));
     consume(advance(state, dt, stats));
     schedule();
   }
@@ -1626,6 +1666,39 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     });
   }
 
+  /**
+   * The boss button. The CORE decides (`requestBossFight` re-checks the gate,
+   * the wave and the energy) — this only starts the tick that spawns the boss,
+   * or explains the refusal in Hebrew. The button is only ever VISIBLE when the
+   * gate is met, but the state can move under it (energy spent in another tab),
+   * so the refusal paths still matter.
+   */
+  bossBtn?.addEventListener('click', () => {
+    const g = gameOf(store);
+    stats = statsOf(g);
+    levels = partLevels(g);
+    setGate(state, gateOpenFor(g), g.battle.bossesDefeated);
+    const res = requestBossFight(state);
+    if (!res.ok) {
+      const spec = bossSpec(state.world);
+      if (res.reason === 'no_energy') {
+        toast(`⚡ צריך ${spec?.energyCost ?? 0} אנרגיה לקרב הבוס — יש לכם ${fmtXp(state.energy)}. לכו להתאמן!`);
+      } else if (res.reason === 'gate_locked') {
+        const gate = worldGate(state.world, partLevels(g));
+        const missing = gate.requirements
+          .filter((r) => !r.met)
+          .map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`)
+          .join(' · ');
+        toast(`🔒 הבוס עדיין נעול — חסר: ${missing || 'אימון'}.`);
+      }
+      paintBossBtn();
+      return;
+    }
+    // The next tick spawns the boss — run it now so the fight starts under the
+    // player's finger rather than a frame later.
+    consume(advance(state, BALANCE.combat.tickMs, stats));
+  });
+
   superBtn?.addEventListener('click', () => {
     stats = statsOf(gameOf(store));
     const res = useSuper(state, stats);
@@ -1663,5 +1736,6 @@ function start(main: HTMLElement, deps: BattleDeps): void {
   paintMeters();
   paintSkills();
   paintStatus();
+  paintBossBtn();
   resume();
 }

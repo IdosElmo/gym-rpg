@@ -178,6 +178,16 @@
   background:var(--card-2); border:1px solid var(--line); color:var(--dim);
   border-radius:12px; font-size:14px; font-weight:800; transition:.15s;
 }
+
+/* The boss-fight button — shown only when the body-part gate is met and the
+   player stands at the boss wave; pressing it is what starts the fight. */
+.bt-boss-btn{
+  width:100%; min-height:44px; margin-top:10px;
+  background:linear-gradient(90deg,#B91C1C,#EF4444); border:1px solid #FCA5A5AA;
+  color:#fff; border-radius:12px; font-size:14px; font-weight:800; transition:.15s;
+  box-shadow:0 0 14px #EF444444;
+}
+.bt-boss-btn:active{transform:scale(.98)}
 .bt-super-btn.ready{
   background:linear-gradient(90deg,#7C3AED,#DB2777); border-color:#A78BFA; color:#fff;
 }

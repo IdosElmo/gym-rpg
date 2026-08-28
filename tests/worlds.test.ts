@@ -95,7 +95,7 @@ function playActively(
         for (const ev of tap(state, stats).events) if (ev.kind === 'wave_cleared') cleared += 1;
       }
     }
-    if (state.status === 'resting' || state.status === 'gated') break;
+    if (state.status === 'resting') break;
   }
   return { waves: cleared, ms, defeats: state.defeats };
 }
@@ -149,8 +149,10 @@ describe('per-world wave counts', () => {
       advance(before, 2000, stats);
       expect(before.status, `world ${w.id} wave ${w.waves}`).toBe('fighting');
       expect(before.enemy?.worldBoss).toBe(false);
+      expect(before.enemy?.sparring ?? false).toBe(false);
 
-      // the boss's own wave, gate closed: blocked
+      // the boss's own wave, gate closed: no boss — a reward-less sparring
+      // bout keeps the arena alive instead
       const at = createBattle({
         seed: 5150,
         world: w.id,
@@ -160,7 +162,10 @@ describe('per-world wave counts', () => {
         gateOpen: false,
       });
       advance(at, 2000, stats);
-      expect(at.status, `world ${w.id} boss wave`).toBe('gated');
+      expect(at.status, `world ${w.id} boss wave`).toBe('fighting');
+      expect(at.enemy?.worldBoss, `world ${w.id} boss wave`).toBe(false);
+      expect(at.enemy?.sparring, `world ${w.id} boss wave`).toBe(true);
+      expect(at.energy).toBe(1000);
     }
   });
 

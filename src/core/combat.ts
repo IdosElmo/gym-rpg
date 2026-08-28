@@ -164,7 +164,9 @@ export function isMiniBossWave(wave: number): boolean {
 /**
  * True once a world's waves are exhausted — this is where the world boss waits.
  * Whether the fight actually STARTS additionally depends on the body-part gate
- * (`worldGate`) and on whether that boss has already fallen (see `bossStanding`).
+ * (`worldGate`), on the player pressing the boss button (`requestBossFight`),
+ * and on whether that boss has already fallen (see `bossStanding`). Until it
+ * does, the arena keeps SPARRING — reward-less fights that write nothing.
  *
  * PER-WORLD since Phase 9: the answer comes from that world's own `waves` count
  * (`wavesInWorld`), which is why the world has to be passed in.
@@ -584,6 +586,12 @@ export interface EnemyState {
   slow?: number;
   /** True while another account's character is the opponent (drives the UI). */
   ghost?: boolean;
+  /**
+   * A SPARRING partner — the reward-less wave that keeps the arena alive while
+   * the world boss blocks progress (see `spawnSparring`). Clearing one pays no
+   * coins, spends no energy, advances no wave and writes NOTHING to the log.
+   */
+  sparring?: boolean;
 }
 
 /**
@@ -627,8 +635,6 @@ export type BattleStatus =
   | 'recovering'
   /** out of energy — go train */
   | 'resting'
-  /** the world boss is here but its body-part requirements are not met */
-  | 'gated'
   /** a CHALLENGE run is over (cleared, knocked out or forfeited) — nothing more happens */
   | 'finished';
 
@@ -779,6 +785,14 @@ export interface BattleState {
    * mid-session unlocks the boss without a reload.
    */
   gateOpen: boolean;
+  /**
+   * The player PRESSED the boss button (`requestBossFight`). The world boss
+   * only ever spawns while this is true — an open gate alone keeps the arena
+   * sparring, so the fight starts when the player says so, never by surprise.
+   * Cleared by a knock-out (back to sparring; press again to retry) and by the
+   * kill itself. In-memory only, like everything else in a `BattleState`.
+   */
+  bossRequested: boolean;
   /** Ids of bosses already defeated — drives the endless endgame. */
   defeatedBosses: readonly string[];
   energy: number;
@@ -867,11 +881,12 @@ export type CombatEvent =
   /** A timed skill window closed (the hero's buff chip comes off). */
   | { kind: 'skill_expired'; skillId: SkillId }
   | { kind: 'wave_cleared'; result: WaveResult }
+  /** A SPARRING wave fell. Nothing is persisted — no coins, no energy, no wave. */
+  | { kind: 'sparring_cleared'; enemyId: string; durationMs: number }
   | { kind: 'boss_defeated'; result: BossResult }
   | { kind: 'defeat'; wave: number; streakDefeats: number }
   | { kind: 'super_ready' }
-  | { kind: 'resting' }
-  | { kind: 'gated'; world: number };
+  | { kind: 'resting' };
 
 export interface CreateBattleArgs {
   seed: number;
@@ -881,6 +896,12 @@ export interface CreateBattleArgs {
   stats: CombatStats;
   /** Body-part gate of the current world's boss — defaults to closed. */
   gateOpen?: boolean;
+  /**
+   * Start with the boss fight already requested (as if the button was pressed).
+   * Used by tests and simulations; the UI always starts sparring and lets the
+   * player press the button themselves.
+   */
+  bossRequested?: boolean;
   /** Bosses already defeated (from `game.battle.bossesDefeated`). */
   defeatedBosses?: readonly string[];
 }
@@ -895,6 +916,7 @@ export function createBattle(a: CreateBattleArgs): BattleState {
     wave,
     attempt: 0,
     gateOpen: a.gateOpen === true,
+    bossRequested: a.bossRequested === true,
     defeatedBosses: [...(a.defeatedBosses ?? [])],
     energy: Math.max(0, a.energy),
     playerHp: a.stats.maxHp,
@@ -975,17 +997,52 @@ export function setEnergy(state: BattleState, energy: number): void {
 }
 
 /**
- * Keep the boss gate in sync with the character's levels while the tab is open.
- * Opening the gate immediately releases a `gated` battle into the boss fight —
- * levelling up on the workout screen unlocks the boss without a reload.
+ * Keep the boss gate in sync with the character's levels while the tab is open —
+ * levelling up on the workout screen makes the boss button appear without a
+ * reload. Opening the gate no longer starts anything by itself: the fight waits
+ * for `requestBossFight`, and until then the arena keeps sparring.
  */
 export function setGate(state: BattleState, gateOpen: boolean, defeated?: readonly string[]): void {
   state.gateOpen = gateOpen;
+  if (!gateOpen) state.bossRequested = false;
   if (defeated) state.defeatedBosses = [...defeated];
-  if (state.status === 'gated' && (gateOpen || !bossStanding(state.world, state.wave, state.defeatedBosses))) {
-    state.status = 'idle';
-    state.spawnCd = 0;
+}
+
+/** Why a boss-fight request was refused — the UI turns this into Hebrew. */
+export type BossFightRefusal = 'not_at_boss' | 'gate_locked' | 'no_energy' | 'busy';
+
+export interface BossFightRequest {
+  ok: boolean;
+  /** Only set when `ok` is false. */
+  reason?: BossFightRefusal;
+}
+
+/**
+ * The boss button was pressed: start the world-boss fight.
+ *
+ * The gate rule is unchanged — this is refused unless every body-part
+ * requirement is met (`gateOpen`) — the only thing that moved is WHO starts the
+ * fight: the player, by pressing, instead of the spawn loop by itself. A
+ * sparring partner still on screen steps aside (it was worth nothing anyway);
+ * a refused request changes nothing at all.
+ */
+export function requestBossFight(state: BattleState): BossFightRequest {
+  if (state.challenge || state.status === 'recovering' || state.status === 'finished') {
+    return { ok: false, reason: 'busy' };
   }
+  if (!bossStanding(state.world, state.wave, state.defeatedBosses)) {
+    return { ok: false, reason: 'not_at_boss' };
+  }
+  if (!state.gateOpen) return { ok: false, reason: 'gate_locked' };
+  const spec = bossSpec(state.world);
+  if (!spec) return { ok: false, reason: 'not_at_boss' };
+  if (state.energy < spec.energyCost) return { ok: false, reason: 'no_energy' };
+
+  state.bossRequested = true;
+  state.enemy = null;
+  state.status = 'idle';
+  state.spawnCd = 0;
+  return { ok: true };
 }
 
 /* ------------------------------------------------------------- the engine */
@@ -1127,6 +1184,39 @@ export function challengeWave(state: BattleState): GauntletWave | null {
   return run.waves[Math.min(run.index, run.waves.length - 1)] ?? null;
 }
 
+/**
+ * Spawn a SPARRING wave — the fight that keeps the arena alive while the world
+ * boss blocks progress (gate locked, or the boss button not yet pressed).
+ *
+ * The partner is the world's LAST ordinary wave (its toughest regular enemy),
+ * fought on the same seeded engine as everything else — but the spec is zeroed:
+ * no coins, no energy, and clearing it emits `sparring_cleared` rather than
+ * `wave_cleared`, so nothing ever reaches the log. `attempt` grows per bout
+ * (see `clearSparring`), which keeps consecutive bouts distinct rolls while
+ * still perfectly reproducible from the session seed.
+ *
+ * Sparring costs no energy, so it never rests — an exhausted player can still
+ * shadow-box, they just cannot progress.
+ */
+function spawnSparring(state: BattleState, out: CombatEvent[]): void {
+  const spec = waveSpec(state.world, wavesInWorld(state.world));
+  const free: WaveSpec = { ...spec, coins: 0, energyCost: 0 };
+  beginFight(state, {
+    id: spec.enemy.id,
+    he: spec.enemy.he,
+    hp: spec.hp,
+    maxHp: spec.hp,
+    atk: spec.atk,
+    attackIntervalMs: spec.attackIntervalMs,
+    miniBoss: spec.miniBoss,
+    worldBoss: false,
+    svg: spec.enemy.svg,
+    sparring: true,
+    ...flavourOf(spec.enemy, spec.hp),
+  });
+  out.push({ kind: 'spawn', enemy: state.enemy as EnemyState, spec: free });
+}
+
 function spawn(state: BattleState, out: CombatEvent[]): void {
   const run = state.challenge;
   if (run) {
@@ -1136,35 +1226,34 @@ function spawn(state: BattleState, out: CombatEvent[]): void {
   // The world boss stands where the ordinary waves end — unless it has already
   // fallen, in which case (last world only) the waves simply keep coming.
   if (bossStanding(state.world, state.wave, state.defeatedBosses)) {
-    if (!state.gateOpen) {
-      if (state.status !== 'gated') {
-        state.status = 'gated';
-        out.push({ kind: 'gated', world: state.world });
+    // The fight itself starts only when the player PRESSED the button
+    // (`requestBossFight`), which already checked the gate and the energy.
+    if (state.gateOpen && state.bossRequested) {
+      const spec = bossSpec(state.world);
+      if (spec && state.energy >= spec.energyCost) {
+        beginFight(state, {
+          id: spec.boss.id,
+          he: spec.boss.he,
+          hp: spec.hp,
+          maxHp: spec.hp,
+          atk: spec.atk,
+          attackIntervalMs: spec.attackIntervalMs,
+          miniBoss: false,
+          worldBoss: true,
+          svg: spec.boss.svg,
+          ...flavourOf(spec.boss, spec.hp),
+        });
+        out.push({ kind: 'boss_spawn', enemy: state.enemy as EnemyState, spec });
+        return;
       }
-      return;
+      // The energy drained between the press and the spawn — stand down.
+      state.bossRequested = false;
     }
-    const spec = bossSpec(state.world);
-    if (!spec) return;
-    if (state.energy < spec.energyCost) {
-      if (state.status !== 'resting') {
-        state.status = 'resting';
-        out.push({ kind: 'resting' });
-      }
-      return;
-    }
-    beginFight(state, {
-      id: spec.boss.id,
-      he: spec.boss.he,
-      hp: spec.hp,
-      maxHp: spec.hp,
-      atk: spec.atk,
-      attackIntervalMs: spec.attackIntervalMs,
-      miniBoss: false,
-      worldBoss: true,
-      svg: spec.boss.svg,
-      ...flavourOf(spec.boss, spec.hp),
-    });
-    out.push({ kind: 'boss_spawn', enemy: state.enemy as EnemyState, spec });
+    // No boss fight (gate still locked, or the button not pressed): the arena
+    // keeps SPARRING instead of standing still. The partner is the world's own
+    // last ordinary wave, and it pays nothing — no coins, no energy, no wave —
+    // so real training remains the only way forward.
+    spawnSparring(state, out);
     return;
   }
 
@@ -1255,16 +1344,38 @@ function killBoss(state: BattleState, out: CombatEvent[]): void {
   state.wave = result.nextWave;
   // A new world's gate is a different gate — the UI re-opens it if it is met.
   state.gateOpen = false;
+  state.bossRequested = false;
   state.playerHp = state.maxHp;
   state.status = 'idle';
   state.spawnCd = c.spawnDelayMs * 3;
   out.push({ kind: 'boss_defeated', result });
 }
 
+/**
+ * A sparring partner went down: nothing is paid, nothing is written, nothing
+ * moves. The next bout gets a fresh `attempt` (a different roll of the same
+ * seeded stream), and the heal-on-clear keeps the rhythm of a real wave.
+ */
+function clearSparring(state: BattleState, out: CombatEvent[]): void {
+  const c = BALANCE.combat;
+  const enemyId = state.enemy?.id ?? '';
+  state.streakDefeats = 0;
+  state.enemy = null;
+  state.attempt += 1;
+  state.playerHp = Math.min(state.maxHp, state.playerHp + state.maxHp * c.healOnWaveClear);
+  state.status = 'idle';
+  state.spawnCd = c.spawnDelayMs;
+  out.push({ kind: 'sparring_cleared', enemyId, durationMs: Math.round(state.waveElapsedMs) });
+}
+
 function clearWave(state: BattleState, out: CombatEvent[]): void {
   const run = state.challenge;
   if (run) {
     clearChallengeWave(state, run, out);
+    return;
+  }
+  if (state.enemy?.sparring) {
+    clearSparring(state, out);
     return;
   }
   const c = BALANCE.combat;
@@ -1377,7 +1488,6 @@ function step(state: BattleState, dt: number, stats: CombatStats, out: CombatEve
   state.elapsedMs += dt;
   tickSkills(state, dt, out);
 
-  if (state.status === 'gated') return;
   // A finished challenge run is inert: the record is written, nothing may move.
   if (state.status === 'finished') return;
 
@@ -1733,7 +1843,7 @@ export function simulate(
     }
     for (const ev of advance(state, stepMs, stats)) collect(ev);
     elapsed += stepMs;
-    if (state.status === 'resting' || state.status === 'gated' || state.status === 'finished') break;
+    if (state.status === 'resting' || state.status === 'finished') break;
   }
 
   return {
