@@ -48,7 +48,9 @@ import {
   PLAN_UNITS,
   clonePlanDoc,
   defaultPlanDoc,
+  deleteUserPreset,
   deriveWeeklyTarget,
+  instantiateUserPreset,
   isDefaultPlan,
   isSuperset,
   legalPairs,
@@ -61,8 +63,10 @@ import {
   planIsDirty,
   planRows,
   savePlan,
+  saveUserPreset,
   supersetPairs,
   supersetPartner,
+  userPresetList,
   type SupersetPair,
 } from '../core/plan.ts';
 import { PLAN_PRESETS, presetById } from '../data/presets.ts';
@@ -328,9 +332,9 @@ function pairHtml(doc: PlanDoc, a: PlanExercise, b: PlanExercise, idx: number, t
   </li>`;
 }
 
-function sheetHtml(doc: PlanDoc): string {
+function sheetHtml(doc: PlanDoc, store: DataStore): string {
   if (sheet === 'closed') return '';
-  const body = sheet === 'new' ? newExerciseForm() : sheet === 'presets' ? presetList() : libraryList(doc);
+  const body = sheet === 'new' ? newExerciseForm() : sheet === 'presets' ? presetList(store) : libraryList(doc);
   const title =
     sheet === 'new' ? 'תרגיל חדש' : sheet === 'presets' ? 'תוכניות מוכנות' : `הוספת תרגיל · ${esc(activeLabel(doc))}`;
   return `<div class="pl-backdrop" id="plBackdrop"></div>
@@ -343,8 +347,12 @@ function sheetHtml(doc: PlanDoc): string {
   </section>`;
 }
 
-/** The ready-made plans. Picking one REPLACES the draft (after a confirm). */
-function presetList(): string {
+/**
+ * The ready-made plans, and below them the user's OWN saved ones. Picking
+ * either REPLACES the draft (after a confirm); the ⭐ button freezes the
+ * current draft under a name, so "my plan" becomes a preset too.
+ */
+function presetList(store: DataStore): string {
   const items = PLAN_PRESETS.map(
     (p) => `<li>
       <button class="pl-lib pl-preset" data-preset="${esc(p.id)}">
@@ -353,8 +361,21 @@ function presetList(): string {
       </button>
     </li>`,
   ).join('');
+  const mine = userPresetList(store.getState())
+    .map(
+      ({ id, preset }) => `<li class="pl-mypreset">
+      <button class="pl-lib pl-preset" data-user-preset="${esc(id)}">
+        <b>${esc(preset.name)}</b>
+        <span>${preset.plan.days.length} ימי אימון · תוכנית ששמרתם בעצמכם</span>
+      </button>
+      <button class="pl-mini danger pl-preset-del" data-preset-del="${esc(id)}" aria-label="מחיקת ${esc(preset.name)}">🗑</button>
+    </li>`,
+    )
+    .join('');
   return `<ul class="pl-lib-list">${items}</ul>
-    <p class="gc-note dim">בחירה בתוכנית מוכנה מחליפה את הטיוטה הנוכחית. שום דבר לא נשמר עד לחיצה על 💾 שמירה, וההיסטוריה נשמרת בכל מקרה.</p>`;
+    ${mine ? `<h4 class="pl-mine-title">⭐ התוכניות שלי</h4><ul class="pl-lib-list">${mine}</ul>` : ''}
+    <button class="action-btn pl-save-preset" id="plSavePreset">⭐ שמירת התוכנית הנוכחית כתוכנית מוכנה</button>
+    <p class="gc-note dim">בחירה בתוכנית מוכנה מחליפה את הטיוטה הנוכחית. שום דבר לא נשמר עד לחיצה על 💾 שמירה, וההיסטוריה נשמרת בכל מקרה. שמירת תוכנית ⭐ מקפיאה את התוכנית שבעריכה כמו שהיא — אפשר לחזור אליה מכאן בכל רגע, גם ממכשיר אחר.</p>`;
 }
 
 function libraryList(doc: PlanDoc): string {
@@ -443,7 +464,7 @@ export function renderPlanEditor(main: HTMLElement, deps: PlanEditorDeps): void 
     <button class="action-btn danger pl-reset" id="plReset">איפוס לתוכנית המקורית</button>
     <p class="gc-note dim">שינוי התוכנית לא נוגע בהיסטוריה, ב־XP או בשיאים: כל אלה נשמרים לפי מזהה התרגיל, כך שאפשר לסדר מחדש, להסיר ולהחזיר תרגילים בלי לאבד כלום.</p>
   </section>
-  ${sheetHtml(doc)}`;
+  ${sheetHtml(doc, deps.store)}`;
 
   bind(main, deps);
 }
@@ -661,6 +682,45 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
       sheet = 'closed';
       weekdayHint = '';
       toast(`${preset.name} נטענה — לחצו 💾 שמירה כדי להחיל אותה`);
+      refresh();
+    });
+  });
+  main.querySelectorAll<HTMLButtonElement>('[data-user-preset]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const id = b.dataset['userPreset'] ?? '';
+      const preset = deps.store.getState().planPresets[id];
+      if (!preset) return;
+      // Same contract as a built-in preset: replace the DRAFT after a confirm,
+      // with fresh day keys minted per application (see `instantiateUserPreset`).
+      if (!confirm(`להחליף את התוכנית שבעריכה ב"${preset.name}"? כל שינוי שלא נשמר יאבד.`)) return;
+      draft = instantiateUserPreset(preset);
+      activeDay = draft.days[0]?.key ?? '';
+      sheet = 'closed';
+      weekdayHint = '';
+      toast(`${preset.name} נטענה — לחצו 💾 שמירה כדי להחיל אותה`);
+      refresh();
+    });
+  });
+  main.querySelector<HTMLButtonElement>('#plSavePreset')?.addEventListener('click', () => {
+    // Freezes the DRAFT — exactly what the user is looking at, saved or not.
+    const name = prompt('איך לקרוא לתוכנית השמורה?', 'התוכנית שלי');
+    if (name === null) return;
+    const res = saveUserPreset(deps.store, name, doc);
+    if (!res.ok) {
+      toast(res.error);
+      return;
+    }
+    toast(`"${res.preset.name}" נשמרה לתוכניות המוכנות ⭐`);
+    refresh(); // the sheet stays open, so the new card is right there
+  });
+  main.querySelectorAll<HTMLButtonElement>('[data-preset-del]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const id = b.dataset['presetDel'] ?? '';
+      const preset = deps.store.getState().planPresets[id];
+      if (!preset) return;
+      if (!confirm(`למחוק את "${preset.name}" מהתוכניות השמורות? התוכנית הפעילה וההיסטוריה לא מושפעות.`)) return;
+      deleteUserPreset(deps.store, id);
+      toast(`"${preset.name}" נמחקה`);
       refresh();
     });
   });

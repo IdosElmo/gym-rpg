@@ -168,6 +168,14 @@
 .pl-preset{min-height:64px}
 .pl-preset span{line-height:1.45; margin-top:2px}
 
+/* The user's own saved presets ("התוכניות שלי") -------------------------- */
+.pl-mine-title{margin:2px 0 8px; font-size:13px; font-weight:800; color:var(--muted)}
+/* one row = the pick card, with the 🗑 riding beside it at full thumb size */
+.pl-mypreset{display:flex; align-items:stretch; gap:7px}
+.pl-mypreset .pl-lib{flex:1; min-width:0}
+.pl-preset-del{min-width:44px; min-height:44px; align-self:center}
+.pl-save-preset{width:100%; min-height:44px; margin-bottom:10px}
+
 /* New-exercise form ------------------------------------------------------ */
 .pl-new{display:flex; flex-direction:column; gap:11px}
 .pl-two{display:flex; gap:9px}

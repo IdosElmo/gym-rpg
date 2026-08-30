@@ -50,6 +50,12 @@ export const CUSTOM_ID_PREFIX = 'cx_';
 /** Prefix of every day key the editor MINTS (built-in days keep 'A'/'B'/'C'). */
 export const DAY_ID_PREFIX = 'd_';
 
+/** Prefix of every USER-SAVED preset id (built-in presets keep their own ids). */
+export const USER_PRESET_PREFIX = 'up_';
+
+/** How many presets a user may keep — a soft cap, enforced at save time only. */
+export const MAX_USER_PRESETS = 12;
+
 /**
  * One row of a day: WHICH exercise, and the numbers the user chose for it.
  *
@@ -144,9 +150,37 @@ export interface PlanDoc {
   customExercises: CustomExercise[];
 }
 
+/**
+ * A preset the USER saved — their own plan, frozen under a name so it can be
+ * re-applied later exactly like a built-in preset.
+ *
+ * It carries a COMPLETE, already-normalized `PlanDoc` (custom exercises
+ * included), because that is what "my plan as a template" means: nothing about
+ * it may drift when the app's built-in data changes. What it does NOT carry is
+ * its own id — the state keys presets by id (`up_…`), exactly the way
+ * `NutritionState.meals` keys meals.
+ *
+ * Applying one goes through `instantiateUserPreset`, which mints FRESH day keys
+ * — the same rule `PlanPreset.build()` follows, and for the same reasons:
+ * sessions logged under the old days keep pointing at the old keys, and two
+ * devices that both apply the preset add two sets of days rather than silently
+ * merging into one.
+ */
+export interface UserPreset {
+  /** Hebrew name the user gave it, trimmed, ≤ the plan name limit. */
+  name: string;
+  /** The frozen document — complete, normalized, `rev: 0`. */
+  plan: PlanDoc;
+}
+
 /** True for an id minted by the plan editor (as opposed to a built-in one). */
 export function isCustomId(id: string): boolean {
   return id.startsWith(CUSTOM_ID_PREFIX);
+}
+
+/** True for the id of a preset the user saved (`up_` + a uuid slice). */
+export function isUserPresetId(v: unknown): v is string {
+  return typeof v === 'string' && /^up_[0-9a-f]{4,32}$/.test(v);
 }
 
 /** Round + clamp any input into a legal weekly target (1–7). */
