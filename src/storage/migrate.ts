@@ -20,11 +20,13 @@ import { BODY_PARTS, isDayKey, isReservedViewKey, type BodyPart, type DayKey } f
 import { characterById, resolveCharacterId, skinOf, type SkinDef } from '../data/characters.ts';
 import { EQUIPMENT_SLOTS, bossById, equipmentById } from '../data/gameContent.ts';
 import {
+  applyPlanPresetEvent,
   defaultDay,
   defaultTabView,
   isTabView,
   makeResolver,
   normalizePlanDoc,
+  normalizeUserPresets,
   planFromEvents,
   resolveProgram,
 } from '../core/plan.ts';
@@ -101,8 +103,12 @@ export const LEGACY_UI_KEY = 'hyp3_ui_v1';
  * GameState ledgers): a v4 build could not create meal events locally, and any
  * that were round-tripped through the cloud replay into the cache on the very
  * next rebuild, because the log — not this blob — is the source of truth.
+ * v6 (user-saved presets): `planPresets` joined the state. The same argument a
+ * second time: a v5 build could not create preset events locally, an empty cache
+ * costs nothing, and presets that round-tripped through the cloud fold back into
+ * it on the next rebuild — the log, not this blob, is the source of truth.
  */
-export const CURRENT_STATE_VERSION = 5;
+export const CURRENT_STATE_VERSION = 6;
 /**
  * Bump when the shape of `EventLog` changes.
  * v2 (merge-safe core): events may carry an optional `device` stamp and the log
@@ -158,6 +164,7 @@ export function emptyState(now: number = Date.now()): AppState {
     ui: emptyUi(new Date(now)),
     game: null,
     plan: null,
+    planPresets: {},
     nutrition: emptyNutrition(),
     meta: { legacyImported: false, createdAt: now, updatedAt: now },
   };
@@ -652,7 +659,11 @@ const STATE_MIGRATIONS: ReadonlyArray<(blob: Record<string, unknown>) => Record<
   // through `normalizeNutrition` anyway, so a blob that somehow carries one is
   // validated rather than trusted (same argument as the plan slot above).
   (blob) => ({ ...blob, nutrition: normalizeNutrition(blob['nutrition']), schemaVersion: 5 }),
-  // 5 -> 6: (future) add your step here and bump CURRENT_STATE_VERSION.
+  // 5 -> 6: user-saved presets. A v5 blob has none; the slot is routed through
+  // `normalizeUserPresets` anyway, so a blob that somehow carries one is
+  // validated rather than trusted (same argument as nutrition above).
+  (blob) => ({ ...blob, planPresets: normalizeUserPresets(blob['planPresets']), schemaVersion: 6 }),
+  // 6 -> 7: (future) add your step here and bump CURRENT_STATE_VERSION.
 ];
 
 function readVersion(blob: Record<string, unknown>): number {
@@ -698,6 +709,7 @@ export function migrateState(raw: unknown, now: number = Date.now()): AppState {
     ui: normalizeUi(blob['ui'], new Date(now), plan),
     game: normalizeGame(blob['game']),
     plan,
+    planPresets: normalizeUserPresets(blob['planPresets']),
     nutrition: normalizeNutrition(blob['nutrition']),
     meta: {
       legacyImported: metaRaw['legacyImported'] === true,
@@ -1147,8 +1159,9 @@ export function rebuildFromEvents(events: readonly AppEvent[], now: number = Dat
         state.sessions = {};
         // A wipe returns the app to the built-in program too, exactly like a
         // fresh install: the plan is data, and this event erases data — and so
-        // is the meal tracker.
+        // are the meal tracker and the user's saved presets.
         state.plan = null;
+        state.planPresets = {};
         state.nutrition = emptyNutrition();
         break;
       /**
@@ -1159,6 +1172,13 @@ export function rebuildFromEvents(events: readonly AppEvent[], now: number = Dat
        */
       case 'plan_updated':
         state.plan = normalizePlanDoc(p['plan']);
+        break;
+      // The user's saved presets — one shared fold for live path and replay
+      // (see core/plan.ts): LWW upsert per preset id, delete removes it. The
+      // `(ts, id)` order of `ordered` is what makes both merge orders converge.
+      case 'plan_preset_saved':
+      case 'plan_preset_deleted':
+        applyPlanPresetEvent(state.planPresets, ev.type, p);
         break;
       // The 🍽️ meal tracker — one shared fold for live path and replay (see
       // core/nutrition.ts): per-id idempotent meals, tombstone deletes, LWW

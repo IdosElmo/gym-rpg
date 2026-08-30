@@ -495,6 +495,88 @@ describe('ready-made presets', () => {
   });
 });
 
+/* --------------------------------------------------- the user's own presets */
+
+describe('saving my plan as a preset', () => {
+  function openPresets(): void {
+    click('#plPresets');
+  }
+
+  it('freezes the draft under a prompted name and lists it in the sheet', () => {
+    const { store } = mount();
+    openEditor();
+    // an edited draft, so what is frozen is visibly MY plan, not the default
+    const ex = PROGRAM.A.exercises[0];
+    if (!ex) throw new Error('no exercise');
+    type(`[data-edit="sets"][data-id="${ex.id}"]`, '5');
+    openPresets();
+    window.prompt = () => ' התוכנית של אידו ';
+    click('#plSavePreset');
+
+    // one event, the shelf holds it, the sheet stayed open and shows the card
+    expect(store.getEvents().filter((e) => e.type === 'plan_preset_saved')).toHaveLength(1);
+    const [entry] = Object.entries(store.getState().planPresets);
+    expect(entry?.[1].name).toBe('התוכנית של אידו');
+    expect(entry?.[1].plan.days[0]?.exercises[0]?.sets).toBe(5);
+    const card = document.querySelector<HTMLElement>(`[data-user-preset="${entry?.[0]}"]`);
+    expect(card?.textContent).toContain('התוכנית של אידו');
+    // …and the ACTIVE plan is untouched: freezing is not saving
+    expect(store.getState().plan).toBeNull();
+  });
+
+  it('does nothing when the name prompt is cancelled', () => {
+    const { store } = mount();
+    openEditor();
+    openPresets();
+    window.prompt = () => null;
+    click('#plSavePreset');
+    expect(store.getEvents().filter((e) => e.type === 'plan_preset_saved')).toHaveLength(0);
+    expect(store.getState().planPresets).toEqual({});
+  });
+
+  it('applies a saved preset to the draft, with fresh day keys', () => {
+    const { store } = mount();
+    openEditor();
+    openPresets();
+    window.prompt = () => 'שלי';
+    click('#plSavePreset');
+    const [saved] = Object.entries(store.getState().planPresets);
+    if (!saved) throw new Error('preset not saved');
+
+    // move the draft somewhere else first, then come back to MY preset
+    openPresets();
+    click('[data-preset="ab4"]');
+    openPresets();
+    click(`[data-user-preset="${saved[0]}"]`);
+    // fresh d_ keys — never the built-in A/B/C the frozen plan carried
+    const keys = dayTabKeys();
+    expect(keys).toHaveLength(3);
+    for (const k of keys) expect(k?.startsWith('d_')).toBe(true);
+    expect(rowIds()).toEqual(PROGRAM.A.exercises.map((e) => e.id));
+    // still a draft: nothing saved until 💾
+    expect(store.getState().plan).toBeNull();
+    click('#plSave');
+    expect(store.getState().plan?.days.map((d) => d.key)).toEqual(keys);
+  });
+
+  it('deletes a saved preset after a confirm, leaving the plan alone', () => {
+    const { store } = mount();
+    openEditor();
+    openPresets();
+    window.prompt = () => 'למחיקה';
+    click('#plSavePreset');
+    const [saved] = Object.entries(store.getState().planPresets);
+    if (!saved) throw new Error('preset not saved');
+
+    click(`[data-preset-del="${saved[0]}"]`);
+    expect(store.getState().planPresets).toEqual({});
+    expect(store.getEvents().filter((e) => e.type === 'plan_preset_deleted')).toHaveLength(1);
+    expect(document.querySelector(`[data-user-preset="${saved[0]}"]`)).toBeNull();
+    // the section title disappears with the last preset
+    expect(document.querySelector('.pl-mine-title')).toBeNull();
+  });
+});
+
 /* ------------------------------------------------------------ draft edits */
 
 describe('editing the draft', () => {

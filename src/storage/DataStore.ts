@@ -14,7 +14,7 @@
 
 import type { EquipmentSlot } from '../data/gameContent.ts';
 import type { LeagueItemKind } from '../data/leaguePools.ts';
-import type { PlanDoc } from '../data/planTypes.ts';
+import type { PlanDoc, UserPreset } from '../data/planTypes.ts';
 import type { BodyPart, DayKey } from '../data/program.ts';
 
 /* ------------------------------------------------------------------ state */
@@ -505,6 +505,18 @@ export interface AppState {
    */
   plan: PlanDoc | null;
   /**
+   * Presets the USER saved ("התוכניות שלי") — their own plans, frozen under a
+   * name, offered in the editor's presets sheet beside the built-in ones.
+   *
+   * Keyed by preset id (`up_…`). Like `plan` and `nutrition`, a CACHE of the
+   * log: folded from `plan_preset_saved` / `plan_preset_deleted` by
+   * `rebuildFromEvents` via the one shared fold in core/plan.ts
+   * (`applyPlanPresetEvent`), and reset by `data_cleared`. Deliberately NOT part
+   * of `GameState` — a preset grants nothing, so the game's version and
+   * reducers never move for it.
+   */
+  planPresets: Record<string, UserPreset>;
+  /**
    * The 🍽️ meal tracker — meals, delete-tombstones and daily targets. Like
    * `sessions` and `plan`, a CACHE of the log: folded from `meal_logged` /
    * `meal_deleted` / `nutrition_targets_set` by `rebuildFromEvents` via the one
@@ -567,6 +579,11 @@ export type EventType =
   // build can already round-trip them; both reducers ignore what they don't know)
   | 'plan_updated'
   | 'data_merged'
+  // Phase 13 — presets the user saved ("שמור את התוכנית שלי כתוכנית מוכנה").
+  // One preset per event, LWW per preset id; deletion removes the id. Both fold
+  // into `state.planPresets` beside sessions/plan (see core/plan.ts).
+  | 'plan_preset_saved'
+  | 'plan_preset_deleted'
   // Phase 12 — the 🍽️ nutrition tracker. Meals grant NOTHING (no XP, energy or
   // coins), so `applyGameEvent` never handles these; they fold into
   // `state.nutrition` beside sessions/plan (see core/nutrition.ts). One meal per
@@ -1118,6 +1135,42 @@ export interface PlanUpdatedPayload extends Record<string, unknown> {
    */
   revision: number;
   /** ISO date of the save, like every other payload in the log. */
+  date: string;
+}
+
+/**
+ * ONE preset the user saved — their whole plan document under a name.
+ *
+ * LWW PER PRESET ID, the `plan_updated` rule one map-key deeper: the fold
+ * upserts `planPresets[presetId]` in the `(ts, id)` total order, so the last
+ * save of an id is the one standing and two devices holding the same events
+ * always agree. Ids are `up_` + a uuid slice, minted per save, so two devices
+ * cannot collide — a "duplicate" save is simply a second preset.
+ *
+ * The document is carried WHOLE, like `plan_updated`'s, and typed as the wire
+ * record for the same reason: a payload that arrived from another device is
+ * untrusted until `normalizePlanDoc` has seen it. A payload whose plan does not
+ * survive normalisation (or whose name is empty) folds to nothing.
+ */
+export interface PlanPresetSavedPayload extends Record<string, unknown> {
+  /** `up_` + a uuid slice — the fold's key. */
+  presetId: string;
+  /** The user's Hebrew name for it. */
+  name: string;
+  /** The complete plan document, wire shape. */
+  plan: Readonly<Record<string, unknown>>;
+  /** ISO date of the save, like every other payload in the log. */
+  date: string;
+}
+
+/**
+ * The user deleted one of their presets. Removal, not a tombstone: the fold
+ * runs in the `(ts, id)` total order, so save-then-delete and delete-then-save
+ * converge on both devices without one — and ids are never reused, so there is
+ * nothing a stale delete could accidentally kill.
+ */
+export interface PlanPresetDeletedPayload extends Record<string, unknown> {
+  presetId: string;
   date: string;
 }
 

@@ -74,18 +74,30 @@ import {
 import {
   CUSTOM_ID_PREFIX,
   DAY_ID_PREFIX,
+  MAX_USER_PRESETS,
   PLAN_DOC_VERSION,
   PLAN_DOC_VERSION_V1,
+  USER_PRESET_PREFIX,
   clampWeeklyTarget,
+  isUserPresetId,
   type CustomExercise,
   type PlanDay,
   type PlanDoc,
   type PlanExercise,
+  type UserPreset,
 } from '../data/planTypes.ts';
 import { uuid } from '../util/uuid.ts';
 import { compareEvents, finalizeGame, weeklyTargetsFromEvents } from './xp.ts';
 import { todayISO } from './workout.ts';
-import type { AppEvent, AppState, DataStore, PlanUpdatedPayload } from '../storage/DataStore.ts';
+import type {
+  AppEvent,
+  AppState,
+  DataStore,
+  EventType,
+  PlanPresetDeletedPayload,
+  PlanPresetSavedPayload,
+  PlanUpdatedPayload,
+} from '../storage/DataStore.ts';
 
 /* ----------------------------------------------------------------- limits */
 
@@ -153,6 +165,15 @@ export function newCustomId(): string {
  */
 export function newDayKey(): string {
   return DAY_ID_PREFIX + uuid().replace(/-/g, '').slice(0, 8);
+}
+
+/**
+ * A fresh id for a preset the user saves: `up_` + 12 hex chars of a uuid.
+ * Minted per SAVE, never reused — two devices that each save a preset save two
+ * presets, and a delete can never kill anything but the id it names.
+ */
+export function newUserPresetId(): string {
+  return USER_PRESET_PREFIX + uuid().replace(/-/g, '').slice(0, 12);
 }
 
 /* ---------------------------------------------------------- supersets */
@@ -1094,6 +1115,161 @@ export function planIsDirty(doc: PlanDoc, stored: PlanDoc | null): boolean {
 export function isDefaultPlan(doc: PlanDoc | null): boolean {
   if (!doc) return true;
   return !planIsDirty(doc, defaultPlanDoc());
+}
+
+/* -------------------------------------------------- the user's own presets */
+
+/**
+ * Read a `plan_preset_saved` payload into a valid `UserPreset`, or `null` when
+ * it is not one (bad id, empty name, a plan that does not survive
+ * normalisation). Used by the fold, by `normalizeUserPresets` (a stored blob is
+ * just as untrusted) and by the live driver — ONE reader, three doors, exactly
+ * the `mealRecordOf` idiom.
+ */
+export function userPresetOf(payload: Record<string, unknown>): { id: string; preset: UserPreset } | null {
+  const id = payload['presetId'];
+  if (!isUserPresetId(id)) return null;
+  const name = typeof payload['name'] === 'string' ? payload['name'].trim().slice(0, PLAN_LIMITS.maxNameLength) : '';
+  if (!name) return null;
+  const plan = normalizePlanDoc(payload['plan']);
+  if (!plan) return null;
+  // The stored document is a TEMPLATE, not a live plan: its revision counter is
+  // meaningless, so it is pinned to 0 and the same preset saved from two
+  // different plan revisions still compares equal.
+  plan.rev = 0;
+  return { id, preset: { name, plan } };
+}
+
+/**
+ * THE fold of the user's presets — shared verbatim by the live write path and by
+ * `rebuildFromEvents`, the same contract `applyNutritionEvent` keeps for meals.
+ *
+ * `plan_preset_saved` upserts its id (LWW under the caller's `(ts, id)` order),
+ * `plan_preset_deleted` removes it, and anything malformed folds to nothing.
+ * `data_cleared` is the caller's business, like it is for sessions and the plan.
+ */
+export function applyPlanPresetEvent(
+  presets: Record<string, UserPreset>,
+  type: EventType,
+  payload: Record<string, unknown>,
+): void {
+  if (type === 'plan_preset_saved') {
+    const read = userPresetOf(payload);
+    if (read) presets[read.id] = read.preset;
+  } else if (type === 'plan_preset_deleted') {
+    const id = payload['presetId'];
+    if (isUserPresetId(id)) delete presets[id];
+  }
+}
+
+/** Route ANY persisted presets blob to a valid map. Never throws. */
+export function normalizeUserPresets(raw: unknown): Record<string, UserPreset> {
+  const out: Record<string, UserPreset> = {};
+  if (!isRecord(raw)) return out;
+  for (const key of Object.keys(raw)) {
+    const entry = raw[key];
+    if (!isRecord(entry)) continue;
+    const read = userPresetOf({ presetId: key, name: entry['name'], plan: entry['plan'] });
+    if (read) out[key] = read.preset;
+  }
+  return out;
+}
+
+/**
+ * The presets in the order the sheet lists them: the fold's own insertion order,
+ * which IS the `(ts, id)` order of their first save — oldest first, like a
+ * shelf that grows at the far end.
+ */
+export function userPresetList(state: AppState): Array<{ id: string; preset: UserPreset }> {
+  return Object.entries(state.planPresets).map(([id, preset]) => ({ id, preset }));
+}
+
+/**
+ * A fresh document from a saved preset — what the editor loads into the draft.
+ *
+ * Day keys are MINTED PER APPLICATION, exactly like `PlanPreset.build()` and for
+ * the same reasons: sessions logged under the preset's original days keep
+ * pointing at the original keys (the history screen resolves those through
+ * `dayLabelOf`), and two devices that both apply it do not silently merge their
+ * days into one. Everything else — labels, weekdays, rows, supersets, custom
+ * exercises — is carried over verbatim; custom-exercise ids deliberately KEEP
+ * their `cx_` ids, so re-applying the preset reattaches their history and PRs.
+ */
+export function instantiateUserPreset(preset: UserPreset): PlanDoc {
+  const doc = clonePlanDoc(preset.plan);
+  doc.rev = 0;
+  doc.days = doc.days.map((d) =>
+    makePlanDay(newDayKey(), d.label, d.weekdays ?? [], d.exercises, supersetPairs(d)),
+  );
+  return doc;
+}
+
+export interface SaveUserPresetOk {
+  ok: true;
+  presetId: string;
+  preset: UserPreset;
+  event: AppEvent;
+}
+
+export interface SaveUserPresetFailed {
+  ok: false;
+  error: string;
+}
+
+export type SaveUserPresetResult = SaveUserPresetOk | SaveUserPresetFailed;
+
+/**
+ * Freeze a plan under a name: validate, append exactly ONE `plan_preset_saved`
+ * event, mirror it into `state.planPresets` — append before mirror, the
+ * `savePlan` contract, so "live state === rebuildFromEvents(log)" survives a
+ * crash between the two writes.
+ *
+ * The cap is enforced HERE and only here: it is a UX guard against an unbounded
+ * shelf, not an invariant — the fold accepts whatever a merged log carries, so
+ * two capped devices that merge may legitimately hold more than the cap.
+ */
+export function saveUserPreset(
+  store: DataStore,
+  name: string,
+  doc: PlanDoc,
+  now: number = Date.now(),
+): SaveUserPresetResult {
+  const trimmed = name.trim().slice(0, PLAN_LIMITS.maxNameLength);
+  if (!trimmed) return { ok: false, error: 'לתוכנית שמורה צריך שם. ✏️' };
+  if (Object.keys(store.getState().planPresets).length >= MAX_USER_PRESETS) {
+    return { ok: false, error: `אפשר לשמור עד ${MAX_USER_PRESETS} תוכניות — מחקו אחת ישנה קודם.` };
+  }
+  const errors = validatePlanDoc(doc);
+  if (errors.length > 0) return { ok: false, error: errors[0] ?? 'התוכנית אינה תקינה' };
+  const normalized = normalizePlanDoc(planToRecord(doc));
+  if (!normalized) return { ok: false, error: 'התוכנית אינה תקינה' };
+  normalized.rev = 0;
+
+  const payload: PlanPresetSavedPayload = {
+    presetId: newUserPresetId(),
+    name: trimmed,
+    plan: planToRecord(normalized),
+    date: todayISO(new Date(now)),
+  };
+  const event = store.append('plan_preset_saved', payload);
+  store.update((draft) => {
+    applyPlanPresetEvent(draft.planPresets, 'plan_preset_saved', payload);
+  });
+  return { ok: true, presetId: payload.presetId, preset: { name: trimmed, plan: normalized }, event };
+}
+
+/**
+ * Delete one saved preset. Returns false (and appends nothing) for an id the
+ * state does not hold — a double-tap must not write a second event.
+ */
+export function deleteUserPreset(store: DataStore, presetId: string, now: number = Date.now()): boolean {
+  if (!isUserPresetId(presetId) || !store.getState().planPresets[presetId]) return false;
+  const payload: PlanPresetDeletedPayload = { presetId, date: todayISO(new Date(now)) };
+  store.append('plan_preset_deleted', payload);
+  store.update((draft) => {
+    applyPlanPresetEvent(draft.planPresets, 'plan_preset_deleted', payload);
+  });
+  return true;
 }
 
 /** Every exercise the library offers for a day: built-ins first, then customs. */

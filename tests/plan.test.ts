@@ -37,14 +37,24 @@ import {
   type DayKey,
   type ResolvedProgram,
 } from '../src/data/program.ts';
-import type { CustomExercise, PlanDay, PlanDoc } from '../src/data/planTypes.ts';
 import {
+  MAX_USER_PRESETS,
+  isUserPresetId,
+  type CustomExercise,
+  type PlanDay,
+  type PlanDoc,
+  type UserPreset,
+} from '../src/data/planTypes.ts';
+import {
+  applyPlanPresetEvent,
   assignedWeekdays,
   clonePlanDoc,
   customToExercise,
   defaultPlanDoc,
   defaultTabView,
+  deleteUserPreset,
   deriveWeeklyTarget,
+  instantiateUserPreset,
   isBuiltInWeekdayMap,
   isDefaultPlan,
   isSuperset,
@@ -56,6 +66,7 @@ import {
   newCustomId,
   newDayKey,
   normalizePlanDoc,
+  normalizeUserPresets,
   planDay,
   planFromEvents,
   planIsDirty,
@@ -64,10 +75,12 @@ import {
   resolveProgram,
   resolveTab,
   savePlan,
+  saveUserPreset,
   scheduleTabs,
   supersetPairOf,
   supersetPairs,
   supersetPartner,
+  userPresetList,
   validatePlanDoc,
   viewDayKey,
 } from '../src/core/plan.ts';
@@ -78,6 +91,7 @@ import type { AppEvent, Session } from '../src/storage/DataStore.ts';
 import {
   CURRENT_STATE_VERSION,
   STATE_KEY,
+  makeEvent,
   migrateState,
   rebuildFromEvents,
   type StorageLike,
@@ -597,12 +611,13 @@ describe('the plan_updated fold', () => {
 
 /* ------------------------------------------------------------- persistence */
 
-describe('state schema v5', () => {
-  it('is at version 5 and carries a plan slot', () => {
-    expect(CURRENT_STATE_VERSION).toBe(5);
+describe('state schema v6', () => {
+  it('is at version 6 and carries a plan slot and an empty preset shelf', () => {
+    expect(CURRENT_STATE_VERSION).toBe(6);
     const store = new LocalStore(fakeStorage());
     expect(store.getState().plan).toBeNull();
-    expect(store.getState().schemaVersion).toBe(5);
+    expect(store.getState().planPresets).toEqual({});
+    expect(store.getState().schemaVersion).toBe(6);
   });
 
   it('migrates an old v2 blob (no plan field) to the current version with plan: null', () => {
@@ -673,6 +688,183 @@ describe('state schema v5', () => {
 });
 
 /* ------------------------------------------------------- day key coverage */
+
+describe('user-saved presets ("התוכניות שלי")', () => {
+  /** A plan worth freezing: edited numbers, a custom exercise, a superset. */
+  function myPlan(): PlanDoc {
+    const doc = defaultPlanDoc();
+    const custom: CustomExercise = {
+      id: newCustomId(),
+      he: 'תרגיל שלי',
+      en: 'My Move',
+      bodyPart: 'legs',
+      unit: 'חזרות',
+      equip: ['Dumbbells'],
+      muscle: 'רגליים',
+    };
+    doc.customExercises.push(custom);
+    const a = pday(doc, 'A');
+    a.exercises = [
+      { id: 'a1', sets: 5, reps: '6', rest: 120 },
+      { id: 'a2', sets: 3, reps: '10', rest: 60 },
+      { id: custom.id, sets: 3, reps: '12', rest: 60 },
+    ];
+    a.supersets = [['a1', 'a2']];
+    a.weekdays = [0, 3];
+    return doc;
+  }
+
+  it('saves the plan as ONE event and mirrors it into state, replay-equal', () => {
+    const store = new LocalStore(fakeStorage());
+    const res = saveUserPreset(store, '  התוכנית של אידו  ', myPlan());
+    if (!res.ok) throw new Error(res.error);
+    expect(isUserPresetId(res.presetId)).toBe(true);
+    expect(res.preset.name).toBe('התוכנית של אידו'); // trimmed
+    expect(res.preset.plan.rev).toBe(0);
+
+    const saved = store.getEvents().filter((e) => e.type === 'plan_preset_saved');
+    expect(saved).toHaveLength(1);
+    const shelf = store.getState().planPresets;
+    expect(Object.keys(shelf)).toEqual([res.presetId]);
+    expect(shelf[res.presetId]?.plan.customExercises).toHaveLength(1);
+    // the frozen document is a real, valid plan — supersets and all
+    expect(validatePlanDoc(shelf[res.presetId]!.plan)).toEqual([]);
+    expect(supersetPairs(pday(shelf[res.presetId]!.plan, 'A'))).toEqual([['a1', 'a2']]);
+    // live state === replay of the log
+    expect(rebuildFromEvents(store.getEvents(), Date.now()).planPresets).toEqual(shelf);
+    // …and the ACTIVE plan was never touched: freezing is not saving the plan
+    expect(store.getState().plan).toBeNull();
+  });
+
+  it('refuses an empty name and an invalid document, appending nothing', () => {
+    const store = new LocalStore(fakeStorage());
+    expect(saveUserPreset(store, '   ', myPlan()).ok).toBe(false);
+    const broken = myPlan();
+    pday(broken, 'A').exercises = []; // a day with no rows fails validation
+    expect(saveUserPreset(store, 'שם', broken).ok).toBe(false);
+    expect(store.getEvents().filter((e) => e.type === 'plan_preset_saved')).toHaveLength(0);
+    expect(store.getState().planPresets).toEqual({});
+  });
+
+  it('caps the shelf, and delete frees a slot', () => {
+    const store = new LocalStore(fakeStorage());
+    const ids: string[] = [];
+    for (let i = 0; i < MAX_USER_PRESETS; i++) {
+      const res = saveUserPreset(store, `תוכנית ${i}`, defaultPlanDoc());
+      if (!res.ok) throw new Error(res.error);
+      ids.push(res.presetId);
+    }
+    expect(saveUserPreset(store, 'אחת יותר מדי', defaultPlanDoc()).ok).toBe(false);
+    expect(deleteUserPreset(store, ids[0] ?? '')).toBe(true);
+    expect(saveUserPreset(store, 'עכשיו יש מקום', defaultPlanDoc()).ok).toBe(true);
+    // the shelf lists in fold order: oldest first, the new one at the far end
+    const names = userPresetList(store.getState()).map((p) => p.preset.name);
+    expect(names[0]).toBe('תוכנית 1');
+    expect(names[names.length - 1]).toBe('עכשיו יש מקום');
+  });
+
+  it('deletes exactly what exists, exactly once', () => {
+    const store = new LocalStore(fakeStorage());
+    const res = saveUserPreset(store, 'למחיקה', defaultPlanDoc());
+    if (!res.ok) throw new Error(res.error);
+    expect(deleteUserPreset(store, res.presetId)).toBe(true);
+    expect(store.getState().planPresets).toEqual({});
+    // a double-tap and a junk id append no second event
+    expect(deleteUserPreset(store, res.presetId)).toBe(false);
+    expect(deleteUserPreset(store, 'up_nope!')).toBe(false);
+    expect(store.getEvents().filter((e) => e.type === 'plan_preset_deleted')).toHaveLength(1);
+    expect(rebuildFromEvents(store.getEvents(), Date.now()).planPresets).toEqual({});
+  });
+
+  it('folds LWW per id and converges in either merge order', () => {
+    const planRec = planToRecord(defaultPlanDoc());
+    const id1 = 'up_aaaaaaaaaaaa';
+    const id2 = 'up_bbbbbbbbbbbb';
+    const events = [
+      makeEvent('plan_preset_saved', { presetId: id1, name: 'ראשונה', plan: planRec, date: '2025-01-01' }, 100),
+      makeEvent('plan_preset_saved', { presetId: id2, name: 'שנייה', plan: planRec, date: '2025-01-01' }, 150),
+      // a re-save of id1 later in the order wins…
+      makeEvent('plan_preset_saved', { presetId: id1, name: 'ראשונה מעודכנת', plan: planRec, date: '2025-01-02' }, 200),
+      // …and id2 is deleted after its save
+      makeEvent('plan_preset_deleted', { presetId: id2, date: '2025-01-03' }, 300),
+      // a delete that sorts BEFORE a save of a fresh id kills nothing
+      makeEvent('plan_preset_deleted', { presetId: 'up_cccccccccccc', date: '2025-01-01' }, 120),
+      makeEvent('plan_preset_saved', { presetId: 'up_cccccccccccc', name: 'שלישית', plan: planRec, date: '2025-01-02' }, 250),
+    ];
+    const forward = rebuildFromEvents(events, Date.now()).planPresets;
+    const backward = rebuildFromEvents([...events].reverse(), Date.now()).planPresets;
+    expect(backward).toEqual(forward);
+    expect(Object.keys(forward).sort()).toEqual([id1, 'up_cccccccccccc']);
+    expect(forward[id1]?.name).toBe('ראשונה מעודכנת');
+  });
+
+  it('folds malformed payloads to nothing, and data_cleared wipes the shelf', () => {
+    const planRec = planToRecord(defaultPlanDoc());
+    const junk = [
+      makeEvent('plan_preset_saved', { presetId: 'not-a-preset', name: 'x', plan: planRec, date: 'd' }, 10),
+      makeEvent('plan_preset_saved', { presetId: 'up_dddddddddddd', name: '   ', plan: planRec, date: 'd' }, 20),
+      makeEvent('plan_preset_saved', { presetId: 'up_eeeeeeeeeeee', name: 'שם', plan: { version: 99 }, date: 'd' }, 30),
+    ];
+    expect(rebuildFromEvents(junk, Date.now()).planPresets).toEqual({});
+
+    const wiped = [
+      makeEvent('plan_preset_saved', { presetId: 'up_ffffffffffff', name: 'שם', plan: planRec, date: 'd' }, 10),
+      makeEvent('data_cleared', {}, 20),
+    ];
+    expect(rebuildFromEvents(wiped, Date.now()).planPresets).toEqual({});
+
+    // the shared fold shrugs at unrelated event types
+    const shelf: Record<string, UserPreset> = {};
+    applyPlanPresetEvent(shelf, 'plan_updated', { presetId: 'up_ffffffffffff' });
+    expect(shelf).toEqual({});
+  });
+
+  it('instantiates with FRESH day keys and everything else verbatim', () => {
+    const store = new LocalStore(fakeStorage());
+    const res = saveUserPreset(store, 'שלי', myPlan());
+    if (!res.ok) throw new Error(res.error);
+
+    const inst = instantiateUserPreset(res.preset);
+    expect(validatePlanDoc(inst)).toEqual([]);
+    const originalKeys = res.preset.plan.days.map((d) => d.key);
+    const newKeys = inst.days.map((d) => d.key);
+    for (const k of newKeys) {
+      expect(k.startsWith('d_')).toBe(true);
+      expect(originalKeys).not.toContain(k);
+    }
+    // a second application mints ANOTHER set of days — no silent merging
+    expect(instantiateUserPreset(res.preset).days.map((d) => d.key)).not.toEqual(newKeys);
+    // labels, weekdays, rows, supersets and the custom exercise all carry over
+    expect(inst.days.map((d) => d.label)).toEqual(res.preset.plan.days.map((d) => d.label));
+    expect(inst.days[0]?.weekdays).toEqual([0, 3]);
+    expect(inst.days.map((d) => d.exercises)).toEqual(res.preset.plan.days.map((d) => d.exercises));
+    expect(supersetPairs(inst.days[0] as PlanDay)).toEqual([['a1', 'a2']]);
+    expect(inst.customExercises).toEqual(res.preset.plan.customExercises);
+    // …and the instantiated document SAVES like any plan
+    const savedPlan = savePlan(store, inst);
+    expect(savedPlan.ok).toBe(true);
+  });
+
+  it('normalizeUserPresets keeps valid entries and drops junk', () => {
+    const good = { name: 'שלי', plan: planToRecord(defaultPlanDoc()) };
+    const out = normalizeUserPresets({
+      up_abcd1234abcd: good,
+      'not-an-id': good,
+      up_ffffffffffff: { name: '', plan: planToRecord(defaultPlanDoc()) },
+      up_eeeeeeeeeeee: { name: 'שם', plan: 'garbage' },
+      up_dddddddddddd: 42,
+    });
+    expect(Object.keys(out)).toEqual(['up_abcd1234abcd']);
+    expect(out['up_abcd1234abcd']?.name).toBe('שלי');
+    expect(normalizeUserPresets(null)).toEqual({});
+    // …and a state blob round-trips through migrateState with the shelf intact
+    const store = new LocalStore(fakeStorage());
+    const res = saveUserPreset(store, 'שלי', myPlan());
+    if (!res.ok) throw new Error(res.error);
+    const reread = migrateState(JSON.parse(JSON.stringify(store.getState())), Date.now());
+    expect(reread.planPresets).toEqual(store.getState().planPresets);
+  });
+});
 
 describe('plan days', () => {
   it('always has all three days when a v1 document brought none', () => {
