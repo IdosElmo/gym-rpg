@@ -146,7 +146,7 @@ const eachFrame = (d: DemoVariant, fn: (j: Joints, pose: Pose, i: number) => voi
 describe('coverage', () => {
   it('demonstrates every built-in exercise, exactly once, and nothing else', () => {
     const builtIn = builtInExercises().map((e) => e.id);
-    expect(builtIn).toHaveLength(28);
+    expect(builtIn).toHaveLength(38);
     expect(EXERCISE_DEMOS.map((d) => d.id).sort()).toEqual([...builtIn].sort());
     expect(new Set(EXERCISE_DEMOS.map((d) => d.id)).size).toBe(EXERCISE_DEMOS.length);
     for (const d of EXERCISE_DEMOS) expect(findExercise(d.id)).not.toBeNull();
@@ -173,7 +173,7 @@ describe('coverage', () => {
       if (d.variants.length === 1) expect(d.variants[0]?.caption, d.id).toBeUndefined();
       else for (const v of d.variants) expect(v.caption, d.id).toBeTruthy();
     }
-    expect(ALL).toHaveLength(34);
+    expect(ALL).toHaveLength(44);
     // two variants of one exercise are two DIFFERENT pictures, never a copy
     for (const d of EXERCISE_DEMOS) {
       if (d.variants.length < 2) continue;
@@ -261,7 +261,7 @@ describe('every demo, structurally', () => {
           }
         });
         const wheels = pulleys(d);
-        if (d.hold.k === 'rope' || d.hold.k === 'handle') {
+        if (d.hold.k === 'rope' || d.hold.k === 'handle' || d.hold.k === 'handleNear') {
           const from = { x: d.hold.from[0] ?? 0, y: d.hold.from[1] ?? 0 };
           expect(wheels.some((w) => dist(w, from) < 0.001)).toBe(true);
         }
@@ -314,7 +314,7 @@ function limbPoints(j: Joints): Vec[] {
 /* ------------------------------------------------------------------ families */
 
 describe('presses — hands at the chest at the bottom, extended at the top', () => {
-  for (const id of ['a1', 'b1', 'c1', 'c3']) {
+  for (const id of ['a1', 'b1', 'c1', 'c3', 'x12']) {
     it(id, () => {
       const last = endOf(id);
       const bottom = at(id, 0);
@@ -368,7 +368,7 @@ describe('Smith machine lifts — the bar cannot leave the rail', () => {
 });
 
 describe('squat patterns — hips to at least parallel, feet planted', () => {
-  for (const id of ['a3', 'x1']) {
+  for (const id of ['a3', 'x1', 'x11']) {
     it(id, () => {
       const top = at(id, 0);
       const bottom = at(id, endOf(id));
@@ -836,6 +836,116 @@ describe('flye family — a wide arc, elbow bent throughout', () => {
   });
 });
 
+describe('the 4-day plan library additions', () => {
+  it('x11 squats with the bell held ON the chest the whole way down', () => {
+    const d = demo('x11');
+    expect(d.hold.k).toBe('plate');
+    for (let i = 0; i <= endOf('x11'); i++) {
+      const j = at('x11', i);
+      const plate = holdAnchors(d.hold, j)[0] as Vec;
+      // a fist's reach off the sternum, never pressed out or dropped
+      expect(dist(plate, chest(j)), `frame ${i}`).toBeLessThan(12);
+      expect(plate.x, `frame ${i}`).toBeGreaterThan(chest(j).x); // in FRONT of it
+    }
+  });
+
+  it('x12 is b1’s straight-up press with dumbbells instead of the rail', () => {
+    expect(demo('x12').frames).toEqual(demo('b1').frames);
+    expect(demo('x12').hold).toEqual({ k: 'db' });
+    expect(demo('x12').props()).not.toContain('cd-rail');
+  });
+
+  it('x13 is a passive hang: fists and shoulder pinned, everything below sinks', () => {
+    const d = demo('x13');
+    const a = at('x13', 0);
+    const b = at('x13', 1);
+    expect(dist(a.near.grip, b.near.grip)).toBeLessThan(0.5);
+    expect(dist(a.near.shoulder, b.near.shoulder)).toBeLessThan(0.5);
+    // the spine lets go: pelvis, knees and the settling skull all drop
+    expect(b.pelvis.y - a.pelvis.y).toBeGreaterThan(3);
+    expect(b.near.knee.y - a.near.knee.y).toBeGreaterThan(3);
+    expect(b.head.y - a.head.y).toBeGreaterThan(3);
+    // …and the drop is the shrug being released, not the hands slipping
+    expect((frameOf('x13', 1).shrug ?? 0) - (frameOf('x13', 0).shrug ?? 0)).toBeGreaterThan(3);
+    expect(d.loopMs).toBeGreaterThan(4000); // a hold breathes slower than a rep
+  });
+
+  it('x14 and x17 are b2’s pull-up, taught at the two assisted tempos', () => {
+    // the assisted pull-up climbs the same path, slow both ways
+    expect(demo('x14').frames).toEqual(demo('b2', 1).frames);
+    expect(demo('x14').forwardShare).toBe(0.5);
+    // the negative runs it top -> hang, and the descent owns the clock
+    expect(demo('x17').frames).toEqual([...demo('b2', 1).frames].reverse());
+    expect(demo('x17').forwardShare).toBeGreaterThan(0.6);
+  });
+
+  it('x15 rows the handle to the belly with the torso held still', () => {
+    const a = frameOf('x15', 0);
+    const b = frameOf('x15', 1);
+    expect(b.torso).toBe(a.torso); // chest out, no body english
+    expect(b.leg).toEqual(a.leg); // braced on the footplate
+    const out = at('x15', 0);
+    const pulled = at('x15', 1);
+    expect(out.near.grip.x - pulled.near.grip.x).toBeGreaterThan(18);
+    expect(pulled.near.elbow.x).toBeLessThan(pulled.near.shoulder.x); // elbow driven back
+    expect(pulled.near.grip.y).toBeGreaterThan(pulled.near.shoulder.y + 4); // at the belly
+    expect(demo('x15').hold).toEqual({ k: 'handle', from: [116, 74] });
+  });
+
+  it('x16 presses down the midline while the body refuses to turn', () => {
+    const d = demo('x16');
+    expect(d.view).toBe('front');
+    const a = frameOf('x16', 0);
+    const b = frameOf('x16', 1);
+    // the entire point of the lift: only the arms move
+    expect(b.torso).toBe(a.torso);
+    expect(b.leg).toEqual(a.leg);
+    expect(b.legF).toEqual(a.legF);
+    expect(b.x).toBe(a.x);
+    for (let i = 0; i <= endOf('x16'); i++) {
+      const j = at('x16', i);
+      const hands = holdAnchors(d.hold, j)[0] as Vec;
+      expect(Math.abs(hands.x - j.pelvis.x), `frame ${i}`).toBeLessThan(1.5); // on the midline
+    }
+    const held = holdAnchors(d.hold, at('x16', 0))[0] as Vec;
+    const pressed = holdAnchors(d.hold, at('x16', 1))[0] as Vec;
+    expect(pressed.y - held.y).toBeGreaterThan(15);
+    expect(d.hold).toEqual({ k: 'handle', from: [24, 50] });
+  });
+
+  it('x18 rows off the pad: the bench holds the hinge b4 has to', () => {
+    const a = frameOf('x18', 0);
+    const b = frameOf('x18', 1);
+    expect(b.torso).toBe(a.torso); // the chest never leaves the pad
+    expect(b.leg).toEqual(a.leg);
+    const hang = at('x18', 0);
+    const top = at('x18', 1);
+    expect(hang.near.grip.y - top.near.grip.y).toBeGreaterThan(14);
+    expect(top.near.elbow.x).toBeLessThan(top.near.shoulder.x); // elbow past the ribs
+    expect(demo('x18').hold).toEqual({ k: 'db' });
+    expect(demo('x18').props()).toContain('cd-pad');
+  });
+
+  it('x19 is b2’s pulldown with the shoulder-width bar', () => {
+    expect(demo('x19').frames).toEqual(demo('b2', 0).frames);
+    expect(demo('x19').hold).toEqual({ k: 'handle', from: [78, 14] }); // not wide
+  });
+
+  it('x20 rows one arm on the cable while the support side just holds', () => {
+    const a = frameOf('x20', 0);
+    const b = frameOf('x20', 1);
+    expect(b.armF).toEqual(a.armF); // the bracing hand never moves
+    expect(b.leg).toEqual(a.leg);
+    expect(b.legF).toEqual(a.legF);
+    expect(b.torso).toBe(a.torso);
+    const out = at('x20', 0);
+    const pulled = at('x20', 1);
+    expect(out.near.grip.x - pulled.near.grip.x).toBeGreaterThan(18);
+    expect(pulled.near.elbow.x).toBeLessThan(pulled.near.shoulder.x); // elbow driven back
+    expect(demo('x20').hold).toEqual({ k: 'handleNear', from: [118, 58] });
+  });
+});
+
 /* ------------------------------------------------------ the path of the load */
 
 describe('the load travels a path, not a loop', () => {
@@ -900,6 +1010,8 @@ describe('the load travels a path, not a loop', () => {
     a6: (j) => j.near.knee,
     b2: (j) => j.head,
     b3: (j) => j.pelvis,
+    x14: (j) => j.head,
+    x17: (j) => j.head,
   };
 
   const guided = (id: string, d: DemoVariant): ((j: Joints) => Vec) | null => {
@@ -953,7 +1065,7 @@ describe('the load travels a path, not a loop', () => {
   });
 
   it('welds a bodyweight grip to the bar it hangs from', () => {
-    for (const [id, vi] of [['a6', 0], ['b2', 1], ['b3', 0]] as Array<[string, number]>) {
+    for (const [id, vi] of [['a6', 0], ['b2', 1], ['b3', 0], ['x13', 0], ['x14', 0], ['x17', 0]] as Array<[string, number]>) {
       const d = demo(id, vi);
       const first = tween(d, 0).near.grip;
       for (let i = 0; i <= 40; i++) {
@@ -1059,7 +1171,7 @@ describe('a turned pose has two arms, and they agree with each other', () => {
 describe('the views are chosen per movement, not by habit', () => {
   it('puts the frontal-plane lifts in the FRONT view and everything else in the side', () => {
     const front = ALL.filter((e) => e.v.view === 'front').map((e) => e.tag).sort();
-    expect(front).toEqual(['b6', 'c6', 'x4', 'x8']);
+    expect(front).toEqual(['b6', 'c6', 'x16', 'x4', 'x8']);
     // a4 and x7 are TWO-SIDED movements too — the sagittal camera stacks their
     // two hands into one no matter what the angles say — but neither belongs
     // square-on either: a flye seen from straight above is a plank with a head,

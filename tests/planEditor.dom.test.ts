@@ -430,11 +430,12 @@ describe('ready-made presets', () => {
     click('[data-preset="ab4"]');
 
     expect(document.querySelector('.pl-sheet')).toBeNull();
-    expect(dayTabNames()).toHaveLength(2);
-    expect(dayTabNames()[0]).toContain('חלק א׳');
-    expect(dayTabNames()[1]).toContain('חלק ב׳');
+    expect(dayTabNames()).toHaveLength(3);
+    expect(dayTabNames()[0]).toContain('אימון A');
+    expect(dayTabNames()[1]).toContain('אימון B1');
+    expect(dayTabNames()[2]).toContain('אימון B2');
     expect(targetText()).toContain('יעד שבועי: 4');
-    expect(rowIds()).toEqual(['x1', 'c2', 'x2', 'x3', 'b1', 'c3', 'x4', 'x5']);
+    expect(rowIds()).toEqual(['x11', 'c2', 'x12', 'c3', 'x2', 'x3', 'x4', 'x5', 'a6', 'x13']);
     // …still only a draft
     expect(store.getState().plan).toBeNull();
     expect(planEvents(store)).toHaveLength(0);
@@ -442,14 +443,16 @@ describe('ready-made presets', () => {
     click('#plSave');
     expect(planEvents(store)).toHaveLength(1);
     const saved = store.getState().plan;
-    expect(saved?.days).toHaveLength(2);
+    expect(saved?.days).toHaveLength(3);
     expect(saved?.weeklyTarget).toBe(4);
     expect(saved?.days[0]?.weekdays).toEqual([0, 3]);
-    expect(saved?.days[1]?.weekdays).toEqual([2, 4]);
-    expect(saved?.days[1]?.exercises.map((r) => r.id)).toEqual(['b2', 'x6', 'b4', 'a2', 'x7', 'x8', 'a5', 'x9']);
+    expect(saved?.days[1]?.weekdays).toEqual([2]);
+    expect(saved?.days[2]?.weekdays).toEqual([4]);
+    expect(saved?.days[1]?.exercises.map((r) => r.id)).toEqual(['x14', 'x15', 'b2', 'a2', 'x7', 'a5', 'x9', 'x16', 'x13']);
+    expect(saved?.days[2]?.exercises.map((r) => r.id)).toEqual(['x17', 'x18', 'x19', 'x20', 'x7', 'a5', 'x9', 'b5', 'x13']);
     // the whole document travels in the one event
     const payload = planEvents(store)[0]?.payload['plan'] as { days?: unknown[] } | null;
-    expect(payload?.days).toHaveLength(2);
+    expect(payload?.days).toHaveLength(3);
   });
 
   it('drives the app: four scheduled tabs, the new exercises, and real XP', () => {
@@ -461,22 +464,22 @@ describe('ready-made presets', () => {
     click('#btnPlanBack');
 
     const tabs = [...document.querySelectorAll<HTMLElement>('#tabs .tab')];
-    // The preset defines TWO days trained on four weekdays, and the אימון hub's
-    // inner row shows the WEEK: ראשון / שלישי / רביעי / חמישי — nothing else.
+    // The preset defines THREE workouts trained on four weekdays, and the אימון
+    // hub's inner row shows the WEEK: ראשון / שלישי / רביעי / חמישי — nothing else.
     expect(tabs).toHaveLength(4);
     expect(tabs[0]?.textContent).toContain('ראשון');
-    expect(tabs[0]?.textContent).toContain('חלק א׳');
-    // the boot tab follows the real weekday, so pin the test to חלק א׳
+    expect(tabs[0]?.textContent).toContain('אימון A');
+    // the boot tab follows the real weekday, so pin the test to אימון A
     click(`#tabs .tab[data-view^="${store.getState().plan?.days[0]?.key ?? ''}"]`);
     // the workout screen renders a library exercise like any other
-    const card = document.getElementById('card-x1');
-    expect(card?.querySelector('.ex-title')?.textContent).toBe('סקוואט בסמית׳ מאשין');
-    expect(card?.querySelectorAll('.chk')).toHaveLength(4);
+    const card = document.getElementById('card-x11');
+    expect(card?.querySelector('.ex-title')?.textContent).toBe('סקוואט גובלט עם משקולת');
+    expect(card?.querySelectorAll('.chk')).toHaveLength(3);
     expect(card?.querySelector('.form-panel')).not.toBeNull();
 
-    click('#main .chk[data-ex="x1"][data-set="0"]');
+    click('#main .chk[data-ex="x11"][data-set="0"]');
     expect(store.getState().game?.parts.legs.xp).toBeGreaterThan(0);
-    expect(store.getEvents().find((e) => e.type === 'xp_gained')?.payload['exId']).toBe('x1');
+    expect(store.getEvents().find((e) => e.type === 'xp_gained')?.payload['exId']).toBe('x11');
   });
 
   it('offers the built-in program as a preset too', () => {
@@ -921,11 +924,11 @@ describe('history with a custom plan', () => {
     click('#plSave');
     click('#btnPlanBack');
     const dayKey = store.getState().plan?.days[0]?.key ?? '';
-    // חלק א׳ is trained twice a week, so its tabs are `key@0` / `key@3`; either
+    // אימון A is trained twice a week, so its tabs are `key@0` / `key@3`; either
     // occurrence logs under the bare day key.
     click(`#tabs .tab[data-view^="${dayKey}"]`);
 
-    // tick every set of every exercise of חלק א׳ -> workout_finished
+    // tick every set of every exercise of אימון A -> workout_finished
     const boxes = [...document.querySelectorAll<HTMLElement>('#main .chk')];
     expect(boxes.length).toBeGreaterThan(0);
     for (const b of boxes) b.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -939,7 +942,7 @@ describe('history with a custom plan', () => {
     render();
     const line = [...document.querySelectorAll<HTMLElement>('.feed-item.workout .fi-text')].map((e) => e.textContent);
     expect(line[0]).toContain('אימון הושלם במלואו');
-    expect(line[0]).toContain('חלק א׳');
+    expect(line[0]).toContain('אימון A');
   });
 
   it('falls back to the raw id for an exercise deleted from the plan', () => {

@@ -189,7 +189,7 @@ describe('workout screen', () => {
  */
 describe('schedule-expanded day tabs', () => {
   /** The app with the A/B preset saved, and the day keys the preset minted. */
-  function mountAb(): { store: LocalStore; alef: string; bet: string } {
+  function mountAb(): { store: LocalStore; alef: string; bet1: string; bet2: string } {
     const store = new LocalStore(fakeStorage());
     const preset = presetById('ab4');
     if (!preset) throw new Error('no ab4 preset');
@@ -197,10 +197,11 @@ describe('schedule-expanded day tabs', () => {
     if (!res.ok) throw new Error(res.errors.join(', '));
     const days = store.getState().plan?.days ?? [];
     const alef = days[0]?.key;
-    const bet = days[1]?.key;
-    if (!alef || !bet) throw new Error('preset lost a day');
+    const bet1 = days[1]?.key;
+    const bet2 = days[2]?.key;
+    if (!alef || !bet1 || !bet2) throw new Error('preset lost a day');
     mount(store);
-    return { store, alef, bet };
+    return { store, alef, bet1, bet2 };
   }
 
   const tabs = innerTabs;
@@ -210,17 +211,19 @@ describe('schedule-expanded day tabs', () => {
     return [...document.querySelectorAll<HTMLElement>('#main .ex-card')].map((c) => c.id);
   }
 
-  it('renders four workout tabs for the two-day A/B plan, in weekday order', () => {
-    const { alef, bet } = mountAb();
+  it('renders four workout tabs for the three-day A/B plan, in weekday order', () => {
+    const { alef, bet1, bet2 } = mountAb();
     // The four occurrences are the WHOLE inner row now: דמות/קרב/היסטוריה moved
     // into their own hubs, so a four-day split no longer overflows anything.
     expect(tabs()).toHaveLength(4);
     expect(hubs()).toHaveLength(4);
+    // אימון A runs twice so its two tabs carry occurrence ids; B1 and B2 run
+    // once a week each and keep their plain keys
     expect(tabs().slice(0, 4).map((t) => t.dataset['view'])).toEqual([
       `${alef}@0`,
-      `${bet}@2`,
+      bet1,
       `${alef}@3`,
-      `${bet}@4`,
+      bet2,
     ]);
     expect(tabs().slice(0, 4).map((t) => t.querySelector('.d')?.textContent)).toEqual([
       'ראשון',
@@ -228,8 +231,8 @@ describe('schedule-expanded day tabs', () => {
       'רביעי',
       'חמישי',
     ]);
-    // the workout's own name is the small line, so a tab reads "רביעי / חלק א׳"
-    expect(tabs()[2]?.querySelector('.w')?.textContent).toContain('חלק א׳');
+    // the workout's own name is the small line, so a tab reads "רביעי / אימון A"
+    expect(tabs()[2]?.querySelector('.w')?.textContent).toContain('אימון A');
     // four inner tabs still fit a phone row — nothing scrolls, and the main bar
     // never can (it is always the same three hubs).
     expect(document.querySelector('#tabs .sub-row')?.classList.contains('scroll')).toBe(false);
@@ -258,35 +261,41 @@ describe('schedule-expanded day tabs', () => {
   });
 
   it('shows the right workout per tab, with ONLY the tapped tab active', () => {
-    const { store, alef, bet } = mountAb();
+    const { store, alef, bet1, bet2 } = mountAb();
     const active = (): (string | undefined)[] =>
       tabs().filter((t) => t.classList.contains('active')).map((t) => t.dataset['view']);
 
     clickTab(`${alef}@3`);
     expect(store.getState().ui.view).toBe(`${alef}@3`);
-    expect(cardIds()).toContain('card-x1'); // סקוואט — חלק א׳
+    expect(cardIds()).toContain('card-x11'); // סקוואט גובלט — אימון A
     expect(cardIds()).not.toContain('card-b2');
-    expect(document.querySelector('#header .app-title')?.textContent).toContain('יום רביעי · חלק א׳');
+    expect(document.querySelector('#header .app-title')?.textContent).toContain('יום רביעי · אימון A');
     // the sibling occurrence of the SAME workout must not light up too
     expect(active()).toEqual([`${alef}@3`]);
 
     clickTab(`${alef}@0`);
     expect(active()).toEqual([`${alef}@0`]);
-    expect(document.querySelector('#header .app-title')?.textContent).toContain('יום ראשון · חלק א׳');
-    expect(cardIds()).toContain('card-x1');
+    expect(document.querySelector('#header .app-title')?.textContent).toContain('יום ראשון · אימון A');
+    expect(cardIds()).toContain('card-x11');
 
-    clickTab(`${bet}@4`);
-    expect(active()).toEqual([`${bet}@4`]);
-    expect(document.querySelector('#header .app-title')?.textContent).toContain('יום חמישי · חלק ב׳');
-    expect(cardIds()).toContain('card-b2'); // פולי עליון — חלק ב׳
-    expect(cardIds()).not.toContain('card-x1');
+    clickTab(bet1);
+    expect(active()).toEqual([bet1]);
+    expect(document.querySelector('#header .app-title')?.textContent).toContain('יום שלישי · אימון B1');
+    expect(cardIds()).toContain('card-b2'); // פולי עליון אחיזה רחבה — אימון B1
+    expect(cardIds()).not.toContain('card-x11');
+
+    clickTab(bet2);
+    expect(active()).toEqual([bet2]);
+    expect(document.querySelector('#header .app-title')?.textContent).toContain('יום חמישי · אימון B2');
+    expect(cardIds()).toContain('card-x17'); // מתח שלילי — אימון B2
+    expect(cardIds()).not.toContain('card-b2');
   });
 
   it('logs from an occurrence tab under the BARE day key, into one session', () => {
     const { store, alef } = mountAb();
-    clickTab(`${alef}@3`); // the רביעי occurrence of חלק א׳
+    clickTab(`${alef}@3`); // the רביעי occurrence of אימון A
     document
-      .querySelector<HTMLButtonElement>('#main .chk[data-ex="x1"][data-set="0"]')!
+      .querySelector<HTMLButtonElement>('#main .chk[data-ex="x11"][data-set="0"]')!
       .dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
     const date = Object.keys(store.getState().sessions)[0] ?? '';
@@ -300,7 +309,7 @@ describe('schedule-expanded day tabs', () => {
 
     // …and the ראשון tab of the same workout shows that very set
     clickTab(`${alef}@0`);
-    expect(document.querySelector<HTMLButtonElement>('#main .chk[data-ex="x1"][data-set="0"]')?.classList.contains('on')).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>('#main .chk[data-ex="x11"][data-set="0"]')?.classList.contains('on')).toBe(true);
   });
 
   it('lands back on a valid occurrence tab when the editor is closed', () => {
@@ -311,7 +320,7 @@ describe('schedule-expanded day tabs', () => {
     document.getElementById('btnPlanBack')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(store.getState().ui.view).toBe(`${alef}@3`);
     expect(tabs().filter((t) => t.classList.contains('active'))).toHaveLength(1);
-    expect(cardIds()).toContain('card-x1');
+    expect(cardIds()).toContain('card-x11');
   });
 
   it('canonicalises a view stored before schedule tabs existed', () => {
@@ -330,7 +339,7 @@ describe('schedule-expanded day tabs', () => {
     const active = tabs().filter((t) => t.classList.contains('active'));
     expect(active).toHaveLength(1);
     expect(active[0]?.dataset['view']?.startsWith(alef)).toBe(true);
-    expect(cardIds()).toContain('card-x1');
+    expect(cardIds()).toContain('card-x11');
   });
 });
 

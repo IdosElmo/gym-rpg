@@ -590,6 +590,8 @@ export type Hold =
   | { readonly k: 'rope'; readonly from: readonly [number, number] }
   /** A handle on a cable from `from`; `wide` draws a lat bar, else a close grip. */
   | { readonly k: 'handle'; readonly from: readonly [number, number]; readonly wide?: boolean }
+  /** A handle on a cable from `from`, near hand only (the one-arm cable row). */
+  | { readonly k: 'handleNear'; readonly from: readonly [number, number] }
   /** One cable per hand, from two anchors (a crossover). */
   | { readonly k: 'cables'; readonly from: readonly (readonly [number, number])[] }
   /** A padded roller riding a joint of the near leg. */
@@ -627,6 +629,8 @@ export function holdAnchors(hold: Hold, j: Joints): Vec[] {
       return [j.near.grip, j.far.grip];
     case 'handle':
       return [mid(j.near.grip, j.far.grip)];
+    case 'handleNear':
+      return [j.near.grip];
     case 'cables':
       return [j.near.grip, j.far.grip];
     case 'roller':
@@ -710,6 +714,17 @@ export function holdSvg(hold: Hold, j: Joints): string {
         ? `<path class="cd-iron cd-bar" d="${line(step(hands, a + 90, 13), step(hands, a - 90, 13))}"/>`
         : `<path class="cd-iron cd-bar" d="${line(step(hands, a + 90, 5), step(hands, a - 90, 5))}"/>`;
       return cableSvg(from, hands) + bar;
+    }
+    case 'handleNear': {
+      // the one-hand version of 'handle': the cable runs to the NEAR fist and
+      // the short grip bar sits across it, perpendicular to the cable
+      const from: Vec = { x: hold.from[0] ?? 0, y: hold.from[1] ?? 0 };
+      const hand = j.near.grip;
+      const a = angleOf(from, hand);
+      return (
+        cableSvg(from, hand) +
+        `<path class="cd-iron cd-bar" d="${line(step(hand, a + 90, 5), step(hand, a - 90, 5))}"/>`
+      );
     }
     case 'cables': {
       const a = hold.from[0];

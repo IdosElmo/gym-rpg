@@ -125,19 +125,22 @@ describe('the "היפרטרופיה 3 ימים" preset', () => {
 /* --------------------------------------------------------- the A/B preset */
 
 describe('the "תוכנית A/B — 4 ימים" preset', () => {
-  it('is two days trained on four weekdays, with a weekly target of 4', () => {
+  it('is three workouts trained on four weekdays, with a weekly target of 4', () => {
     const doc = ab();
-    expect(doc.days).toHaveLength(2);
+    expect(doc.days).toHaveLength(3);
     expect(doc.weeklyTarget).toBe(4);
-    const [a, b] = doc.days;
-    expect(a?.label).toContain('חלק א׳');
-    expect(b?.label).toContain('חלק ב׳');
+    const [a, b1, b2] = doc.days;
+    expect(a?.label).toContain('אימון A');
+    expect(b1?.label).toContain('אימון B1');
+    expect(b2?.label).toContain('אימון B2');
     expect(a?.weekdays).toEqual([0, 3]); // ראשון + רביעי
-    expect(b?.weekdays).toEqual([2, 4]); // שלישי + חמישי
-    // no weekday belongs to two days — that is what makes the target 2+2 = 4
+    expect(b1?.weekdays).toEqual([2]); // שלישי
+    expect(b2?.weekdays).toEqual([4]); // חמישי
+    // no weekday belongs to two days — that is what makes the target 2+1+1 = 4
     expect(weekdaysCaption(a?.weekdays ?? [])).toBe('ראשון · רביעי');
-    expect(weekdaysCaption(b?.weekdays ?? [])).toBe('שלישי · חמישי');
-    const all = [...(a?.weekdays ?? []), ...(b?.weekdays ?? [])];
+    expect(weekdaysCaption(b1?.weekdays ?? [])).toBe('שלישי');
+    expect(weekdaysCaption(b2?.weekdays ?? [])).toBe('חמישי');
+    const all = doc.days.flatMap((d) => d.weekdays ?? []);
     expect(new Set(all).size).toBe(all.length);
   });
 
@@ -151,42 +154,57 @@ describe('the "תוכנית A/B — 4 ימים" preset', () => {
     }
   });
 
-  it('holds exactly the eight prescribed exercises per day, in order', () => {
+  it('holds exactly the prescribed exercises per day, in order', () => {
     const doc = ab();
-    expect(doc.days[0]?.exercises.map((r) => r.id)).toEqual(['x1', 'c2', 'x2', 'x3', 'b1', 'c3', 'x4', 'x5']);
-    expect(doc.days[1]?.exercises.map((r) => r.id)).toEqual(['b2', 'x6', 'b4', 'a2', 'x7', 'x8', 'a5', 'x9']);
+    expect(doc.days[0]?.exercises.map((r) => r.id)).toEqual([
+      'x11', 'c2', 'x12', 'c3', 'x2', 'x3', 'x4', 'x5', 'a6', 'x13',
+    ]);
+    expect(doc.days[1]?.exercises.map((r) => r.id)).toEqual([
+      'x14', 'x15', 'b2', 'a2', 'x7', 'a5', 'x9', 'x16', 'x13',
+    ]);
+    expect(doc.days[2]?.exercises.map((r) => r.id)).toEqual([
+      'x17', 'x18', 'x19', 'x20', 'x7', 'a5', 'x9', 'b5', 'x13',
+    ]);
   });
 
   it('re-uses the existing exercises instead of duplicating them', () => {
-    // the compound lifts the program already ships must be the SAME definitions
+    // the lifts the program already ships must be the SAME definitions
     const doc = ab();
-    for (const id of ['c2', 'b1', 'c3', 'b2', 'b4', 'a2', 'a5']) {
+    for (const id of ['c2', 'c3', 'b2', 'a2', 'a5', 'a6', 'b5', 'x7']) {
       expect(doc.days.flatMap((d) => d.exercises).some((r) => r.id === id)).toBe(true);
       expect(findExercise(id)?.id).toBe(id);
     }
     expect(doc.customExercises).toEqual([]);
   });
 
+  it('closes each day with the dead hang the plan decompresses on', () => {
+    for (const day of ab().days) {
+      const last = day.exercises[day.exercises.length - 1];
+      expect(last).toMatchObject({ id: 'x13', sets: 2, reps: '30–45 שנ׳' });
+    }
+  });
+
   it('rests 90s on the compounds and 60s on the isolation work', () => {
     const rows = new Map(ab().days.flatMap((d) => d.exercises).map((r) => [r.id, r] as const));
-    for (const id of ['x1', 'c2', 'b1', 'c3', 'b2', 'x6', 'b4', 'a2']) {
-      expect(rows.get(id)?.rest).toBe(90);
+    for (const id of ['x11', 'c2', 'x12', 'c3', 'x14', 'x15', 'b2', 'a2', 'x17', 'x18', 'x19', 'x20']) {
+      expect(rows.get(id)?.rest, id).toBe(90);
     }
-    for (const id of ['x2', 'x3', 'x4', 'x5', 'x7', 'x8', 'a5', 'x9']) {
-      expect(rows.get(id)?.rest).toBe(60);
+    for (const id of ['x2', 'x3', 'x4', 'x5', 'a6', 'x13', 'x7', 'a5', 'x9', 'x16', 'b5']) {
+      expect(rows.get(id)?.rest, id).toBe(60);
     }
   });
 
   it('carries the prescribed sets and reps', () => {
     const rows = new Map(ab().days.flatMap((d) => d.exercises).map((r) => [r.id, r] as const));
-    expect(rows.get('x1')).toMatchObject({ sets: 4, reps: '8–10' });
-    expect(rows.get('c2')).toMatchObject({ sets: 4, reps: '10' });
-    expect(rows.get('x2')).toMatchObject({ sets: 4, reps: '10–12' });
-    expect(rows.get('x3')).toMatchObject({ sets: 4, reps: '12' });
-    expect(rows.get('x4')).toMatchObject({ sets: 3, reps: '12' });
-    expect(rows.get('x7')).toMatchObject({ sets: 3, reps: '15' });
-    expect(rows.get('x8')).toMatchObject({ sets: 3, reps: '15–20' });
-    expect(rows.get('x9')).toMatchObject({ sets: 3, reps: '10' });
+    expect(rows.get('x11')).toMatchObject({ sets: 3, reps: '8–10' });
+    expect(rows.get('c2')).toMatchObject({ sets: 3, reps: '8–10' });
+    expect(rows.get('x2')).toMatchObject({ sets: 3, reps: '10–12' });
+    expect(rows.get('x4')).toMatchObject({ sets: 3, reps: '12–15' });
+    expect(rows.get('x14')).toMatchObject({ sets: 4, reps: '5–8' }); // slow assisted pull-ups
+    expect(rows.get('x17')).toMatchObject({ sets: 4, reps: '3–5' }); // 4–5s negatives
+    expect(rows.get('a2')).toMatchObject({ sets: 3, reps: '10–12 לצד' });
+    expect(rows.get('x16')).toMatchObject({ sets: 3, reps: '10–12 לצד' });
+    expect(rows.get('b5')).toMatchObject({ sets: 3, reps: '45–60 שנ׳' });
   });
 
   it('trains every body part, and each exercise splits its XP legally', () => {
@@ -200,19 +218,20 @@ describe('the "תוכנית A/B — 4 ימים" preset', () => {
         for (const p of BODY_PARTS) if (w[p] > 0) seen.add(p);
       }
     }
-    // legs, chest, shoulders, arms and back all get worked; only the core is
-    // deliberately absent from this split.
-    expect([...seen].sort()).toEqual(['arms', 'back', 'chest', 'legs', 'shoulders']);
+    // hanging knee raises, the pallof press and the plank keep the core in this
+    // split too — all six parts get worked
+    expect([...seen].sort()).toEqual([...BODY_PARTS].sort());
   });
 
-  it('resolves into two tabs whose captions are the weekdays they run on', () => {
+  it('resolves into tabs whose captions are the weekdays they run on', () => {
     const doc = ab();
     const program = resolveProgram(doc);
     expect(programDayKeys(program)).toEqual(doc.days.map((d) => d.key));
     expect(program.weeklyTarget).toBe(4);
     expect(program.days[0]?.day.day).toBe('ראשון');
     expect(program.days[1]?.day.day).toBe('שלישי');
-    expect(program.days[0]?.day.exercises).toHaveLength(8);
+    expect(program.days[2]?.day.day).toBe('חמישי');
+    expect(program.days[0]?.day.exercises).toHaveLength(10);
     expect(program.days[0]?.day.focus).not.toBe('');
   });
 
@@ -223,7 +242,7 @@ describe('the "תוכנית A/B — 4 ימים" preset', () => {
     expect(store.getEvents().filter((e) => e.type === 'plan_updated')).toHaveLength(1);
     const saved = store.getState().plan;
     expect(saved?.weeklyTarget).toBe(4);
-    expect(saved?.days).toHaveLength(2);
+    expect(saved?.days).toHaveLength(3);
     expect(rebuildFromEvents(store.getEvents(), Date.now()).plan).toEqual(saved);
   });
 });
