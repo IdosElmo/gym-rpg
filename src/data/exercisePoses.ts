@@ -3,8 +3,8 @@
  *
  * A demo is DATA, not media: a view (which plane the camera is on), two to
  * three keyframes of joint angles for `ui/coachFigure.ts`, the props the lift
- * happens on, what the hands are holding, and a rep tempo. Roughly 8 kB of
- * numbers for all 28 exercises — the whole feature ships without a single byte
+ * happens on, what the hands are holding, and a rep tempo. Roughly 11 kB of
+ * numbers for all 38 exercises — the whole feature ships without a single byte
  * of image, video or font, which is what keeps the single-file build honest.
  *
  * AN EXERCISE CAN HAVE TWO IMPLEMENTATIONS, AND THEN IT SHOWS BOTH. Half the
@@ -345,17 +345,25 @@ const A6: ExerciseDemo = {
 
 /* ------------------------------------------------------------------ day B */
 
+/**
+ * b1's press path, shared with x12: the three keyframes were solved so the
+ * hands travel the vertical line x=92 — for b1 that line is the Smith rail, and
+ * for the dumbbell press it is simply what a press looks like (straight up,
+ * not an arc), so the same solution serves both.
+ */
+const FLAT_PRESS_FRAMES: readonly Pose[] = [
+  { x: 74, y: 78, torso: 0, head: 0, arm: [-214.4, -70.6], armF: [-205.2, -55.3], leg: [166.4, 88.1, 155], legF: [166.4, 89.6, 155] },
+  { x: 74, y: 78, torso: 0, head: 0, arm: [-166.2, -62.8], armF: [-139, -63.9], leg: [166.4, 88.1, 155], legF: [166.4, 89.6, 155] },
+  { x: 74, y: 78, torso: 0, head: 0, arm: [-121.3, -86.2], armF: [-118.9, -78.4], leg: [166.4, 88.1, 155], legF: [166.4, 89.6, 155] },
+];
+
 const B1: ExerciseDemo = one('b1', {
   view: 'side',
   loopMs: 2600,
   forwardShare: 0.42,
   // Flat Smith bench: same story as a1 — the bar cannot leave x=92, and the
   // middle keyframe is what stops a straight lerp bowing it four units off.
-  frames: [
-    { x: 74, y: 78, torso: 0, head: 0, arm: [-214.4, -70.6], armF: [-205.2, -55.3], leg: [166.4, 88.1, 155], legF: [166.4, 89.6, 155] },
-    { x: 74, y: 78, torso: 0, head: 0, arm: [-166.2, -62.8], armF: [-139, -63.9], leg: [166.4, 88.1, 155], legF: [166.4, 89.6, 155] },
-    { x: 74, y: 78, torso: 0, head: 0, arm: [-121.3, -86.2], armF: [-118.9, -78.4], leg: [166.4, 88.1, 155], legF: [166.4, 89.6, 155] },
-  ],
+  frames: FLAT_PRESS_FRAMES,
   props: () => flatBench(44, 74) + railProp(92, 24, 92) + floorProp(28, 140),
   hold: { k: 'bar' },
 });
@@ -368,6 +376,27 @@ const B1: ExerciseDemo = one('b1', {
  * on the bar the body travels to a grip that stays put.
  */
 const B2_SEAT = { x: 64, y: 80, torso: -83, head: -83, leg: [15, 85, 5] as const, legF: [12, 88, 5] as const };
+
+/**
+ * b2's two movements, shared with the library: the same pulldown serves x19
+ * (only the grip on the drawn bar differs) and the same pull-up path serves the
+ * assisted (x14) and negative (x17) pull-ups — they ARE this movement, done
+ * with help on the way up or fought on the way down.
+ */
+const PULLDOWN_FRAMES: readonly Pose[] = [
+  { ...B2_SEAT, arm: [-79.3, -56.4], armF: [-78.7, -56.6] },
+  { ...B2_SEAT, arm: [4.5, -106.5], armF: [4.7, -106.1] },
+  { ...B2_SEAT, arm: [90, -44.7], armF: [90.2, -44.4] },
+];
+
+const pulldownProps = (): string =>
+  pulldownStation() + pulleyProp(78, 14, { top: 8, post: 72, postX: 108 }) + floorProp(34, 132);
+
+const PULLUP_FRAMES: readonly Pose[] = [
+  { x: 84, y: 65, torso: -90, head: -50, arm: [-90, -90], armF: [-84.9, -84.9], leg: [95, 85, 30], legF: [100, 80, 30] },
+  { x: 85, y: 56.5, torso: -93.5, head: -75, arm: [-39.7, -129.8], armF: [-32.9, -122.3], leg: [97.5, 77.5, 30], legF: [102.5, 72.5, 30] },
+  { x: 86, y: 48, torso: -97, head: -100, arm: [-11.7, -142.5], armF: [-1.3, -130], leg: [100, 70, 30], legF: [105, 65, 30] },
+];
 
 const B2: ExerciseDemo = {
   id: 'b2',
@@ -383,13 +412,8 @@ const B2: ExerciseDemo = {
   // for a point, it takes the path from 12 units off the vertical to 2. The
   // elbow leads: it starts above the shoulder, swings forward through shoulder
   // height and finishes down at the ribs, which is the cue our steps give.
-  frames: [
-    { ...B2_SEAT, arm: [-79.3, -56.4], armF: [-78.7, -56.6] },
-    { ...B2_SEAT, arm: [4.5, -106.5], armF: [4.7, -106.1] },
-    { ...B2_SEAT, arm: [90, -44.7], armF: [90.2, -44.4] },
-  ],
-  props: () =>
-    pulldownStation() + pulleyProp(78, 14, { top: 8, post: 72, postX: 108 }) + floorProp(34, 132),
+  frames: PULLDOWN_FRAMES,
+  props: pulldownProps,
   hold: { k: 'handle', from: [78, 14], wide: true },
   }, {
   caption: 'מתח',
@@ -402,11 +426,7 @@ const B2: ExerciseDemo = {
   // looking up is what the movement asks for anyway). The MIDDLE keyframe is
   // solved from the grip: with two frames the fists slid four units along the
   // bar half way up, and a hand that slides is not a hand that is holding on.
-  frames: [
-    { x: 84, y: 65, torso: -90, head: -50, arm: [-90, -90], armF: [-84.9, -84.9], leg: [95, 85, 30], legF: [100, 80, 30] },
-    { x: 85, y: 56.5, torso: -93.5, head: -75, arm: [-39.7, -129.8], armF: [-32.9, -122.3], leg: [97.5, 77.5, 30], legF: [102.5, 72.5, 30] },
-    { x: 86, y: 48, torso: -97, head: -100, arm: [-11.7, -142.5], armF: [-1.3, -130], leg: [100, 70, 30], legF: [105, 65, 30] },
-  ],
+  frames: PULLUP_FRAMES,
   props: () => barProp(58, 110, 12, 6),
   hold: { k: 'none' },
   }],
@@ -851,12 +871,184 @@ const X10: ExerciseDemo = one('x10', {
   hold: { k: 'plate', r: 6 },
 });
 
+const X11: ExerciseDemo = one('x11', {
+  view: 'side',
+  loopMs: 2800,
+  forwardShare: 0.58,
+  // GOBLET SQUAT: exactly x1's squat — the same three keyframes of legs, torso
+  // and root, with the ankle-solved middle frame that keeps the shoe planted —
+  // but nothing on the shoulders and no rail. Instead the weight is ONE bell
+  // held at the chest: the elbows are folded down in front of the ribs and the
+  // fists meet in front of the upper sternum, so the plate (the midpoint of the
+  // two grips) rides the chest through the whole descent. The arm angles turn
+  // with the torso's own lean, which is what keeps the bell the same fist's
+  // reach off the sternum in all three frames.
+  frames: [
+    { x: 78, y: 68, torso: -90, head: -90, arm: [112.9, -27.5], armF: [114.9, -25.5], leg: [61.9, 90, 20], legF: [62, 91.4, 20] },
+    { x: 74.7, y: 76, torso: -82, head: -82, arm: [120.9, -19.5], armF: [122.9, -17.5], leg: [26.2, 104.3, 20], legF: [26.4, 105.7, 20] },
+    { x: 72, y: 84, torso: -75, head: -75, arm: [127.9, -12.5], armF: [129.9, -10.5], leg: [-2.4, 100.8, 20], legF: [-2.1, 102.2, 20] },
+  ],
+  props: () => floorProp(38, 122),
+  hold: { k: 'plate', r: 5 },
+});
+
+const X12: ExerciseDemo = one('x12', {
+  view: 'side',
+  loopMs: 2600,
+  forwardShare: 0.42,
+  // Flat DUMBBELL press: b1's bench and b1's solved straight-up path — the
+  // three keyframes kept the hands on one vertical line for the Smith rail, and
+  // a free press wants exactly that line — with the rail gone and a bell in
+  // each hand instead of the bar.
+  frames: FLAT_PRESS_FRAMES,
+  props: () => flatBench(44, 74) + floorProp(28, 140),
+  hold: { k: 'db' },
+});
+
+const X13: ExerciseDemo = one('x13', {
+  view: 'side',
+  loopMs: 4600,
+  forwardShare: 0.5,
+  // DEAD HANG — a hold, like the plank: it breathes rather than reps. What
+  // breathes here is the DECOMPRESSION itself: the shoulders shrug up to the
+  // ears (+4 along the spine) while the root drops the same 4, so the fists
+  // stay welded to the bar, the shoulder point never moves, and everything
+  // below it — pelvis, knees, the skull settling between the shoulders — sinks
+  // as the spine lets go. That trade is the whole exercise.
+  frames: [
+    { x: 83, y: 63, torso: -90, head: -50, arm: [-90, -90], armF: [-84.9, -84.9], leg: [92, 90, 25], legF: [88, 92, 25], shrug: 0 },
+    { x: 83, y: 67, torso: -90, head: -50, arm: [-90, -90], armF: [-84.9, -84.9], leg: [92, 90, 25], legF: [88, 92, 25], shrug: 4 },
+  ],
+  props: () => barProp(60, 106, 10, 6),
+  hold: { k: 'none' },
+});
+
+const X14: ExerciseDemo = one('x14', {
+  view: 'side',
+  loopMs: 3400,
+  forwardShare: 0.5,
+  // ASSISTED pull-up: the movement IS b2's pull-up — same grip welded to the
+  // bar, same body travelling to it — because that is exactly what the band or
+  // the Gravitron teaches. What the assistance buys is the TEMPO: slow and
+  // controlled in both directions, which is what the steps prescribe, so the
+  // loop is longer and split evenly instead of favouring one direction. The
+  // band itself is not drawn: it stretches with the body, and a prop is static
+  // for the whole loop — a frozen band would be a lie pinned to the picture.
+  frames: PULLUP_FRAMES,
+  props: () => barProp(58, 110, 12, 6),
+  hold: { k: 'none' },
+});
+
+const X15: ExerciseDemo = one('x15', {
+  view: 'side',
+  loopMs: 2600,
+  forwardShare: 0.44,
+  // SEATED CABLE ROW: a low-pulley station built from its own parts — the seat,
+  // the footplate the shoes brace on, the wheel down by the plate. The torso is
+  // pitched just short of upright and DOES NOT MOVE between the frames (the cue
+  // is chest out, no body english): the whole rep is the elbow travelling from
+  // all but straight out front to driven back past the ribs, with the handle
+  // arriving at the lower belly.
+  frames: [
+    { x: 64, y: 80, torso: -80, head: -80, arm: [37.5, 12.8], armF: [39, 14.3], leg: [15, 40, -60], legF: [16, 41, -58] },
+    { x: 64, y: 80, torso: -80, head: -80, arm: [142.1, -2.4], armF: [143.6, -0.9], leg: [15, 40, -60], legF: [16, 41, -58] },
+  ],
+  props: () =>
+    benchProp({ x: 54, y: 84, len: 22, floorY: FLOOR }) +
+    frameProp(96, 86, FLOOR) +
+    pulleyProp(116, 74, { top: 58, post: 28 }) +
+    floorProp(30, 132),
+  hold: { k: 'handle', from: [116, 74] },
+});
+
+const X16: ExerciseDemo = one('x16', {
+  view: 'front',
+  loopMs: 2800,
+  forwardShare: 0.44,
+  // PALLOF PRESS, square to the camera — because the picture IS the cue: the
+  // cable hauls sideways from its stack and the hands never leave the body's
+  // midline. "Pressed straight out in front of the sternum" is drawn the way
+  // b6 draws "hands meet in front of the belly": the arms extend down the
+  // picture plane, fists together on the centreline, which is this renderer's
+  // honest projection of an arm reaching out at the viewer's chest height. The
+  // torso, the pelvis and both planted feet are byte-identical between the
+  // frames — the entire point of the lift is that only the arms move.
+  frames: [
+    { x: 80, y: 66, torso: -90, head: -90, arm: [57.6, -169.2], armF: [57.6, -169.2], leg: [85, 88, 20], legF: [85, 88, 20] },
+    { x: 80, y: 66, torso: -90, head: -90, arm: [98.3, -245.8], armF: [98.3, -245.8], leg: [85, 88, 20], legF: [85, 88, 20] },
+  ],
+  props: () => pulleyProp(24, 50, { top: 8, post: 52, stack: true }) + floorProp(36, 124),
+  hold: { k: 'handle', from: [24, 50] },
+});
+
+const X17: ExerciseDemo = one('x17', {
+  view: 'side',
+  loopMs: 3600,
+  forwardShare: 0.68,
+  // NEGATIVE pull-up: b2's pull-up path run the other way round. The frames
+  // list top → hang, so the FORWARD pass — the one that gets two thirds of the
+  // clock — is the slow, fought descent the steps prescribe, and the return is
+  // the quick jump back to the top of the bar.
+  frames: [...PULLUP_FRAMES].reverse(),
+  props: () => barProp(58, 110, 12, 6),
+  hold: { k: 'none' },
+});
+
+const X18: ExerciseDemo = one('x18', {
+  view: 'side',
+  loopMs: 2600,
+  forwardShare: 0.44,
+  // CHEST-SUPPORTED ROW: the incline bench turned into a shelf — the lifter
+  // lies chest-down along the 32° pad (the torso runs parallel to it, half a
+  // body's thickness above), the feet brace on the floor behind, and the bells
+  // hang straight down from the shoulders. The rep is b4's row without b4's
+  // hinge to hold: the pad holds it, the torso is byte-identical between the
+  // frames, and the elbow drives up past the ribs to the top.
+  frames: [
+    { x: 58, y: 76.5, torso: -32, head: -32, arm: [88, 92], armF: [90, 94], leg: [120, 145, 15], legF: [122, 147, 17] },
+    { x: 58, y: 76.5, torso: -32, head: -32, arm: [187.8, 57.3], armF: [185.8, 59.3], leg: [120, 145, 15], legF: [122, 147, 17] },
+  ],
+  props: () => benchProp({ x: 52, y: 86, len: 44, angle: -32, floorY: FLOOR }) + floorProp(26, 132),
+  hold: { k: 'db' },
+});
+
+const X19: ExerciseDemo = one('x19', {
+  view: 'side',
+  loopMs: 2800,
+  forwardShare: 0.44,
+  // MEDIUM-GRIP pulldown: b2's pulldown — the same station, the same solved
+  // straight-down path — with the grip at shoulder width, so the bar drawn
+  // across the hands is the short one rather than the wide lat bar.
+  frames: PULLDOWN_FRAMES,
+  props: pulldownProps,
+  hold: { k: 'handle', from: [78, 14] },
+});
+
+const X20: ExerciseDemo = one('x20', {
+  view: 'side',
+  loopMs: 2600,
+  forwardShare: 0.44,
+  // ONE-ARM cable row: standing at a belly-height pulley in a slight staggered
+  // stance, the free hand braced on the front thigh — that arm and both legs
+  // are byte-identical between the frames, the same "the support side just
+  // holds" contract a2's bench makes. Only the near arm rows: from reaching
+  // toward the wheel to the elbow driven back past the ribs, with the cable on
+  // the near fist alone.
+  frames: [
+    { x: 66, y: 66, torso: -75, head: -75, arm: [46.1, 5.4], armF: [98.8, 73.3], leg: [80, 90, 20], legF: [100, 82, 20] },
+    { x: 66, y: 66, torso: -75, head: -75, arm: [148.2, 23.1], armF: [98.8, 73.3], leg: [80, 90, 20], legF: [100, 82, 20] },
+  ],
+  props: () => pulleyProp(118, 58, { top: 8, post: 44, stack: true }) + floorProp(36, 128),
+  hold: { k: 'handleNear', from: [118, 58] },
+});
+
 /** Every demonstration, in program order. */
 export const EXERCISE_DEMOS: readonly ExerciseDemo[] = [
   A1, A2, A3, A4, A5, A6,
   B1, B2, B3, B4, B5, B6,
   C1, C2, C3, C4, C5, C6,
   X1, X2, X3, X4, X5, X6, X7, X8, X9, X10,
+  X11, X12, X13, X14, X15, X16, X17, X18, X19, X20,
 ];
 
 const BY_ID: ReadonlyMap<string, ExerciseDemo> = new Map(EXERCISE_DEMOS.map((d) => [d.id, d]));

@@ -325,6 +325,16 @@ describe('what the hands hold is read off the joints', () => {
     near(handle?.x ?? 0, (j.near.grip.x + j.far.grip.x) / 2);
   });
 
+  it('puts a one-hand cable handle on the NEAR fist alone', () => {
+    const hold = { k: 'handleNear', from: [100, 18] } as const;
+    expect(holdAnchors(hold, j)).toEqual([j.near.grip]);
+    const svg = holdSvg(hold, j);
+    expect(svg.match(/class="cd-cable"/g)).toHaveLength(1); // one cable to the fist
+    expect(svg).toContain('M 100 18');
+    expect(svg).toContain('cd-bar'); // …with the short grip bar across it
+    expect(holdBackSvg(hold, j)).toBe('');
+  });
+
   it('gives an empty hold no markup at all', () => {
     expect(holdSvg({ k: 'none' }, j)).toBe('');
     expect(holdAnchors({ k: 'none' }, j)).toEqual([]);

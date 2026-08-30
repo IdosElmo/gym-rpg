@@ -64,31 +64,48 @@ function docOf(days: PlanDay[]): PlanDoc {
 }
 
 /**
- * The user's own A/B split: two workouts alternated over four weekdays.
- * ראשון + רביעי = חלק א׳, שלישי + חמישי = חלק ב׳ — hence a weekly target of 4
- * from two days, which is exactly what PlanDoc v2 exists to express.
+ * The user's own 4-day split: THREE workouts over four weekdays. אימון A
+ * (legs, pushing and spinal decompression) is trained twice — ראשון ורביעי —
+ * and the two back/pull days split the pull-up work between them: B1 (שלישי)
+ * builds pull-up strength with assistance, B2 (חמישי) with slow negatives.
+ * Hence a weekly target of 4 from three days, which is exactly what PlanDoc v2
+ * exists to express.
  */
 function abFourDays(): PlanDoc {
   return docOf([
-    day('חלק א׳ — רגליים, חזה, כתפיים ויד אחורית', [0, 3], [
-      row('x1', 4, '8–10', COMPOUND_REST), // סקוואט בסמית׳
-      row('c2', 4, '10', COMPOUND_REST), // דדליפט רומני
-      row('x2', 4, '10–12', ISOLATION_REST), // פשיטת ברכיים
-      row('x3', 4, '12', ISOLATION_REST), // כפיפת ברכיים
-      row('b1', 4, '10', COMPOUND_REST), // לחיצת חזה שטוחה
-      row('c3', 4, '8–10', COMPOUND_REST), // לחיצת כתפיים בישיבה
-      row('x4', 3, '12', ISOLATION_REST), // הרחקה לצדדים
-      row('x5', 4, '12', ISOLATION_REST), // פשיטת מרפקים בפולי
+    day('אימון A — רגליים, דחיפה ודקומפרסיה', [0, 3], [
+      row('x11', 3, '8–10', COMPOUND_REST), // סקוואט גובלט
+      row('c2', 3, '8–10', COMPOUND_REST), // דדליפט רומני
+      row('x12', 3, '8–10', COMPOUND_REST), // לחיצת חזה עם משקולות
+      row('c3', 3, '8–10', COMPOUND_REST), // לחיצת כתפיים בישיבה
+      row('x2', 3, '10–12', ISOLATION_REST), // פשיטת ברכיים
+      row('x3', 3, '10–12', ISOLATION_REST), // כפיפת ברכיים
+      row('x4', 3, '12–15', ISOLATION_REST), // הרחקה לצדדים
+      row('x5', 3, '10–12', ISOLATION_REST), // פשיטת מרפקים בפולי
+      row('a6', 3, '10–12', ISOLATION_REST), // הרמות ברכיים בתלייה
+      row('x13', 2, '30–45 שנ׳', ISOLATION_REST), // תלייה פסיבית
     ]),
-    day('חלק ב׳ — גב ויד קדמית', [2, 4], [
-      row('b2', 4, '12', COMPOUND_REST), // פולי עליון רחב
-      row('x6', 4, '10', COMPOUND_REST), // פולי עליון אחיזה צרה
-      row('b4', 4, '10', COMPOUND_REST), // חתירה בסמית׳ / משקולות
-      row('a2', 3, '12', COMPOUND_REST), // חתירה חד־זרועית
-      row('x7', 3, '15', ISOLATION_REST), // פייס פול
-      row('x8', 3, '15–20', ISOLATION_REST), // הרמת שכמות
-      row('a5', 3, '12', ISOLATION_REST), // כפיפת מרפקים
-      row('x9', 3, '10', ISOLATION_REST), // פטישים
+    day('אימון B1 — גב ומשיכה · כוח למתח', [2], [
+      row('x14', 4, '5–8', COMPOUND_REST), // מתח עם גומייה / גרביטון
+      row('x15', 3, '8–10', COMPOUND_REST), // חתירה בפולי בישיבה
+      row('b2', 3, '10–12', COMPOUND_REST), // פולי עליון אחיזה רחבה
+      row('a2', 3, '10–12 לצד', COMPOUND_REST), // חתירה חד־זרועית עם משקולת
+      row('x7', 3, '12–15', ISOLATION_REST), // פייס פול
+      row('a5', 3, '10–12', ISOLATION_REST), // כפיפת מרפקים בסופינציה
+      row('x9', 3, '10–12', ISOLATION_REST), // פטישים
+      row('x16', 3, '10–12 לצד', ISOLATION_REST), // פאלוף פרס
+      row('x13', 2, '30–45 שנ׳', ISOLATION_REST), // תלייה פסיבית
+    ]),
+    day('אימון B2 — גב ומשיכה · שליליות', [4], [
+      row('x17', 4, '3–5', COMPOUND_REST), // מתח שלילי
+      row('x18', 3, '8–10', COMPOUND_REST), // חתירה עם תמיכת חזה
+      row('x19', 3, '10–12', COMPOUND_REST), // פולי עליון אחיזה רגילה
+      row('x20', 3, '10–12 לצד', COMPOUND_REST), // חתירה חד־זרועית בפולי
+      row('x7', 3, '12–15', ISOLATION_REST), // פייס פול עם רוטציה חיצונית
+      row('a5', 3, '10–12', ISOLATION_REST), // כפיפת מרפקים
+      row('x9', 3, '10–12', ISOLATION_REST), // פטישים
+      row('b5', 3, '45–60 שנ׳', ISOLATION_REST), // פלאנק
+      row('x13', 2, '30–45 שנ׳', ISOLATION_REST), // תלייה פסיבית
     ]),
   ]);
 }
@@ -104,8 +121,8 @@ export const PLAN_PRESETS: readonly PlanPreset[] = [
   {
     id: 'ab4',
     name: 'תוכנית A/B — 4 ימים',
-    description: 'שני אימונים שמתחלפים על פני ארבעה ימים: ראשון ורביעי חלק א׳, שלישי וחמישי חלק ב׳.',
-    days: 2,
+    description: 'ארבעה ימים, שלושה אימונים: ראשון ורביעי אימון A (רגליים ודחיפה), שלישי אימון B1 וחמישי אימון B2 (גב ומשיכה).',
+    days: 3,
     build: abFourDays,
   },
 ];
