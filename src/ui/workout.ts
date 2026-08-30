@@ -131,17 +131,27 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
           (pw !== '' && pr !== '' ? ' × ' : '') +
           (pr !== '' ? esc(pr) : '');
       }
+      // PREFILL FROM LAST TIME. A set the user has not touched today (nothing
+      // typed, not checked) starts out showing the same set's numbers from the
+      // previous session, dimmed (`prefill`), so a workout that repeats last
+      // week's weights is logged with ✓ taps alone. It is a SUGGESTION, not
+      // data: the store is untouched until the user types (which replaces it)
+      // or checks the set (which adopts what the row visibly says — see the
+      // ✓ handler). A set with no history stays empty, exactly as before.
+      const untouched = !d.done && d.w === '' && d.r === '';
+      const fillW = untouched && ps ? ps.w : d.w;
+      const fillR = untouched && ps ? ps.r : d.r;
       rows.push(`
     <div class="log-row ${d.done ? 'checked' : ''}">
       <div class="set-num">${i + 1}</div>
       <div class="inp-wrap">
-        <input class="inp" type="number" inputmode="decimal" step="0.5" min="0" placeholder='ק"ג'
-          value="${esc(d.w)}" data-ex="${esc(ex.id)}" data-set="${i}" data-f="w">
+        <input class="inp ${fillW !== d.w ? 'prefill' : ''}" type="number" inputmode="decimal" step="0.5" min="0" placeholder='ק"ג'
+          value="${esc(fillW)}" data-ex="${esc(ex.id)}" data-set="${i}" data-f="w">
         <span class="prev">${prevTxt}</span>
       </div>
       <div class="inp-wrap">
-        <input class="inp" type="number" inputmode="numeric" min="0" placeholder="${esc(ex.unit)}"
-          value="${esc(d.r)}" data-ex="${esc(ex.id)}" data-set="${i}" data-f="r">
+        <input class="inp ${fillR !== d.r ? 'prefill' : ''}" type="number" inputmode="numeric" min="0" placeholder="${esc(ex.unit)}"
+          value="${esc(fillR)}" data-ex="${esc(ex.id)}" data-set="${i}" data-f="r">
         <span class="prev"></span>
       </div>
       <button class="chk ${d.done ? 'on' : ''}" data-ex="${esc(ex.id)}" data-set="${i}" aria-label="סמן סט ${i + 1} כהושלם">✓</button>
@@ -296,6 +306,8 @@ function bind(
       const field = inp.dataset['f'];
       const i = Number(inp.dataset['set']);
       if (!exId || (field !== 'w' && field !== 'r') || !Number.isInteger(i)) return;
+      // Whatever is in the box is the user's number now, not a suggestion.
+      inp.classList.remove('prefill');
       let w = '';
       let r = '';
       store.update((draft) => {
@@ -309,6 +321,10 @@ function bind(
       refreshHeader();
     });
   });
+
+  /** The input of one (exercise, set, field) cell — where the prefill lives. */
+  const inputOf = (exId: string, i: number, f: 'w' | 'r'): HTMLInputElement | null =>
+    main.querySelector<HTMLInputElement>(`.inp[data-ex="${cssId(exId)}"][data-set="${i}"][data-f="${f}"]`);
 
   main.querySelectorAll<HTMLButtonElement>('.chk').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -339,6 +355,16 @@ function bind(
         for (const target of targets) {
           const d = getSetData(draft, view, target.id, i, true, today);
           if (!d) continue;
+          // ADOPT THE PREFILL. A field the user never typed into is empty in
+          // the draft while the row visibly shows last session's number
+          // (`prefill` — see the render); checking the set means "yes, that" —
+          // so the visible value becomes the logged one. A field the user
+          // typed (or cleared) already matches its input, so this is a no-op
+          // for it, and the store stays the single source of what was lifted.
+          if (nowDone) {
+            if (d.w === '') d.w = inputOf(target.id, i, 'w')?.value ?? '';
+            if (d.r === '') d.r = inputOf(target.id, i, 'r')?.value ?? '';
+          }
           d.done = nowDone;
           logged.push({ ex: target, w: d.w, r: d.r });
         }
@@ -360,6 +386,9 @@ function bind(
 
       const state = store.getState();
       for (const l of logged) {
+        // An adopted suggestion is a real entry now — drop the dimmed look.
+        inputOf(l.ex.id, i, 'w')?.classList.remove('prefill');
+        inputOf(l.ex.id, i, 'r')?.classList.remove('prefill');
         const box = main.querySelector<HTMLButtonElement>(`.chk[data-ex="${cssId(l.ex.id)}"][data-set="${i}"]`);
         box?.classList.toggle('on', nowDone);
         box?.closest('.log-row')?.classList.toggle('checked', nowDone);
