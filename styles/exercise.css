@@ -61,6 +61,10 @@
 }
 .inp::-webkit-inner-spin-button{display:none}
 .inp:focus{outline:none; border-color:var(--accent)}
+/* A value carried over from the previous session — a suggestion until the user
+   types (replacing it) or checks the set (adopting it). Dimmed, so what was
+   typed today and what the app remembered for you never look the same. */
+.inp.prefill{color:var(--muted); font-weight:500}
 .prev{
   display:block; text-align:center; font-size:10.5px; color:var(--dim); margin-top:2px; min-height:13px;
 }

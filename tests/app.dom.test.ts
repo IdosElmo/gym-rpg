@@ -178,6 +178,88 @@ describe('workout screen', () => {
   });
 });
 
+/* --------------------------------------------- prefill from the last session */
+
+/**
+ * A set the user already performed in the past opens PRE-FILLED with that
+ * session's numbers (dimmed — a suggestion, not data): repeating last week's
+ * weights is then ✓ taps alone. The store stays untouched until the user types
+ * (replacing the suggestion) or checks the set (adopting what the row says);
+ * a set with no history stays empty exactly as before.
+ */
+describe('prefill from the previous session', () => {
+  function seeded(): { store: LocalStore; ex: { id: string; sets: number } } {
+    const store = new LocalStore(fakeStorage());
+    const view = currentDay(store);
+    const ex = PROGRAM[view].exercises[0];
+    if (!ex) throw new Error('no exercise');
+    store.update((d) => {
+      d.sessions['2020-01-01'] = { day: view, ex: { [ex.id]: [{ w: '60', r: '9', done: true }] } };
+    });
+    mount(store);
+    return { store, ex };
+  }
+
+  function inp(exId: string, i: number, f: 'w' | 'r'): HTMLInputElement {
+    const el = document.querySelector<HTMLInputElement>(`.inp[data-ex="${exId}"][data-set="${i}"][data-f="${f}"]`);
+    if (!el) throw new Error(`no input ${exId}/${i}/${f}`);
+    return el;
+  }
+
+  function tick(exId: string, i: number): void {
+    document
+      .querySelector<HTMLButtonElement>(`.chk[data-ex="${exId}"][data-set="${i}"]`)!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  }
+
+  /** Today's session — the seeded past date is the only other key. */
+  function todayEntry(store: LocalStore, exId: string, i: number): unknown {
+    const date = Object.keys(store.getState().sessions).find((d) => d !== '2020-01-01');
+    return store.getState().sessions[date ?? '']?.ex[exId]?.[i];
+  }
+
+  it('shows last time’s numbers dimmed, and leaves history-less sets empty', () => {
+    const { store, ex } = seeded();
+    expect(inp(ex.id, 0, 'w').value).toBe('60');
+    expect(inp(ex.id, 0, 'r').value).toBe('9');
+    expect(inp(ex.id, 0, 'w').classList.contains('prefill')).toBe(true);
+    expect(inp(ex.id, 0, 'r').classList.contains('prefill')).toBe(true);
+    // set 2 was never done -> empty, undimmed
+    expect(inp(ex.id, 1, 'w').value).toBe('');
+    expect(inp(ex.id, 1, 'w').classList.contains('prefill')).toBe(false);
+    // …and nothing was written anywhere: a suggestion is not a log
+    expect(Object.keys(store.getState().sessions)).toEqual(['2020-01-01']);
+    expect(store.getEvents().filter((e) => e.type === 'set_logged')).toHaveLength(0);
+  });
+
+  it('✓ on an untouched set adopts the suggestion into the logged set', () => {
+    const { store, ex } = seeded();
+    tick(ex.id, 0);
+    expect(todayEntry(store, ex.id, 0)).toEqual({ w: '60', r: '9', done: true });
+    const done = store.getEvents().find((e) => e.type === 'set_completed');
+    expect(done?.payload).toMatchObject({ exId: ex.id, setIndex: 0, w: '60', r: '9' });
+    // adopted = a real entry now, so the dimmed look is gone
+    expect(inp(ex.id, 0, 'w').classList.contains('prefill')).toBe(false);
+    expect(inp(ex.id, 0, 'r').classList.contains('prefill')).toBe(false);
+  });
+
+  it('typing replaces the suggestion; ✓ then logs the typed weight with the suggested reps', () => {
+    const { store, ex } = seeded();
+    const w = inp(ex.id, 0, 'w');
+    w.value = '62.5';
+    w.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(w.classList.contains('prefill')).toBe(false);
+    tick(ex.id, 0);
+    expect(todayEntry(store, ex.id, 0)).toEqual({ w: '62.5', r: '9', done: true });
+  });
+
+  it('a set with no history logs exactly what was typed — or nothing at all', () => {
+    const { store, ex } = seeded();
+    tick(ex.id, 1);
+    expect(todayEntry(store, ex.id, 1)).toEqual({ w: '', r: '', done: true });
+  });
+});
+
 /* ---------------------------------------------------------- schedule tabs */
 
 /**
