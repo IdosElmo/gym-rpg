@@ -64,6 +64,14 @@ npm run verify          # zero external references (allowlist in scripts/verify-
 5. Run the four verify commands. The parity test does not apply to `EXTRA_EXERCISES`
    (library-only additions) — only to the three built-in days.
 
+A **cardio** exercise (treadmill incline walk, `x21`) is the same `Exercise` plus a
+`cardio: CardioSpec`: `sets` are timed stages, `w` is the stage load (incline %), `r` the
+minutes, `rest` the stage length in seconds (it drives the stage timer). Nothing below the
+UI changes — same `set_completed`, same volume (`load × minutes`) — but `core/stats.ts`
+keeps stages out of tonnage/reps/heaviest-set, and the workout screen, history, stats
+and editor read the two columns through `isCardio`. Add a new cardio movement the same
+way (a spec, a demo, a `tests/cardio.dom.test.ts`-style check of the ladder).
+
 ## Adding other content
 
 - **Worlds/enemies/bosses**: `src/data/gameContent.ts` + tuning in `src/core/balance.ts`.

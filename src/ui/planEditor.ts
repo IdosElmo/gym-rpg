@@ -29,6 +29,7 @@ import {
   WEEKDAY_HE,
   WEEKDAY_SHORT_HE,
   equipHe,
+  isCardio,
   weekdaysCaption,
   type BodyPart,
   type DayKey,
@@ -232,6 +233,9 @@ function rowHtml(
   const unit = def ? def.unit : 'חזרות';
   const custom = isCustomId(row.id);
   const sh = shared ? ' rest-shared' : '';
+  // A cardio row keeps the three fields and renames them: its sets are STAGES
+  // and its rest is the length of one (the stage timer) — see `CardioSpec`.
+  const cardio = isCardio(def);
   return `<${tag} class="pl-row" data-row="${esc(row.id)}">
     <div class="pl-row-head">
       <span class="pl-idx">${idx + 1}</span>
@@ -239,6 +243,7 @@ function rowHtml(
         <b>${esc(name)}</b>
         ${en ? `<span class="pl-en">${esc(en)}</span>` : ''}
         ${custom ? '<span class="pl-badge">מותאם אישית</span>' : ''}
+        ${cardio ? '<span class="pl-badge">קרדיו</span>' : ''}
       </div>
       <div class="pl-move">
         <button class="pl-mini" data-up="${esc(row.id)}" aria-label="העבר את ${esc(name)} למעלה" ${idx === 0 ? 'disabled' : ''}>▲</button>
@@ -248,7 +253,7 @@ function rowHtml(
     </div>
     <div class="pl-fields">
       <label class="pl-field${sh}">
-        <span>סטים</span>
+        <span>${cardio ? 'שלבים' : 'סטים'}</span>
         <input type="number" inputmode="numeric" min="${PLAN_LIMITS.minSets}" max="${PLAN_LIMITS.maxSets}"
           value="${row.sets}" data-edit="sets" data-id="${esc(row.id)}">
       </label>
@@ -258,7 +263,7 @@ function rowHtml(
           data-edit="reps" data-id="${esc(row.id)}">
       </label>
       <label class="pl-field${sh}">
-        <span>מנוחה (שנ׳)</span>
+        <span>${cardio ? 'אורך שלב (שנ׳)' : 'מנוחה (שנ׳)'}</span>
         <input type="number" inputmode="numeric" step="5" min="${PLAN_LIMITS.minRest}" max="${PLAN_LIMITS.maxRest}"
           value="${row.rest}" data-edit="rest" data-id="${esc(row.id)}">
       </label>

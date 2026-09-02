@@ -4,7 +4,7 @@
  * A demo is DATA, not media: a view (which plane the camera is on), two to
  * three keyframes of joint angles for `ui/coachFigure.ts`, the props the lift
  * happens on, what the hands are holding, and a rep tempo. Roughly 11 kB of
- * numbers for all 38 exercises — the whole feature ships without a single byte
+ * numbers for all 39 exercises — the whole feature ships without a single byte
  * of image, video or font, which is what keeps the single-file build honest.
  *
  * AN EXERCISE CAN HAVE TWO IMPLEMENTATIONS, AND THEN IT SHOWS BOTH. Half the
@@ -80,6 +80,7 @@ import {
   pivotProp,
   pulleyProp,
   railProp,
+  treadmillProp,
   type Hold,
   type Pose,
   type View,
@@ -1042,13 +1043,39 @@ const X20: ExerciseDemo = one('x20', {
   hold: { k: 'handleNear', from: [118, 58] },
 });
 
+/**
+ * THE TREADMILL BELT: from the back end at the floor line up to the front, an
+ * 8° climb — a real 6% incline is under 4°, and at that angle the deck reads
+ * as flat, which would show the one thing the exercise is not.
+ */
+const BELT = { x1: 38, y1: 100, x2: 122, y2: 88 } as const;
+
+const X21: ExerciseDemo = one('x21', {
+  view: 'side',
+  loopMs: 2000,
+  forwardShare: 0.5,
+  // INCLINE WALK: a stride and its mirror, and the yoyo between them is the
+  // gait — which on a treadmill happens in place, so the pelvis never moves.
+  // Each frame was solved on the belt line: the leading foot is planted flat
+  // ALONG the deck (its foot angle is the deck's own −8°, ankle and toe both on
+  // the belt), the trailing heel is lifted with only the toe still touching,
+  // and the arms swing opposite the legs. The torso leans 8° into the climb;
+  // the hands hold nothing — the coaching copy says so.
+  frames: [
+    { x: 80, y: 61, torso: -82, head: -82, arm: [108, 78], armF: [66, 40], leg: [70, 85, -8], legF: [110, 100, 22] },
+    { x: 80, y: 61, torso: -82, head: -82, arm: [66, 40], armF: [108, 78], leg: [110, 100, 22], legF: [70, 85, -8] },
+  ],
+  props: () => treadmillProp({ ...BELT, floorY: FLOOR }),
+  hold: { k: 'none' },
+});
+
 /** Every demonstration, in program order. */
 export const EXERCISE_DEMOS: readonly ExerciseDemo[] = [
   A1, A2, A3, A4, A5, A6,
   B1, B2, B3, B4, B5, B6,
   C1, C2, C3, C4, C5, C6,
   X1, X2, X3, X4, X5, X6, X7, X8, X9, X10,
-  X11, X12, X13, X14, X15, X16, X17, X18, X19, X20,
+  X11, X12, X13, X14, X15, X16, X17, X18, X19, X20, X21,
 ];
 
 const BY_ID: ReadonlyMap<string, ExerciseDemo> = new Map(EXERCISE_DEMOS.map((d) => [d.id, d]));

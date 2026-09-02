@@ -40,7 +40,20 @@ interface TimerElements {
   pause: HTMLElement;
   reset: HTMLElement;
   close: HTMLElement;
+  /** The small line under the title ("טיימר מנוחה"). Optional: older markup has none. */
+  sub?: HTMLElement;
 }
+
+/** What a `start` may say beyond its label. */
+export interface StartOptions {
+  /** The title once the countdown ends. Default: the rest-is-over line. */
+  doneLabel?: string;
+  /** The small line under the title. Default: "טיימר מנוחה". */
+  sub?: string;
+}
+
+const DEFAULT_DONE_LABEL = 'המנוחה הסתיימה — לסט הבא! 💪';
+const DEFAULT_SUB = 'טיימר מנוחה';
 
 /* ------------------------------------------------------------ Web Audio */
 
@@ -133,6 +146,7 @@ export class RestTimer {
   private iv: ReturnType<typeof setInterval> | null = null;
   private lastTick: number | null = null;
   private hideTo: ReturnType<typeof setTimeout> | null = null;
+  private doneLabel = DEFAULT_DONE_LABEL;
   private readonly el: TimerElements;
 
   constructor(el: TimerElements) {
@@ -148,12 +162,19 @@ export class RestTimer {
     this.updateUI();
   }
 
-  /** Auto-called when a set is checked. */
-  start(seconds: number, label?: string): void {
+  /**
+   * Auto-called when a set is checked. A CARDIO stage starts it too, and then
+   * it is not a rest at all: the label names the stage and the load, the small
+   * line says "טיימר שלב", and the chime says to raise the incline rather than
+   * to get back under the bar — hence `opts`.
+   */
+  start(seconds: number, label?: string, opts: StartOptions = {}): void {
     this.cancelAutoHide();
     this.total = seconds;
     this.left = seconds;
     this.running = true;
+    this.doneLabel = opts.doneLabel ?? DEFAULT_DONE_LABEL;
+    if (this.el.sub) this.el.sub.textContent = opts.sub ?? DEFAULT_SUB;
     this.el.title.textContent = label ?? 'מנוחה';
     this.el.bar.classList.add('show');
     this.el.bar.classList.remove('flash');
@@ -271,7 +292,7 @@ export class RestTimer {
     this.el.bar.classList.add('flash');
     chime();
     vibrate([200, 100, 200, 100, 400]);
-    this.el.title.textContent = 'המנוחה הסתיימה — לסט הבא! 💪';
+    this.el.title.textContent = this.doneLabel;
     this.armAutoHide();
   }
 
@@ -297,7 +318,9 @@ function need(id: string): HTMLElement {
 
 /** Wire the timer to the static markup in index.html + unlock audio once. */
 export function createRestTimer(): RestTimer {
+  const sub = document.getElementById('tSub');
   const timer = new RestTimer({
+    ...(sub ? { sub } : {}),
     bar: need('timerBar'),
     time: need('tTime'),
     prog: need('tProg'),

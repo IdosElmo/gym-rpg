@@ -146,7 +146,7 @@ const eachFrame = (d: DemoVariant, fn: (j: Joints, pose: Pose, i: number) => voi
 describe('coverage', () => {
   it('demonstrates every built-in exercise, exactly once, and nothing else', () => {
     const builtIn = builtInExercises().map((e) => e.id);
-    expect(builtIn).toHaveLength(38);
+    expect(builtIn).toHaveLength(39);
     expect(EXERCISE_DEMOS.map((d) => d.id).sort()).toEqual([...builtIn].sort());
     expect(new Set(EXERCISE_DEMOS.map((d) => d.id)).size).toBe(EXERCISE_DEMOS.length);
     for (const d of EXERCISE_DEMOS) expect(findExercise(d.id)).not.toBeNull();
@@ -173,7 +173,7 @@ describe('coverage', () => {
       if (d.variants.length === 1) expect(d.variants[0]?.caption, d.id).toBeUndefined();
       else for (const v of d.variants) expect(v.caption, d.id).toBeTruthy();
     }
-    expect(ALL).toHaveLength(44);
+    expect(ALL).toHaveLength(45);
     // two variants of one exercise are two DIFFERENT pictures, never a copy
     for (const d of EXERCISE_DEMOS) {
       if (d.variants.length < 2) continue;
@@ -943,6 +943,75 @@ describe('the 4-day plan library additions', () => {
     expect(out.near.grip.x - pulled.near.grip.x).toBeGreaterThan(18);
     expect(pulled.near.elbow.x).toBeLessThan(pulled.near.shoulder.x); // elbow driven back
     expect(demo('x20').hold).toEqual({ k: 'handleNear', from: [118, 58] });
+  });
+});
+
+/* ------------------------------------------------------------ the treadmill */
+
+/** The belt the treadmill prop drew, read back off the markup. */
+function belt(d: DemoVariant): { x1: number; y1: number; x2: number; y2: number; at: (x: number) => number } {
+  const m = /class="cd-pad cd-belt" d="M (-?[\d.]+) (-?[\d.]+) L (-?[\d.]+) (-?[\d.]+)"/.exec(d.props());
+  if (!m) throw new Error('no belt');
+  const b = { x1: Number(m[1]), y1: Number(m[2]), x2: Number(m[3]), y2: Number(m[4]) };
+  return { ...b, at: (x) => b.y1 + ((b.y2 - b.y1) * (x - b.x1)) / (b.x2 - b.x1) };
+}
+
+describe('x21 — the treadmill walk climbs its deck', () => {
+  it('walks on a belt that actually climbs, holding nothing', () => {
+    const d = demo('x21');
+    const b = belt(d);
+    // an 8° rise to the right — a real 6% incline reads as flat at this size
+    expect(b.x2).toBeGreaterThan(b.x1 + 60);
+    expect(b.y1 - b.y2).toBeGreaterThan(8);
+    expect(b.y1 - b.y2).toBeLessThan(20);
+    expect(d.hold).toEqual({ k: 'none' });
+    expect(d.view).toBe('side');
+  });
+
+  it('plants the leading foot ALONG the belt and lifts only the trailing heel', () => {
+    const d = demo('x21');
+    const b = belt(d);
+    eachFrame(d, (j) => {
+      const feet = [j.near, j.far];
+      // the leading foot is the one further up the deck; it is flat on it
+      const lead = feet.reduce((p, q) => (q.ankle.x > p.ankle.x ? q : p));
+      const trail = lead === j.near ? j.far : j.near;
+      expect(Math.abs(lead.ankle.y - b.at(lead.ankle.x))).toBeLessThan(1.5);
+      expect(Math.abs(lead.toe.y - b.at(lead.toe.x))).toBeLessThan(1.5);
+      // the trailing foot pushes off: heel clearly up, toe still on the belt
+      expect(b.at(trail.ankle.x) - trail.ankle.y).toBeGreaterThan(1.5);
+      expect(Math.abs(trail.toe.y - b.at(trail.toe.x))).toBeLessThan(1.5);
+      // and nothing ever sinks through the deck
+      for (const s of feet) {
+        expect(s.ankle.y).toBeLessThan(b.at(s.ankle.x) + 1.5);
+        expect(s.toe.y).toBeLessThan(b.at(s.toe.x) + 1.5);
+      }
+    });
+  });
+
+  it('strides — the legs alternate, the arms swing against them, the pelvis stays put', () => {
+    const a = at('x21', 0);
+    const c = at('x21', 1);
+    // frame 0 leads with the near leg, frame 1 with the far one
+    expect(a.near.ankle.x - a.far.ankle.x).toBeGreaterThan(12);
+    expect(c.far.ankle.x - c.near.ankle.x).toBeGreaterThan(9);
+    // the arm on the leading leg's side is the one swung BACK
+    expect(a.near.grip.x).toBeLessThan(a.far.grip.x);
+    expect(c.far.grip.x).toBeLessThan(c.near.grip.x);
+    // in place: a treadmill moves the belt, not the walker
+    expect(c.pelvis).toEqual(a.pelvis);
+    // and the stride is a mirror, so the yoyo between the two IS the gait
+    expect(frameOf('x21', 1).leg).toEqual(frameOf('x21', 0).legF);
+    expect(frameOf('x21', 1).legF).toEqual(frameOf('x21', 0).leg);
+  });
+
+  it('leans into the climb without folding over the console', () => {
+    for (const pose of demo('x21').frames) {
+      const lean = leanFromVertical(pose);
+      expect(lean).toBeGreaterThan(4);
+      expect(lean).toBeLessThan(15);
+      expect(pose.torso).toBeGreaterThan(-90); // forward, i.e. towards the front of the deck
+    }
   });
 });
 
