@@ -158,8 +158,8 @@ function addCard(showAi: boolean, date: string, today: string): string {
   <section class="game-card nt-add">
     <div class="gc-title">הוספת ארוחה${dayNote}</div>
     <label class="nt-field">תיאור הארוחה
-      <input class="inp" id="ntName" type="text" maxlength="120" autocomplete="off"
-        placeholder="למשל: חזה עוף עם אורז וסלט">
+      <textarea class="inp nt-textarea" id="ntName" rows="3" maxlength="300" autocomplete="off"
+        placeholder="למשל: טוסט עם 2 פרוסות גבינה צהובה וקופסת טונה אחת — ככל שהתיאור מפורט יותר (כמויות, אופן הכנה), ההערכה מדויקת יותר"></textarea>
     </label>
     ${aiRow}
     <div class="nt-field-row">
@@ -293,7 +293,7 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
   });
 
   /* ---- add a meal ---- */
-  const nameInp = main.querySelector<HTMLInputElement>('#ntName');
+  const nameInp = main.querySelector<HTMLTextAreaElement>('#ntName');
   const calInp = main.querySelector<HTMLInputElement>('#ntCal');
   const protInp = main.querySelector<HTMLInputElement>('#ntProt');
   const timeInp = main.querySelector<HTMLInputElement>('#ntTime');
@@ -415,7 +415,10 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
           if (protInp) protInp.value = String(est.proteinG);
           if (estMsg) {
             const found = est.items.length > 0 ? `נמצא: ${est.items.join(', ')} · ` : '';
-            estMsg.textContent = `${found}דיוק ${CONFIDENCE_HE[est.confidence]} — אפשר לתקן לפני ההוספה.`;
+            // Anything short of high confidence says WHY, so the user knows what
+            // to add to the description (a quantity, a preparation) and retry.
+            const why = est.confidence !== 'high' && est.reason ? ` (${est.reason})` : '';
+            estMsg.textContent = `${found}דיוק ${CONFIDENCE_HE[est.confidence]}${why} — אפשר לתקן לפני ההוספה.`;
           }
         })
         .finally(() => {

@@ -9,7 +9,8 @@
  *
  * Request  (POST, JSON): { text: string, photo?: { mimeType: string, base64: string } }
  * Response (200,  JSON): { calories: number, protein_g: number, items: string[],
- *                          confidence: 'low' | 'medium' | 'high' }
+ *                          confidence: 'low' | 'medium' | 'high',
+ *                          reason: string  // why confidence < high; '' when high }
  * Errors: 400 bad input · 413 photo too large · 429 rate limited (Gemini said
  * so) · 500 key missing · 502 Gemini unreachable/unreadable.
  *
@@ -34,7 +35,9 @@ const CORS_HEADERS: Record<string, string> = {
 const PROMPT =
   'אתה עוזר תזונה. העריך את הקלוריות והחלבון (בגרמים) של הארוחה המתוארת בטקסט ו/או בתמונה. ' +
   'החזר JSON בלבד לפי הסכמה: calories (מספר שלם), protein_g (מספר), items (רשימת רכיבים בעברית), ' +
-  "confidence ('low'/'medium'/'high'). אם הכמות לא ברורה — הנח מנה אחת סבירה והורד את ה-confidence.";
+  "confidence ('low'/'medium'/'high'), reason (משפט קצר בעברית שמסביר למה הדיוק אינו גבוה — " +
+  'למשל כמות לא ברורה, רכיב שלא זוהה, אופן הכנה לא ידוע — ומחרוזת ריקה כשהדיוק גבוה). ' +
+  'אם הכמות לא ברורה — הנח מנה אחת סבירה, הורד את ה-confidence וציין זאת ב-reason.';
 
 function json(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {
@@ -85,8 +88,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
           protein_g: { type: 'NUMBER' },
           items: { type: 'ARRAY', items: { type: 'STRING' } },
           confidence: { type: 'STRING', enum: ['low', 'medium', 'high'] },
+          reason: { type: 'STRING' },
         },
-        required: ['calories', 'protein_g', 'items', 'confidence'],
+        required: ['calories', 'protein_g', 'items', 'confidence', 'reason'],
       },
     },
   };
@@ -117,7 +121,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       ? parsed.items.filter((it): it is string => typeof it === 'string' && it.trim() !== '').slice(0, 10)
       : [];
     const confidence = parsed.confidence === 'high' || parsed.confidence === 'medium' ? parsed.confidence : 'low';
-    return json(200, { calories, protein_g: proteinG, items, confidence });
+    const reason = typeof parsed.reason === 'string' ? parsed.reason.trim().slice(0, 200) : '';
+    return json(200, { calories, protein_g: proteinG, items, confidence, reason });
   } catch {
     return json(502, { error: 'gemini answer unreadable' });
   }

@@ -71,10 +71,12 @@ describe('the meal fold', () => {
   });
 
   it('clamps hostile numbers and trims the name', () => {
-    const read = mealRecordOf(meal('m1', { calories: 1e9, protein: -3, name: `  ${'א'.repeat(200)}  ` }));
+    const read = mealRecordOf(meal('m1', { calories: 1e9, protein: -3, name: `  ${'א'.repeat(400)}  ` }));
     expect(read?.rec.calories).toBe(10000);
     expect(read?.rec.protein).toBe(0);
-    expect(read?.rec.name).toHaveLength(120);
+    expect(read?.rec.name).toHaveLength(300);
+    // a multi-line description is stored as one line
+    expect(mealRecordOf(meal('m2', { name: 'טוסט\n  עם  גבינה' }))?.rec.name).toBe('טוסט עם גבינה');
   });
 
   it('refuses a payload that is not a meal', () => {
