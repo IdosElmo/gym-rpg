@@ -43,7 +43,8 @@ import type {
 /** Sanity clamps — a payload is data from ANOTHER device until proven benign. */
 export const MEAL_MAX_CALORIES = 10000;
 export const MEAL_MAX_PROTEIN = 500;
-export const MEAL_MAX_NAME_LEN = 120;
+/** A meal's name is also the text the estimator reads — room for quantities. */
+export const MEAL_MAX_NAME_LEN = 300;
 const AI_MAX_ITEMS = 10;
 const AI_MAX_ITEM_LEN = 60;
 
@@ -94,7 +95,9 @@ function aiInfoOf(raw: unknown): MealAiInfo | null {
 export function mealRecordOf(payload: Record<string, unknown>): { id: string; rec: MealRecord } | null {
   const id = payload['id'];
   const date = payload['date'];
-  const name = typeof payload['name'] === 'string' ? payload['name'].trim().slice(0, MEAL_MAX_NAME_LEN) : '';
+  // A name is ONE line of data: a multi-line description collapses to spaces.
+  const name =
+    typeof payload['name'] === 'string' ? payload['name'].replace(/\s+/g, ' ').trim().slice(0, MEAL_MAX_NAME_LEN) : '';
   if (typeof id !== 'string' || !id) return null;
   if (typeof date !== 'string' || !ISO_DATE_RE.test(date)) return null;
   if (!name) return null;

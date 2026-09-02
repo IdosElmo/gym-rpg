@@ -46,7 +46,8 @@ Deploy with JWT verification **on** (the default — do not pass
 ### Contract
 
 `POST` body `{ text: string, photo?: { mimeType: string, base64: string } }` →
-`200` with `{ calories, protein_g, items, confidence }` (already normalized;
+`200` with `{ calories, protein_g, items, confidence, reason }` — `reason` is a short
+Hebrew explanation of why confidence is below high, `''` when high (already normalized;
 the client re-validates in `src/nutrition/aiPort.ts`). Errors: `400` bad input,
 `413` photo too large, `429` rate limited, `500` secret missing, `502` Gemini
 unreachable or unreadable. The model (`gemini-3.5-flash-lite`) is a constant in

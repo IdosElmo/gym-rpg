@@ -41,6 +41,12 @@
 .nt-add .nt-field{display:block; font-size:12.5px; color:var(--muted); margin-top:10px}
 .nt-targets .nt-field{display:block; font-size:12.5px; color:var(--muted); margin-top:10px}
 .nt-field .inp{display:block; width:100%; margin-top:5px}
+/* The description is prose the estimator reads — start-aligned, regular weight,
+   three lines tall and growable, unlike the centred bold numbers `.inp` is for. */
+.nt-textarea{
+  text-align:start; font-weight:500; font-size:15px; line-height:1.45; font-family:inherit;
+  min-height:84px; resize:vertical; appearance:none; -moz-appearance:none;
+}
 .nt-field-row{display:flex; gap:10px}
 .nt-field-row .nt-field{flex:1 1 0; min-width:0}
 .nt-add .action-btn, .nt-targets .action-btn{width:100%; margin-top:12px; min-height:46px}

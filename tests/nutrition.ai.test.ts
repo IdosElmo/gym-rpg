@@ -27,6 +27,15 @@ describe('parseEstimate', () => {
     expect(est?.items[0]).toBe('פריט 0');
   });
 
+  it('carries a reason only when one was given, trimmed and capped', () => {
+    expect(parseEstimate({ ...GOOD, confidence: 'low', reason: '  הכמות לא ברורה  ' })?.reason).toBe('הכמות לא ברורה');
+    expect(parseEstimate({ ...GOOD, reason: 'א'.repeat(500) })?.reason).toHaveLength(200);
+    // no reason / empty / non-string -> the key is simply absent
+    expect('reason' in (parseEstimate(GOOD) ?? {})).toBe(false);
+    expect('reason' in (parseEstimate({ ...GOOD, reason: '   ' }) ?? {})).toBe(false);
+    expect('reason' in (parseEstimate({ ...GOOD, reason: 42 }) ?? {})).toBe(false);
+  });
+
   it('returns null for anything that is not an estimate', () => {
     expect(parseEstimate(null)).toBeNull();
     expect(parseEstimate('550 קלוריות')).toBeNull();

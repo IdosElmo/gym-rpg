@@ -28,6 +28,8 @@ export interface MealEstimate {
   /** What the model thought the meal contains ("אורז", "חזה עוף"…). */
   items: string[];
   confidence: 'low' | 'medium' | 'high';
+  /** Why the confidence is not high (Hebrew, one sentence). Absent when it is. */
+  reason?: string;
 }
 
 export type EstimateError =
@@ -55,6 +57,7 @@ export interface NutritionAiPort {
 const CONFIDENCES = ['low', 'medium', 'high'] as const;
 const MAX_ITEMS = 10;
 const MAX_ITEM_LEN = 60;
+const MAX_REASON_LEN = 200;
 const MAX_CALORIES = 10000;
 const MAX_PROTEIN = 500;
 
@@ -69,7 +72,7 @@ function clampNum(v: unknown, max: number): number | null {
 }
 
 /**
- * Read the Edge Function's `{calories, protein_g, items, confidence}` answer
+ * Read the Edge Function's `{calories, protein_g, items, confidence, reason}` answer
  * into a `MealEstimate`, or `null` when it does not parse. The server already
  * normalized once; this clamps AGAIN with the tracker's own limits, because a
  * response that crossed a network is untrusted by the same rule a synced
@@ -90,7 +93,8 @@ export function parseEstimate(raw: unknown): MealEstimate | null {
       if (items.length >= MAX_ITEMS) break;
     }
   }
-  return { calories, proteinG, items, confidence };
+  const reason = typeof raw['reason'] === 'string' ? raw['reason'].trim().slice(0, MAX_REASON_LEN) : '';
+  return { calories, proteinG, items, confidence, ...(reason ? { reason } : {}) };
 }
 
 /** Classify a failed invoke by its HTTP status. */

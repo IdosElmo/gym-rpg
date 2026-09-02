@@ -254,6 +254,47 @@ describe('the תזונה screen', () => {
     expect(ev?.payload['ai']).toBeUndefined();
   });
 
+  it('explains WHY when confidence is below high, and stays quiet when it is high', async () => {
+    const low = fakePort({
+      ok: true,
+      estimate: { calories: 400, proteinG: 20, items: ['טוסט'], confidence: 'medium', reason: 'כמות הגבינה לא ברורה' },
+    });
+    mount({ nutrition: { ai: low.port } });
+    openNutrition();
+    type('#ntName', 'טוסט גבינה');
+    click('#ntEst');
+    await flush();
+    await flush();
+    const msg = document.querySelector('#ntEstMsg')?.textContent ?? '';
+    expect(msg).toContain('בינוני');
+    expect(msg).toContain('(כמות הגבינה לא ברורה)');
+
+    resetNutritionScreen();
+    const high = fakePort({
+      ok: true,
+      estimate: { calories: 400, proteinG: 20, items: [], confidence: 'high', reason: 'לא אמור להופיע' },
+    });
+    mount({ nutrition: { ai: high.port } });
+    openNutrition();
+    type('#ntName', 'טוסט גבינה');
+    click('#ntEst');
+    await flush();
+    await flush();
+    expect(document.querySelector('#ntEstMsg')?.textContent).not.toContain('לא אמור להופיע');
+  });
+
+  it('takes the description from a multi-line box and stores it as one line', () => {
+    const { store } = mount();
+    openNutrition();
+    expect(document.querySelector('#ntName')?.tagName).toBe('TEXTAREA');
+    type('#ntName', 'טוסט\nעם 2 פרוסות גבינה');
+    type('#ntCal', '400');
+    click('#ntAdd');
+    expect(store.getState().nutrition.meals[Object.keys(store.getState().nutrition.meals)[0] ?? '']?.name).toBe(
+      'טוסט עם 2 פרוסות גבינה',
+    );
+  });
+
   it('speaks every estimate failure in Hebrew, verbatim from the map', async () => {
     for (const error of ['signed_out', 'offline', 'rate_limited', 'http', 'unparseable'] as const) {
       resetNutritionScreen();
