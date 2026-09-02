@@ -1,9 +1,43 @@
 # Progression pacing plan — closing the gap between "out of waves" and "boss opens"
 
-Status: **plan, not yet implemented.** Written from measurements against the real
-engine (`onSetCompleted` → levels, `createBattle`/`advance` → fights), not estimates.
-The scratch simulation that produced every number below is described in §6 so it can
-be turned into a pinned test.
+Status: **implemented** (all four phases, on this branch). Written from measurements
+against the real engine (`onSetCompleted` → levels, `createBattle`/`advance` → fights),
+not estimates. The simulation described in §6 is now `tests/helpers/trainee.ts`, and
+`tests/pacing.test.ts` pins the numbers.
+
+## 0. What shipped (and how it differs from the plan below)
+
+After the plan was written the retune was widened from "lower the gates" to "meet in
+the middle": worlds got LONGER and STEEPER as well, so the waves' own ramp is what
+sends the player to train and the gate opens when the waves run out.
+
+| World | Waves | Span (classic steps) | Gate | Waves run out → gate opens (builtin / ab4) | Boss at the boss (ab4) |
+|---|---|---|---|---|---|
+| 1 | 50 | 49 | chest 3 · arms 3 · legs 3 | 3→4 / 2→4 | 26 s |
+| 2 | 80 | 49 | chest 3 · back 4 · arms 4 | 6→6 / 5→4 | 38 s |
+| 3 | 110 | 50 | back 5 · legs 5 · shoulders 4 · core 4 | 11→10 / 8→6 | 47 s |
+| 4 | 130 | 54 | chest 5 · back 6 · legs 6 · shoulders 5 · arms 6 · core 6 | 17→15 / 12→12 | 60 s |
+| 5 | 140 | 59 | chest 6 · back 7 · legs 7 · shoulders 6 · arms 7 · core 6 | 24→21 / 16→16 | 60 s |
+| 6 | 150 | 64 | chest 6 · back 8 · legs 8 · shoulders 7 · arms 8 · core 7 | 30→30 / 21→19 | 55 s |
+| 7 | 160 | 65 | chest 7 · back 9 · legs 8 · shoulders 8 · arms 9 · core 8 | 38→36 / 26→25 | 59 s |
+| 8 | 170 | 59 | chest 7 · back 9 · legs 9 · shoulders 8 · arms 9 · core 8 | 45→42 / 31→26 | 57 s |
+| 9 | 180 | 66 | chest 8 · back 10 · legs 9 · shoulders 9 · arms 10 · core 9 | 53→50 / 37→35 | 63 s |
+
+- **Phase 1** — as above. 1,170 waves ≈ 53 workouts of ⚡ on the built-in split (≈37 on
+  the A/B 4-day preset). The five late boss `hpMult` came down (3.8 / 3.9 / 3.7 / 3.4 /
+  2.95) because their ramps went up; worlds 1–4 keep theirs. Coins do not follow the
+  span (`coinStretch`), and the late coin step eased 1.2 → 1.12 so the longer campaign
+  still buys the shop under six times (≈252,500 🪙 against 47,250).
+- **Phase 2** — the early challenge: +12 % HP and +5 % damage per missing level, capped
+  at twelve. One level short on every required part is a 110–135 s fight from world 4
+  on; three short is a loss (or ≥2.5× the fight). In worlds 1–3 one level short is a
+  wall with or without the handicap — a level is a fifth of the character there.
+- **Phase 3** — overtime waves, with the boss fee kept in reserve (overtime spawns only
+  while the purse holds a wave plus the fee); below that, free sparring as before.
+- **Phase 4** — the coaching block on the gate card, plus a shortcut into the plan
+  editor. Each row: `part have→need · N sets/week in the plan · ~K workouts · add: …`.
+
+The original plan follows, unchanged, as the record of why.
 
 ## 1. The symptom, measured
 

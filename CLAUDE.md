@@ -75,10 +75,18 @@ way (a spec, a demo, a `tests/cardio.dom.test.ts`-style check of the ladder).
 ## Adding other content
 
 - **Worlds/enemies/bosses**: `src/data/gameContent.ts` + tuning in `src/core/balance.ts`.
-  Wave counts are per world; historical `wave_cleared`/`boss_defeated` payloads are
-  authoritative, so content changes must never re-derive history. Extend the simulation
-  pacing tests (`tests/worlds.test.ts`, `tests/boss.test.ts`) — bosses must be beatable
-  at their gate with era gear in the pinned time band.
+  Wave counts (`waves`) and ramp steepness (`span`) are per world; historical
+  `wave_cleared`/`boss_defeated` payloads are authoritative, so content changes must
+  never re-derive history. **Pacing is measured, not estimated**: `tests/pacing.test.ts`
+  drives a simulated trainee (`tests/helpers/trainee.ts`) through the real
+  `onSetCompleted` path on both shipped plans and pins that every world's waves run out
+  within a few workouts of its boss gate opening, that the late waves are the wall (not
+  the gate), and that every boss is a 25–90 s climax in era gear. Retune all three
+  numbers together (`waves`, `span`, `requires`/`hpMult`) and re-run it. The gate is a
+  recommendation: below it the boss is fought strengthened by the deficit
+  (`BALANCE.combat.boss.handicap`), and the wait at a standing boss runs paid overtime
+  waves (`BALANCE.combat.overtime`, `battle.overtime` in state). Coins never follow
+  `span` (`coinStretch`); `tests/shop.test.ts` bounds the campaign's income.
 - **Equipment**: `EQUIPMENT` in `gameContent.ts`; stats flow through `equippedBonus`/
   `deriveStats` (the single stat seam). Art anchors to `characterAnchors`; upgrade flair
   via the per-item `<feDropShadow>` (explicit hex — CSS vars inside SVG filters break on
