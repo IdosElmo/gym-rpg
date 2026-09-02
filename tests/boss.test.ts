@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../src/core/balance.ts';
 import {
   advance,
+  bossHandicap,
   bossSpec,
   bossStanding,
   createBattle,
@@ -190,7 +191,7 @@ describe('boss gates', () => {
     }
   });
 
-  it('spars while the gate is locked, and starts the boss only when the button is pressed', () => {
+  it('spars while the gate is unmet, and starts the boss only when the button is pressed', () => {
     const stats = statsAt(6);
     const state = createBattle({
       seed: 77,
@@ -199,19 +200,19 @@ describe('boss gates', () => {
       energy: 1000,
       stats,
       gateOpen: false,
+      gateDeficit: 2,
     });
     advance(state, 2000, stats);
-    // the gate no longer stops the arena: a reward-less sparring bout is on
+    // the gate does not stop the arena: a reward-less sparring bout is on
     expect(state.status).toBe('fighting');
     expect(state.enemy?.worldBoss).toBe(false);
     expect(state.enemy?.sparring).toBe(true);
+    expect(state.gateDeficit).toBe(2);
 
-    // pressing the button while the gate is locked is refused — the same gate
-    // that used to block the auto-spawn now gates the button
-    expect(requestBossFight(state)).toEqual({ ok: false, reason: 'gate_locked' });
-
-    // a level-up mid-session lights the button without a reload…
+    // a level-up mid-session meets the gate without a reload, and the deficit
+    // goes with it…
     setGate(state, true);
+    expect(state.gateDeficit).toBe(0);
     // …but nothing starts by itself: still sparring, until the player presses
     advance(state, 2000, stats);
     expect(state.enemy?.worldBoss ?? false).toBe(false);
@@ -449,5 +450,105 @@ describe('trophy derivation', () => {
       expect(worldGate(world, maxed).locked).toBe(false);
       expect(worldGate(world, levelsAt(1)).locked).toBe(true);
     }
+  });
+});
+
+/* ------------------------------------------------------ the early challenge */
+
+describe('the early challenge (PHASE 11)', () => {
+  it('measures the deficit as the sum of the missing levels, and nothing when met', () => {
+    const boss = worldBossOf(4);
+    const levels = levelsAt(1);
+    const need = Object.values(boss?.requires ?? {}).reduce((a, b) => a + b, 0);
+    expect(bossGateStatus(boss, levels).deficit).toBe(need - 6);
+    for (const [part, n] of Object.entries(boss?.requires ?? {})) levels[part as BodyPart] = n as number;
+    expect(bossGateStatus(boss, levels).deficit).toBe(0);
+    // over-levelled parts do not offset short ones
+    levels.chest += 5;
+    levels.legs -= 1;
+    expect(bossGateStatus(boss, levels).deficit).toBe(1);
+    expect(bossGateStatus(boss, levels).locked).toBe(true);
+  });
+
+  it('scales the handicap per missing level, exactly 1 at the gate, and caps it', () => {
+    const h = BALANCE.combat.boss.handicap;
+    expect(bossHandicap(0)).toEqual({ deficit: 0, hp: 1, atk: 1 });
+    expect(bossHandicap(-3)).toEqual({ deficit: 0, hp: 1, atk: 1 });
+    expect(bossHandicap(1).hp).toBeCloseTo(1 + h.hpPerLevel, 6);
+    expect(bossHandicap(1).atk).toBeCloseTo(1 + h.atkPerLevel, 6);
+    expect(bossHandicap(4).hp).toBeCloseTo(1 + 4 * h.hpPerLevel, 6);
+    expect(bossHandicap(h.maxLevels + 10)).toEqual(bossHandicap(h.maxLevels));
+    for (let d = 1; d <= h.maxLevels; d += 1) {
+      expect(bossHandicap(d).hp).toBeGreaterThan(bossHandicap(d - 1).hp);
+      expect(bossHandicap(d).atk).toBeGreaterThan(bossHandicap(d - 1).atk);
+    }
+  });
+
+  it('spawns the boss strengthened by the deficit, and records it on the kill', () => {
+    const stats = statsAt(40);
+    const early = createBattle({
+      seed: 77,
+      world: 2,
+      wave: bossWaveOf(2),
+      energy: 1000,
+      stats,
+      gateOpen: false,
+      gateDeficit: 3,
+      bossRequested: true,
+    });
+    advance(early, 2000, stats);
+    expect(early.enemy?.worldBoss).toBe(true);
+    const plain = bossSpec(2);
+    const spec = bossSpec(2, 3);
+    expect(spec?.handicap).toEqual(bossHandicap(3));
+    expect(early.enemy?.maxHp).toBe(spec?.hp);
+    expect(spec?.hp ?? 0).toBeGreaterThan(plain?.hp ?? 0);
+    expect(spec?.atk ?? 0).toBeGreaterThan(plain?.atk ?? 0);
+    // same purse, same fee: the handicap is the price
+    expect(spec?.coins).toBe(plain?.coins);
+    expect(spec?.energyCost).toBe(plain?.energyCost);
+
+    const res = fight(early, stats);
+    expect(res.bosses).toHaveLength(1);
+    expect(res.bosses[0]?.deficit).toBe(3);
+    expect(res.bosses[0]?.nextWorld).toBe(3);
+
+    // …and the gate being MET afterwards does not change what was recorded
+    const store = new LocalStore(fakeStorage());
+    for (let i = 0; i < 20; i += 1) {
+      onSetCompleted(store, { date: '2025-05-04', day: 'A', ex: ex('a1'), setIndex: i, w: '40', r: '10' });
+    }
+    onBossDefeated(store, res.bosses[0] as BossResult);
+    const ev = store.getEvents().find((e) => e.type === 'boss_defeated');
+    expect(ev?.payload['deficit']).toBe(3);
+    expect(gameOf(store).battle.world).toBe(3);
+    const replayed = rebuildFromEvents(store.getEvents(), Date.now()).game;
+    expect(replayed?.battle).toEqual(gameOf(store).battle);
+  });
+
+  it('keeps the handicap the boss on screen spawned with, even if the gate moves under it', () => {
+    const stats = statsAt(6);
+    const state = createBattle({
+      seed: 77,
+      world: 1,
+      wave: BOSS_WAVE,
+      energy: 1000,
+      stats,
+      gateOpen: false,
+      gateDeficit: 2,
+      bossRequested: true,
+    });
+    advance(state, 2000, stats);
+    const hp = state.enemy?.maxHp;
+    setGate(state, true);
+    advance(state, 500, stats);
+    expect(state.enemy?.worldBoss).toBe(true);
+    expect(state.enemy?.maxHp).toBe(hp);
+    // a boolean-only call keeps the deficit it does not know about
+    const other = createBattle({ seed: 1, world: 1, wave: BOSS_WAVE, energy: 1000, stats, gateDeficit: 4 });
+    setGate(other, false);
+    expect(other.gateDeficit).toBe(4);
+    setGate(other, false, [], 1);
+    expect(other.gateDeficit).toBe(1);
   });
 });

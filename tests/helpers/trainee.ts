@@ -279,8 +279,14 @@ export function fightFinalWave(world: number, levels: PartLevels, gear: Gear, ma
   return playActively(state, stats, levels, 1, maxMs);
 }
 
-/** The world boss, button already pressed. */
-export function fightBoss(world: number, levels: PartLevels, gear: Gear, maxMs = 600_000): FightSummary {
+/** The world boss, button already pressed — strengthened by `deficit` when given (the EARLY challenge). */
+export function fightBoss(
+  world: number,
+  levels: PartLevels,
+  gear: Gear,
+  maxMs = 600_000,
+  deficit = 0,
+): FightSummary {
   const w = WORLDS.find((x) => x.id === world);
   if (!w || !worldBossOf(world)) throw new Error(`no boss for world ${world}`);
   const stats = statsFor(levels, gear);
@@ -290,7 +296,8 @@ export function fightBoss(world: number, levels: PartLevels, gear: Gear, maxMs =
     wave: w.waves + 1,
     energy: 100_000,
     stats,
-    gateOpen: true,
+    gateOpen: deficit <= 0,
+    gateDeficit: deficit,
     bossRequested: true,
   });
   return playActively(state, stats, levels, 1, maxMs);

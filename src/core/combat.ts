@@ -319,6 +319,11 @@ export interface BossSpec {
   attackIntervalMs: number;
   coins: number;
   energyCost: number;
+  /**
+   * The EARLY-CHALLENGE handicap this spec was built with: the gate deficit the
+   * player fights at, and the multipliers it turned into (both 1 at the gate).
+   */
+  handicap: BossHandicap;
   /** Where the player lands after the kill (next world, or endless mode). */
   nextWorld: number;
   nextWave: number;
@@ -326,23 +331,53 @@ export interface BossSpec {
   endgame: boolean;
 }
 
+export interface BossHandicap {
+  /** Σ max(0, need − have) over the gate's parts — 0 when the gate is met. */
+  deficit: number;
+  /** Multipliers the deficit turned into (exactly 1 at deficit 0). */
+  hp: number;
+  atk: number;
+}
+
 /**
- * Everything about a world-boss fight, derived from the world alone.
+ * THE EARLY-CHALLENGE HANDICAP — how much stronger the boss is for a player
+ * `deficit` levels below its gate (`BALANCE.combat.boss.handicap`). Pure and
+ * monotone: 0 → exactly 1, and every level short adds a fixed share until
+ * `maxLevels`, so a player four levels short on four parts meets the same boss
+ * as one eight levels short on one.
+ */
+export function bossHandicap(deficit: number): BossHandicap {
+  const h = BALANCE.combat.boss.handicap;
+  const d = Math.min(h.maxLevels, Math.max(0, Math.floor(deficit)));
+  return {
+    deficit: d,
+    hp: Math.round((1 + h.hpPerLevel * d) * 1000) / 1000,
+    atk: Math.round((1 + h.atkPerLevel * d) * 1000) / 1000,
+  };
+}
+
+/**
+ * Everything about a world-boss fight, derived from the world — and, for an
+ * EARLY challenge, from how far below the gate the player stands.
  *
  * The boss stands on the (stretched) wave-scaling curve one wave past the
  * world's last one and then multiplies it by its own `hpMult`/`atkMult`, so it
- * is always meaningfully bigger than the final enemy the player just beat.
+ * is always meaningfully bigger than the final enemy the player just beat. A
+ * `deficit` above 0 multiplies it again by `bossHandicap(deficit)`.
  */
-export function bossSpec(world: number): BossSpec | null {
+export function bossSpec(world: number, deficit = 0): BossSpec | null {
   const boss = worldBossOf(world);
   if (!boss) return null;
   const c = BALANCE.combat;
   const e = c.enemy;
   const wave = bossWaveOf(world);
   const waveStep = (wave - 1) * waveStretch(world);
+  const handicap = bossHandicap(deficit);
 
-  const hp = e.hpBase * Math.pow(e.hpGrowth, waveStep) * worldHpFactor(world) * (boss.hpMult ?? 1);
-  const atk = e.atkBase * Math.pow(e.atkGrowth, waveStep) * worldAtkFactor(world) * (boss.atkMult ?? 1);
+  const hp =
+    e.hpBase * Math.pow(e.hpGrowth, waveStep) * worldHpFactor(world) * (boss.hpMult ?? 1) * handicap.hp;
+  const atk =
+    e.atkBase * Math.pow(e.atkGrowth, waveStep) * worldAtkFactor(world) * (boss.atkMult ?? 1) * handicap.atk;
   const endgame = world >= WORLD_COUNT;
 
   return {
@@ -352,6 +387,7 @@ export function bossSpec(world: number): BossSpec | null {
     hp: Math.max(1, Math.round(hp)),
     atk: Math.max(1, Math.round(atk * 10) / 10),
     attackIntervalMs: c.boss.attackIntervalMs,
+    handicap,
     coins: Math.round(c.boss.coinsBase * bossCoinFactor(world)),
     energyCost: c.boss.energyCost,
     // Beating the LAST boss does not reset progress: the player stays in the
@@ -798,11 +834,18 @@ export interface BattleState {
   /** Attempt number of the CURRENT wave (grows on every knock-out). */
   attempt: number;
   /**
-   * Whether the current world's boss gate is OPEN (all body-part requirements
-   * met). The UI keeps this in sync with the character's levels — a level-up
-   * mid-session unlocks the boss without a reload.
+   * Whether the current world's boss gate is MET (all body-part requirements).
+   * The UI keeps this in sync with the character's levels — a level-up
+   * mid-session is felt without a reload. Since PHASE 11 the gate is advice,
+   * not a lock: the fight can start either way, and `gateDeficit` says how
+   * much stronger the boss is for it.
    */
   gateOpen: boolean;
+  /**
+   * How far below the gate the character stands (`GateStatus.deficit`) — the
+   * EARLY-CHALLENGE handicap the boss spawns with. Always 0 while `gateOpen`.
+   */
+  gateDeficit: number;
   /**
    * The player PRESSED the boss button (`requestBossFight`). The world boss
    * only ever spawns while this is true — an open gate alone keeps the arena
@@ -875,6 +918,8 @@ export interface BossResult {
   nextWorld: number;
   nextWave: number;
   endgame: boolean;
+  /** The gate deficit the boss was fought at (0 = at or above the gate). */
+  deficit: number;
 }
 
 export type CombatEvent =
@@ -912,8 +957,10 @@ export interface CreateBattleArgs {
   wave: number;
   energy: number;
   stats: CombatStats;
-  /** Body-part gate of the current world's boss — defaults to closed. */
+  /** Body-part gate of the current world's boss — defaults to unmet. */
   gateOpen?: boolean;
+  /** How far below that gate the character is (ignored when `gateOpen`). */
+  gateDeficit?: number;
   /**
    * Start with the boss fight already requested (as if the button was pressed).
    * Used by tests and simulations; the UI always starts sparring and lets the
@@ -934,6 +981,7 @@ export function createBattle(a: CreateBattleArgs): BattleState {
     wave,
     attempt: 0,
     gateOpen: a.gateOpen === true,
+    gateDeficit: a.gateOpen === true ? 0 : Math.max(0, Math.floor(a.gateDeficit ?? 0)),
     bossRequested: a.bossRequested === true,
     defeatedBosses: [...(a.defeatedBosses ?? [])],
     energy: Math.max(0, a.energy),
@@ -1016,18 +1064,29 @@ export function setEnergy(state: BattleState, energy: number): void {
 
 /**
  * Keep the boss gate in sync with the character's levels while the tab is open —
- * levelling up on the workout screen makes the boss button appear without a
- * reload. Opening the gate no longer starts anything by itself: the fight waits
- * for `requestBossFight`, and until then the arena keeps sparring.
+ * levelling up on the workout screen is felt without a reload. Meeting the gate
+ * never starts anything by itself: the fight waits for `requestBossFight`, and
+ * until then the arena keeps sparring.
+ *
+ * `deficit` is the gate's `GateStatus.deficit`; it is kept when omitted so a
+ * caller that only knows the boolean cannot silently drop the handicap. A fight
+ * already requested is NOT cancelled by the gate moving under it: the boss on
+ * screen keeps the handicap it spawned with.
  */
-export function setGate(state: BattleState, gateOpen: boolean, defeated?: readonly string[]): void {
+export function setGate(
+  state: BattleState,
+  gateOpen: boolean,
+  defeated?: readonly string[],
+  deficit?: number,
+): void {
   state.gateOpen = gateOpen;
-  if (!gateOpen) state.bossRequested = false;
+  if (gateOpen) state.gateDeficit = 0;
+  else if (deficit !== undefined) state.gateDeficit = Math.max(0, Math.floor(deficit));
   if (defeated) state.defeatedBosses = [...defeated];
 }
 
 /** Why a boss-fight request was refused — the UI turns this into Hebrew. */
-export type BossFightRefusal = 'not_at_boss' | 'gate_locked' | 'no_energy' | 'busy';
+export type BossFightRefusal = 'not_at_boss' | 'no_energy' | 'busy';
 
 export interface BossFightRequest {
   ok: boolean;
@@ -1038,11 +1097,11 @@ export interface BossFightRequest {
 /**
  * The boss button was pressed: start the world-boss fight.
  *
- * The gate rule is unchanged — this is refused unless every body-part
- * requirement is met (`gateOpen`) — the only thing that moved is WHO starts the
- * fight: the player, by pressing, instead of the spawn loop by itself. A
- * sparring partner still on screen steps aside (it was worth nothing anyway);
- * a refused request changes nothing at all.
+ * The player starts it, never the spawn loop by itself — and, since PHASE 11,
+ * the body-part gate does not refuse it: below the gate the boss simply spawns
+ * strengthened by `state.gateDeficit` (`bossHandicap`). Only the wave and the
+ * energy can say no. A sparring partner still on screen steps aside (it was
+ * worth nothing anyway); a refused request changes nothing at all.
  */
 export function requestBossFight(state: BattleState): BossFightRequest {
   if (state.challenge || state.status === 'recovering' || state.status === 'finished') {
@@ -1051,8 +1110,7 @@ export function requestBossFight(state: BattleState): BossFightRequest {
   if (!bossStanding(state.world, state.wave, state.defeatedBosses)) {
     return { ok: false, reason: 'not_at_boss' };
   }
-  if (!state.gateOpen) return { ok: false, reason: 'gate_locked' };
-  const spec = bossSpec(state.world);
+  const spec = bossSpec(state.world, state.gateDeficit);
   if (!spec) return { ok: false, reason: 'not_at_boss' };
   if (state.energy < spec.energyCost) return { ok: false, reason: 'no_energy' };
 
@@ -1245,9 +1303,10 @@ function spawn(state: BattleState, out: CombatEvent[]): void {
   // fallen, in which case (last world only) the waves simply keep coming.
   if (bossStanding(state.world, state.wave, state.defeatedBosses)) {
     // The fight itself starts only when the player PRESSED the button
-    // (`requestBossFight`), which already checked the gate and the energy.
-    if (state.gateOpen && state.bossRequested) {
-      const spec = bossSpec(state.world);
+    // (`requestBossFight`), which already checked the wave and the energy. Below
+    // the gate the boss comes up strengthened by the deficit (the EARLY challenge).
+    if (state.bossRequested) {
+      const spec = bossSpec(state.world, state.gateDeficit);
       if (spec && state.energy >= spec.energyCost) {
         beginFight(state, {
           id: spec.boss.id,
@@ -1267,8 +1326,8 @@ function spawn(state: BattleState, out: CombatEvent[]): void {
       // The energy drained between the press and the spawn — stand down.
       state.bossRequested = false;
     }
-    // No boss fight (gate still locked, or the button not pressed): the arena
-    // keeps SPARRING instead of standing still. The partner is the world's own
+    // No boss fight (the button not pressed): the arena keeps SPARRING instead
+    // of standing still. The partner is the world's own
     // last ordinary wave, and it pays nothing — no coins, no energy, no wave —
     // so real training remains the only way forward.
     spawnSparring(state, out);
@@ -1337,7 +1396,7 @@ function damageEnemy(
  */
 function killBoss(state: BattleState, out: CombatEvent[]): void {
   const c = BALANCE.combat;
-  const spec = bossSpec(state.world);
+  const spec = bossSpec(state.world, state.gateDeficit);
   if (!spec) return;
   const result: BossResult = {
     world: state.world,
@@ -1350,6 +1409,7 @@ function killBoss(state: BattleState, out: CombatEvent[]): void {
     nextWorld: spec.nextWorld,
     nextWave: spec.nextWave,
     endgame: spec.endgame,
+    deficit: spec.handicap.deficit,
   };
 
   state.energy = Math.max(0, Math.round((state.energy - result.energySpent) * 100) / 100);
@@ -1360,8 +1420,9 @@ function killBoss(state: BattleState, out: CombatEvent[]): void {
   state.defeatedBosses = [...state.defeatedBosses, spec.boss.id];
   state.world = result.nextWorld;
   state.wave = result.nextWave;
-  // A new world's gate is a different gate — the UI re-opens it if it is met.
+  // A new world's gate is a different gate — the UI re-reads it next frame.
   state.gateOpen = false;
+  state.gateDeficit = 0;
   state.bossRequested = false;
   state.playerHp = state.maxHp;
   state.status = 'idle';

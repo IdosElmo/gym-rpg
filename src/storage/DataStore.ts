@@ -758,6 +758,12 @@ export interface BossDefeatedPayload extends Record<string, unknown> {
   nextWave: number;
   /** True when this was the LAST world's boss — world 4 turns endless. */
   endgame: boolean;
+  /**
+   * The gate deficit the boss was fought at (PHASE 11's early challenge; 0 =
+   * at or above the gate). Absent on events written before it existed, which
+   * read as 0 — it is a record, never an input to the fold.
+   */
+  deficit?: number;
 }
 
 /** A shop purchase. Coins leave the purse and the item joins `owned`. */

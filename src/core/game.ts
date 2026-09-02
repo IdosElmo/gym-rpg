@@ -250,6 +250,7 @@ export function onBossDefeated(store: DataStore, r: BossResult, now: Date = new 
     nextWorld: r.nextWorld,
     nextWave: r.nextWave,
     endgame: r.endgame,
+    deficit: r.deficit,
   };
   commit(store, [{ type: 'boss_defeated', payload, ts: now.getTime() }], now);
   return gameOf(store).battle;

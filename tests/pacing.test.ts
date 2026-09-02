@@ -15,9 +15,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { BALANCE } from '../src/core/balance.ts';
-import { bossSpec, waveSpec } from '../src/core/combat.ts';
+import { bossSpec, waveSpec, worldGate } from '../src/core/combat.ts';
 import { WORLDS, WORLD_COUNT, worldBossOf } from '../src/data/gameContent.ts';
-import { BODY_PARTS } from '../src/data/program.ts';
+import { BODY_PARTS, type BodyPart } from '../src/data/program.ts';
 import {
   ERA_GEAR,
   fightBoss,
@@ -28,6 +28,7 @@ import {
   shiftLevels,
   trainee,
   wavesRunOut,
+  type PartLevels,
   type PlanId,
   type TraineeRun,
 } from './helpers/trainee.ts';
@@ -147,6 +148,45 @@ describe('the ramp is the pacer', () => {
         expect(res.ms, `${plan}: world ${w.id} boss is a pushover`).toBeGreaterThanOrEqual(25_000);
         expect(res.ms, `${plan}: world ${w.id} boss is a war of attrition`).toBeLessThanOrEqual(90_000);
       }
+    }
+  });
+});
+
+describe('the early challenge', () => {
+  /** The trainee's levels with every REQUIRED part `by` levels under the gate. */
+  function underGate(world: number, levels: PartLevels, by: number): PartLevels {
+    const out = { ...levels };
+    for (const [part, need] of Object.entries(worldBossOf(world)?.requires ?? {})) {
+      out[part as BodyPart] = Math.max(1, (need as number) - by);
+    }
+    return out;
+  }
+
+  it('is a long but winnable fight one level short on every part, from world 4 on', () => {
+    // In worlds 1–3 there is no gear to carry a missing level, and a level is a
+    // fifth of the character: one short on every required part is a wall with
+    // or without the handicap (the handicap is not what makes it one). From
+    // world 4 the kit carries it: a tense fight, at most one knock-out.
+    for (const w of WORLDS.filter((x) => x.id >= 4)) {
+      const levels = underGate(w.id, levelsAtBoss(runs.ab4, w.id), 1);
+      const deficit = worldGate(w.id, levels).deficit;
+      expect(deficit).toBeGreaterThan(0);
+      const res = fightBoss(w.id, levels, ERA_GEAR[w.id] as (typeof ERA_GEAR)[number], 300_000, deficit);
+      expect(res.cleared, `world ${w.id}: one level short is unwinnable`).toBe(1);
+      expect(res.defeats, `world ${w.id}: one level short knocks the player out repeatedly`).toBeLessThanOrEqual(1);
+      expect(res.ms, `world ${w.id}: one level short is not a real fight`).toBeGreaterThan(90_000);
+      expect(res.ms, `world ${w.id}: one level short is a war of attrition`).toBeLessThan(240_000);
+    }
+  });
+
+  it('is a loss — or at least two and a half times the fight — three levels short on every part', () => {
+    for (const w of WORLDS) {
+      const at = fightBoss(w.id, levelsAtBoss(runs.ab4, w.id), ERA_GEAR[w.id] as (typeof ERA_GEAR)[number]);
+      const levels = underGate(w.id, levelsAtBoss(runs.ab4, w.id), 3);
+      const deficit = worldGate(w.id, levels).deficit;
+      const res = fightBoss(w.id, levels, ERA_GEAR[w.id] as (typeof ERA_GEAR)[number], 400_000, deficit);
+      const wall = res.cleared === 0 || res.defeats >= 3;
+      expect(wall || res.ms >= at.ms * 2.5, `world ${w.id}: three levels short is too easy`).toBe(true);
     }
   });
 });

@@ -1849,27 +1849,36 @@ export interface GateRequirement {
 }
 
 export interface GateStatus {
+  /**
+   * True while at least one requirement is unmet. Since PHASE 11 this is a
+   * RECOMMENDATION, not a lock: the boss can be fought anyway, strengthened by
+   * `deficit` (see `BALANCE.combat.boss.handicap`).
+   */
   readonly locked: boolean;
   readonly requirements: readonly GateRequirement[];
+  /** Σ over the requirements of `max(0, need − have)` — 0 when the gate is met. */
+  readonly deficit: number;
 }
 
 /**
- * Met/unmet state of a boss's body-part gate. Pure — the UI just renders it.
- * Phase 3 uses the same function for the world-boss screen.
+ * Met/unmet state of a boss's body-part gate, and how far below it the
+ * character is. Pure — the UI renders it, the engine scales the boss by it.
  */
 export function bossGateStatus(
   boss: BossDef | undefined,
   levels: Readonly<Record<BodyPart, number>>,
 ): GateStatus {
-  if (!boss) return { locked: true, requirements: [] };
+  if (!boss) return { locked: true, requirements: [], deficit: 0 };
   const requirements: GateRequirement[] = [];
+  let deficit = 0;
   for (const key of Object.keys(boss.requires) as BodyPart[]) {
     const need = boss.requires[key] ?? 0;
     if (need <= 0) continue;
     const have = levels[key] ?? 1;
     requirements.push({ part: key, need, have, met: have >= need });
+    deficit += Math.max(0, need - have);
   }
-  return { locked: requirements.some((r) => !r.met), requirements };
+  return { locked: requirements.some((r) => !r.met), requirements, deficit };
 }
 
 /* ------------------------------------------------------------- equipment */

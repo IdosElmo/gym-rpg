@@ -163,7 +163,7 @@ describe('battle tab', () => {
     }
   });
 
-  it('keeps sparring (for nothing) at the boss wave while the gate is locked — locked button', () => {
+  it('keeps sparring (for nothing) at the boss wave while the gate is unmet — early-challenge button', () => {
     const store = battleStore(12);
     store.update((d) => {
       const g = d.game ?? emptyGame();
@@ -179,16 +179,22 @@ describe('battle tab', () => {
     expect(document.getElementById('btStatus')?.textContent).toContain('קרב אימון');
     expect(document.getElementById('btStatus')?.textContent).toContain('חסר');
     // …and the boss button STANDS here — visible so the player understands what
-    // the sparring is for, but locked and unpressable until the gate is met.
+    // the sparring is for, and PRESSABLE: below the recommended levels it is the
+    // EARLY challenge, amber, naming the handicap the boss will carry.
     const btn = document.getElementById('btBossFight') as HTMLButtonElement;
     expect(btn.hidden).toBe(false);
-    expect(btn.disabled).toBe(true);
-    expect(btn.classList.contains('locked')).toBe(true);
-    expect(btn.textContent).toContain('🔒');
-    expect(btn.textContent).toContain('קרב בוס');
-    // a click on the locked button starts nothing
+    expect(btn.disabled).toBe(false);
+    expect(btn.classList.contains('early')).toBe(true);
+    expect(btn.classList.contains('locked')).toBe(false);
+    expect(btn.textContent).toContain('⚔️');
+    expect(btn.textContent).toContain('קרב בוס מוקדם');
+    expect(btn.textContent).toMatch(/מחוזק \+\d+%/);
+    // the gate card says the same: recommended, not locked, and by how much
+    expect(document.querySelector('.bt-gate')?.textContent).toContain('קרב בוס מוקדם');
+    expect(document.querySelector('.bt-gate')?.textContent).toContain('מחוזק');
+    // a click on the early button STARTS the fight — against the strengthened boss
     btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(document.getElementById('btArena')?.classList.contains('boss-fight')).toBe(false);
+    expect(document.getElementById('btArena')?.classList.contains('boss-fight')).toBe(true);
   });
 
   it('opens the gate — and shows the boss button; pressing it starts the fight', () => {

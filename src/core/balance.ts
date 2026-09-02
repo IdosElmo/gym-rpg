@@ -264,6 +264,22 @@ export const BALANCE = {
       coinsBase: 400, coinsWorldMult: 1.7, coinsLateWorldMult: 1.35,
       /** Bosses swing slowly and hard. */
       attackIntervalMs: 2400,
+      /**
+       * THE EARLY CHALLENGE (PHASE 11). The body-part gate is a RECOMMENDATION,
+       * not a lock: once the waves are gone the boss can always be fought, and
+       * below the gate it is STRENGTHENED by how far below the player is —
+       *
+       *   deficit = Σ over required parts of max(0, need − have)
+       *   hp  ×= 1 + hpPerLevel  × min(deficit, maxLevels)
+       *   atk ×= 1 + atkPerLevel × min(deficit, maxLevels)
+       *
+       * so one level short on each of four parts is a long, tense, winnable
+       * fight and four levels short on each is a loss — training still decides,
+       * the lock does not. The reward and the ⚡ cost are unchanged: the handicap
+       * IS the price. `deficit` rides in the `boss_defeated` payload, so replay
+       * never recomputes it. `tests/pacing.test.ts` pins the two bands.
+       */
+      handicap: { hpPerLevel: 0.12, atkPerLevel: 0.05, maxLevels: 12 },
     },
     coins: {
       /**
