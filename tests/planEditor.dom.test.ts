@@ -339,20 +339,23 @@ describe('weekday assignment', () => {
   it('gives a weekday to at most ONE day, and says where it came from', () => {
     const { store } = mount();
     openEditor();
-    // Wednesday (3) belongs to day B in the built-in map; claim it for day A
+    // Tuesday (2) names day B in the built-in map; claim it for day A. The
+    // first tap LEAVES the routing map — the ranges collapse to ראשון / שלישי /
+    // חמישי first — so B still owns Tuesday, and hands it over with a hint.
     click('.pl-day[data-day="B"]');
-    expect(chip(3).classList.contains('on')).toBe(true);
+    expect(chip(2).classList.contains('on')).toBe(true);
     click('.pl-day[data-day="A"]');
-    click('[data-wd="3"]');
-    expect(document.getElementById('plWdHint')?.textContent).toContain('רביעי');
+    click('[data-wd="2"]');
+    expect(document.getElementById('plWdHint')?.textContent).toContain('שלישי');
     expect(document.getElementById('plWdHint')?.textContent).toContain(PROGRAM.B.label);
     // …and day B really lost it
     click('.pl-day[data-day="B"]');
-    expect(chip(3).classList.contains('on')).toBe(false);
+    expect(chip(2).classList.contains('on')).toBe(false);
     click('#plSave');
     const days = store.getState().plan?.days ?? [];
-    expect(days[0]?.weekdays).toEqual([0, 1, 3]);
-    expect(days[1]?.weekdays).toEqual([2]);
+    expect(days[0]?.weekdays).toEqual([0, 2]);
+    expect(days[1]?.weekdays).toBeUndefined();
+    expect(days[2]?.weekdays).toEqual([4]);
     // no weekday is claimed twice
     const all = days.flatMap((d) => d.weekdays ?? []);
     expect(new Set(all).size).toBe(all.length);
@@ -361,11 +364,57 @@ describe('weekday assignment', () => {
   it('drops the field entirely when a day is left with no weekdays', () => {
     const { store } = mount();
     openEditor();
-    click('[data-wd="0"]');
+    // A shows ראשון + שני (its routing range). The tap on שני leaves the map:
+    // the range collapses to ראשון and שני is off — one tap, one intent.
     click('[data-wd="1"]');
+    expect(chip(1).classList.contains('on')).toBe(false);
+    expect(chip(0).classList.contains('on')).toBe(true);
+    click('[data-wd="0"]');
     expect(document.getElementById('plWdCaption')?.textContent).toContain('לא שובצו');
     click('#plSave');
     expect(store.getState().plan?.days[0]?.weekdays).toBeUndefined();
+  });
+
+  it('a fourth day leaves the routing map: four tabs and a target of four, never seven', () => {
+    const { store } = mount();
+    openEditor();
+    click('#plDayAdd'); // the library opens for the new day
+    click('[data-add="x21"]'); // adding a row closes the sheet
+    click('[data-wd="3"]'); // the treadmill on Wednesday
+    expect(targetText()).toContain('יעד שבועי: 4');
+    // the built-in days now carry the weekday that names each of them
+    click('.pl-day[data-day="A"]');
+    expect([0, 1, 2, 3, 4, 5, 6].filter((wd) => chip(wd).classList.contains('on'))).toEqual([0]);
+    click('.pl-day[data-day="C"]');
+    expect([0, 1, 2, 3, 4, 5, 6].filter((wd) => chip(wd).classList.contains('on'))).toEqual([4]);
+    click('#plSave');
+    const saved = store.getState().plan;
+    expect(saved?.weeklyTarget).toBe(4);
+    expect(saved?.days.map((d) => d.weekdays)).toEqual([[0], [2], [4], [3]]);
+    // …and the workout hub shows one tab per day, in weekday order
+    click('#plClose'); // leave the editor
+    const views = [...document.querySelectorAll<HTMLElement>('#tabs .tab[data-view]')]
+      .map((t) => t.dataset['view'] ?? '')
+      .filter((v) => v === 'A' || v === 'B' || v === 'C' || v.startsWith('d_') || v.includes('@'));
+    expect(views).toEqual(['A', 'B', saved?.days[3]?.key, 'C']);
+  });
+
+  it('a cardio row keeps twelve stages (an hour of 5-minute stages), a lift still stops at ten', () => {
+    const { store } = mount();
+    openEditor();
+    click('#plDayAdd');
+    click('[data-add="x21"]');
+    expect(document.querySelector<HTMLInputElement>('[data-edit="sets"][data-id="x21"]')?.max).toBe('24');
+    type('[data-edit="sets"][data-id="x21"]', '12');
+    expect(document.querySelector<HTMLInputElement>('[data-edit="sets"][data-id="x21"]')?.value).toBe('12');
+    type('[data-edit="sets"][data-id="x21"]', '30');
+    expect(document.querySelector<HTMLInputElement>('[data-edit="sets"][data-id="x21"]')?.value).toBe('24');
+    type('[data-edit="sets"][data-id="x21"]', '12');
+    click('#plSave');
+    expect(store.getState().plan?.days[3]?.exercises[0]).toMatchObject({ id: 'x21', sets: 12 });
+    click('.pl-day[data-day="A"]');
+    type('[data-edit="sets"][data-id="a1"]', '12');
+    expect(document.querySelector<HTMLInputElement>('[data-edit="sets"][data-id="a1"]')?.value).toBe('10');
   });
 
   it('derives the weekly target from the chips, and shows it', () => {

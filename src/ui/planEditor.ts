@@ -48,16 +48,19 @@ import {
   PLAN_LIMITS,
   PLAN_UNITS,
   clonePlanDoc,
+  collapseRoutingRanges,
   defaultPlanDoc,
   deleteUserPreset,
   deriveWeeklyTarget,
   instantiateUserPreset,
+  isBuiltInWeekdayMap,
   isDefaultPlan,
   isSuperset,
   legalPairs,
   libraryExercises,
   makePlanDay,
   makeResolver,
+  maxSetsOf,
   newCustomId,
   newDayKey,
   planDay,
@@ -254,7 +257,7 @@ function rowHtml(
     <div class="pl-fields">
       <label class="pl-field${sh}">
         <span>${cardio ? 'שלבים' : 'סטים'}</span>
-        <input type="number" inputmode="numeric" min="${PLAN_LIMITS.minSets}" max="${PLAN_LIMITS.maxSets}"
+        <input type="number" inputmode="numeric" min="${PLAN_LIMITS.minSets}" max="${maxSetsOf(def)}"
           value="${row.sets}" data-edit="sets" data-id="${esc(row.id)}">
       </label>
       <label class="pl-field wide">
@@ -503,7 +506,7 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
       return;
     }
     const key = newDayKey();
-    doc.days.push(makePlanDay(key, NEW_DAY_LABEL, [], []));
+    leavingMap(doc, () => doc.days.push(makePlanDay(key, NEW_DAY_LABEL, [], [])));
     doc.weeklyTarget = deriveWeeklyTarget(doc.days);
     activeDay = key;
     weekdayHint = '';
@@ -551,7 +554,9 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
     if (!confirm(`להסיר את ${day.label} מהתוכנית? אימונים שכבר תועדו ביום הזה יישארו בהיסטוריה — רק היום עצמו יורד מהתוכנית.`)) {
       return;
     }
-    doc.days = doc.days.filter((d) => d.key !== day.key);
+    leavingMap(doc, () => {
+      doc.days = doc.days.filter((d) => d.key !== day.key);
+    });
     doc.weeklyTarget = deriveWeeklyTarget(doc.days);
     activeDay = doc.days[0]?.key ?? '';
     weekdayHint = '';
@@ -594,7 +599,8 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
         inp.value = row.reps;
       } else {
         const lo = field === 'sets' ? PLAN_LIMITS.minSets : PLAN_LIMITS.minRest;
-        const hi = field === 'sets' ? PLAN_LIMITS.maxSets : PLAN_LIMITS.maxRest;
+        // a cardio ladder may have more stages than a lift has sets
+        const hi = field === 'sets' ? maxSetsOf(makeResolver(doc)(id)) : PLAN_LIMITS.maxRest;
         const n = Number.parseInt(inp.value, 10);
         const fallback = field === 'sets' ? NEW_ROW_DEFAULTS.sets : NEW_ROW_DEFAULTS.rest;
         row[field] = Math.min(hi, Math.max(lo, Number.isFinite(n) ? n : fallback));
@@ -783,6 +789,18 @@ function markDirty(main: HTMLElement, deps: PlanEditorDeps): void {
   main.querySelector<HTMLButtonElement>('#plSave')?.classList.toggle('dirty', dirty);
 }
 
+/**
+ * Run a mutation that may take the draft OUT of the built-in routing map, and
+ * when it does, collapse the A/B/C ranges to the single weekdays that name
+ * them (`collapseRoutingRanges`) — so a fourth day never turns the built-in
+ * three into seven tabs. Once the draft is a real schedule, nothing is touched.
+ */
+function leavingMap(doc: PlanDoc, mutate: () => void): void {
+  const wasMap = isBuiltInWeekdayMap(doc.days);
+  mutate();
+  if (wasMap && !isBuiltInWeekdayMap(doc.days)) collapseRoutingRanges(doc.days);
+}
+
 /** Move the active day in the array — that array IS the tab order. */
 function moveDay(doc: PlanDoc, delta: number): void {
   const idx = doc.days.findIndex((d) => d.key === activeDay);
@@ -791,8 +809,10 @@ function moveDay(doc: PlanDoc, delta: number): void {
   const a = doc.days[idx];
   const b = doc.days[next];
   if (!a || !b) return;
-  doc.days[idx] = b;
-  doc.days[next] = a;
+  leavingMap(doc, () => {
+    doc.days[idx] = b;
+    doc.days[next] = a;
+  });
 }
 
 /**
@@ -805,8 +825,17 @@ function moveDay(doc: PlanDoc, delta: number): void {
  * derived weekly target smaller than the number of workouts it describes.
  */
 function toggleWeekday(doc: PlanDoc, day: PlanDay, wd: number): void {
-  const current = day.weekdays ?? [];
   weekdayHint = '';
+  // The first tap on the built-in map LEAVES it: the ranges collapse to the
+  // single weekdays that name them before the tap is applied. A tap that
+  // switched off a weekday the collapse just dropped (Monday on A) is thereby
+  // done; any other tap goes on to act on the collapsed schedule.
+  if (isBuiltInWeekdayMap(doc.days)) {
+    const wasOn = (day.weekdays ?? []).includes(wd);
+    collapseRoutingRanges(doc.days);
+    if (wasOn && !(day.weekdays ?? []).includes(wd)) return;
+  }
+  const current = day.weekdays ?? [];
   if (current.includes(wd)) {
     day.weekdays = current.filter((w) => w !== wd);
   } else {
