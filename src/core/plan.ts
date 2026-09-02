@@ -106,6 +106,8 @@ import type {
 export const PLAN_LIMITS = {
   minSets: 1,
   maxSets: 10,
+  /** A cardio exercise counts STAGES, and a 5-minute ladder needs more than ten: two hours' worth. */
+  maxStages: 24,
   minRest: 15,
   maxRest: 600,
   maxExercisesPerDay: 20,
@@ -118,6 +120,15 @@ export const PLAN_LIMITS = {
 
 /** Defaults a freshly added row starts with. */
 export const NEW_ROW_DEFAULTS = { sets: 3, reps: '10–12', rest: 90 } as const;
+
+/**
+ * The most sets a row of `def` may ask for: ten for a lift, `maxStages` for a
+ * cardio ladder (twelve 5-minute stages are an hour's walk — the editor must
+ * not snap that back to ten). An unknown definition gets the strict cap.
+ */
+export function maxSetsOf(def: Exercise | null | undefined): number {
+  return isCardio(def) ? PLAN_LIMITS.maxStages : PLAN_LIMITS.maxSets;
+}
 
 /** The units a custom exercise may log its second field in. */
 export const PLAN_UNITS: readonly string[] = ['חזרות', 'שניות', 'חזרות/רגל'] as const;
@@ -367,6 +378,68 @@ export function isBuiltInWeekdayMap(days: readonly WeekdayAssignment[]): boolean
 }
 
 /**
+ * The weekday that NAMES a built-in day — the first of its routing range, which
+ * is the one `DAY_NAMES` / `weekdayCaption` have always read: ראשון for A,
+ * שלישי for B, חמישי for C.
+ */
+function canonicalWeekday(key: BuiltInDayKey): number {
+  return BUILTIN_WEEKDAYS[key][0] ?? 0;
+}
+
+/** True when a built-in day still carries its WHOLE routing range, untouched. */
+function carriesRoutingRange(d: WeekdayAssignment): boolean {
+  if (!isBuiltInDayKey(d.key)) return false;
+  const mine = d.weekdays ?? [];
+  const builtIn = BUILTIN_WEEKDAYS[d.key];
+  return mine.length === builtIn.length && mine.every((w, i) => w === builtIn[i]);
+}
+
+/**
+ * LEAVING THE ROUTING MAP. The built-in ranges are only ever read as routing
+ * while ALL THREE are in place (`isBuiltInWeekdayMap`); the moment the plan
+ * differs — a fourth day is added, a day is removed or moved, a chip is
+ * toggled — every reader takes the weekdays literally, and a day that still
+ * carries `[4,5,6]` suddenly claims three training days it never had. The
+ * user's treadmill day showed exactly that: one Wednesday added, and the tab
+ * bar grew to seven tabs with a weekly target of seven.
+ *
+ * So a built-in day that still carries its whole range collapses to the ONE
+ * weekday that names it — A → ראשון, B → שלישי, C → חמישי — the day the built-in
+ * program has always been "trained on" in every caption. The editor calls this
+ * at the mutation that leaves the map (and only then: afterwards a range is
+ * whatever the user set), and `normalizePlanDoc` applies it to a document that
+ * was saved in the half-way state — see `repairRoutingRanges` — so an install
+ * that already holds one reads it right without re-saving.
+ *
+ * Unconditional per day; the callers decide WHEN. Returns whether anything changed.
+ */
+export function collapseRoutingRanges(days: PlanDay[]): boolean {
+  let changed = false;
+  for (const d of days) {
+    if (!carriesRoutingRange(d) || !isBuiltInDayKey(d.key)) continue;
+    // assigning through the existing property keeps the document's key order
+    d.weekdays = [canonicalWeekday(d.key)];
+    changed = true;
+  }
+  return changed;
+}
+
+/**
+ * READ-TIME REPAIR of a document saved half-way out of the routing map (a
+ * fourth day added by a build that did not collapse the ranges yet). The tell
+ * is TWO OR MORE built-in days still carrying their whole ranges in a plan
+ * that is not the map: nobody schedules A on Sun+Mon AND C on Thu+Fri+Sat by
+ * hand. One lone range is left alone — it may be a deliberate schedule. The
+ * weekly target is re-derived when the repair changes anything, because the
+ * saved one was derived from the seven-day misreading.
+ */
+function repairRoutingRanges(days: PlanDay[]): boolean {
+  if (isBuiltInWeekdayMap(days)) return false;
+  if (days.filter(carriesRoutingRange).length < 2) return false;
+  return collapseRoutingRanges(days);
+}
+
+/**
  * THE rule that turns a weekday assignment into a weekly training target — the
  * number the streak judges a "perfect week" by. One rule, one place: the editor
  * displays it and writes it into the draft, and nothing else derives its own.
@@ -491,7 +564,7 @@ function normalizeRow(raw: unknown, known: (id: string) => Exercise | null): Pla
   const reps = str(raw['reps']).trim().slice(0, PLAN_LIMITS.maxRepsLength) || def.reps;
   return {
     id,
-    sets: clampInt(raw['sets'], PLAN_LIMITS.minSets, PLAN_LIMITS.maxSets, def.sets),
+    sets: clampInt(raw['sets'], PLAN_LIMITS.minSets, maxSetsOf(def), def.sets),
     reps,
     rest: clampInt(raw['rest'], PLAN_LIMITS.minRest, PLAN_LIMITS.maxRest, def.rest),
   };
@@ -613,6 +686,9 @@ export function normalizePlanDoc(raw: unknown): PlanDoc | null {
     }
     if (days.length === 0) days = defaultPlanDoc().days;
   }
+  // A document saved half-way out of the routing map is read the way the
+  // editor would have written it — and its target re-derived to match.
+  const repaired = !isV1 && repairRoutingRanges(days);
 
   // Keep only the customs some day actually references, so a doc cannot grow
   // an unbounded graveyard of exercises the user deleted long ago.
@@ -624,7 +700,11 @@ export function normalizePlanDoc(raw: unknown): PlanDoc | null {
     rev: Math.max(0, clampInt(raw['rev'], 0, Number.MAX_SAFE_INTEGER, 0)),
     days,
     // v1 knew nothing about a target: it always meant three days a week.
-    weeklyTarget: isV1 ? DEFAULT_WEEKLY_TARGET : clampWeeklyTarget(raw['weeklyTarget']),
+    weeklyTarget: isV1
+      ? DEFAULT_WEEKLY_TARGET
+      : repaired
+        ? deriveWeeklyTarget(days)
+        : clampWeeklyTarget(raw['weeklyTarget']),
     customExercises: customs.filter((c) => referenced.has(c.id)),
   };
 }
@@ -962,8 +1042,9 @@ export function validatePlanDoc(doc: PlanDoc): string[] {
       }
       if (seen.has(row.id)) errors.push(`${label}: ${name} מופיע פעמיים`);
       seen.add(row.id);
-      if (!Number.isInteger(row.sets) || row.sets < PLAN_LIMITS.minSets || row.sets > PLAN_LIMITS.maxSets) {
-        errors.push(`${name}: מספר הסטים חייב להיות בין ${PLAN_LIMITS.minSets} ל־${PLAN_LIMITS.maxSets}`);
+      const maxSets = maxSetsOf(def);
+      if (!Number.isInteger(row.sets) || row.sets < PLAN_LIMITS.minSets || row.sets > maxSets) {
+        errors.push(`${name}: מספר ${isCardio(def) ? 'השלבים' : 'הסטים'} חייב להיות בין ${PLAN_LIMITS.minSets} ל־${maxSets}`);
       }
       if (!row.reps.trim()) errors.push(`${name}: יש למלא טווח חזרות`);
       if (!Number.isFinite(row.rest) || row.rest < PLAN_LIMITS.minRest || row.rest > PLAN_LIMITS.maxRest) {

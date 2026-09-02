@@ -49,6 +49,7 @@ import {
   applyPlanPresetEvent,
   assignedWeekdays,
   clonePlanDoc,
+  collapseRoutingRanges,
   customToExercise,
   defaultPlanDoc,
   defaultTabView,
@@ -63,6 +64,7 @@ import {
   libraryExercises,
   defaultDay,
   makeResolver,
+  maxSetsOf,
   newCustomId,
   newDayKey,
   normalizePlanDoc,
@@ -1298,6 +1300,123 @@ describe('defaultTabView', () => {
     const plan = abPlan();
     for (const d of plan.days) delete d.weekdays;
     for (let wd = 0; wd < 7; wd += 1) expect(defaultTabView(plan, weekday(wd))).toBe('d_alef');
+  });
+});
+
+/* -------------------------------------------------- leaving the routing map */
+
+describe('leaving the routing map — the A/B/C ranges collapse to the weekdays that name them', () => {
+  /** The built-in plan plus a treadmill day on Wednesday — exactly the user's plan. */
+  function withCardioDay(): PlanDoc {
+    const doc = defaultPlanDoc();
+    doc.days.push({
+      key: 'd_cardio',
+      label: 'אירובי',
+      weekdays: [3],
+      exercises: [{ id: 'x21', sets: 12, reps: '5 דק׳', rest: 300 }],
+    });
+    return doc;
+  }
+
+  it('collapseRoutingRanges: A → ראשון, B → שלישי, C → חמישי; nothing else is touched', () => {
+    const doc = withCardioDay();
+    expect(collapseRoutingRanges(doc.days)).toBe(true);
+    expect(doc.days.map((d) => d.weekdays)).toEqual([[0], [2], [4], [3]]);
+    // idempotent
+    expect(collapseRoutingRanges(doc.days)).toBe(false);
+    // a built-in day already on a schedule of its own is not a range any more
+    const own = defaultPlanDoc();
+    own.days[0]!.weekdays = [0, 5];
+    expect(collapseRoutingRanges(own.days)).toBe(true); // B and C collapsed…
+    expect(own.days[0]!.weekdays).toEqual([0, 5]); // …A kept what the user set
+    // a user-minted day is never a range, whatever weekdays it carries
+    const ab = abPlan();
+    expect(collapseRoutingRanges(ab.days)).toBe(false);
+  });
+
+  it('turns four days into four tabs and a target of four — not seven', () => {
+    const doc = withCardioDay();
+    // the misreading this fixes: the raw ranges taken literally — seven
+    // weekdays, and eight tabs, since B's range and the new day both claim רביעי
+    expect(deriveWeeklyTarget(doc.days)).toBe(7);
+    expect(scheduleTabs(resolveProgram(doc))).toHaveLength(8);
+    collapseRoutingRanges(doc.days);
+    doc.weeklyTarget = deriveWeeklyTarget(doc.days);
+    expect(doc.weeklyTarget).toBe(4);
+    const tabs = scheduleTabs(resolveProgram(doc));
+    expect(tabs.map((t) => [t.viewId, t.title])).toEqual([
+      ['A', 'ראשון'],
+      ['B', 'שלישי'],
+      ['d_cardio', 'רביעי'],
+      ['C', 'חמישי'],
+    ]);
+  });
+
+  it('normalizePlanDoc repairs a document saved half-way out of the map, target included', () => {
+    const doc = withCardioDay();
+    doc.weeklyTarget = 7; // what the old build derived and saved
+    const read = normalizePlanDoc(JSON.parse(JSON.stringify(doc)));
+    expect(read?.days.map((d) => d.weekdays)).toEqual([[0], [2], [4], [3]]);
+    expect(read?.weeklyTarget).toBe(4);
+    expect(read?.days[3]?.exercises[0]?.sets).toBe(12);
+    // …and a plan that IS the routing map is read back byte for byte
+    const plain = normalizePlanDoc(JSON.parse(JSON.stringify(defaultPlanDoc())));
+    expect(plain).toEqual(defaultPlanDoc());
+    expect(isBuiltInWeekdayMap(plain?.days ?? [])).toBe(true);
+  });
+
+  it('leaves ONE lone range alone — it may be a schedule the user meant', () => {
+    const doc = withCardioDay();
+    doc.days[1]!.weekdays = [2];
+    doc.days[2]!.weekdays = [5];
+    doc.weeklyTarget = 5;
+    const read = normalizePlanDoc(JSON.parse(JSON.stringify(doc)));
+    expect(read?.days[0]?.weekdays).toEqual([0, 1]);
+    expect(read?.weeklyTarget).toBe(5);
+  });
+});
+
+/* ------------------------------------------------------------ the stage cap */
+
+describe('maxSetsOf — a cardio ladder counts stages, and needs more than ten', () => {
+  it('caps a lift at 10 and a cardio exercise at 24', () => {
+    expect(maxSetsOf(findExercise('a1'))).toBe(10);
+    expect(maxSetsOf(findExercise('x21'))).toBe(24);
+    expect(maxSetsOf(null)).toBe(10);
+  });
+
+  it('normalizePlanDoc keeps 12 stages, clamps 30 to 24, and still clamps a lift to 10', () => {
+    const doc = defaultPlanDoc();
+    doc.days[0]!.exercises[0]!.sets = 12; // a1
+    doc.days.push({
+      key: 'd_c',
+      label: 'קרדיו',
+      exercises: [{ id: 'x21', sets: 12, reps: '5 דק׳', rest: 300 }],
+    });
+    doc.days.push({
+      key: 'd_d',
+      label: 'קרדיו ארוך',
+      exercises: [{ id: 'x21', sets: 30, reps: '5 דק׳', rest: 300 }],
+    });
+    const read = normalizePlanDoc(JSON.parse(JSON.stringify(doc)));
+    expect(read?.days[0]?.exercises[0]?.sets).toBe(10);
+    expect(read?.days[3]?.exercises[0]?.sets).toBe(12);
+    expect(read?.days[4]?.exercises[0]?.sets).toBe(24);
+  });
+
+  it('validatePlanDoc accepts 24 stages and refuses 25, naming stages rather than sets', () => {
+    const doc = defaultPlanDoc();
+    doc.days.push({ key: 'd_c', label: 'קרדיו', exercises: [{ id: 'x21', sets: 24, reps: '5 דק׳', rest: 300 }] });
+    expect(validatePlanDoc(doc)).toEqual([]);
+    doc.days[3]!.exercises[0]!.sets = 25;
+    const errors = validatePlanDoc(doc);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('השלבים');
+    expect(errors[0]).toContain('24');
+    // a lift still says sets, and still stops at ten
+    doc.days[3]!.exercises[0]!.sets = 6;
+    doc.days[0]!.exercises[0]!.sets = 11;
+    expect(validatePlanDoc(doc)[0]).toContain('הסטים');
   });
 });
 
