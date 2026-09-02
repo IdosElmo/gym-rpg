@@ -58,6 +58,45 @@ export interface Exercise {
   readonly bodyPart: BodyPart;
   /** Optional secondary split; when present it INCLUDES the primary part. */
   readonly split?: BodyPartSplit;
+  /**
+   * Present on a CARDIO exercise — one whose "sets" are timed STAGES. Absent
+   * (the overwhelming default) on every strength exercise. See `CardioSpec`.
+   */
+  readonly cardio?: CardioSpec;
+}
+
+/**
+ * A CARDIO exercise, in the same row shape as everything else.
+ *
+ * The treadmill walk is the reason this exists: "every 5 minutes raise the
+ * incline by one" is a ladder of equal stages, and a stage maps 1:1 onto what
+ * the app already calls a set — a row with two numbers and a ✓. So a cardio
+ * exercise changes NOTHING underneath: the same `set_completed` event, the same
+ * XP grant, the same idempotency key and the same merge. What changes is what
+ * the two numbers MEAN, and that is all this spec says:
+ *
+ *   - `sets`  → the number of stages;
+ *   - `w`     → the stage's LOAD (incline %, level, speed…) instead of kilograms;
+ *   - `r`     → the stage's LENGTH in minutes instead of repetitions;
+ *   - `rest`  → the stage length in SECONDS: the timer that starts on ✓ counts
+ *               the NEXT stage down — so the load goes up when it chimes — and
+ *               the minutes field prefills from it.
+ *
+ * `setVolume` is unchanged, so a stage's volume is `load × minutes`: a higher
+ * incline for the same five minutes IS the personal record, and the volume
+ * factor rewards the ladder's top rung exactly the way it rewards a top set.
+ * What a stage is NOT is tonnage — `core/stats.ts` keeps incline-minutes out
+ * of the kilograms, because "you lifted 30 kg" would be a lie.
+ */
+export interface CardioSpec {
+  /** Hebrew name of the load field — the column header, e.g. "שיפוע". */
+  readonly loadLabel: string;
+  /** Short unit of the load, printed right after the number: "%", "רמה", "קמ״ש". */
+  readonly loadUnit: string;
+  /** Load of the FIRST stage — what stage 1 prefills with when there is no history. */
+  readonly loadStart: number;
+  /** Load added per stage: stage `i` (0-based) suggests `loadStart + loadStep × i`. */
+  readonly loadStep: number;
 }
 
 /**
@@ -969,6 +1008,32 @@ export const EXTRA_EXERCISES: readonly Exercise[] = [
     bodyPart: 'back',
     split: { back: 0.8, arms: 0.2 },
   },
+  {
+    // THE CARDIO DAY. A treadmill walk climbed as a ladder: six stages of five
+    // minutes, the incline up by one point at every ✓. `sets` is the number of
+    // stages, `rest` the length of one (the stage timer), and the two logged
+    // numbers are incline % and minutes — see `CardioSpec`.
+    id: 'x21',
+    he: 'הליכה על הליכון בשיפוע',
+    en: 'Treadmill Incline Walk',
+    equip: ['Machine'],
+    muscle: 'קרדיו · ישבן ושוקיים',
+    sets: 6,
+    reps: '5 דק׳',
+    rest: 300,
+    unit: 'דקות',
+    steps: [
+      'התחילו בהליכה נוחה (5–6 קמ״ש) בשיפוע 1%, בלי לאחוז במעקה.',
+      'כל 5 דקות העלו את השיפוע בנקודה אחת — הקצב נשאר אותו קצב.',
+      'סמנו ✓ בסוף כל שלב: הטיימר של השלב הבא מתחיל לבד, ואיתו השיפוע החדש.',
+      'צעד מלא מהעקב לבוהן, גו זקוף ומבט קדימה — לא אל הצג.',
+    ],
+    cue: 'דחפו מהישבן בכל צעד; אם צריך את המעקה כדי להחזיק את הקצב — השיפוע גבוה מדי.',
+    mistake: 'טעות נפוצה: להיתלות על המעקה ולהישען לאחור — זה מבטל את השיפוע שבשבילו באתם.',
+    bodyPart: 'legs',
+    split: { legs: 0.8, core: 0.2 },
+    cardio: { loadLabel: 'שיפוע', loadUnit: '%', loadStart: 1, loadStep: 1 },
+  },
 ];
 
 export const DAY_ORDER: readonly BuiltInDayKey[] = ['A', 'B', 'C'] as const;
@@ -1167,6 +1232,30 @@ export function findExercise(exId: string): Exercise | null {
     if (found) return found;
   }
   return EXTRA_EXERCISES.find((e) => e.id === exId) ?? null;
+}
+
+/** True for a cardio exercise — one whose sets are timed stages (see `CardioSpec`). */
+export function isCardio(ex: Exercise | null | undefined): ex is Exercise & { readonly cardio: CardioSpec } {
+  return !!ex && ex.cardio !== undefined;
+}
+
+/**
+ * The load a cardio exercise SUGGESTS for stage `i` (0-based): the ladder the
+ * spec describes, `loadStart + loadStep × i`. It is the prefill of a stage with
+ * no history behind it — a suggestion, never data (see the workout screen).
+ */
+export function stageLoad(ex: Exercise, i: number): number {
+  const c = ex.cardio;
+  if (!c) return 0;
+  return Math.round((c.loadStart + c.loadStep * Math.max(0, i)) * 100) / 100;
+}
+
+/**
+ * Length of one stage of a cardio exercise in MINUTES — its `rest`, which is
+ * the stage timer in seconds, to one decimal (a 90-second stage is 1.5).
+ */
+export function stageMinutes(ex: Exercise): number {
+  return Math.max(0.1, Math.round(ex.rest / 6) / 10);
 }
 
 /**

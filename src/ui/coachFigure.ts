@@ -534,6 +534,34 @@ export function dipBarsProp(x1: number, x2: number, y: number, floorY = STAGE.fl
   );
 }
 
+/**
+ * A TREADMILL, its deck tilted to the incline. The belt runs from the back end
+ * `(x1, y1)` — low, on the left — up to the front end `(x2, y2)`, on a base
+ * that drops to the floor from both ends; the console mast rises off the front
+ * end and a handrail runs back from it at hip height. The walker faces right,
+ * the direction the deck climbs. The belt carries `cd-belt` so a test can read
+ * the slope the feet have to land on straight off the markup.
+ */
+export function treadmillProp(o: { x1: number; y1: number; x2: number; y2: number; floorY?: number }): string {
+  const floorY = o.floorY ?? STAGE.floorY;
+  const back: Vec = { x: o.x1, y: o.y1 };
+  const front: Vec = { x: o.x2, y: o.y2 };
+  const mastTop: Vec = { x: o.x2 + 5, y: o.y2 - 42 };
+  return (
+    // the base: a slab under the belt, closed to the floor
+    `<path class="cd-slab" d="${poly([back, front, { x: front.x, y: floorY }, { x: back.x, y: floorY }])}"/>` +
+    `<path class="cd-pad cd-belt" d="${line(back, front)}"/>` +
+    `<path class="cd-frame" d="${line(back, { x: back.x, y: floorY })} ${line(front, { x: front.x, y: floorY })}"/>` +
+    // the console mast, its display, and the handrail running back from it
+    `<path class="cd-frame" d="${line(front, mastTop)}"/>` +
+    padProp({ x: mastTop.x - 4, y: mastTop.y + 1 }, { x: mastTop.x + 6, y: mastTop.y - 1 }) +
+    // the rail is FRAME, not iron: orange is what the hands lift, and the whole
+    // coaching point of the walk is that they lift nothing
+    `<path class="cd-frame cd-handrail" d="${line({ x: o.x2 - 18, y: o.y2 - 27 }, { x: o.x2 + 4, y: o.y2 - 31 })}"/>` +
+    floorProp(o.x1 - 12, o.x2 + 14, floorY)
+  );
+}
+
 /** A machine frame: an upright with a foot, the skeleton every station shares. */
 export function frameProp(x: number, y1: number, y2: number): string {
   return `<path class="cd-frame" d="${line({ x, y: y1 }, { x, y: y2 })}"/>`;

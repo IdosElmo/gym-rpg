@@ -117,8 +117,11 @@ function dayCard(
       const exDef = resolve(exId);
       const sets = (s.ex[exId] ?? []).filter((x) => isSetFilled(x));
       if (!sets.length) return '';
+      // a cardio stage reads "3%×5 דק׳" — the load in its own unit, never kg
+      const load = exDef?.cardio ? esc(exDef.cardio.loadUnit) : 'kg';
+      const tail = exDef?.cardio ? ' דק׳' : '';
       const setsTxt = sets
-        .map((x) => `${x && x.w !== '' ? esc(x.w) : '–'}kg×${x && x.r !== '' ? esc(x.r) : '–'}${x && x.done ? '✓' : ''}`)
+        .map((x) => `${x && x.w !== '' ? esc(x.w) : '–'}${load}×${x && x.r !== '' ? esc(x.r) : '–'}${tail}${x && x.done ? '✓' : ''}`)
         .join('  |  ');
       return `<div class="hist-ex"><b>${esc(exDef ? exDef.he : exId)}</b><br><span class="hist-sets">${setsTxt}</span></div>`;
     })

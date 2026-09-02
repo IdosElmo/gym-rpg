@@ -50,6 +50,53 @@ function ev(type: string, payload: Record<string, unknown>, ts = ++seq): AppEven
   return { id: `e${String(ts).padStart(4, '0')}`, ts, type: type as AppEvent['type'], payload };
 }
 
+/* -------------------------------------------------------------- cardio */
+
+describe('cardio stages — incline-minutes are not kilograms', () => {
+  // x21 = the treadmill incline walk: `w` is the incline %, `r` the minutes
+  const sessions = sessionsOf({
+    '2025-03-02': { a1: [set('40', '10')], x21: [set('1', '5'), set('2', '5'), set('3', '5', false)] },
+  });
+
+  it('keeps a stage out of the tonnage, and its "weight" out of the heaviest set', () => {
+    const sets = completedSets(sessions, resolve);
+    const stages = sets.filter((s) => s.exId === 'x21');
+    expect(stages).toHaveLength(2);
+    for (const s of stages) {
+      expect(s.cardio).toEqual({ loadLabel: 'שיפוע', loadUnit: '%', loadStart: 1, loadStep: 1 });
+      expect(s.tonnage).toBe(0);
+      expect(s.timed).toBe(false);
+    }
+    // …while its VOLUME is load × minutes, which is what its PRs are measured in
+    expect(stages.map((s) => s.volume)).toEqual([5, 10]);
+    const b = basics(sets, '2025-03-02');
+    expect(b.tonnage).toBe(400);
+    expect(b.sets).toBe(3);
+    // a stage's minutes are neither repetitions nor plank seconds
+    expect(b.reps).toBe(10);
+    expect(b.seconds).toBe(0);
+    expect(b.cardioMinutes).toBe(10);
+    expect(oddballs(sets, 0, b.tonnage).heaviestSet?.exId).toBe('a1');
+    // a strength set has no spec at all
+    expect(sets.find((s) => s.exId === 'a1')?.cardio).toBeNull();
+  });
+
+  it('ranks the best stage by volume and tags the exercise as cardio for the screen', () => {
+    const bests = exerciseBests(completedSets(sessions, resolve));
+    const x21 = bests.find((e) => e.exId === 'x21');
+    expect(x21?.cardio?.loadUnit).toBe('%');
+    expect(x21?.best).toMatchObject({ weight: 2, reps: 5, volume: 10 });
+    expect(x21?.first).toMatchObject({ weight: 1, reps: 5, volume: 5 });
+    expect(x21?.totalTonnage).toBe(0);
+    expect(bests.find((e) => e.exId === 'a1')?.cardio).toBeNull();
+  });
+
+  it('reports no cardio minutes at all for a lifter', () => {
+    const sets = completedSets(sessionsOf({ '2025-03-02': { a1: [set('40', '10')] } }), resolve);
+    expect(basics(sets, '2025-03-02').cardioMinutes).toBe(0);
+  });
+});
+
 /* ------------------------------------------------------------- tonnage */
 
 describe('tonnage — Σ weight × reps over COMPLETED sets', () => {

@@ -24,9 +24,12 @@ import {
   dayOf,
   equipHe,
   findExercise,
+  isCardio,
   isDayKey,
   isPlanDayKey,
   programDayKeys,
+  stageLoad,
+  stageMinutes,
   weekdayCaption,
   weekdaysCaption,
   type BodyPart,
@@ -229,6 +232,41 @@ describe('program data', () => {
 });
 
 /* --------------------------------------------------- the exercise library */
+
+describe('the cardio exercise (x21 — the treadmill incline walk)', () => {
+  it('is the ONE cardio exercise, and the three built-in days have none', () => {
+    const cardio = builtInExercises().filter((e) => isCardio(e));
+    expect(cardio.map((e) => e.id)).toEqual(['x21']);
+    for (const d of DAY_ORDER) for (const ex of PROGRAM[d].exercises) expect(ex.cardio).toBeUndefined();
+    expect(isCardio(null)).toBe(false);
+    expect(isCardio(findExercise('a1'))).toBe(false);
+  });
+
+  it('is a ladder of six 5-minute stages, incline 1 up by 1, in the same row shape', () => {
+    const ex = findExercise('x21');
+    expect(ex).not.toBeNull();
+    if (!ex) return;
+    expect(ex.cardio).toEqual({ loadLabel: 'שיפוע', loadUnit: '%', loadStart: 1, loadStep: 1 });
+    expect(ex.sets).toBe(6);
+    expect(ex.rest).toBe(300); // the stage length, in seconds — the stage timer
+    expect(ex.unit).toBe('דקות');
+    expect(ex.equip).toEqual(['Machine']);
+    // the ladder: stage i suggests start + step × i
+    expect([0, 1, 2, 5].map((i) => stageLoad(ex, i))).toEqual([1, 2, 3, 6]);
+    expect(stageLoad(ex, -3)).toBe(1); // never below the first rung
+    expect(stageMinutes(ex)).toBe(5);
+    expect(stageMinutes({ ...ex, rest: 90 })).toBe(1.5);
+    expect(stageMinutes({ ...ex, rest: 0 })).toBe(0.1);
+    // a strength exercise has no ladder at all
+    const a1 = findExercise('a1');
+    expect(a1 && stageLoad(a1, 3)).toBe(0);
+  });
+
+  it('feeds the legs first and the core a little — a walk is not a plank', () => {
+    const ex = findExercise('x21');
+    expect(ex && bodyPartWeights(ex)).toEqual({ chest: 0, back: 0, legs: 0.8, shoulders: 0, arms: 0, core: 0.2 });
+  });
+});
 
 describe('the exercise library (EXTRA_EXERCISES)', () => {
   it('stays OUT of PROGRAM, so the legacy parity guarantee still holds', () => {
