@@ -255,6 +255,7 @@ describe('the roster converges through a real merge', () => {
         energySpent: 0,
         seed: 1,
         durationMs: 10,
+        overtime: false,
       });
       return store;
     });
@@ -320,7 +321,7 @@ describe('equipment upgrades converge through a real merge', () => {
       const store = new LocalStore(fakeStorage());
       onWaveCleared(
         store,
-        { world: 1, wave: 1, miniBoss: false, enemyId: 'w1_rat', coins, energySpent: 0, seed: 1, durationMs: 10 },
+        { world: 1, wave: 1, miniBoss: false, enemyId: 'w1_rat', coins, energySpent: 0, seed: 1, durationMs: 10, overtime: false },
         new Date(at),
       );
       buyItem(store, itemId, new Date(at));

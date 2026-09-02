@@ -203,10 +203,10 @@ describe('boss gates', () => {
       gateDeficit: 2,
     });
     advance(state, 2000, stats);
-    // the gate does not stop the arena: a reward-less sparring bout is on
+    // the gate does not stop the arena: a paid OVERTIME wave is on
     expect(state.status).toBe('fighting');
     expect(state.enemy?.worldBoss).toBe(false);
-    expect(state.enemy?.sparring).toBe(true);
+    expect(state.enemy?.overtime).toBe(true);
     expect(state.gateDeficit).toBe(2);
 
     // a level-up mid-session meets the gate without a reload, and the deficit

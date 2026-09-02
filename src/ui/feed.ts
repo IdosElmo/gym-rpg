@@ -134,7 +134,7 @@ export function buildFeed(
           date,
           icon: '👑',
           cls: 'boss',
-          text: `מיני־בוס בגל ${wave} (${esc(worldById(world).he)}) הופל! +${coins} 🪙`,
+          text: `מיני־בוס ב${p['overtime'] === true ? 'גל הארכה' : 'גל'} ${wave} (${esc(worldById(world).he)}) הופל! +${coins} 🪙`,
         });
         continue;
       }

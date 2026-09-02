@@ -20,6 +20,7 @@ import {
   createBattle,
   derivedProgress,
   isWorldBossWave,
+  overtimeEnergyFloor,
   simulate,
   tap,
   waveSpec,
@@ -116,8 +117,9 @@ describe('per-world wave counts', () => {
       expect(before.enemy?.worldBoss).toBe(false);
       expect(before.enemy?.sparring ?? false).toBe(false);
 
-      // the boss's own wave, gate closed: no boss — a reward-less sparring
-      // bout keeps the arena alive instead
+      // the boss's own wave, button not pressed: no boss — an OVERTIME wave
+      // (paid, past the world's end) keeps the arena alive while the purse can
+      // afford one with the boss fee in reserve…
       const at = createBattle({
         seed: 5150,
         world: w.id,
@@ -129,8 +131,19 @@ describe('per-world wave counts', () => {
       advance(at, 2000, stats);
       expect(at.status, `world ${w.id} boss wave`).toBe('fighting');
       expect(at.enemy?.worldBoss, `world ${w.id} boss wave`).toBe(false);
-      expect(at.enemy?.sparring, `world ${w.id} boss wave`).toBe(true);
+      expect(at.enemy?.overtime, `world ${w.id} boss wave`).toBe(true);
       expect(at.energy).toBe(1000);
+      // …and a reward-less sparring bout below that floor
+      const broke = createBattle({
+        seed: 5150,
+        world: w.id,
+        wave: bossWaveOf(w.id),
+        energy: overtimeEnergyFloor() - 1,
+        stats,
+        gateOpen: false,
+      });
+      advance(broke, 2000, stats);
+      expect(broke.enemy?.sparring, `world ${w.id} boss wave, broke`).toBe(true);
     }
   });
 

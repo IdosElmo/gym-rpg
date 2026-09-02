@@ -223,9 +223,11 @@ describe('battle tab', () => {
     // fights keep happening — an ordinary enemy is on screen, not the boss…
     expect(document.querySelector('#btEnemySprite svg')).not.toBeNull();
     expect(document.getElementById('btArena')?.classList.contains('boss-fight')).toBe(false);
-    // …the status says these bouts pay nothing and names the missing training…
-    expect(document.getElementById('btStatus')?.textContent).toContain('קרב אימון');
+    // …the status says these are OVERTIME waves (paid, the boss fee reserved)
+    // and names the missing training…
+    expect(document.getElementById('btStatus')?.textContent).toContain('גל הארכה');
     expect(document.getElementById('btStatus')?.textContent).toContain('חסר');
+    expect(document.getElementById('btWave')?.textContent).toContain('הארכה');
     // …and the boss button STANDS here — visible so the player understands what
     // the sparring is for, and PRESSABLE: below the recommended levels it is the
     // EARLY challenge, amber, naming the handicap the boss will carry.
@@ -269,7 +271,7 @@ describe('battle tab', () => {
     expect(btn.textContent).toContain('קרב בוס');
     expect(btn.textContent).not.toContain('🔒');
     expect(document.getElementById('btArena')?.classList.contains('boss-fight')).toBe(false);
-    expect(document.getElementById('btStatus')?.textContent).toContain('קרב אימון');
+    expect(document.getElementById('btStatus')?.textContent).toContain('גל הארכה');
 
     btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(document.getElementById('btFoeName')?.textContent).toContain(WORLD_BOSSES[0]?.he ?? '');

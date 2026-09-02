@@ -27,6 +27,9 @@ import {
   waveSeed,
   waveSpec,
   worldGate,
+  overtimeSpec,
+  overtimeEnergyFloor,
+  requestBossFight,
   type BattleState,
   type CombatEvent,
   type CombatStats,
@@ -133,24 +136,91 @@ describe('wave scaling', () => {
     expect(waveSpec(1, 10).coins).toBeGreaterThan(waveSpec(1, 11).coins);
   });
 
-  it('spars for nothing at the boss wave while the gate is locked', () => {
+  it('runs OVERTIME waves at the boss wave while the boss is not being fought', () => {
     expect(isWorldBossWave(1, wavesInWorld(1))).toBe(false);
     expect(isWorldBossWave(1, wavesInWorld(1) + 1)).toBe(true);
 
-    // Gate closed: the arena keeps FIGHTING — sparring bouts, not a dead stop.
+    // Button not pressed: the arena keeps FIGHTING — paid overtime waves past
+    // the world's end, not a dead stop and not for nothing.
     const stats = statsAt(20);
     const state = battle({ wave: wavesInWorld(1) + 1, stats });
     const events = run(state, stats, 120_000);
-    expect(events.some((e) => e.kind === 'spawn')).toBe(true);
-    expect(events.some((e) => e.kind === 'sparring_cleared')).toBe(true);
-    // …but a sparring bout pays NOTHING: no boss, no wave event, no coins, no
-    // energy, and the wave marker never moves off the boss wave.
+    const clears = events.filter((e): e is Extract<typeof e, { kind: 'wave_cleared' }> => e.kind === 'wave_cleared');
+    expect(clears.length).toBeGreaterThan(0);
     expect(events.some((e) => e.kind === 'boss_spawn')).toBe(false);
-    expect(events.some((e) => e.kind === 'wave_cleared')).toBe(false);
+    expect(events.some((e) => e.kind === 'sparring_cleared')).toBe(false);
+    // every clear is an overtime clear, numbered past the world's end, paid
+    // and charged like a wave — and the marker never moves off the boss wave
+    clears.forEach((ev, i) => {
+      expect(ev.result.overtime).toBe(true);
+      expect(ev.result.wave).toBe(wavesInWorld(1) + 1 + i);
+      expect(ev.result.coins).toBe(overtimeSpec(1, i + 1).coins);
+      expect(ev.result.energySpent).toBe(BALANCE.combat.energyPerWave);
+    });
     expect(state.wave).toBe(wavesInWorld(1) + 1);
-    expect(state.energy).toBe(1000);
+    expect(state.overtime).toBe(clears.length);
+    expect(state.wavesCleared).toBe(clears.length);
+    expect(state.energy).toBe(1000 - clears.length * BALANCE.combat.energyPerWave);
+    expect(state.coinsEarned).toBe(clears.reduce((s, ev) => s + ev.result.coins, 0));
+  });
+
+  it('keeps the boss fee in reserve: below the floor it spars for nothing instead', () => {
+    const stats = statsAt(20);
+    const floor = overtimeEnergyFloor();
+    expect(floor).toBe(BALANCE.combat.energyPerWave + BALANCE.combat.boss.energyCost);
+    const state = battle({ wave: wavesInWorld(1) + 1, stats, energy: floor - 1 });
+    const events = run(state, stats, 120_000);
+    expect(events.some((e) => e.kind === 'sparring_cleared')).toBe(true);
+    expect(events.some((e) => e.kind === 'wave_cleared')).toBe(false);
+    expect(state.energy).toBe(floor - 1);
     expect(state.coinsEarned).toBe(0);
-    expect(state.wavesCleared).toBe(0);
+    // …and a purse exactly on the floor spends one wave and then spars: the
+    // boss fee is never touched by overtime
+    const edge = battle({ wave: wavesInWorld(1) + 1, stats, energy: floor });
+    const more = run(edge, stats, 120_000);
+    expect(more.filter((e) => e.kind === 'wave_cleared')).toHaveLength(1);
+    expect(more.some((e) => e.kind === 'sparring_cleared')).toBe(true);
+    expect(edge.energy).toBe(BALANCE.combat.boss.energyCost);
+  });
+
+  it('numbers, prices and caps overtime waves as the world simply continuing', () => {
+    const last = wavesInWorld(1);
+    const lastOrdinary = waveSpec(1, last - 1);
+    for (let k = 1; k <= 30; k += 1) {
+      const spec = overtimeSpec(1, k);
+      expect(spec.overtime).toBe(true);
+      expect(spec.wave).toBe(last + k);
+      expect(spec.energyCost).toBe(BALANCE.combat.energyPerWave);
+      // the mini-boss cadence carries on past the end
+      expect(spec.miniBoss).toBe((last + k) % BALANCE.combat.miniBossEvery === 0);
+      expect(spec.coins).toBe(
+        Math.round(
+          lastOrdinary.coins *
+            BALANCE.combat.overtime.coinFactor *
+            (spec.miniBoss ? BALANCE.combat.coins.miniBossMult : 1),
+        ),
+      );
+    }
+    // the ramp continues, then holds: the cap is where a long wait stops
+    // getting harder (compare ordinary enemies of the same roster slot)
+    const cap = BALANCE.combat.overtime.maxExtraSteps;
+    const pure = (spec: ReturnType<typeof overtimeSpec>): number =>
+      spec.hp / ((spec.enemy.hpMult ?? 1) * (spec.miniBoss ? BALANCE.combat.enemy.miniBossHpMult : 1));
+    const at = (k: number): number => pure(overtimeSpec(1, k));
+    expect(at(2)).toBeGreaterThan(at(1));
+    // (hp is rounded to whole points, so "equal" is within a point)
+    expect(Math.abs(at(cap + 5) - at(cap + 2))).toBeLessThanOrEqual(1);
+    expect(at(cap)).toBeLessThanOrEqual(pure(waveSpec(1, last - 1)) * 1.6);
+  });
+
+  it('steps an overtime wave aside the moment the boss is requested', () => {
+    const stats = statsAt(20);
+    const state = battle({ wave: wavesInWorld(1) + 1, stats, gateOpen: true });
+    advance(state, 2000, stats);
+    expect(state.enemy?.overtime).toBe(true);
+    expect(requestBossFight(state)).toEqual({ ok: true });
+    advance(state, 2000, stats);
+    expect(state.enemy?.worldBoss).toBe(true);
   });
 
   it('spars too when the gate is OPEN but the boss button was not pressed', () => {

@@ -97,7 +97,7 @@ describe('wave_cleared events', () => {
     // the payload carries everything a replay needs
     const p = waveEvents[0]?.payload ?? {};
     expect(Object.keys(p).sort()).toEqual(
-      ['coins', 'date', 'durationMs', 'enemyId', 'energySpent', 'miniBoss', 'seed', 'wave', 'world'].sort(),
+      ['coins', 'date', 'durationMs', 'enemyId', 'energySpent', 'miniBoss', 'overtime', 'seed', 'wave', 'world'].sort(),
     );
   });
 
@@ -112,6 +112,7 @@ describe('wave_cleared events', () => {
       wavesCleared: 0,
       miniBossesCleared: 0,
       bossesDefeated: [],
+      overtime: {},
     });
 
     const results = playBattle(store, 120_000);

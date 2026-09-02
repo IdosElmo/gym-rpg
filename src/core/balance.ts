@@ -281,6 +281,29 @@ export const BALANCE = {
        */
       handicap: { hpPerLevel: 0.12, atkPerLevel: 0.05, maxLevels: 12 },
     },
+    /**
+     * OVERTIME WAVES (גלי הארכה, PHASE 11) — what the arena runs while the
+     * world boss is STANDING and not being fought: the waves are gone, the
+     * player has not pressed the boss button (or the gate is unmet and they
+     * would rather train first). Before this the arena SPARRED for nothing;
+     * now it keeps paying, so the wait between the last wave and the boss —
+     * however short the retune made it — still buys gear.
+     *
+     *   - an overtime wave costs the ordinary ⚡ and pays `coinFactor` of the
+     *     world's LAST ordinary wave (a mini-boss every tenth, at the usual
+     *     multiplier), and NEVER moves the world/wave marker;
+     *   - its difficulty continues the world's ramp for at most `maxExtraSteps`
+     *     classic steps past the end (≈ +50% HP), then holds — a long wait is a
+     *     grind, never a wall;
+     *   - the boss fee is RESERVED: overtime only spawns while the purse holds
+     *     `energyPerWave + boss.energyCost`, so hesitating at the boss can never
+     *     spend the ⚡ the boss itself needs. Below that, the free sparring
+     *     partner is back, so an exhausted player still has something on screen.
+     *
+     * Income is bounded by ⚡ (training), like every wave, and `coinFactor`
+     * keeps a waiting player's take under half of what advancing pays.
+     */
+    overtime: { coinFactor: 0.5, maxExtraSteps: 9 },
     coins: {
       /**
        * coins = (base + perWave × waveStep) × worldFactor × bossMult, where

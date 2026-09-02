@@ -188,11 +188,11 @@ describe('the core loop, end to end', () => {
       gateDeficit: gate1.deficit,
     });
     advance(blocked, 2000, combatStats(store));
-    // The unmet gate does not empty the arena: a reward-less sparring bout is
-    // on and the boss is not — until the player asks for it.
+    // The unmet gate does not empty the arena: a paid OVERTIME wave is on and
+    // the boss is not — until the player asks for it.
     expect(blocked.status).toBe('fighting');
     expect(blocked.enemy?.worldBoss).toBe(false);
-    expect(blocked.enemy?.sparring).toBe(true);
+    expect(blocked.enemy?.overtime).toBe(true);
     // and the UI is told exactly which parts are missing, in Hebrew-ready shape
     const missing = gate1.requirements.filter((r) => !r.met);
     expect(missing.length).toBeGreaterThan(0);

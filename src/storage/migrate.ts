@@ -289,7 +289,20 @@ function normalizeBattle(raw: unknown): BattleProgress {
     wavesCleared: Math.max(0, Math.floor(numOr(raw['wavesCleared'], 0))),
     miniBossesCleared: Math.max(0, Math.floor(numOr(raw['miniBossesCleared'], 0))),
     bossesDefeated,
+    overtime: normalizeOvertime(raw['overtime']),
   };
+}
+
+/** `battle.overtime` — a world-id → count record; anything odd is dropped. */
+function normalizeOvertime(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!isRecord(raw)) return out;
+  for (const [key, value] of Object.entries(raw)) {
+    const world = Math.floor(Number(key));
+    const n = Math.floor(numOr(value, 0));
+    if (Number.isFinite(world) && world >= 1 && n > 0) out[String(world)] = n;
+  }
+  return out;
 }
 
 /**

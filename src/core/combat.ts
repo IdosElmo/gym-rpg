@@ -408,6 +408,8 @@ export interface WaveSpec {
   attackIntervalMs: number;
   coins: number;
   energyCost: number;
+  /** An OVERTIME wave — past the world's end, while its boss stands (PHASE 11). */
+  overtime: boolean;
 }
 
 /** Everything about a wave, derived from its number alone (no RNG). */
@@ -447,7 +449,65 @@ export function waveSpec(world: number, wave: number): WaveSpec {
     attackIntervalMs: miniBoss ? e.miniBossAttackIntervalMs : e.attackIntervalMs,
     coins,
     energyCost: c.energyPerWave,
+    overtime: false,
   };
+}
+
+/**
+ * The `k`-th OVERTIME wave of a world (1-based) — see `BALANCE.combat.overtime`.
+ *
+ * It is numbered `waves + k` (so the mini-boss cadence and the roster lap carry
+ * on as if the world simply continued) and stands on the world's ramp `k` waves
+ * past its end, capped at `maxExtraSteps` classic steps above the last wave so a
+ * long wait grows into a grind and never into a wall. It pays `coinFactor` of
+ * the last ORDINARY wave's purse (× the mini-boss multiplier on a tenth), and
+ * costs the ordinary ⚡.
+ */
+export function overtimeSpec(world: number, k: number): WaveSpec {
+  const c = BALANCE.combat;
+  const e = c.enemy;
+  const last = wavesInWorld(world);
+  const index = Math.max(1, Math.floor(k));
+  const wave = last + index;
+  const miniBoss = isMiniBossWave(wave);
+  const enemy = enemyForWave(world, wave, miniBoss);
+  const stretch = waveStretch(world);
+  const endStep = (last - 1) * stretch;
+  const waveStep = endStep + Math.min(index * stretch, c.overtime.maxExtraSteps);
+
+  const hp =
+    e.hpBase *
+    Math.pow(e.hpGrowth, waveStep) *
+    worldHpFactor(world) *
+    (miniBoss ? e.miniBossHpMult : 1) *
+    (enemy.hpMult ?? 1);
+  const atk =
+    e.atkBase *
+    Math.pow(e.atkGrowth, waveStep) *
+    worldAtkFactor(world) *
+    (miniBoss ? e.miniBossAtkMult : 1) *
+    (enemy.atkMult ?? 1);
+  // the last ORDINARY wave's purse (the world's final wave is itself a mini-boss)
+  const lastOrdinary = waveSpec(world, Math.max(1, last - 1));
+  const coins = Math.round(lastOrdinary.coins * c.overtime.coinFactor * (miniBoss ? c.coins.miniBossMult : 1));
+
+  return {
+    world,
+    wave,
+    miniBoss,
+    enemy,
+    hp: Math.max(1, Math.round(hp)),
+    atk: Math.max(1, Math.round(atk * 10) / 10),
+    attackIntervalMs: miniBoss ? e.miniBossAttackIntervalMs : e.attackIntervalMs,
+    coins,
+    energyCost: c.energyPerWave,
+    overtime: true,
+  };
+}
+
+/** ⚡ the purse must hold before an overtime wave spawns: one wave plus the boss fee, kept in reserve. */
+export function overtimeEnergyFloor(): number {
+  return BALANCE.combat.energyPerWave + BALANCE.combat.boss.energyCost;
 }
 
 /** The gate at the end of a world (Phase 3 fights it; Phase 2 reports it). */
@@ -646,6 +706,11 @@ export interface EnemyState {
    * coins, spends no energy, advances no wave and writes NOTHING to the log.
    */
   sparring?: boolean;
+  /**
+   * An OVERTIME wave (`overtimeSpec`): a real, paid, ⚡-costing wave past the
+   * world's end that never moves the marker. Written to the log like any wave.
+   */
+  overtime?: boolean;
 }
 
 /**
@@ -856,6 +921,12 @@ export interface BattleState {
   bossRequested: boolean;
   /** Ids of bosses already defeated — drives the endless endgame. */
   defeatedBosses: readonly string[];
+  /**
+   * OVERTIME waves already cleared in the current world (from
+   * `game.battle.overtime`) — the next one is numbered from here. Reset when
+   * the boss falls; persisted by the reducer, not by this state.
+   */
+  overtime: number;
   energy: number;
   playerHp: number;
   maxHp: number;
@@ -904,6 +975,8 @@ export interface WaveResult {
   /** The exact seed the cleared attempt ran with. */
   seed: number;
   durationMs: number;
+  /** True for an OVERTIME wave — the marker must not move (see `applyGameEvent`). */
+  overtime: boolean;
 }
 
 /** The persistent record of a world boss going down (the `boss_defeated` payload). */
@@ -969,6 +1042,8 @@ export interface CreateBattleArgs {
   bossRequested?: boolean;
   /** Bosses already defeated (from `game.battle.bossesDefeated`). */
   defeatedBosses?: readonly string[];
+  /** Overtime waves already cleared in this world (from `game.battle.overtime`). */
+  overtime?: number;
 }
 
 export function createBattle(a: CreateBattleArgs): BattleState {
@@ -984,6 +1059,7 @@ export function createBattle(a: CreateBattleArgs): BattleState {
     gateDeficit: a.gateOpen === true ? 0 : Math.max(0, Math.floor(a.gateDeficit ?? 0)),
     bossRequested: a.bossRequested === true,
     defeatedBosses: [...(a.defeatedBosses ?? [])],
+    overtime: Math.max(0, Math.floor(a.overtime ?? 0)),
     energy: Math.max(0, a.energy),
     playerHp: a.stats.maxHp,
     maxHp: a.stats.maxHp,
@@ -1293,6 +1369,25 @@ function spawnSparring(state: BattleState, out: CombatEvent[]): void {
   out.push({ kind: 'spawn', enemy: state.enemy as EnemyState, spec: free });
 }
 
+/** The next overtime wave of the world the player is waiting in. */
+function spawnOvertime(state: BattleState, out: CombatEvent[]): void {
+  const spec = overtimeSpec(state.world, state.overtime + 1);
+  beginFight(state, {
+    id: spec.enemy.id,
+    he: spec.enemy.he,
+    hp: spec.hp,
+    maxHp: spec.hp,
+    atk: spec.atk,
+    attackIntervalMs: spec.attackIntervalMs,
+    miniBoss: spec.miniBoss,
+    worldBoss: false,
+    svg: spec.enemy.svg,
+    overtime: true,
+    ...flavourOf(spec.enemy, spec.hp),
+  });
+  out.push({ kind: 'spawn', enemy: state.enemy as EnemyState, spec });
+}
+
 function spawn(state: BattleState, out: CombatEvent[]): void {
   const run = state.challenge;
   if (run) {
@@ -1326,11 +1421,13 @@ function spawn(state: BattleState, out: CombatEvent[]): void {
       // The energy drained between the press and the spawn — stand down.
       state.bossRequested = false;
     }
-    // No boss fight (the button not pressed): the arena keeps SPARRING instead
-    // of standing still. The partner is the world's own
-    // last ordinary wave, and it pays nothing — no coins, no energy, no wave —
-    // so real training remains the only way forward.
-    spawnSparring(state, out);
+    // No boss fight (the button not pressed): the arena runs OVERTIME waves —
+    // paid, ⚡-costing, marker-neutral — while the purse can afford one AND the
+    // boss fee stays in reserve; below that it SPARS for free (the world's own
+    // last ordinary wave, paying nothing) so an exhausted player still has
+    // something on screen. Real training remains the only way forward.
+    if (state.energy >= overtimeEnergyFloor()) spawnOvertime(state, out);
+    else spawnSparring(state, out);
     return;
   }
 
@@ -1420,6 +1517,7 @@ function killBoss(state: BattleState, out: CombatEvent[]): void {
   state.defeatedBosses = [...state.defeatedBosses, spec.boss.id];
   state.world = result.nextWorld;
   state.wave = result.nextWave;
+  state.overtime = 0;
   // A new world's gate is a different gate — the UI re-reads it next frame.
   state.gateOpen = false;
   state.gateDeficit = 0;
@@ -1458,16 +1556,18 @@ function clearWave(state: BattleState, out: CombatEvent[]): void {
     return;
   }
   const c = BALANCE.combat;
-  const spec = waveSpec(state.world, state.wave);
+  const overtime = state.enemy?.overtime === true;
+  const spec = overtime ? overtimeSpec(state.world, state.overtime + 1) : waveSpec(state.world, state.wave);
   const result: WaveResult = {
     world: state.world,
-    wave: state.wave,
+    wave: spec.wave,
     miniBoss: spec.miniBoss,
     enemyId: spec.enemy.id,
     coins: spec.coins,
     energySpent: Math.min(state.energy, spec.energyCost),
-    seed: waveSeed(state.seed, state.world, state.wave, state.attempt),
+    seed: waveSeed(state.seed, state.world, spec.wave, state.attempt),
     durationMs: Math.round(state.waveElapsedMs),
+    overtime,
   };
 
   state.energy = Math.max(0, Math.round((state.energy - result.energySpent) * 100) / 100);
@@ -1476,7 +1576,9 @@ function clearWave(state: BattleState, out: CombatEvent[]): void {
   state.streakDefeats = 0;
   state.enemy = null;
   state.attempt = 0;
-  state.wave += 1;
+  // An overtime clear counts itself; an ordinary one moves the marker.
+  if (overtime) state.overtime += 1;
+  else state.wave += 1;
   state.playerHp = Math.min(state.maxHp, state.playerHp + state.maxHp * c.healOnWaveClear);
   state.status = 'idle';
   state.spawnCd = c.spawnDelayMs;

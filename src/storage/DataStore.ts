@@ -122,7 +122,12 @@ export interface UiState {
  * log under the new rule on the first boot after the update, which is exactly
  * what the migration path is for and costs one rebuild.
  */
-export const GAME_STATE_VERSION = 12;
+/*
+ * v12 -> v13 (PHASE 11): `battle.overtime` — overtime waves cleared per world
+ * (see `BALANCE.combat.overtime`). A v12 blob is rejected and rebuilt from the
+ * log, where `wave_cleared{overtime:true}` events fold into the new counter.
+ */
+export const GAME_STATE_VERSION = 13;
 
 /** XP pool of one body part. `level` is DERIVED from `xp` (see core/xp.ts). */
 export interface PartProgress {
@@ -171,6 +176,13 @@ export interface BattleProgress {
    * additionally switches world 4 into its endless "champion" mode.
    */
   bossesDefeated: string[];
+  /**
+   * OVERTIME waves cleared per world (key = world id as a string), while that
+   * world's boss stood unfought. They pay coins and cost ⚡ but never move
+   * `world`/`wave` — the boss is still the way forward. Folded from
+   * `wave_cleared{overtime:true}`; a world the player never waited in is absent.
+   */
+  overtime: Record<string, number>;
 }
 
 /**
@@ -735,6 +747,11 @@ export interface WaveClearedPayload extends Record<string, unknown> {
   /** Seed the cleared attempt ran with — makes the fight replayable. */
   seed: number;
   durationMs: number;
+  /**
+   * True for an OVERTIME wave (PHASE 11): coins and ⚡ fold as usual, the
+   * world/wave marker does not move. Absent on older events, which read as false.
+   */
+  overtime?: boolean;
 }
 
 /* ------------------------------------------- Phase 3 boss / shop payloads */

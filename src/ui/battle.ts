@@ -829,6 +829,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     gateOpen: !gateFor(game0).locked,
     gateDeficit: gateFor(game0).deficit,
     defeatedBosses: game0.battle.bossesDefeated,
+    overtime: game0.battle.overtime[String(game0.battle.world)] ?? 0,
   });
 
   const softMotion = reducedMotion();
@@ -984,8 +985,12 @@ function start(main: HTMLElement, deps: BattleDeps): void {
       const run = state.challenge;
       // In a gauntlet the counter is "3/10" — a position in the run, not in the
       // world. A duel is a single fight, so it says so instead of "1/1".
+      // An overtime wave is labelled as such — "הארכה 3", never a wave the
+      // world does not have.
       waveEl.textContent = !run
-        ? String(state.wave)
+        ? state.enemy?.overtime
+          ? `הארכה ${state.overtime + 1}`
+          : String(state.wave)
         : run.kind === 'ghost'
           ? '⚔️'
           : `${Math.min(run.index + 1, run.waves.length)}/${run.waves.length}`;
@@ -1098,9 +1103,13 @@ function start(main: HTMLElement, deps: BattleDeps): void {
       statusEl.className = 'bt-status daily';
       return;
     }
-    // At the boss wave without a boss on screen the campaign is SPARRING:
-    // reward-less fights while the boss blocks the way (or waits to be called).
+    // At the boss wave without a boss on screen the campaign is in OVERTIME
+    // (paid waves past the end, the boss fee kept in reserve) or, when the
+    // purse cannot afford one, SPARRING: reward-less fights while the boss
+    // waits to be called.
+    const overtime = state.enemy?.overtime === true;
     const sparring =
+      !overtime &&
       state.enemy?.worldBoss !== true &&
       bossStanding(state.world, state.wave, state.defeatedBosses);
     switch (state.status) {
@@ -1116,6 +1125,17 @@ function start(main: HTMLElement, deps: BattleDeps): void {
         if (state.enemy?.worldBoss) {
           text = `🏛 קרב בוס! ${state.enemy.he} — הקישו בלי הפסקה ושחררו כל מהלך על.`;
           cls = 'boss';
+        } else if (overtime) {
+          const k = state.overtime + 1;
+          const gate = worldGate(state.world, partLevels(gameOf(store)));
+          const missing = gate.requirements
+            .filter((r) => !r.met)
+            .map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`)
+            .join(' · ');
+          text = state.gateOpen
+            ? `⏱ גל הארכה ${k} — הבוס מחכה לכפתור. משלם חצי מטבעות, עולה ${BALANCE.combat.energyPerWave} ⚡; דמי הבוס (${BALANCE.combat.boss.energyCost} ⚡) שמורים.`
+            : `⏱ גל הארכה ${k} — מטבעות לציוד בזמן שמתאמנים לרמות המומלצות (חסר: ${missing || 'אימון'}), או לקרב מוקדם. עולה ${BALANCE.combat.energyPerWave} ⚡; דמי הבוס שמורים.`;
+          cls = 'gate';
         } else if (sparring && !state.gateOpen) {
           const gate = worldGate(state.world, partLevels(gameOf(store)));
           const missing = gate.requirements
@@ -1280,6 +1300,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
       stats,
       gateOpen: !gateFor(g).locked,
       gateDeficit: gateFor(g).deficit,
+      overtime: g.battle.overtime[String(g.battle.world)] ?? 0,
       defeatedBosses: g.battle.bossesDefeated,
     });
     setChallengeSkin(null);
