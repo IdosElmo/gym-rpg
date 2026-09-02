@@ -9,7 +9,25 @@
  *   one full workout ≈ 225 ⚡ (≈17 sets × 10 + 50 completion) and a wave costs
  *   10 ⚡ → ≈22 waves per workout, inside the brief's 15–25 target.
  *   The FIRST world is 50 waves → ≈2.4 workouts of ENERGY; every later world is
- *   longer (see `WORLDS[].waves`), up to 110 waves ≈ 5.0 workouts for the last.
+ *   longer (see `WORLDS[].waves`), up to 180 waves ≈ 8.1 workouts for the last.
+ *
+ * PHASE 11 — THE TWO POLES MEET. A world ends twice: when its waves run out of
+ *   ⚡ and when its boss gate opens. Measured against a real trainee they were
+ *   9–46 workouts apart from world 3 on (`docs/progression-pacing-plan.md`), so
+ *   the player sat at a boss they could already beat. Three content numbers per
+ *   world moved, no engine curve:
+ *     - `WorldDef.waves`  — every world past the first is longer, so its energy
+ *       pole lands where the levels do (50 · 80 · 110 · 130 · 140 · 150 · 160 ·
+ *       170 · 180);
+ *     - `WorldDef.span`   — how many classic waves of the curve the ramp covers;
+ *       a bigger span is a steeper end, so the LAST waves are the wall that sends
+ *       the player to train, at the gate band minus two on worlds 1–5;
+ *     - `BossDef.requires` — lowered to the levels a trainee has by the pole;
+ *       the five late `hpMult` came down to keep the boss a 25–90 s climax on
+ *       the steeper ramp.
+ *   Coins deliberately do NOT follow the span (`coinStretch`), and the late coin
+ *   step eased 1.2 → 1.12 so 1,170 waves still buy the shop under six times.
+ *   `tests/pacing.test.ts` pins all of it on both shipped plans.
  *
  * PHASE 3 retune — `enemy.worldHpMult` / `worldAtkMult`.
  *   Phase 2 shipped 4× / 2.2× per world. Simulated against the real engine that
@@ -257,16 +275,19 @@ export const BALANCE = {
        * keep 1.6×, later worlds step by `lateWorldMult`), because a purse that
        * kept compounding at 1.6× would pay ~2,300 🪙 for a single world-9 wave —
        * a quarter of the whole shop, per wave. As tapered, the nine worlds pay
-       * ≈195,500 🪙 (2,385 / 4,469 / 8,202 / 14,806 / 18,597 / 24,333 / 30,507 /
-       * 39,668 / 52,489) against ≈47,250 🪙 of sinks — three tiers × SIX slots,
+       * ≈252,500 🪙 (2,385 / 5,706 / 12,128 / 22,659 / 27,588 / 33,480 / 40,528 /
+       * 48,974 / 59,125) against ≈47,250 🪙 of sinks — three tiers × SIX slots,
        * every one of them taken to +3, an item's lifetime cost being 3× its
-       * price. That is a little over four wardrobes' worth of income across the
+       * price. That is a little over five wardrobes' worth of income across the
        * campaign, which is the ratio the shop is tuned for: the late worlds are
        * meant to be fought in fully upgraded tier-3 gear, and no slot is ever
        * out of reach of the world that is supposed to pay for it.
+       * PHASE 11 made the worlds 1.6× longer; the late step eased from 1.2 to
+       * 1.12 so the take stayed under six wardrobes, and `waveStep` here is the
+       * CLASSIC 49-step ramp (`coinStretch`), never the world's `span`.
        * `tests/shop.test.ts` pins both halves of that arithmetic.
        */
-      base: 5, perWave: 1, worldMult: 1.6, lateWorldMult: 1.2, miniBossMult: 4,
+      base: 5, perWave: 1, worldMult: 1.6, lateWorldMult: 1.12, miniBossMult: 4,
     },
     tap: {
       /** Tap damage as a fraction of ATK. */

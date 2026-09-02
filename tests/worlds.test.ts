@@ -21,9 +21,7 @@ import {
   derivedProgress,
   isWorldBossWave,
   simulate,
-  superReady,
   tap,
-  useSuper,
   waveSpec,
   worldGate,
   type CombatStats,
@@ -67,39 +65,6 @@ function statsAt(level: number, gear: readonly [0 | 1 | 2 | 3, 0 | 1 | 2 | 3] = 
   };
 }
 
-/**
- * Drive a battle the way an ENGAGED player does — auto attacks plus taps plus
- * the super move on cooldown. The campaign is tuned for this; a pure-idle run is
- * the conservative floor the daily-challenge tests use instead.
- */
-function playActively(
-  state: ReturnType<typeof createBattle>,
-  stats: CombatStats,
-  waves: number,
-  maxMs = 400_000,
-): { waves: number; ms: number; defeats: number } {
-  const tick = BALANCE.combat.tickMs;
-  let cleared = 0;
-  let sinceTap = 0;
-  let ms = 0;
-  while (ms < maxMs && cleared < waves) {
-    for (const ev of advance(state, tick, stats)) if (ev.kind === 'wave_cleared') cleared += 1;
-    ms += tick;
-    sinceTap += tick;
-    if (state.status === 'fighting') {
-      if (superReady(state)) {
-        for (const ev of useSuper(state, stats).events) if (ev.kind === 'wave_cleared') cleared += 1;
-      }
-      if (sinceTap >= BALANCE.combat.tap.minIntervalMs * 1.5) {
-        sinceTap = 0;
-        for (const ev of tap(state, stats).events) if (ev.kind === 'wave_cleared') cleared += 1;
-      }
-    }
-    if (state.status === 'resting') break;
-  }
-  return { waves: cleared, ms, defeats: state.defeats };
-}
-
 /** Every enemy that ever stands in a world, boss included. */
 function rosterOf(world: number): ReturnType<typeof regularEnemies> {
   const boss = worldBossOf(world);
@@ -111,7 +76,7 @@ function rosterOf(world: number): ReturnType<typeof regularEnemies> {
 describe('per-world wave counts', () => {
   it('grows world by world, with a DECELERATING step', () => {
     const counts = WORLDS.map((w) => w.waves);
-    expect(counts).toEqual([50, 60, 70, 80, 85, 90, 95, 100, 110]);
+    expect(counts).toEqual([50, 80, 110, 130, 140, 150, 160, 170, 180]);
     expect(counts[0]).toBe(BALANCE.combat.wavesFirstWorld);
     for (let i = 1; i < counts.length; i += 1) {
       expect(counts[i] as number, `world ${i + 1}`).toBeGreaterThan(counts[i - 1] as number);
@@ -579,27 +544,29 @@ describe('world 1 replays byte-for-byte, curve and RNG stream alike', () => {
 describe('the nine-world journey, in real workouts', () => {
   const ENERGY_PER_WORKOUT = 225;
 
-  it('costs ≈34 workouts of ENERGY in total, rising world by world', () => {
+  it('costs ≈53 workouts of ENERGY in total, rising world by world', () => {
     const perWorld = WORLDS.map(
       (w) => w.waves * BALANCE.combat.energyPerWave + BALANCE.combat.boss.energyCost,
     );
     const workouts = perWorld.map((e) => e / ENERGY_PER_WORKOUT);
 
-    // world 1 ≈ 2.4 workouts, the finale ≈ 5.0 — the documented spread
+    // world 1 ≈ 2.4 workouts, the finale ≈ 8.1 — the documented spread
     expect(workouts[0]).toBeCloseTo(2.4, 1);
-    expect(workouts[WORLD_COUNT - 1]).toBeCloseTo(5.0, 1);
+    expect(workouts[WORLD_COUNT - 1]).toBeCloseTo(8.1, 1);
     for (let i = 1; i < workouts.length; i += 1) {
       expect(workouts[i] as number).toBeGreaterThan(workouts[i - 1] as number);
     }
     const total = perWorld.reduce((a, b) => a + b, 0) / ENERGY_PER_WORKOUT;
-    expect(total).toBeGreaterThan(30);
-    expect(total).toBeLessThan(38);
+    expect(total).toBeGreaterThan(48);
+    expect(total).toBeLessThan(58);
   });
 
-  it('asks for a gate the previous world’s waves already trained you past', () => {
+  it('asks for a gate the world’s own waves already trained you past', () => {
     // Every gate is met by a character whose parts sit at the band the README
-    // publishes for that world (3/5/7/8/9/9/10/10/10) — no grinding step.
-    const band: readonly number[] = [3, 5, 7, 8, 9, 9, 10, 10, 10];
+    // publishes for that world (3/4/5/6/7/8/9/9/10) — the level its steepest
+    // requirement asks for — and one level below it, something is still open.
+    // Where each gate sits against a REAL trainee is `tests/pacing.test.ts`.
+    const band: readonly number[] = [3, 4, 5, 6, 7, 8, 9, 9, 10];
     for (const w of WORLDS) {
       const level = band[w.id - 1] as number;
       const levels = {} as Record<BodyPart, number>;
@@ -611,41 +578,9 @@ describe('the nine-world journey, in real workouts', () => {
     }
   });
 
-  it('clears each world’s LAST waves at a sane pace in that era’s gear', () => {
-    // The pin the whole retune exists for: a longer world must not be a harder
-    // one. Six waves at the very end of every world, at that world's gate band
-    // and gear, with active play — no stalls and no wall.
-    // World 1 is the exception, and deliberately so: its gate opens at level 3
-    // but its last waves are the game's first "go and train" wall, which is what
-    // sends a new player back to the gym. Every other world is measured at its
-    // own gate band.
-    // (The gear here is a SIX-slot kit — `statsAt` concatenates `<slot>_<tier>`
-    // over `EQUIPMENT_SLOTS` — so the two wardrobe slots added in Phase 10 are
-    // already in every number below. They took ≈1–2 s off the worst world's
-    // pace, which is well inside the band; the late BOSSES needed a nudge, the
-    // waves did not. See the Phase 10 note in `core/balance.ts`.)
-    const era: ReadonlyArray<[number, readonly [0 | 1 | 2 | 3, 0 | 1 | 2 | 3]]> = [
-      [6, [0, 0]],
-      [6, [1, 0]],
-      [7, [1, 1]],
-      [8, [2, 0]],
-      [9, [2, 2]],
-      [9, [3, 0]],
-      [10, [3, 1]],
-      [10, [3, 2]],
-      [10, [3, 3]],
-    ];
-    for (const w of WORLDS) {
-      const [level, gear] = era[w.id - 1] as [number, readonly [0 | 1 | 2 | 3, 0 | 1 | 2 | 3]];
-      const stats = statsAt(level, gear);
-      const from = Math.max(1, w.waves - 5);
-      const state = createBattle({ seed: 424_242, world: w.id, wave: from, energy: 100_000, stats });
-      const run = playActively(state, stats, 6);
-      expect(run.waves, `world ${w.id} stalls before its last wave`).toBe(6);
-      expect(run.ms / 6, `world ${w.id} is a slog`).toBeLessThan(30_000);
-      expect(run.defeats, `world ${w.id} is a wall`).toBeLessThanOrEqual(1);
-    }
-  });
+  // How the last waves of every world play at the levels a real trainee has
+  // when they stand at the boss — and two levels short of them — is measured
+  // in `tests/pacing.test.ts`, on both shipped plans.
 
   it('keeps the world purse growing without turning into a faucet', () => {
     // A world's whole take, against the ≈47,250 🪙 the SIX-slot wardrobe costs
@@ -664,7 +599,7 @@ describe('the nine-world journey, in real workouts', () => {
     // …and nine worlds together must not pay a hundred wardrobes: the campaign
     // buys the fully upgraded shop between three and six times over.
     const income = purses.reduce((a, b) => a + b, 0);
-    expect(income).toBeLessThan(250_000);
+    expect(income).toBeLessThan(47_250 * 6);
     expect(income).toBeGreaterThan(47_250 * 3.5);
   });
 });

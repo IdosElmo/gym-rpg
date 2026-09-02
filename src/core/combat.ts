@@ -77,6 +77,8 @@ import {
   enemyForWave,
   skillById,
   wavesInWorld,
+  curveSpanOf,
+  DEFAULT_CURVE_SPAN,
   worldBossOf,
   bossGateStatus,
   type BossDef,
@@ -176,18 +178,34 @@ export function isWorldBossWave(world: number, wave: number): boolean {
 }
 
 /**
- * THE WAVE STRETCH — how a world of `n` waves reuses the 50-wave curve.
+ * THE WAVE STRETCH — how a world of `n` waves draws its ramp on the base curve.
  *
  * `waveSpec` and `bossSpec` do not raise the growth factor to `wave − 1`; they
- * raise it to `(wave − 1) × (wavesFirstWorld − 1) / (waves(world) − 1)`. World 1
- * (50 waves) multiplies by exactly 1 and is therefore untouched; a 110-wave
- * world advances 0.45 of a "classic wave" per wave, so it ENDS on precisely the
- * difficulty the old 50-wave curve produced at its wave 50 and merely takes
- * longer to get there. See the PHASE 9 note in `core/balance.ts`.
+ * raise it to `(wave − 1) × span(world) / (waves(world) − 1)`, where `span` is
+ * how many classic waves of the 50-wave curve the world covers (`WorldDef.span`,
+ * 49 when unset). World 1 (50 waves, span 49) multiplies by exactly 1 and is
+ * therefore untouched; a 180-wave world with span 66 advances 0.37 of a classic
+ * wave per wave and ENDS 1.045^66 above its first — steeper than world 1's 49,
+ * drawn over more waves. See the PHASE 9 and PHASE 11 notes in `core/balance.ts`.
  */
 export function waveStretch(world: number): number {
-  const span = wavesInWorld(world) - 1;
-  return span > 0 ? (BALANCE.combat.wavesFirstWorld - 1) / span : 1;
+  const steps = wavesInWorld(world) - 1;
+  return steps > 0 ? curveSpanOf(world) / steps : 1;
+}
+
+/**
+ * THE COIN STRETCH — the purse does NOT follow a world's `span`.
+ *
+ * Coins ride the classic 49-step ramp however steep the world's difficulty is
+ * drawn (`DEFAULT_CURVE_SPAN / (waves − 1)`), so a world's last wave always
+ * pays what wave 50 used to pay and a steeper world is harder, never richer.
+ * Difficulty and income are tuned separately on purpose: the shop is sized
+ * against the whole campaign's take (`tests/shop.test.ts`), and a difficulty
+ * retune must never quietly inflate it.
+ */
+export function coinStretch(world: number): number {
+  const steps = wavesInWorld(world) - 1;
+  return steps > 0 ? DEFAULT_CURVE_SPAN / steps : 1;
 }
 
 /**
@@ -378,7 +396,7 @@ export function waveSpec(world: number, wave: number): WaveSpec {
     (enemy.atkMult ?? 1);
 
   const coins = Math.round(
-    (c.coins.base + c.coins.perWave * waveStep) *
+    (c.coins.base + c.coins.perWave * Math.max(0, wave - 1) * coinStretch(world)) *
       worldCoinFactor(world) *
       (miniBoss ? c.coins.miniBossMult : 1),
   );
