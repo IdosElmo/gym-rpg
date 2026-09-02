@@ -58,6 +58,7 @@ import {
   defaultDayOf,
   findExercise,
   isBuiltInDayKey,
+  isCardio,
   isPlanDayKey,
   weekdayCaption,
   type BodyPart,
@@ -650,10 +651,13 @@ export function customToExercise(c: CustomExercise): Exercise {
   return c.split ? { ...base, split: { ...c.split } } : base;
 }
 
-/** Estimated duration of a day: every set costs its rest plus ~a minute of work. */
+/**
+ * Estimated duration of a day: every set costs its rest plus ~a minute of work.
+ * A cardio stage IS its "rest" (the stage timer), with no work on top.
+ */
 function estimateDuration(exercises: readonly Exercise[]): string {
   let seconds = 0;
-  for (const ex of exercises) seconds += ex.sets * (ex.rest + 60);
+  for (const ex of exercises) seconds += isCardio(ex) ? ex.sets * ex.rest : ex.sets * (ex.rest + 60);
   const minutes = Math.max(5, Math.round(seconds / 60 / 5) * 5);
   return `~${minutes} דק׳`;
 }

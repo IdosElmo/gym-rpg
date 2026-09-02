@@ -45,7 +45,9 @@
 import {
   BODY_PARTS,
   bodyPartWeights,
+  isCardio,
   type BodyPart,
+  type CardioSpec,
   type Exercise,
   type ExerciseResolver,
 } from '../data/program.ts';
@@ -102,12 +104,18 @@ export interface SetStat {
   he: string;
   /** The resolved definition, or `null` for an id nothing knows any more. */
   ex: Exercise | null;
-  /** Parsed weight in kg (0 for a bodyweight or timed set). */
+  /** Parsed weight in kg (0 for a bodyweight or timed set) — or the LOAD of a cardio stage. */
   weight: number;
-  /** Parsed second field: repetitions, or SECONDS on a timed exercise. */
+  /** Parsed second field: repetitions, SECONDS on a timed exercise, MINUTES on a cardio stage. */
   reps: number;
   timed: boolean;
-  /** `weight × reps` — kilograms actually moved. 0 whenever weight is 0. */
+  /** The cardio spec of the exercise, or `null` for every strength exercise. */
+  cardio: CardioSpec | null;
+  /**
+   * `weight × reps` — kilograms actually moved. 0 whenever weight is 0, and 0
+   * for a cardio stage: incline-minutes are not kilograms, and the "you lifted
+   * an elephant" headline must never count a treadmill walk.
+   */
   tonnage: number;
   /**
    * The app's own volume unit (`core/xp.ts#setVolume`): tonnage for a weighted
@@ -138,6 +146,7 @@ export function completedSets(
       const arr = session.ex[exId] ?? [];
       const ex = resolve(exId);
       const timed = isTimed(ex);
+      const cardio = isCardio(ex) ? ex.cardio : null;
       for (const raw of arr) {
         const set: SetEntry | null = raw ?? null;
         if (!set || set.done !== true) continue;
@@ -151,7 +160,8 @@ export function completedSets(
           weight,
           reps,
           timed,
-          tonnage: weight > 0 && reps > 0 ? Math.round(weight * reps * 100) / 100 : 0,
+          cardio,
+          tonnage: weight > 0 && reps > 0 && !cardio ? Math.round(weight * reps * 100) / 100 : 0,
           volume: setVolume(set.w, set.r),
           rest: ex ? ex.rest : DEFAULT_REST_SEC,
         });
@@ -173,6 +183,8 @@ export interface Basics {
   reps: number;
   /** Seconds held on timed (plank-style) exercises. */
   seconds: number;
+  /** Minutes walked/run on cardio stages (the treadmill). */
+  cardioMinutes: number;
   firstDate: string | null;
   lastDate: string | null;
   /** Workout count per weekday, `Date#getDay()` order (0 = Sunday). */
@@ -189,10 +201,12 @@ export function basics(sets: readonly SetStat[], today: string): Basics {
   let tonnage = 0;
   let reps = 0;
   let seconds = 0;
+  let cardioMinutes = 0;
 
   for (const s of sets) {
     tonnage += s.tonnage;
-    if (s.timed) seconds += s.reps;
+    if (s.cardio) cardioMinutes += s.reps;
+    else if (s.timed) seconds += s.reps;
     else reps += s.reps;
     days.add(s.date);
   }
@@ -223,6 +237,7 @@ export function basics(sets: readonly SetStat[], today: string): Basics {
     sets: sets.length,
     reps,
     seconds,
+    cardioMinutes: Math.round(cardioMinutes * 10) / 10,
     firstDate: first,
     lastDate: last,
     byWeekday,
@@ -529,6 +544,8 @@ export interface ExerciseBest {
   exId: string;
   he: string;
   timed: boolean;
+  /** The cardio spec when the exercise is one — its best is a load × minutes, not kilograms. */
+  cardio: CardioSpec | null;
   sets: number;
   /** Distinct dates the exercise was trained on — "loyalty". */
   sessions: number;
@@ -557,6 +574,7 @@ export function exerciseBests(sets: readonly SetStat[], limit = 8): ExerciseBest
         exId: s.exId,
         he: s.he,
         timed: s.timed,
+        cardio: s.cardio,
         sets: 1,
         sessions: 1,
         totalVolume: s.volume,
@@ -778,8 +796,9 @@ export function oddballs(sets: readonly SetStat[], totalXp: number, tonnage: num
     restSeconds += s.rest;
     dates.add(s.date);
     // "Heaviest" is about the BAR, so it is ordered by kilograms first and only
-    // then by reps — 100kg×1 beats 40kg×12, which is what a lifter means.
-    if (s.weight > 0 && (!heaviest || s.weight > heaviest.weight || (s.weight === heaviest.weight && s.reps > heaviest.reps))) {
+    // then by reps — 100kg×1 beats 40kg×12, which is what a lifter means. A
+    // cardio stage's "weight" is an incline, so it never competes at all.
+    if (s.weight > 0 && !s.cardio && (!heaviest || s.weight > heaviest.weight || (s.weight === heaviest.weight && s.reps > heaviest.reps))) {
       heaviest = s;
     }
     const e = byEx.get(s.exId) ?? { he: s.he, days: new Set<string>() };

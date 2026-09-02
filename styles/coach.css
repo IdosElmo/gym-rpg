@@ -62,6 +62,7 @@
 .cd-pad{fill:none; stroke:var(--cd-pad); stroke-width:5; stroke-linecap:round}
 .cd-frame{fill:none; stroke:var(--cd-frame); stroke-width:2.2; stroke-linecap:round}
 .cd-rail{stroke-width:2.8}
+.cd-handrail{stroke-width:3.2}
 .cd-wheel{fill:var(--bg)}
 .cd-floor{fill:none; stroke:var(--cd-frame); stroke-width:2.2; stroke-linecap:round}
 .cd-mat{fill:var(--cd-pad); opacity:.75}

@@ -43,7 +43,7 @@
  *    accessible name everywhere.
  */
 
-import { BODY_PART_HE, WEEKDAY_HE, WEEKDAY_SHORT_HE } from '../data/program.ts';
+import { BODY_PART_HE, WEEKDAY_HE, WEEKDAY_SHORT_HE, type CardioSpec } from '../data/program.ts';
 import { makeResolver } from '../core/plan.ts';
 import { fmtDate, todayISO } from '../core/workout.ts';
 import { computeStats, type HeatWeek, type Stats, type WeekPoint } from '../core/stats.ts';
@@ -96,7 +96,9 @@ function fmtPct(p: number): string {
 }
 
 /** "42.5 × 10" — always LTR, like every other number pair in the app. */
-function fmtSet(weight: number, reps: number, timed: boolean): string {
+function fmtSet(weight: number, reps: number, timed: boolean, cardio: CardioSpec | null = null): string {
+  // a cardio stage: its load in its own unit, and minutes — never kilograms
+  if (cardio) return `${fmtNum(weight)}${cardio.loadUnit} × ${fmtNum(reps)} דק׳`;
   if (timed) return `${fmtNum(reps)} שנ׳${weight > 0 ? ` · ${fmtNum(weight)} ${KG}` : ''}`;
   if (weight <= 0) return `${fmtNum(reps)} חזרות`;
   return `${fmtNum(weight)} ${KG} × ${fmtNum(reps)}`;
@@ -145,6 +147,8 @@ function basicsCard(stats: Stats): string {
     ['סטים', fmtInt(b.sets)],
     ['חזרות', fmtInt(b.reps)],
     ['שניות פלאנק', fmtInt(b.seconds)],
+    // a tile that is always 0 for a lifter is noise — it appears with the first cardio stage
+    ...(b.cardioMinutes > 0 ? [['דקות קרדיו', fmtNum(b.cardioMinutes)] as [string, string]] : []),
     ['שיאים אישיים', fmtInt(g.prs)],
     ['אימונים לשבוע', fmtNum(b.perWeek)],
     ['דרגת רצף', fmtInt(g.streakTier)],
@@ -345,8 +349,8 @@ function bestsCard(stats: Stats): string {
       (e) => `
       <tr>
         <td class="ex">${esc(e.he)}<span class="ex-sub">${fmtInt(e.sets)} סטים · ${fmtInt(e.sessions)} אימונים</span></td>
-        <td class="num">${esc(fmtSet(e.best.weight, e.best.reps, e.timed))}</td>
-        <td class="num">${esc(fmtSet(e.first.weight, e.first.reps, e.timed))}</td>
+        <td class="num">${esc(fmtSet(e.best.weight, e.best.reps, e.timed, e.cardio))}</td>
+        <td class="num">${esc(fmtSet(e.first.weight, e.first.reps, e.timed, e.cardio))}</td>
         <td class="grow ${e.growthPct !== null && e.growthPct > 0 ? 'up' : ''}">${
           e.growthPct === null ? '—' : `צמיחה: ${fmtPct(e.growthPct)}`
         }</td>

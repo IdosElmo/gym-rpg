@@ -23,12 +23,26 @@
  * grant path once per exercise. No new event type, no reducer change, no state
  * version — so every idempotency guard, the merge convergence, PR detection and
  * the history screen keep working with no knowledge of supersets at all.
+ *
+ * CARDIO — the same table, read differently
+ * -----------------------------------------
+ * A cardio exercise (`Exercise.cardio`, the treadmill incline walk) is a ladder
+ * of timed STAGES, and a stage is a set: the same row, the same ✓, the same
+ * `set_completed` event with the same two numbers — only now they are the load
+ * (incline %) and the minutes. This screen renames the columns, prefills an
+ * untouched stage from the LADDER when there is no history to prefer, and turns
+ * the rest timer into a stage timer: ✓ on stage N starts the countdown of stage
+ * N+1 with its new incline in the label, and a ▶ button starts the first one.
+ * Nothing below the DOM knows the difference.
  */
 
 import {
   BODY_PART_HE,
   dayOf,
   equipHe,
+  isCardio,
+  stageLoad,
+  stageMinutes,
   type DayKey,
   type Exercise,
   type ResolvedProgram,
@@ -43,7 +57,7 @@ import {
 import { planDay, resolveProgram, supersetPairs, type SupersetPair } from '../core/plan.ts';
 import { closeDueWeeks, onSetCompleted, onWorkoutFinished, type GrantResult } from '../core/game.ts';
 import type { AppState, DataStore } from '../storage/DataStore.ts';
-import type { RestTimer } from './timer.ts';
+import { fmtClock, type RestTimer } from './timer.ts';
 import { queuePartPulse } from './character.ts';
 import { esc } from './dom.ts';
 import { mountExerciseDemo, type DemoHandle } from './exerciseDemo.ts';
@@ -117,6 +131,9 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
     const prev = prevPerf(state, ex.id, today);
     const rows: string[] = [];
     let done = 0;
+    const cardio = ex.cardio ?? null;
+    // the load column: kilograms for a lift, the stage's own unit for cardio
+    const loadUnit = cardio ? cardio.loadUnit : 'ק"ג';
     for (let i = 0; i < ex.sets; i++) {
       const d = getSetData(state, view, ex.id, i, false, today) ?? { w: '', r: '', done: false };
       if (d.done) done++;
@@ -127,9 +144,9 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
         const pr = ps.r;
         prevTxt =
           'אימון קודם: ' +
-          (pw !== '' ? esc(pw) + ' ק"ג' : '') +
+          (pw !== '' ? esc(pw) + (cardio ? esc(loadUnit) : ' ' + loadUnit) : '') +
           (pw !== '' && pr !== '' ? ' × ' : '') +
-          (pr !== '' ? esc(pr) : '');
+          (pr !== '' ? esc(pr) + (cardio ? ' דק׳' : '') : '');
       }
       // PREFILL FROM LAST TIME. A set the user has not touched today (nothing
       // typed, not checked) starts out showing the same set's numbers from the
@@ -138,19 +155,25 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
       // data: the store is untouched until the user types (which replaces it)
       // or checks the set (which adopts what the row visibly says — see the
       // ✓ handler). A set with no history stays empty, exactly as before.
+      // A cardio stage with no history behind it prefills from the LADDER the
+      // exercise describes (incline 1, 2, 3… for 5 minutes each) — the same
+      // dimmed suggestion, adopted by ✓ or replaced by typing, so the very
+      // first treadmill session is logged with ✓ taps alone too. History,
+      // when there is any, still wins: last time's numbers are the user's.
       const untouched = !d.done && d.w === '' && d.r === '';
-      const fillW = untouched && ps ? ps.w : d.w;
-      const fillR = untouched && ps ? ps.r : d.r;
+      const hint = ps ?? (cardio ? { w: fmtNum(stageLoad(ex, i)), r: fmtNum(stageMinutes(ex)) } : null);
+      const fillW = untouched && hint ? hint.w : d.w;
+      const fillR = untouched && hint ? hint.r : d.r;
       rows.push(`
     <div class="log-row ${d.done ? 'checked' : ''}">
       <div class="set-num">${i + 1}</div>
       <div class="inp-wrap">
-        <input class="inp ${fillW !== d.w ? 'prefill' : ''}" type="number" inputmode="decimal" step="0.5" min="0" placeholder='ק"ג'
+        <input class="inp ${fillW !== d.w ? 'prefill' : ''}" type="number" inputmode="decimal" step="0.5" min="0" placeholder='${cardio ? esc(loadUnit) : 'ק"ג'}'
           value="${esc(fillW)}" data-ex="${esc(ex.id)}" data-set="${i}" data-f="w">
         <span class="prev">${prevTxt}</span>
       </div>
       <div class="inp-wrap">
-        <input class="inp ${fillR !== d.r ? 'prefill' : ''}" type="number" inputmode="numeric" min="0" placeholder="${esc(ex.unit)}"
+        <input class="inp ${fillR !== d.r ? 'prefill' : ''}" type="number" inputmode="${cardio ? 'decimal' : 'numeric'}" ${cardio ? 'step="0.5"' : ''} min="0" placeholder="${esc(ex.unit)}"
           value="${esc(fillR)}" data-ex="${esc(ex.id)}" data-set="${i}" data-f="r">
         <span class="prev"></span>
       </div>
@@ -181,21 +204,26 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
       <div class="badges">
         ${partner ? `<span class="badge superset">🔗 סופר־סט עם ${esc(partner.he)}</span>` : ''}
         <span class="badge muscle">🎯 ${esc(ex.muscle)}</span>
-        <span class="badge scheme">${ex.sets} סטים × ${esc(ex.reps)}</span>
+        <span class="badge scheme">${ex.sets} ${cardio ? 'שלבים' : 'סטים'} × ${esc(ex.reps)}</span>
         ${ex.equip.map((e) => `<span class="badge equip">${esc(equipHe(e))}</span>`).join('')}
       </div>
     </div>
     ${guide}
     <div class="log">
       <div class="log-row head">
-        <div style="text-align:center">סט</div><div style="text-align:center">משקל (ק"ג)</div>
-        <div style="text-align:center">${ex.unit}</div><div style="text-align:center">✓</div>
+        <div style="text-align:center">${cardio ? 'שלב' : 'סט'}</div><div style="text-align:center">${cardio ? `${esc(cardio.loadLabel)} (${esc(loadUnit)})` : 'משקל (ק"ג)'}</div>
+        <div style="text-align:center">${esc(ex.unit)}</div><div style="text-align:center">✓</div>
       </div>
       ${rows.join('')}
       ${
         // Inside a superset the rest belongs to the PAIR, not to the card:
         // the group prints one shared line at its bottom instead.
-        partner ? '' : `<div class="rest-hint">⏱ מנוחה מומלצת: ${ex.rest} שניות (מתחיל אוטומטית בסימון סט)</div>`
+        partner
+          ? ''
+          : cardio
+            ? `<div class="rest-hint">⏱ כל שלב ${fmtClock(ex.rest)} דק׳ · סימון ✓ בסוף שלב מפעיל את הטיימר של השלב הבא</div>
+      <button class="stage-start" data-stage="${esc(ex.id)}" ${done >= ex.sets ? 'hidden' : ''}>${stageButtonText(ex, done)}</button>`
+            : `<div class="rest-hint">⏱ מנוחה מומלצת: ${ex.rest} שניות (מתחיל אוטומטית בסימון סט)</div>`
       }
     </div>
   </section>`;
@@ -263,6 +291,41 @@ function sharedRest(a: Exercise, _b: Exercise): number {
   return a.rest;
 }
 
+/** A number the way the log's inputs print it: "1", "2.5" — never "1.0". */
+function fmtNum(v: number): string {
+  return String(Math.round(v * 100) / 100);
+}
+
+/** The ▶ button's caption: the stage it would time, out of the ladder. */
+function stageButtonText(ex: Exercise, done: number): string {
+  const n = Math.min(done, ex.sets - 1) + 1;
+  return `▶ טיימר לשלב ${n} מתוך ${ex.sets}`;
+}
+
+/**
+ * Start the timer for stage `n` (0-based) of a cardio exercise: the stage's
+ * length on the clock, the stage and its load on the label, and — when it
+ * chimes — "raise the incline" rather than "back to the bar".
+ */
+function startStage(timer: RestTimer, ex: Exercise, n: number, load: string): void {
+  if (!isCardio(ex)) return;
+  const c = ex.cardio;
+  const last = n + 1 >= ex.sets;
+  const at = load !== '' ? ` · ${c.loadLabel} ${load}${c.loadUnit}` : '';
+  timer.start(ex.rest, `🏃 שלב ${n + 1}/${ex.sets}${at}`, {
+    sub: 'טיימר שלב',
+    doneLabel: last ? 'השלב האחרון הסתיים — סמנו ✓ 🏁' : `שלב ${n + 1} הסתיים — סמנו ✓ והעלו ${c.loadLabel}! 💪`,
+  });
+}
+
+/** Keep the ▶ button in step with the stages ✓'d so far (hidden once all are). */
+function syncStageButton(main: HTMLElement, ex: Exercise, done: number): void {
+  const btn = main.querySelector<HTMLButtonElement>(`.stage-start[data-stage="${cssId(ex.id)}"]`);
+  if (!btn) return;
+  btn.hidden = done >= ex.sets;
+  btn.textContent = stageButtonText(ex, done);
+}
+
 function findEx(program: ResolvedProgram, view: DayKey, exId: string): Exercise | undefined {
   return dayOf(program, view)?.exercises.find((e) => e.id === exId);
 }
@@ -325,6 +388,18 @@ function bind(
   /** The input of one (exercise, set, field) cell — where the prefill lives. */
   const inputOf = (exId: string, i: number, f: 'w' | 'r'): HTMLInputElement | null =>
     main.querySelector<HTMLInputElement>(`.inp[data-ex="${cssId(exId)}"][data-set="${i}"][data-f="${f}"]`);
+
+  // ▶ on a cardio card: time the first stage not yet ✓'d, with the load its
+  // row shows (prefilled or typed) on the label.
+  main.querySelectorAll<HTMLButtonElement>('.stage-start').forEach((b) => {
+    b.addEventListener('click', () => {
+      const exId = b.dataset['stage'];
+      const ex = exId ? findEx(program, view, exId) : undefined;
+      if (!ex || !isCardio(ex)) return;
+      const n = Math.min(doneCount(store.getState(), ex.id, today), ex.sets - 1);
+      startStage(timer, ex, n, inputOf(ex.id, n, 'w')?.value ?? '');
+    });
+  });
 
   main.querySelectorAll<HTMLButtonElement>('.chk').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -404,13 +479,18 @@ function bind(
         const b = findEx(program, view, pair[1]);
         if (a && b) document.getElementById('ss-' + a.id)?.classList.toggle('done-all', bothDone(state, a, b, today));
       }
+      if (isCardio(ex)) syncStageButton(main, ex, doneCount(state, ex.id, today));
 
       if (nowDone) {
         // ONE timer for the pair: the whole point of a superset is that the
         // rest comes after both exercises, not between them.
         const lead = logged[0]?.ex ?? ex;
         if (pair && logged.length > 1) timer.start(lead.rest, `🔗 סופר־סט · סט ${i + 1} הושלם`);
-        else timer.start(ex.rest, `${ex.he} · סט ${i + 1} הושלם`);
+        // A cardio ✓ closes stage i, so the clock that starts is the NEXT
+        // stage's — with its new incline on the label — and none after the last.
+        else if (isCardio(ex)) {
+          if (i + 1 < ex.sets) startStage(timer, ex, i + 1, inputOf(ex.id, i + 1, 'w')?.value ?? '');
+        } else timer.start(ex.rest, `${ex.he} · סט ${i + 1} הושלם`);
 
         const grants = logged.map((l) => ({
           ex: l.ex,
