@@ -163,6 +163,54 @@ describe('battle tab', () => {
     }
   });
 
+  it('coaches the unmet gate: sets per week, what to add, the ETA and a way into the plan editor', () => {
+    const store = battleStore(12);
+    mount(store);
+    const card = document.querySelector('.bt-gate');
+    expect(card?.classList.contains('locked')).toBe(true);
+    const coach = card?.querySelector('.bt-coach');
+    expect(coach).not.toBeNull();
+    // one row per unmet part, each naming the plan's sets per week for it
+    const rows = [...(coach?.querySelectorAll('.bt-coach-list li') ?? [])];
+    const unmet = Object.keys(WORLD_BOSSES[0]?.requires ?? {}).filter((p) => p !== 'chest' || true);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.length).toBeLessThanOrEqual(unmet.length);
+    for (const row of rows) {
+      expect(row.textContent).toContain('סטים בשבוע');
+      expect(row.getAttribute('data-part')).toBeTruthy();
+    }
+    // twelve sets on one day is a pace: the ETA is a number of workouts
+    expect(coach?.querySelector('.bt-coach-eta')?.textContent).toContain('אימונים');
+    // the shortcut opens the plan editor
+    const go = coach?.querySelector<HTMLButtonElement>('#btCoachPlan');
+    expect(go).not.toBeNull();
+    go?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(store.getState().ui.view).toBe('PL');
+  });
+
+  it('says there is no pace yet when nothing recent was trained, and nothing at all once the gate is met', () => {
+    const store = new LocalStore(fakeStorage());
+    store.update((d) => {
+      d.ui.view = 'BT';
+    });
+    mount(store);
+    expect(document.querySelector('.bt-coach-eta')?.textContent).toContain('אין קצב');
+    expect(document.querySelector('#btCoachPlan')).not.toBeNull();
+
+    const met = battleStore(12);
+    met.update((d) => {
+      const g = d.game ?? emptyGame();
+      for (const [part, need] of Object.entries(WORLD_BOSSES[0]?.requires ?? {})) {
+        g.parts[part as BodyPart].level = need as number;
+        g.parts[part as BodyPart].xp = totalXpToReach(need as number) + 1;
+      }
+      d.game = g;
+    });
+    mount(met);
+    expect(document.querySelector('.bt-gate')?.classList.contains('open')).toBe(true);
+    expect(document.querySelector('.bt-coach')).toBeNull();
+  });
+
   it('keeps sparring (for nothing) at the boss wave while the gate is unmet — early-challenge button', () => {
     const store = battleStore(12);
     store.update((d) => {

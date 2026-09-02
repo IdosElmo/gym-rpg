@@ -116,6 +116,8 @@ import {
   type SkillId,
 } from '../data/gameContent.ts';
 import type { DataStore, GameState } from '../storage/DataStore.ts';
+import { gateCoaching, type GateCoaching } from '../core/coaching.ts';
+import { resolveProgram } from '../core/plan.ts';
 import { characterSvg } from './characterSvg.ts';
 import {
   GHOST_BAD_PAYLOAD_HE,
@@ -147,6 +149,8 @@ export interface BattleDeps {
    * the enemy roster and the gate card all change at once.
    */
   remount?: () => void;
+  /** Open the plan editor — the gate coaching's "add this to your plan" shortcut. */
+  editPlan?: () => void;
 }
 
 interface Runtime {
@@ -334,9 +338,9 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
     <p class="bt-status" id="btStatus"></p>
 
     <!-- The boss fight starts by CHOICE: this button stands here the whole
-         time the player is at the boss wave — LOCKED (disabled) while the
-         body-part gate is unmet, pressable once it is met: the exact gate
-         that used to start the fight by itself. -->
+         time the player is at the boss wave — the EARLY challenge (amber,
+         the boss strengthened) while the body-part gate is unmet, the plain
+         boss fight once it is met. -->
     <button class="bt-boss-btn" id="btBossFight" type="button" hidden>🏛 קרב בוס</button>
 
     <div class="bt-meters">
@@ -378,7 +382,7 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
     <p class="gc-note">הקרב רץ רק כשלשונית הקרב פתוחה — אין רווחים אופליין.</p>
   </section>
 
-  ${gateCard(game)}`;
+  ${gateCard(game, coachingOf(store, game), typeof deps.editPlan === 'function')}`;
 
   wireWorldStrip(main, store);
   start(main, deps);
@@ -536,6 +540,18 @@ function dailyCard(game: GameState, date: string, run: ChallengeRun | null): str
  * inner tab rows use), and the current node is `scrollIntoView`-ed on mount so
  * the player always opens on themselves rather than on world 1.
  */
+/**
+ * The coaching behind the current world's gate, from the store: the active
+ * plan (built-in when none was edited), the whole log for the recent pace, and
+ * today. `null` when the gate is met — there is nothing to coach.
+ */
+function coachingOf(store: DataStore, game: GameState): GateCoaching | null {
+  const gate = worldGate(game.battle.world, partLevels(game));
+  if (!gate.locked) return null;
+  const program = resolveProgram(store.getState().plan);
+  return gateCoaching(game, gate, program, store.getEvents(), todayISO());
+}
+
 /** `+40` for a deficit of two — the extra HP the early boss carries, in percent. */
 function handicapPct(deficit: number): number {
   return Math.round((bossHandicap(deficit).hp - 1) * 100);
@@ -659,7 +675,7 @@ function wireWorldStrip(main: HTMLElement, store: DataStore): void {
  * When the world's boss is already a trophy the card turns into the endgame
  * banner instead (there is nothing left to gate in the last world).
  */
-function gateCard(game: GameState): string {
+function gateCard(game: GameState, coaching: GateCoaching | null, canEditPlan: boolean): string {
   const boss = worldBossOf(game.battle.world);
   if (!boss) return '';
   const done = game.battle.bossesDefeated.includes(boss.id);
@@ -690,6 +706,7 @@ function gateCard(game: GameState): string {
     .join('');
   const missing = gate.requirements.filter((r) => !r.met);
   const missingHe = missing.map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`).join(' · ');
+  const coach = gate.locked && coaching ? coachingBlock(coaching, canEditPlan) : '';
 
   return `
   <section class="game-card bt-gate ${gate.locked ? 'locked' : 'open'}">
@@ -705,7 +722,44 @@ function gateCard(game: GameState): string {
             spec ? ` · עולה ${spec.energyCost} ⚡ · מזכה ב־${spec.coins} 🪙` : ''
           }.`
     }</p>
+    ${coach}
   </section>`;
+}
+
+/**
+ * THE COACHING behind an unmet gate (`core/coaching.ts`): for every missing
+ * part, how many sets a week the plan gives it, what could be added, and how
+ * many workouts away it is at the recent pace — so the wait has a shape and a
+ * lever, instead of being a number the player cannot move.
+ */
+function coachingBlock(c: GateCoaching, canEditPlan: boolean): string {
+  if (c.parts.length === 0) return '';
+  const eta =
+    c.workoutsLeft === null
+      ? c.measuredOver === 0
+        ? 'עוד אין קצב למדוד לפיו — אחרי כמה אימונים נגיד לכם כמה נשאר.'
+        : ''
+      : `בקצב שלכם (${c.measuredOver} אימונים ב־4 השבועות האחרונים) הרמות המומלצות יושגו בעוד <b>~${c.workoutsLeft}</b> אימונים.`;
+  const rows = c.parts
+    .map((p) => {
+      const left = p.workoutsLeft === null ? '' : ` · עוד ~${p.workoutsLeft} אימונים`;
+      const add =
+        p.suggestions.length > 0
+          ? `<span class="bt-coach-add">הוסיפו: ${p.suggestions.map((e) => esc(e.he)).join(' · ')}</span>`
+          : '';
+      return `<li data-part="${p.part}">
+        <b>${BODY_PART_HE[p.part]}</b> ${p.have}→${p.need}
+        <span class="bt-coach-sets">${p.setsPerWeek} סטים בשבוע בתוכנית${left}</span>
+        ${add}
+      </li>`;
+    })
+    .join('');
+  return `
+    <div class="bt-coach">
+      ${eta ? `<p class="bt-coach-eta">${eta}</p>` : ''}
+      <ul class="bt-coach-list">${rows}</ul>
+      ${canEditPlan ? '<button class="bt-coach-go" id="btCoachPlan" type="button">✏️ לעורך התוכנית</button>' : ''}
+    </div>`;
 }
 
 /* ----------------------------------------------------------------- driver */
@@ -1722,6 +1776,12 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     // The next tick spawns the boss — run it now so the fight starts under the
     // player's finger rather than a frame later.
     consume(advance(state, BALANCE.combat.tickMs, stats));
+  });
+
+  // The gate coaching's shortcut into the plan editor (rendered only when the
+  // shell handed us a way there).
+  main.querySelector<HTMLButtonElement>('#btCoachPlan')?.addEventListener('click', () => {
+    deps.editPlan?.();
   });
 
   superBtn?.addEventListener('click', () => {

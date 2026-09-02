@@ -383,6 +383,7 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       store,
       refreshHeader: renderHeader,
       remount: renderBattleScreen,
+      editPlan: () => setView('PL'),
       ...(hooks.ghost ? { ghost: hooks.ghost } : {}),
     });
   }
@@ -469,6 +470,7 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
         store,
         refreshHeader: renderHeader,
         remount: renderBattleScreen,
+        editPlan: () => setView('PL'),
         ...(hooks.ghost ? { ghost: hooks.ghost } : {}),
       });
     } else {
