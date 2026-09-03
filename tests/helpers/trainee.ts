@@ -196,6 +196,8 @@ export const ERA_GEAR: Readonly<Record<number, Gear>> = {
   7: [3, 1],
   8: [3, 2],
   9: [3, 3],
+  10: [3, 3],
+  11: [3, 3],
 };
 
 /** Combat stats of a character at these levels in this kit (no streak buff). */

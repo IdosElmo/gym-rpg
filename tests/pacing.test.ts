@@ -64,10 +64,11 @@ describe('the two poles land together', () => {
       (sum, w) => sum + w.waves * BALANCE.combat.energyPerWave + BALANCE.combat.boss.energyCost,
       0,
     );
-    expect(total / 225).toBeGreaterThan(45);
-    expect(total / 225).toBeLessThan(60);
-    expect(wavesRunOut(runs.builtin, WORLD_COUNT)).toBeGreaterThan(45);
-    expect(wavesRunOut(runs.builtin, WORLD_COUNT)).toBeLessThan(60);
+    // ≈71 workouts of ⚡ across ELEVEN worlds (PHASE 12 added two).
+    expect(total / 225).toBeGreaterThan(60);
+    expect(total / 225).toBeLessThan(78);
+    expect(wavesRunOut(runs.builtin, WORLD_COUNT)).toBeGreaterThan(60);
+    expect(wavesRunOut(runs.builtin, WORLD_COUNT)).toBeLessThan(78);
     expect(wavesRunOut(runs.ab4, WORLD_COUNT)).toBeGreaterThan(30);
   });
 

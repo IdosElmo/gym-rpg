@@ -67,7 +67,12 @@ export function dailySeed(date: string): number {
  */
 export function dailyWorldOf(index: number, waves: number = BALANCE.daily.waves): number {
   const i = Math.min(Math.max(1, Math.floor(index)), waves);
-  return Math.min(WORLD_COUNT, Math.max(1, Math.ceil((i * WORLD_COUNT) / waves)));
+  // Wave 1 is always the first world and the finale always the last; the
+  // waves between are spread evenly, so a campaign with MORE worlds than
+  // waves (eleven, PHASE 12) skips a world or two in the middle rather than
+  // never reaching the end.
+  if (waves <= 1) return 1;
+  return Math.min(WORLD_COUNT, Math.max(1, Math.round(((i - 1) / (waves - 1)) * (WORLD_COUNT - 1)) + 1));
 }
 
 /** Coins one gauntlet wave pays. */

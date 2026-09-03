@@ -581,9 +581,12 @@ describe('balance', () => {
     }
   });
 
-  it('lets a strong character (part level 9+) finish the gauntlet', () => {
+  it('lets a strong character (part level 10+) finish the gauntlet', () => {
+    // PHASE 12: the tour now ends in the two flavoured late worlds (armour and
+    // crit, dodge and regen), which cost a bare level-9 character the finale
+    // on some dates; level 10 clears every date.
     for (const date of DATES) {
-      for (const level of [9, 12]) {
+      for (const level of [10, 12]) {
         const { result } = playDaily(level, date);
         expect(result.wavesCleared, `L${level} on ${date}`).toBe(WAVES);
         expect(result.complete).toBe(true);

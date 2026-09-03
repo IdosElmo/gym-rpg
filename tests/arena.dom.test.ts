@@ -366,7 +366,7 @@ describe('world progress strip', () => {
 
   it('scrolls instead of squeezing, once there are nine of them', () => {
     mount(battleStore());
-    expect(nodes()).toHaveLength(9);
+    expect(nodes()).toHaveLength(WORLDS.length);
 
     // The row is a horizontally scrolling flex line with a FIXED node width —
     // nine equal grid columns would be ~34px on a 360px phone, under the app's
@@ -512,7 +512,7 @@ describe('the hero in the arena', () => {
     // hangs behind the body, the shirt is drawn inside it (before the pecs), and
     // the leggings/shoes/belt/gloves are worn on top in that order.
     const kids = [...(heroSvg()?.children ?? [])].map((c) => c.getAttribute('data-slot') ?? c.tagName);
-    const order = ['cape', 'shirt', 'leggings', 'shoes', 'belt', 'gloves'].map((s) => kids.indexOf(s));
+    const order = ['cape', 'shirt', 'helmet', 'leggings', 'shoes', 'belt', 'gloves'].map((s) => kids.indexOf(s));
     expect(order.every((i) => i >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });

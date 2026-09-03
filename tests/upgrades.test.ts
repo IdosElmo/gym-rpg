@@ -123,6 +123,8 @@ function headline(b: ReturnType<typeof zeroBonus>, def: EquipmentDef): number {
       return b.def;
     case 'leggings':
       return b.hp;
+    case 'helmet':
+      return b.critChance;
   }
 }
 

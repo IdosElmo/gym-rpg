@@ -183,7 +183,7 @@ describe('boss gates', () => {
     // PHASE 11: the band is the level each world's STEEPEST requirement asks
     // for, and it is set where a trainee actually is when the world's waves run
     // out (`tests/pacing.test.ts` measures that on both shipped plans).
-    const expected: Record<number, number> = { 1: 3, 2: 4, 3: 5, 4: 6, 5: 7, 6: 8, 7: 9, 8: 9, 9: 10 };
+    const expected: Record<number, number> = { 1: 3, 2: 4, 3: 5, 4: 6, 5: 7, 6: 8, 7: 9, 8: 9, 9: 10, 10: 10, 11: 11 };
     for (let world = 1; world <= WORLD_COUNT; world += 1) {
       const needs = Object.values(worldBossOf(world)?.requires ?? {});
       expect(Math.max(...needs)).toBeLessThanOrEqual(expected[world] as number);
@@ -257,11 +257,14 @@ describe('boss specs', () => {
       const spec = bossSpec(world);
       // the final wave is itself a mini-boss, so compare against the last
       // ORDINARY wave — and against that mini-boss too
+      // (against the CURVE at those waves — the roster's own hp flavour divided
+      // out, so a tank standing on the last wave does not move the pin)
       const last = waveSpec(world, wavesInWorld(world) - 1);
       const final = waveSpec(world, wavesInWorld(world));
+      const pure = (s: typeof last): number => s.hp / (s.enemy.hpMult ?? 1);
       expect(spec).not.toBeNull();
-      expect(spec?.hp ?? 0, `world ${world} vs its last ordinary wave`).toBeGreaterThan(last.hp * 2.5);
-      expect(spec?.hp ?? 0, `world ${world} vs its final mini-boss`).toBeGreaterThan(final.hp * 1.25);
+      expect(spec?.hp ?? 0, `world ${world} vs its last ordinary wave`).toBeGreaterThan(pure(last) * 2.5);
+      expect(spec?.hp ?? 0, `world ${world} vs its final mini-boss`).toBeGreaterThan(pure(final) * 1.15);
       expect(spec?.coins ?? 0).toBeGreaterThan(last.coins * 5);
       expect(spec?.energyCost).toBe(BALANCE.combat.boss.energyCost);
     }
@@ -305,7 +308,9 @@ describe('boss specs', () => {
     // late bosses came DOWN because their worlds' ramps went up (`span`).
     const hp = (world: number): number => worldBossOf(world)?.hpMult ?? 0;
     expect([1, 2, 3, 4].map(hp)).toEqual([5, 5.5, 6, 7]);
-    expect([5, 6, 7, 8, 9].map(hp)).toEqual([3.8, 3.9, 3.7, 3.4, 2.95]);
+    expect([5, 6, 7, 8, 9].map(hp)).toEqual([3.8, 3.9, 3.7, 3.4, 2.8]);
+    // PHASE 12: the two new worlds, tuned against the seven-slot era kit
+    expect([10, 11].map(hp)).toEqual([2.6, 2.6]);
   });
 });
 

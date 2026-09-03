@@ -74,7 +74,7 @@ way (a spec, a demo, a `tests/cardio.dom.test.ts`-style check of the ladder).
 
 ## Adding other content
 
-- **Worlds/enemies/bosses**: `src/data/gameContent.ts` + tuning in `src/core/balance.ts`.
+- **Worlds/enemies/bosses** (eleven worlds, 8–9 regulars + a mini-boss + a boss each): `src/data/gameContent.ts` + tuning in `src/core/balance.ts`. Append new regulars at the END of a roster (waves 1–7 of every world are pinned); growing a roster changes which enemy later waves meet, which is fine (payloads are authoritative) but re-pins world 1's golden numbers.
   Wave counts (`waves`) and ramp steepness (`span`) are per world; historical
   `wave_cleared`/`boss_defeated` payloads are authoritative, so content changes must
   never re-derive history. **Pacing is measured, not estimated**: `tests/pacing.test.ts`
@@ -87,7 +87,8 @@ way (a spec, a demo, a `tests/cardio.dom.test.ts`-style check of the ladder).
   (`BALANCE.combat.boss.handicap`), and the wait at a standing boss runs paid overtime
   waves (`BALANCE.combat.overtime`, `battle.overtime` in state). Coins never follow
   `span` (`coinStretch`); `tests/shop.test.ts` bounds the campaign's income.
-- **Equipment**: `EQUIPMENT` in `gameContent.ts`; stats flow through `equippedBonus`/
+- **Equipment** (seven slots, helmet to cape): `EQUIPMENT` in `gameContent.ts`; a new slot needs a
+  layer + anchor + flair spot in `ui/characterSvg.ts` (the artwork sweeps cover it); stats flow through `equippedBonus`/
   `deriveStats` (the single stat seam). Art anchors to `characterAnchors`; upgrade flair
   via the per-item `<feDropShadow>` (explicit hex — CSS vars inside SVG filters break on
   Samsung).
