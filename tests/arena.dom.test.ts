@@ -278,7 +278,8 @@ describe('world progress strip', () => {
     const list = nodes();
     expect(list[0]?.className).toContain('current');
     expect(list[0]?.className).toContain('gated');
-    expect(list[0]?.querySelector('.wp-glyph')?.textContent).toBe('🔒');
+    // the current world's boss is never locked, only early: ⚔️, not 🔒
+    expect(list[0]?.querySelector('.wp-glyph')?.textContent).toBe('⚔️');
     expect(list[0]?.querySelector('.wp-meta')?.textContent).toBe(`גל 1/${wavesInWorld(1)}`);
     expect(list[0]?.querySelector('button')?.getAttribute('aria-current')).toBe('step');
     for (const node of list.slice(1)) {
@@ -354,8 +355,11 @@ describe('world progress strip', () => {
     mount(battleStore());
     nodes()[0]?.querySelector('button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     const toast = document.getElementById('toast');
-    expect(toast?.textContent).toContain('חסר לבוס');
+    // the gate is advice now: the toast names what is missing AND that the
+    // boss can be fought early, strengthened
+    expect(toast?.textContent).toContain('חסר');
     expect(toast?.textContent).toContain('חזה');
+    expect(toast?.textContent).toContain('מחוזק');
     // the gate card it points at is the one that already lists every requirement
     expect(document.querySelector('.bt-gate .bt-reqs')).not.toBeNull();
   });

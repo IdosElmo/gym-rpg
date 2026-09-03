@@ -468,7 +468,7 @@ export function emptyDaily(): DailyChallengeState {
 
 /** A fresh battle progress: world 1, wave 1, no coins, no trophies. */
 export function emptyBattle(): BattleProgress {
-  return { world: 1, wave: 1, coins: 0, wavesCleared: 0, miniBossesCleared: 0, bossesDefeated: [] };
+  return { world: 1, wave: 1, coins: 0, wavesCleared: 0, miniBossesCleared: 0, bossesDefeated: [], overtime: {} };
 }
 
 /** A fresh wardrobe: nothing owned, nothing worn, nothing upgraded. */
@@ -674,6 +674,14 @@ export function applyGameEvent(game: GameState, type: EventType, payload: Record
       b.coins = round2(b.coins + coins);
       b.wavesCleared += 1;
       if (payload['miniBoss'] === true) b.miniBossesCleared += 1;
+      // An OVERTIME wave (PHASE 11) is a real clear — purse, ⚡, the lifetime
+      // counters — but the marker stays where it is: the boss is still the way
+      // forward. Counted per world, order-free, so a merged log converges.
+      if (payload['overtime'] === true) {
+        const key = String(world);
+        b.overtime[key] = (b.overtime[key] ?? 0) + 1;
+        break;
+      }
       b.world = world;
       b.wave = wave + 1;
       break;

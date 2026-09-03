@@ -1185,7 +1185,7 @@ describe('data_cleared and the v10 -> v12 blob bumps', () => {
     // v12 changed no field at all: it changed what a fold of the same events
     // MEANS (best grade per week, not first), and a v11 cache of the old fold
     // can disagree with a replay of its own log — so it is rejected too.
-    expect(GAME_STATE_VERSION).toBe(12);
+    expect(GAME_STATE_VERSION).toBe(13);
     expect(emptyGame().league).toEqual(emptyLeague());
   });
 

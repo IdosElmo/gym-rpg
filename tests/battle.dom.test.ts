@@ -163,7 +163,55 @@ describe('battle tab', () => {
     }
   });
 
-  it('keeps sparring (for nothing) at the boss wave while the gate is locked — locked button', () => {
+  it('coaches the unmet gate: sets per week, what to add, the ETA and a way into the plan editor', () => {
+    const store = battleStore(12);
+    mount(store);
+    const card = document.querySelector('.bt-gate');
+    expect(card?.classList.contains('locked')).toBe(true);
+    const coach = card?.querySelector('.bt-coach');
+    expect(coach).not.toBeNull();
+    // one row per unmet part, each naming the plan's sets per week for it
+    const rows = [...(coach?.querySelectorAll('.bt-coach-list li') ?? [])];
+    const unmet = Object.keys(WORLD_BOSSES[0]?.requires ?? {}).filter((p) => p !== 'chest' || true);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.length).toBeLessThanOrEqual(unmet.length);
+    for (const row of rows) {
+      expect(row.textContent).toContain('סטים בשבוע');
+      expect(row.getAttribute('data-part')).toBeTruthy();
+    }
+    // twelve sets on one day is a pace: the ETA is a number of workouts
+    expect(coach?.querySelector('.bt-coach-eta')?.textContent).toContain('אימונים');
+    // the shortcut opens the plan editor
+    const go = coach?.querySelector<HTMLButtonElement>('#btCoachPlan');
+    expect(go).not.toBeNull();
+    go?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(store.getState().ui.view).toBe('PL');
+  });
+
+  it('says there is no pace yet when nothing recent was trained, and nothing at all once the gate is met', () => {
+    const store = new LocalStore(fakeStorage());
+    store.update((d) => {
+      d.ui.view = 'BT';
+    });
+    mount(store);
+    expect(document.querySelector('.bt-coach-eta')?.textContent).toContain('אין קצב');
+    expect(document.querySelector('#btCoachPlan')).not.toBeNull();
+
+    const met = battleStore(12);
+    met.update((d) => {
+      const g = d.game ?? emptyGame();
+      for (const [part, need] of Object.entries(WORLD_BOSSES[0]?.requires ?? {})) {
+        g.parts[part as BodyPart].level = need as number;
+        g.parts[part as BodyPart].xp = totalXpToReach(need as number) + 1;
+      }
+      d.game = g;
+    });
+    mount(met);
+    expect(document.querySelector('.bt-gate')?.classList.contains('open')).toBe(true);
+    expect(document.querySelector('.bt-coach')).toBeNull();
+  });
+
+  it('keeps sparring (for nothing) at the boss wave while the gate is unmet — early-challenge button', () => {
     const store = battleStore(12);
     store.update((d) => {
       const g = d.game ?? emptyGame();
@@ -175,20 +223,28 @@ describe('battle tab', () => {
     // fights keep happening — an ordinary enemy is on screen, not the boss…
     expect(document.querySelector('#btEnemySprite svg')).not.toBeNull();
     expect(document.getElementById('btArena')?.classList.contains('boss-fight')).toBe(false);
-    // …the status says these bouts pay nothing and names the missing training…
-    expect(document.getElementById('btStatus')?.textContent).toContain('קרב אימון');
+    // …the status says these are OVERTIME waves (paid, the boss fee reserved)
+    // and names the missing training…
+    expect(document.getElementById('btStatus')?.textContent).toContain('גל הארכה');
     expect(document.getElementById('btStatus')?.textContent).toContain('חסר');
+    expect(document.getElementById('btWave')?.textContent).toContain('הארכה');
     // …and the boss button STANDS here — visible so the player understands what
-    // the sparring is for, but locked and unpressable until the gate is met.
+    // the sparring is for, and PRESSABLE: below the recommended levels it is the
+    // EARLY challenge, amber, naming the handicap the boss will carry.
     const btn = document.getElementById('btBossFight') as HTMLButtonElement;
     expect(btn.hidden).toBe(false);
-    expect(btn.disabled).toBe(true);
-    expect(btn.classList.contains('locked')).toBe(true);
-    expect(btn.textContent).toContain('🔒');
-    expect(btn.textContent).toContain('קרב בוס');
-    // a click on the locked button starts nothing
+    expect(btn.disabled).toBe(false);
+    expect(btn.classList.contains('early')).toBe(true);
+    expect(btn.classList.contains('locked')).toBe(false);
+    expect(btn.textContent).toContain('⚔️');
+    expect(btn.textContent).toContain('קרב בוס מוקדם');
+    expect(btn.textContent).toMatch(/מחוזק \+\d+%/);
+    // the gate card says the same: recommended, not locked, and by how much
+    expect(document.querySelector('.bt-gate')?.textContent).toContain('קרב בוס מוקדם');
+    expect(document.querySelector('.bt-gate')?.textContent).toContain('מחוזק');
+    // a click on the early button STARTS the fight — against the strengthened boss
     btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(document.getElementById('btArena')?.classList.contains('boss-fight')).toBe(false);
+    expect(document.getElementById('btArena')?.classList.contains('boss-fight')).toBe(true);
   });
 
   it('opens the gate — and shows the boss button; pressing it starts the fight', () => {
@@ -215,7 +271,7 @@ describe('battle tab', () => {
     expect(btn.textContent).toContain('קרב בוס');
     expect(btn.textContent).not.toContain('🔒');
     expect(document.getElementById('btArena')?.classList.contains('boss-fight')).toBe(false);
-    expect(document.getElementById('btStatus')?.textContent).toContain('קרב אימון');
+    expect(document.getElementById('btStatus')?.textContent).toContain('גל הארכה');
 
     btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(document.getElementById('btFoeName')?.textContent).toContain(WORLD_BOSSES[0]?.he ?? '');

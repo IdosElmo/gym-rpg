@@ -225,6 +225,7 @@ export function onWaveCleared(store: DataStore, r: WaveResult, now: Date = new D
     energySpent: r.energySpent,
     seed: r.seed,
     durationMs: r.durationMs,
+    overtime: r.overtime,
   };
   commit(store, [{ type: 'wave_cleared', payload, ts: now.getTime() }], now);
   return gameOf(store).battle;
@@ -250,6 +251,7 @@ export function onBossDefeated(store: DataStore, r: BossResult, now: Date = new 
     nextWorld: r.nextWorld,
     nextWave: r.nextWave,
     endgame: r.endgame,
+    deficit: r.deficit,
   };
   commit(store, [{ type: 'boss_defeated', payload, ts: now.getTime() }], now);
   return gameOf(store).battle;

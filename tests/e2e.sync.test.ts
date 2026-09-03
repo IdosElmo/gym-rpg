@@ -828,7 +828,7 @@ describe('two devices, one account', () => {
 
     onWaveCleared(
       phone.store,
-      { world: 1, wave: 1, miniBoss: false, enemyId: 'w1_rat', coins: 3_000, energySpent: 0, seed: 7, durationMs: 900 },
+      { world: 1, wave: 1, miniBoss: false, enemyId: 'w1_rat', coins: 3_000, energySpent: 0, seed: 7, durationMs: 900, overtime: false },
       new Date(Date.now()),
     );
     expect(buyItem(phone.store, 'gloves_1', new Date(Date.now())).ok).toBe(true);

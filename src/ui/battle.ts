@@ -68,6 +68,7 @@ import {
   forfeitChallenge,
   isEndgame,
   requestBossFight,
+  bossHandicap,
   setEnergy,
   setGate,
   skillPower,
@@ -111,9 +112,12 @@ import {
   wavesInWorld,
   worldById,
   worldBossOf,
+  type GateStatus,
   type SkillId,
 } from '../data/gameContent.ts';
 import type { DataStore, GameState } from '../storage/DataStore.ts';
+import { gateCoaching, type GateCoaching } from '../core/coaching.ts';
+import { resolveProgram } from '../core/plan.ts';
 import { characterSvg } from './characterSvg.ts';
 import {
   GHOST_BAD_PAYLOAD_HE,
@@ -145,6 +149,8 @@ export interface BattleDeps {
    * the enemy roster and the gate card all change at once.
    */
   remount?: () => void;
+  /** Open the plan editor — the gate coaching's "add this to your plan" shortcut. */
+  editPlan?: () => void;
 }
 
 interface Runtime {
@@ -332,9 +338,9 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
     <p class="bt-status" id="btStatus"></p>
 
     <!-- The boss fight starts by CHOICE: this button stands here the whole
-         time the player is at the boss wave — LOCKED (disabled) while the
-         body-part gate is unmet, pressable once it is met: the exact gate
-         that used to start the fight by itself. -->
+         time the player is at the boss wave — the EARLY challenge (amber,
+         the boss strengthened) while the body-part gate is unmet, the plain
+         boss fight once it is met. -->
     <button class="bt-boss-btn" id="btBossFight" type="button" hidden>🏛 קרב בוס</button>
 
     <div class="bt-meters">
@@ -376,7 +382,7 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
     <p class="gc-note">הקרב רץ רק כשלשונית הקרב פתוחה — אין רווחים אופליין.</p>
   </section>
 
-  ${gateCard(game)}`;
+  ${gateCard(game, coachingOf(store, game), typeof deps.editPlan === 'function')}`;
 
   wireWorldStrip(main, store);
   start(main, deps);
@@ -534,6 +540,28 @@ function dailyCard(game: GameState, date: string, run: ChallengeRun | null): str
  * inner tab rows use), and the current node is `scrollIntoView`-ed on mount so
  * the player always opens on themselves rather than on world 1.
  */
+/**
+ * The coaching behind the current world's gate, from the store: the active
+ * plan (built-in when none was edited), the whole log for the recent pace, and
+ * today. `null` when the gate is met — there is nothing to coach.
+ */
+function coachingOf(store: DataStore, game: GameState): GateCoaching | null {
+  const gate = worldGate(game.battle.world, partLevels(game));
+  if (!gate.locked) return null;
+  const program = resolveProgram(store.getState().plan);
+  return gateCoaching(game, gate, program, store.getEvents(), todayISO());
+}
+
+/** `+40` for a deficit of two — the extra HP the early boss carries, in percent. */
+function handicapPct(deficit: number): number {
+  return Math.round((bossHandicap(deficit).hp - 1) * 100);
+}
+
+/** The same, for its damage. */
+function handicapAtkPct(deficit: number): number {
+  return Math.round((bossHandicap(deficit).atk - 1) * 100);
+}
+
 function worldStrip(game: GameState): string {
   const cur = game.battle.world;
   const wave = game.battle.wave;
@@ -548,7 +576,7 @@ function worldStrip(game: GameState): string {
     const locked = !cleared && !current;
     const championHere = current && champion;
 
-    const glyph = championHere ? '👑' : cleared ? '🏆' : locked ? '🔒' : gate.locked ? '🔒' : '✓';
+    const glyph = championHere ? '👑' : cleared ? '🏆' : locked ? '🔒' : gate.locked ? '⚔️' : '✓';
     const state = championHere
       ? 'champion'
       : current
@@ -566,7 +594,7 @@ function worldStrip(game: GameState): string {
     else meta = 'נעול';
 
     const pct = current && !champion ? Math.min(100, Math.round(((wave - 1) / perWorld) * 100)) : 0;
-    const label = `${w.he} · ${meta}${current ? (gate.locked ? ' · הבוס נעול' : ' · הבוס פתוח') : ''}`;
+    const label = `${w.he} · ${meta}${current ? (gate.locked ? ' · הבוס פתוח לקרב מוקדם' : ' · הבוס פתוח') : ''}`;
 
     return `<li class="wp-node ${state}"${current ? ' data-current="1"' : ''}>
       <button class="wp-btn" type="button" data-world="${w.id}" aria-label="${esc(label)}"
@@ -623,7 +651,11 @@ function wireWorldStrip(main: HTMLElement, store: DataStore): void {
         .filter((r) => !r.met)
         .map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`)
         .join(' · ');
-      toast(gate.locked ? `🔒 חסר לבוס: ${missing}` : `✓ בוס ${world.he} פתוח — הגיעו לגל ${bossWaveOf(id)}.`);
+      toast(
+        gate.locked
+          ? `⚔️ לרמות המומלצות חסר: ${missing} — אפשר להילחם כבר עכשיו, הבוס מחוזק ב־${handicapPct(gate.deficit)}%.`
+          : `✓ בוס ${world.he} פתוח — הגיעו לגל ${bossWaveOf(id)}.`,
+      );
       const card = main.querySelector('.bt-gate');
       if (card && typeof card.scrollIntoView === 'function') {
         try {
@@ -643,7 +675,7 @@ function wireWorldStrip(main: HTMLElement, store: DataStore): void {
  * When the world's boss is already a trophy the card turns into the endgame
  * banner instead (there is nothing left to gate in the last world).
  */
-function gateCard(game: GameState): string {
+function gateCard(game: GameState, coaching: GateCoaching | null, canEditPlan: boolean): string {
   const boss = worldBossOf(game.battle.world);
   if (!boss) return '';
   const done = game.battle.bossesDefeated.includes(boss.id);
@@ -674,6 +706,7 @@ function gateCard(game: GameState): string {
     .join('');
   const missing = gate.requirements.filter((r) => !r.met);
   const missingHe = missing.map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`).join(' · ');
+  const coach = gate.locked && coaching ? coachingBlock(coaching, canEditPlan) : '';
 
   return `
   <section class="game-card bt-gate ${gate.locked ? 'locked' : 'open'}">
@@ -684,12 +717,49 @@ function gateCard(game: GameState): string {
     </div>
     <p class="gc-note">${
       gate.locked
-        ? `הבוס נעול. חסר לכם: <b>${esc(missingHe)}</b> — התאמנו על החלקים האלה וזה ייפתח מעצמו. בינתיים הזירה ממשיכה בקרבות אימון — בלי מטבעות ובלי התקדמות.`
+        ? `לרמות המומלצות חסר לכם: <b>${esc(missingHe)}</b>. אפשר להילחם כבר עכשיו — ״⚔️ קרב בוס מוקדם״ בגל ${bossWaveOf(game.battle.world)}: הבוס יהיה מחוזק ב־<b>${handicapPct(gate.deficit)}%</b> חיים ו־${handicapAtkPct(gate.deficit)}% נזק, וכל רמה שתעלו בחלקים האלה מחלישה אותו. בינתיים הזירה ממשיכה בקרבות אימון — בלי מטבעות ובלי התקדמות.`
         : `כל הדרישות הושלמו! כפתור ״🏛 קרב בוס״ מחכה לכם בזירה בגל ${bossWaveOf(game.battle.world)}${
             spec ? ` · עולה ${spec.energyCost} ⚡ · מזכה ב־${spec.coins} 🪙` : ''
           }.`
     }</p>
+    ${coach}
   </section>`;
+}
+
+/**
+ * THE COACHING behind an unmet gate (`core/coaching.ts`): for every missing
+ * part, how many sets a week the plan gives it, what could be added, and how
+ * many workouts away it is at the recent pace — so the wait has a shape and a
+ * lever, instead of being a number the player cannot move.
+ */
+function coachingBlock(c: GateCoaching, canEditPlan: boolean): string {
+  if (c.parts.length === 0) return '';
+  const eta =
+    c.workoutsLeft === null
+      ? c.measuredOver === 0
+        ? 'עוד אין קצב למדוד לפיו — אחרי כמה אימונים נגיד לכם כמה נשאר.'
+        : ''
+      : `בקצב שלכם (${c.measuredOver} אימונים ב־4 השבועות האחרונים) הרמות המומלצות יושגו בעוד <b>~${c.workoutsLeft}</b> אימונים.`;
+  const rows = c.parts
+    .map((p) => {
+      const left = p.workoutsLeft === null ? '' : ` · עוד ~${p.workoutsLeft} אימונים`;
+      const add =
+        p.suggestions.length > 0
+          ? `<span class="bt-coach-add">הוסיפו: ${p.suggestions.map((e) => esc(e.he)).join(' · ')}</span>`
+          : '';
+      return `<li data-part="${p.part}">
+        <b>${BODY_PART_HE[p.part]}</b> ${p.have}→${p.need}
+        <span class="bt-coach-sets">${p.setsPerWeek} סטים בשבוע בתוכנית${left}</span>
+        ${add}
+      </li>`;
+    })
+    .join('');
+  return `
+    <div class="bt-coach">
+      ${eta ? `<p class="bt-coach-eta">${eta}</p>` : ''}
+      <ul class="bt-coach-list">${rows}</ul>
+      ${canEditPlan ? '<button class="bt-coach-go" id="btCoachPlan" type="button">✏️ לעורך התוכנית</button>' : ''}
+    </div>`;
 }
 
 /* ----------------------------------------------------------------- driver */
@@ -733,8 +803,13 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     skillBtns.set(btn.dataset['skill'] as SkillId, btn);
   });
 
-  /** Is the CURRENT world's boss gate open for this character right now? */
-  const gateOpenFor = (g: GameState): boolean => !worldGate(g.battle.world, partLevels(g)).locked;
+  /** The CURRENT world's boss gate for this character right now — met or not, and by how much. */
+  const gateFor = (g: GameState): GateStatus => worldGate(g.battle.world, partLevels(g));
+  /** `setGate` from a fresh read of the store: the boolean AND the early-challenge deficit. */
+  const syncGate = (g: GameState, defeated?: readonly string[]): void => {
+    const gate = gateFor(g);
+    setGate(state, !gate.locked, defeated, gate.deficit);
+  };
 
   const game0 = gameOf(store);
   let stats = statsOf(game0);
@@ -751,8 +826,10 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     wave: game0.battle.wave,
     energy: game0.energy,
     stats,
-    gateOpen: gateOpenFor(game0),
+    gateOpen: !gateFor(game0).locked,
+    gateDeficit: gateFor(game0).deficit,
     defeatedBosses: game0.battle.bossesDefeated,
+    overtime: game0.battle.overtime[String(game0.battle.world)] ?? 0,
   });
 
   const softMotion = reducedMotion();
@@ -908,8 +985,12 @@ function start(main: HTMLElement, deps: BattleDeps): void {
       const run = state.challenge;
       // In a gauntlet the counter is "3/10" — a position in the run, not in the
       // world. A duel is a single fight, so it says so instead of "1/1".
+      // An overtime wave is labelled as such — "הארכה 3", never a wave the
+      // world does not have.
       waveEl.textContent = !run
-        ? String(state.wave)
+        ? state.enemy?.overtime
+          ? `הארכה ${state.overtime + 1}`
+          : String(state.wave)
         : run.kind === 'ghost'
           ? '⚔️'
           : `${Math.min(run.index + 1, run.waves.length)}/${run.waves.length}`;
@@ -1022,9 +1103,13 @@ function start(main: HTMLElement, deps: BattleDeps): void {
       statusEl.className = 'bt-status daily';
       return;
     }
-    // At the boss wave without a boss on screen the campaign is SPARRING:
-    // reward-less fights while the boss blocks the way (or waits to be called).
+    // At the boss wave without a boss on screen the campaign is in OVERTIME
+    // (paid waves past the end, the boss fee kept in reserve) or, when the
+    // purse cannot afford one, SPARRING: reward-less fights while the boss
+    // waits to be called.
+    const overtime = state.enemy?.overtime === true;
     const sparring =
+      !overtime &&
       state.enemy?.worldBoss !== true &&
       bossStanding(state.world, state.wave, state.defeatedBosses);
     switch (state.status) {
@@ -1040,13 +1125,24 @@ function start(main: HTMLElement, deps: BattleDeps): void {
         if (state.enemy?.worldBoss) {
           text = `🏛 קרב בוס! ${state.enemy.he} — הקישו בלי הפסקה ושחררו כל מהלך על.`;
           cls = 'boss';
+        } else if (overtime) {
+          const k = state.overtime + 1;
+          const gate = worldGate(state.world, partLevels(gameOf(store)));
+          const missing = gate.requirements
+            .filter((r) => !r.met)
+            .map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`)
+            .join(' · ');
+          text = state.gateOpen
+            ? `⏱ גל הארכה ${k} — הבוס מחכה לכפתור. משלם חצי מטבעות, עולה ${BALANCE.combat.energyPerWave} ⚡; דמי הבוס (${BALANCE.combat.boss.energyCost} ⚡) שמורים.`
+            : `⏱ גל הארכה ${k} — מטבעות לציוד בזמן שמתאמנים לרמות המומלצות (חסר: ${missing || 'אימון'}), או לקרב מוקדם. עולה ${BALANCE.combat.energyPerWave} ⚡; דמי הבוס שמורים.`;
+          cls = 'gate';
         } else if (sparring && !state.gateOpen) {
           const gate = worldGate(state.world, partLevels(gameOf(store)));
           const missing = gate.requirements
             .filter((r) => !r.met)
             .map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`)
             .join(' · ');
-          text = `🥊 קרב אימון — בלי מטבעות ובלי התקדמות. בוס העולם חוסם את הדרך; חסר: ${missing || 'אימון'} — לכו להתאמן ותחזרו.`;
+          text = `🥊 קרב אימון — בלי מטבעות ובלי התקדמות. הבוס פתוח לקרב מוקדם (מחוזק ב־${handicapPct(gate.deficit)}%); לרמות המומלצות חסר: ${missing || 'אימון'}.`;
           cls = 'gate';
         } else if (sparring) {
           text = '🥊 קרב אימון — בלי מטבעות ובלי התקדמות. הבוס מוכן: לחצו על ״🏛 קרב בוס״ כשתרצו להתחיל.';
@@ -1066,11 +1162,10 @@ function start(main: HTMLElement, deps: BattleDeps): void {
   /**
    * The boss button — present the whole time the player stands at the boss
    * wave (the sparring stretch), so the arena SAYS why these bouts pay
-   * nothing: the boss is the way forward. While the body-part gate is unmet
-   * it renders LOCKED and disabled — 🔒 plus the same requirements the gate
-   * card lists — and it unlocks (and becomes pressable) the moment the gate
-   * is met: the exact gate that used to start the fight by itself. It only
-   * disappears once the fight itself is on.
+   * nothing: the boss is the way forward. It is ALWAYS pressable there: while
+   * the body-part gate is unmet it renders as the EARLY challenge — amber, with
+   * the handicap the boss will carry — and turns into the plain boss button the
+   * moment the gate is met. It only disappears once the fight itself is on.
    */
   function paintBossBtn(): void {
     if (!bossBtn) return;
@@ -1080,13 +1175,13 @@ function start(main: HTMLElement, deps: BattleDeps): void {
       bossStanding(state.world, state.wave, state.defeatedBosses);
     bossBtn.hidden = !show;
     if (!show) return;
-    const spec = bossSpec(state.world);
+    const spec = bossSpec(state.world, state.gateDeficit);
     const boss = worldBossOf(state.world);
-    const locked = !state.gateOpen;
-    bossBtn.disabled = locked;
-    bossBtn.classList.toggle('locked', locked);
-    const label = locked
-      ? `🔒 קרב בוס${boss ? `: ${boss.he}` : ''} — נעול, התאמנו כדי לפתוח`
+    const early = !state.gateOpen;
+    bossBtn.disabled = false;
+    bossBtn.classList.toggle('early', early);
+    const label = early
+      ? `⚔️ קרב בוס מוקדם${boss ? `: ${boss.he}` : ''} · מחוזק +${handicapPct(state.gateDeficit)}%${spec ? ` · ${spec.energyCost} ⚡` : ''}`
       : `🏛 קרב בוס${boss ? `: ${boss.he}` : ''}${spec ? ` · ${spec.energyCost} ⚡` : ''}`;
     if (bossBtn.textContent !== label) bossBtn.textContent = label;
   }
@@ -1203,7 +1298,9 @@ function start(main: HTMLElement, deps: BattleDeps): void {
       wave: g.battle.wave,
       energy: g.energy,
       stats,
-      gateOpen: gateOpenFor(g),
+      gateOpen: !gateFor(g).locked,
+      gateDeficit: gateFor(g).deficit,
+      overtime: g.battle.overtime[String(g.battle.world)] ?? 0,
       defeatedBosses: g.battle.bossesDefeated,
     });
     setChallengeSkin(null);
@@ -1500,7 +1597,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
           onBossDefeated(store, ev.result);
           const g = gameOf(store);
           setEnergy(state, g.energy);
-          setGate(state, gateOpenFor(g), g.battle.bossesDefeated);
+          syncGate(g, g.battle.bossesDefeated);
           paintTotals();
           deps.refreshHeader();
           shake(true);
@@ -1595,7 +1692,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     // Same story for the skills: they unlock off the part levels, so a level-up
     // while the arena is open lights the slot up without a reload.
     levels = partLevels(g);
-    if (!state.challenge) setGate(state, gateOpenFor(g));
+    if (!state.challenge) syncGate(g);
     consume(advance(state, dt, stats));
     schedule();
   }
@@ -1684,26 +1781,28 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     const g = gameOf(store);
     stats = statsOf(g);
     levels = partLevels(g);
-    setGate(state, gateOpenFor(g), g.battle.bossesDefeated);
+    syncGate(g, g.battle.bossesDefeated);
     const res = requestBossFight(state);
     if (!res.ok) {
-      const spec = bossSpec(state.world);
+      const spec = bossSpec(state.world, state.gateDeficit);
       if (res.reason === 'no_energy') {
         toast(`⚡ צריך ${spec?.energyCost ?? 0} אנרגיה לקרב הבוס — יש לכם ${fmtXp(state.energy)}. לכו להתאמן!`);
-      } else if (res.reason === 'gate_locked') {
-        const gate = worldGate(state.world, partLevels(g));
-        const missing = gate.requirements
-          .filter((r) => !r.met)
-          .map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`)
-          .join(' · ');
-        toast(`🔒 הבוס עדיין נעול — חסר: ${missing || 'אימון'}.`);
       }
       paintBossBtn();
       return;
     }
+    if (!state.gateOpen) {
+      toast(`⚔️ קרב מוקדם! הבוס מחוזק ב־${handicapPct(state.gateDeficit)}% — כל רמה שתעלו תחליש אותו.`);
+    }
     // The next tick spawns the boss — run it now so the fight starts under the
     // player's finger rather than a frame later.
     consume(advance(state, BALANCE.combat.tickMs, stats));
+  });
+
+  // The gate coaching's shortcut into the plan editor (rendered only when the
+  // shell handed us a way there).
+  main.querySelector<HTMLButtonElement>('#btCoachPlan')?.addEventListener('click', () => {
+    deps.editPlan?.();
   });
 
   superBtn?.addEventListener('click', () => {

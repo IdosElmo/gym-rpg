@@ -174,6 +174,7 @@ describe('history feed', () => {
       energySpent: 0,
       seed: 1,
       durationMs: 100,
+      overtime: false,
     });
     buyItem(store, 'gloves_1');
     equipItem(store, 'gloves', null);

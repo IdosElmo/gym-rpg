@@ -30,8 +30,10 @@ import {
 } from '../src/core/combat.ts';
 import { deriveStats, emptyGame } from '../src/core/xp.ts';
 import {
+  DEFAULT_CURVE_SPAN,
   ENEMIES,
   WORLDS,
+  curveSpanOf,
   WORLD_BOSSES,
   enemyById,
   enemyForWave,
@@ -191,30 +193,47 @@ describe('flavour multipliers', () => {
 
   /**
    * THE PROMISE OF THE STRETCH, stated as an equation rather than a feeling:
-   * every world's LAST wave — and its boss — stands exactly where the old
-   * 50-wave-per-world curve put wave 50 of that world. Longer worlds therefore
-   * cost more energy and more time and not one point of extra difficulty.
+   * every world's LAST wave stands exactly `hpGrowth^span` above its first —
+   * `span` classic waves of the base curve (49 for world 1, its own number for
+   * a steeper world), however many waves the world is drawn over. Growing a
+   * world's wave count therefore never moves its end; only `span` does, on
+   * purpose (PHASE 11). The purse is the half that did NOT move: coins ride the
+   * classic 49-step ramp whatever the span, so a world's last wave pays exactly
+   * what wave 50 used to pay.
    */
-  it('lands every world’s FINAL wave on the old wave-50 difficulty, exactly', () => {
+  it('lands every world’s FINAL wave on exactly its span, and its purse on the old wave-50', () => {
     const e = BALANCE.combat.enemy;
     for (const w of WORLDS) {
-      const legacyStep = BALANCE.combat.wavesFirstWorld - 1;
-      const hp50 = e.hpBase * Math.pow(e.hpGrowth, legacyStep) * worldHpFactor(w.id);
-      const atk50 = e.atkBase * Math.pow(e.atkGrowth, legacyStep) * worldAtkFactor(w.id);
+      const span = curveSpanOf(w.id);
+      expect(span).toBe(w.span ?? DEFAULT_CURVE_SPAN);
+      const hpEnd = e.hpBase * Math.pow(e.hpGrowth, span) * worldHpFactor(w.id);
+      const atkEnd = e.atkBase * Math.pow(e.atkGrowth, span) * worldAtkFactor(w.id);
 
       const last = waveSpec(w.id, w.waves);
       const hp = last.hp / ((last.enemy.hpMult ?? 1) * (last.miniBoss ? e.miniBossHpMult : 1));
       const atk = last.atk / ((last.enemy.atkMult ?? 1) * (last.miniBoss ? e.miniBossAtkMult : 1));
 
-      expect(hp / hp50, `world ${w.id} final HP`).toBeCloseTo(1, 2);
-      expect(atk / atk50, `world ${w.id} final ATK`).toBeCloseTo(1, 2);
-      // …and so does the purse: the last wave pays what wave 50 used to pay.
+      expect(hp / hpEnd, `world ${w.id} final HP`).toBeCloseTo(1, 2);
+      expect(atk / atkEnd, `world ${w.id} final ATK`).toBeCloseTo(1, 2);
+      // …and the purse: the last wave pays what wave 50 used to pay, whatever
+      // the world's span is.
+      const legacyStep = BALANCE.combat.wavesFirstWorld - 1;
       const coins50 = Math.round(
         (BALANCE.combat.coins.base + BALANCE.combat.coins.perWave * legacyStep) *
           worldCoinFactor(w.id),
       );
       const coins = last.coins / (last.miniBoss ? BALANCE.combat.coins.miniBossMult : 1);
       expect(coins / coins50, `world ${w.id} final coins`).toBeCloseTo(1, 1);
+    }
+  });
+
+  it('draws every world past the first on a steeper ramp than the one before it, never a shallower one', () => {
+    // The spans are the retune's difficulty knob: worlds 2–4 climb, the taper
+    // worlds hold a steep ramp. World 1 keeps the classic 49 exactly.
+    expect(curveSpanOf(1)).toBe(DEFAULT_CURVE_SPAN);
+    for (const w of WORLDS) {
+      expect(curveSpanOf(w.id)).toBeGreaterThanOrEqual(DEFAULT_CURVE_SPAN);
+      expect(curveSpanOf(w.id)).toBeLessThanOrEqual(70);
     }
   });
 

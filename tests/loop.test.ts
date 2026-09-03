@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../src/core/balance.ts';
 import {
   advance,
+  bossSpec,
   bossStanding,
   createBattle,
   requestBossFight,
@@ -136,19 +137,21 @@ function playUntil(
         onBossDefeated(store, ev.result, new Date('2025-06-01T10:00:00Z'));
         const g = gameOf(store);
         setEnergy(state, g.energy);
-        setGate(state, !worldGate(g.battle.world, levelsOf(store)).locked, g.battle.bossesDefeated);
+        const gate = worldGate(g.battle.world, levelsOf(store));
+        setGate(state, !gate.locked, g.battle.bossesDefeated, gate.deficit);
       }
     }
-    // The engaged player presses the boss button the moment it lights up. A
-    // refusal is the cue to go back to training (the arena would only spar
-    // for nothing from here) — same place the old `gated` status broke.
+    // The engaged player presses the boss button the moment the gate is met.
+    // An unmet gate (they could fight early, strengthened — this trainee would
+    // rather train) or a refusal for energy is the cue to go back to training.
     if (
       state.enemy?.worldBoss !== true &&
       !state.bossRequested &&
       bossStanding(state.world, state.wave, state.defeatedBosses)
     ) {
+      if (!state.gateOpen) break;
       const req = requestBossFight(state);
-      if (!req.ok && (req.reason === 'gate_locked' || req.reason === 'no_energy')) break;
+      if (!req.ok && req.reason === 'no_energy') break;
     }
     if (state.status === 'resting') break;
   }
@@ -174,6 +177,7 @@ describe('the core loop, end to end', () => {
     const boss1 = worldBossOf(1);
     expect(worldGate(1, levelsOf(store)).locked).toBe(true);
 
+    const gate1 = worldGate(1, levelsOf(store));
     const blocked = createBattle({
       seed: 2024,
       world: 1,
@@ -181,18 +185,29 @@ describe('the core loop, end to end', () => {
       energy: gameOf(store).energy,
       stats: combatStats(store),
       gateOpen: false,
+      gateDeficit: gate1.deficit,
     });
     advance(blocked, 2000, combatStats(store));
-    // The locked gate no longer empties the arena: a reward-less sparring bout
-    // is on, the boss is not, and the button is refused with the gate's reason.
+    // The unmet gate does not empty the arena: a paid OVERTIME wave is on and
+    // the boss is not — until the player asks for it.
     expect(blocked.status).toBe('fighting');
     expect(blocked.enemy?.worldBoss).toBe(false);
-    expect(blocked.enemy?.sparring).toBe(true);
-    expect(requestBossFight(blocked)).toEqual({ ok: false, reason: 'gate_locked' });
+    expect(blocked.enemy?.overtime).toBe(true);
     // and the UI is told exactly which parts are missing, in Hebrew-ready shape
-    const missing = worldGate(1, levelsOf(store)).requirements.filter((r) => !r.met);
+    const missing = gate1.requirements.filter((r) => !r.met);
     expect(missing.length).toBeGreaterThan(0);
     expect(missing.every((r) => r.have < r.need)).toBe(true);
+    expect(gate1.deficit).toBeGreaterThan(0);
+    // The EARLY challenge: pressing is allowed, and the boss comes up strengthened
+    // by exactly that deficit — a one-workout character does not get past it.
+    expect(requestBossFight(blocked)).toEqual({ ok: true });
+    advance(blocked, 2000, combatStats(store));
+    expect(blocked.enemy?.worldBoss).toBe(true);
+    expect(blocked.enemy?.maxHp).toBe(bossSpec(1, gate1.deficit)?.hp);
+    expect(blocked.enemy?.maxHp ?? 0).toBeGreaterThan(bossSpec(1)?.hp ?? 0);
+    playUntil(store, blocked, (s) => s.defeats > 0 || s.world > 1, 120_000);
+    expect(blocked.defeats).toBeGreaterThan(0);
+    expect(gameOf(store).battle.bossesDefeated).toEqual([]);
 
     /* -- 3. keep training until the requirements are met ------------------- */
 
@@ -226,11 +241,8 @@ describe('the core loop, end to end', () => {
       const date = `2025-06-${String(11 + round).padStart(2, '0')}`;
       logWorkout(store, date, DAYS[round % DAYS.length] as BuiltInDayKey);
       setEnergy(state, gameOf(store).energy);
-      setGate(
-        state,
-        !worldGate(state.world, levelsOf(store)).locked,
-        gameOf(store).battle.bossesDefeated,
-      );
+      const gate = worldGate(state.world, levelsOf(store));
+      setGate(state, !gate.locked, gameOf(store).battle.bossesDefeated, gate.deficit);
     }
 
     const afterBoss = gameOf(store);

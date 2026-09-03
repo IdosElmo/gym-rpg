@@ -70,6 +70,7 @@ function richStore(coins: number): LocalStore {
     energySpent: 0,
     seed: 1,
     durationMs: 1000,
+    overtime: false,
   });
   return store;
 }

@@ -134,7 +134,7 @@ export function buildFeed(
           date,
           icon: '👑',
           cls: 'boss',
-          text: `מיני־בוס בגל ${wave} (${esc(worldById(world).he)}) הופל! +${coins} 🪙`,
+          text: `מיני־בוס ב${p['overtime'] === true ? 'גל הארכה' : 'גל'} ${wave} (${esc(worldById(world).he)}) הופל! +${coins} 🪙`,
         });
         continue;
       }
@@ -209,6 +209,8 @@ export function buildFeed(
         const boss = bossById(str(p['bossId']));
         const world = worldById(Math.max(1, num(p['world'])));
         const name = boss ? boss.he : str(p['bossId']);
+        // An EARLY kill (below the recommended levels) is the bigger feat — say so.
+        const early = num(p['deficit']) > 0 ? ` ⚔️ קרב מוקדם, ${num(p['deficit'])} רמות מתחת למומלץ` : '';
         items.push({
           ts: ev.ts,
           date,
@@ -216,8 +218,8 @@ export function buildFeed(
           cls: 'boss',
           text:
             p['endgame'] === true
-              ? `${esc(name)} הובס — מצב אלוף נפתח! +${num(p['coins'])} 🪙`
-              : `בוס העולם ${esc(name)} (${esc(world.he)}) הובס! עולם ${num(p['nextWorld'])} נפתח · +${num(p['coins'])} 🪙`,
+              ? `${esc(name)} הובס — מצב אלוף נפתח! +${num(p['coins'])} 🪙${early}`
+              : `בוס העולם ${esc(name)} (${esc(world.he)}) הובס! עולם ${num(p['nextWorld'])} נפתח · +${num(p['coins'])} 🪙${early}`,
         });
         break;
       }

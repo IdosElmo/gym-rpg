@@ -41,10 +41,13 @@ export interface WorldDef {
    * PER-WORLD ON PURPOSE. The counts grow — and the growth DECELERATES — so the
    * journey lengthens without the late game ballooning:
    *
-   *   50 · 60 · 70 · 80 · 85 · 90 · 95 · 100 · 110   (740 waves ≈ 34 workouts of ⚡)
+   *   50 · 80 · 110 · 130 · 140 · 150 · 160 · 170 · 180   (1,170 waves ≈ 53 workouts of ⚡)
    *
-   * The difficulty curve is stretched to fit (see the PHASE 9 note in
-   * `core/balance.ts`), so a longer world is longer, never harder at the end.
+   * PHASE 11 lengthened every world past the first so that a world's waves run
+   * out roughly when its boss gate opens (`tests/pacing.test.ts` pins the two
+   * poles against a real trainee on both shipped plans). The difficulty curve is
+   * stretched to fit (see the PHASE 9 note in `core/balance.ts`): a longer world
+   * is longer, and only its `span` decides how much harder its end is.
    *
    * REPLAY. Nothing in the log is re-derived from this number: `wave_cleared`
    * and `boss_defeated` carry `world`/`wave`/`nextWorld`/`nextWave` as data and
@@ -52,6 +55,18 @@ export interface WorldDef {
    * the player and never a single fact behind them.
    */
   readonly waves: number;
+  /**
+   * How much of the difficulty curve the world's ramp covers, in "classic
+   * waves" of the 50-wave curve (`BALANCE.combat.wavesFirstWorld − 1` when
+   * absent — the ramp world 1 has always had). The last ordinary wave of a
+   * world stands at `hpGrowth^span` × the world's first wave; a bigger span is
+   * a steeper world, however many waves it is drawn over (`waveStretch`).
+   *
+   * THE RAMP IS THE PACER. A world's late waves are meant to be the wall that
+   * sends the player back to the gym — not the boss gate behind them. See the
+   * PHASE 11 note in `core/balance.ts` for how the spans were chosen.
+   */
+  readonly span?: number;
 }
 
 /** The nine worlds: the four launch ones, then the five-world late campaign. */
@@ -74,7 +89,8 @@ export const WORLDS: readonly WorldDef[] = [
     icon: '🌆',
     accent: '#10B981',
     bg: ['#1E3A34', '#141E22'],
-    waves: 60,
+    waves: 80,
+    span: 49,
   },
   {
     id: 3,
@@ -84,7 +100,8 @@ export const WORLDS: readonly WorldDef[] = [
     icon: '🏟',
     accent: '#F59E0B',
     bg: ['#3A2C1B', '#1F1810'],
-    waves: 70,
+    waves: 110,
+    span: 50,
   },
   {
     id: 4,
@@ -94,7 +111,8 @@ export const WORLDS: readonly WorldDef[] = [
     icon: '⛰',
     accent: '#A78BFA',
     bg: ['#312A55', '#191428'],
-    waves: 80,
+    waves: 130,
+    span: 54,
   },
   {
     id: 5,
@@ -104,7 +122,8 @@ export const WORLDS: readonly WorldDef[] = [
     icon: '🌊',
     accent: '#22D3EE',
     bg: ['#0E3A4A', '#0A1A24'],
-    waves: 85,
+    waves: 140,
+    span: 59,
   },
   {
     id: 6,
@@ -114,7 +133,8 @@ export const WORLDS: readonly WorldDef[] = [
     icon: '❄️',
     accent: '#93C5FD',
     bg: ['#20344F', '#101A28'],
-    waves: 90,
+    waves: 150,
+    span: 64,
   },
   {
     id: 7,
@@ -124,7 +144,8 @@ export const WORLDS: readonly WorldDef[] = [
     icon: '🌑',
     accent: '#C084FC',
     bg: ['#2A2140', '#140F1E'],
-    waves: 95,
+    waves: 160,
+    span: 65,
   },
   {
     id: 8,
@@ -134,7 +155,8 @@ export const WORLDS: readonly WorldDef[] = [
     icon: '☁️',
     accent: '#FDE68A',
     bg: ['#3E3A26', '#1C1A12'],
-    waves: 100,
+    waves: 170,
+    span: 59,
   },
   {
     id: 9,
@@ -144,7 +166,8 @@ export const WORLDS: readonly WorldDef[] = [
     icon: '🔥',
     accent: '#F87171',
     bg: ['#4A1B18', '#200C0B'],
-    waves: 110,
+    waves: 180,
+    span: 66,
   },
 ] as const;
 
@@ -165,6 +188,18 @@ export const WORLD_COUNT = WORLDS.length;
 export function wavesInWorld(world: number): number {
   return WORLDS.find((w) => w.id === world)?.waves ?? (WORLDS[WORLDS.length - 1] as WorldDef).waves;
 }
+
+/**
+ * How many classic waves of the curve a world's ramp covers — `span` when the
+ * world sets one, the first world's 49 otherwise.
+ */
+export function curveSpanOf(world: number): number {
+  const w = WORLDS.find((x) => x.id === world);
+  return w?.span ?? DEFAULT_CURVE_SPAN;
+}
+
+/** The ramp every world had before PHASE 11: wave 1 → wave 50 of the base curve. */
+export const DEFAULT_CURVE_SPAN = 49;
 
 /** The wave the world's boss stands on — one past its last ordinary wave. */
 export function bossWaveOf(world: number): number {
@@ -1550,25 +1585,25 @@ export function enemyById(id: string): EnemyDef | undefined {
 /**
  * One boss per world, standing at the wave AFTER the world's last one.
  *
- * GATE TUNING (see README + `docs` in balance.ts). The numbers are derived from
- * two independent pacing curves that were made to meet:
- *   - COMBAT: with active tapping and era-appropriate gear, the LAST wave of
- *     world N is clearable at roughly part level 3 / 5 / 7 / 8 / 9 / 9 / 9 / 10
- *     / 10;
- *   - TRAINING: a consistent 3–4×/week trainee reaches min-part level 3 after
- *     ~5 workouts, 5 after ~12, 7 after ~26, 8 after ~36, 9 after ~50 and 10
- *     after ~65 (measured against the real `onSetCompleted` path, see README).
- * Each gate is therefore set at (or one notch above) the level the player needs
- * anyway, and it always lands about one extra workout after they run out of
- * waves — so the gate asks for training, never for grinding.
+ * GATE TUNING (PHASE 11 — see `docs/progression-pacing-plan.md` and the README).
+ * A gate is set at the levels a trainee ACTUALLY HAS when the world's waves run
+ * out of ⚡, measured through the real `onSetCompleted` path on both shipped
+ * plans (`tests/pacing.test.ts`): the built-in A/B/C split and the chest-light
+ * A/B 4-day preset. The gate therefore opens within a workout or two of the
+ * last wave — usually a little before it — and the RAMP of the waves (the
+ * world's `span`) is what sends the player back to the gym, never the gate.
  *
- * THE LATE LADDER IS COMPRESSED ON PURPOSE. `xpForLevel` is 100 × 1.35^(n−1),
- * so the cumulative cost of a part level roughly doubles every two levels: an
- * all-six gate at level 13 would want ~180 workouts on its own, which would put
- * the finale a year out. The five late worlds therefore escalate mostly by
- * BREADTH (which parts, and how many of them, are asked at all) and only gently
- * by height, which keeps the whole nine-world journey inside ~50 workouts while
- * the requirement SUM still rises strictly world over world.
+ *   world   1   2   3   4   5   6   7   8   9
+ *   band    3   4   5   6   7   8   9   9  10     (the steepest requirement)
+ *
+ * The earlier ladder (3/5/7/8/9/9/10/10/10) was tuned against a combat curve
+ * from before skills, six equipment slots, upgrades and the streak buff; those
+ * made the waves far easier than the gates assumed, and from world 3 on a
+ * player spent 9–46 workouts sparring at a boss they could already beat.
+ *
+ * BREADTH, not height, still carries the escalation: the late gates ask for the
+ * whole body and their SUM rises strictly world over world, but no part is ever
+ * asked for more than the slower plan reaches by that world's energy pole.
  *
  * `hpMult`/`atkMult` sit on top of the wave scaling: bosses are damage SPONGES
  * with heavy but slow hits (`BALANCE.combat.boss.attackIntervalMs`), so the
@@ -1604,7 +1639,7 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     en: 'Street Overlord',
     world: 2,
     kind: 'boss',
-    requires: { chest: 5, back: 5, arms: 5 },
+    requires: { chest: 3, back: 4, arms: 4 },
     hpMult: 5.5,
     atkMult: 0.9,
     svg: sprite(`
@@ -1627,7 +1662,7 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     en: 'Champion of Champions',
     world: 3,
     kind: 'boss',
-    requires: { back: 7, core: 7, legs: 6, shoulders: 6 },
+    requires: { back: 5, legs: 5, shoulders: 4, core: 4 },
     hpMult: 6,
     atkMult: 1,
     svg: sprite(`
@@ -1649,7 +1684,7 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     en: 'Zeus',
     world: 4,
     kind: 'boss',
-    requires: { chest: 8, back: 8, legs: 8, shoulders: 8, arms: 8, core: 8 },
+    requires: { chest: 5, back: 6, legs: 6, shoulders: 5, arms: 6, core: 6 },
     hpMult: 7,
     atkMult: 0.9,
     svg: sprite(`
@@ -1671,8 +1706,8 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     en: 'Abyssal Leviathan',
     world: 5,
     kind: 'boss',
-    requires: { chest: 9, back: 8, legs: 8, shoulders: 8, arms: 9, core: 8 },
-    hpMult: 5.4,
+    requires: { chest: 6, back: 7, legs: 7, shoulders: 6, arms: 7, core: 6 },
+    hpMult: 3.8,
     atkMult: 0.9,
     def: 26,
     svg: sprite(`
@@ -1696,8 +1731,8 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     en: 'Frost Queen',
     world: 6,
     kind: 'boss',
-    requires: { chest: 9, back: 9, legs: 8, shoulders: 8, arms: 9, core: 9 },
-    hpMult: 6.6,
+    requires: { chest: 6, back: 8, legs: 8, shoulders: 7, arms: 8, core: 7 },
+    hpMult: 3.9,
     atkMult: 0.9,
     attackSlowMult: 1.2,
     svg: sprite(`
@@ -1720,8 +1755,8 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     en: 'Shadow Lord',
     world: 7,
     kind: 'boss',
-    requires: { chest: 10, back: 9, legs: 9, shoulders: 8, arms: 9, core: 9 },
-    hpMult: 6.05,
+    requires: { chest: 7, back: 9, legs: 8, shoulders: 8, arms: 9, core: 8 },
+    hpMult: 3.7,
     atkMult: 0.9,
     dodgeChance: 0.15,
     svg: sprite(`
@@ -1744,8 +1779,8 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     en: 'Angel of Judgement',
     world: 8,
     kind: 'boss',
-    requires: { chest: 10, back: 9, legs: 9, shoulders: 9, arms: 10, core: 10 },
-    hpMult: 4.5,
+    requires: { chest: 7, back: 9, legs: 9, shoulders: 8, arms: 9, core: 8 },
+    hpMult: 3.4,
     atkMult: 0.9,
     regenPct: 0.004,
     svg: sprite(`
@@ -1770,8 +1805,8 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     en: 'Lord of Hell',
     world: 9,
     kind: 'boss',
-    requires: { chest: 10, back: 10, legs: 9, shoulders: 9, arms: 10, core: 10 },
-    hpMult: 4.55,
+    requires: { chest: 8, back: 10, legs: 9, shoulders: 9, arms: 10, core: 9 },
+    hpMult: 2.95,
     atkMult: 0.85,
     critChance: 0.15,
     critMultiplier: 1.7,
@@ -1814,27 +1849,36 @@ export interface GateRequirement {
 }
 
 export interface GateStatus {
+  /**
+   * True while at least one requirement is unmet. Since PHASE 11 this is a
+   * RECOMMENDATION, not a lock: the boss can be fought anyway, strengthened by
+   * `deficit` (see `BALANCE.combat.boss.handicap`).
+   */
   readonly locked: boolean;
   readonly requirements: readonly GateRequirement[];
+  /** Σ over the requirements of `max(0, need − have)` — 0 when the gate is met. */
+  readonly deficit: number;
 }
 
 /**
- * Met/unmet state of a boss's body-part gate. Pure — the UI just renders it.
- * Phase 3 uses the same function for the world-boss screen.
+ * Met/unmet state of a boss's body-part gate, and how far below it the
+ * character is. Pure — the UI renders it, the engine scales the boss by it.
  */
 export function bossGateStatus(
   boss: BossDef | undefined,
   levels: Readonly<Record<BodyPart, number>>,
 ): GateStatus {
-  if (!boss) return { locked: true, requirements: [] };
+  if (!boss) return { locked: true, requirements: [], deficit: 0 };
   const requirements: GateRequirement[] = [];
+  let deficit = 0;
   for (const key of Object.keys(boss.requires) as BodyPart[]) {
     const need = boss.requires[key] ?? 0;
     if (need <= 0) continue;
     const have = levels[key] ?? 1;
     requirements.push({ part: key, need, have, met: have >= need });
+    deficit += Math.max(0, need - have);
   }
-  return { locked: requirements.some((r) => !r.met), requirements };
+  return { locked: requirements.some((r) => !r.met), requirements, deficit };
 }
 
 /* ------------------------------------------------------------- equipment */
