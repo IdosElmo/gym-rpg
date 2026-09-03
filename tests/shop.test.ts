@@ -79,7 +79,7 @@ function richStore(coins: number): LocalStore {
 
 describe('the equipment roster', () => {
   it('covers all six slots with several tiers and unique ids', () => {
-    expect(EQUIPMENT_SLOTS).toEqual(['gloves', 'shirt', 'belt', 'leggings', 'shoes', 'cape']);
+    expect(EQUIPMENT_SLOTS).toEqual(['helmet', 'gloves', 'shirt', 'belt', 'leggings', 'shoes', 'cape']);
     expect(EQUIPMENT.length).toBeGreaterThanOrEqual(EQUIPMENT_SLOTS.length * 3);
     expect(new Set(EQUIPMENT.map((e) => e.id)).size).toBe(EQUIPMENT.length);
     for (const slot of EQUIPMENT_SLOTS) {
@@ -167,7 +167,14 @@ describe('the equipment roster', () => {
   it('keeps a fully upgraded six-slot wardrobe at ≈47k 🪙 — a quarter of the campaign', () => {
     const lifetime = (cost: number): number => cost + upgradeTotalCost(cost, MAX_UPGRADE_LEVEL);
     const sink = EQUIPMENT.reduce((sum, e) => sum + lifetime(e.cost), 0);
-    expect(sink).toBe(47_250);
+    expect(sink).toBe(53_310);
+    // the helmet (PHASE 12) is the ≈6k the wardrobe grew by, under the gloves it echoes
+    const helmet = EQUIPMENT.filter((e) => e.slot === 'helmet').reduce((sum, e) => sum + lifetime(e.cost), 0);
+    expect(helmet).toBe(6_060);
+    for (const [i, h] of equipmentForSlot('helmet').entries()) {
+      expect(h.cost).toBeLessThan((equipmentForSlot('gloves')[i] as (typeof h)).cost);
+      expect(Object.keys(h.bonus)).toContain('critChance');
+    }
     // the two new slots are the ≈13k the wardrobe grew by
     const added = EQUIPMENT.filter((e) => e.slot === 'shirt' || e.slot === 'leggings').reduce(
       (sum, e) => sum + lifetime(e.cost),

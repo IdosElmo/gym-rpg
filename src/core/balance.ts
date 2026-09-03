@@ -9,7 +9,17 @@
  *   one full workout ≈ 225 ⚡ (≈17 sets × 10 + 50 completion) and a wave costs
  *   10 ⚡ → ≈22 waves per workout, inside the brief's 15–25 target.
  *   The FIRST world is 50 waves → ≈2.4 workouts of ENERGY; every later world is
- *   longer (see `WORLDS[].waves`), up to 180 waves ≈ 8.1 workouts for the last.
+ *   longer (see `WORLDS[].waves`), up to 200 waves ≈ 9.0 workouts for the last.
+ *
+ * PHASE 12 — THE HELMET AND TWO MORE WORLDS. A seventh equipment slot (🪖 קסדה,
+ *   crit — priced and weighted under the gloves) is a flat power gain on every
+ *   era kit, and its ≈6,060 🪙 lifetime cost needed paying for; so the campaign
+ *   grew by worlds 10 (⚙️ עיר המכונות: armour + crit) and 11 (🌌 מעבר לכוכבים:
+ *   dodge + regen, the new endless finale), every roster grew by three, and the
+ *   late coin steps eased (waves 1.12 → 1.05, bosses 1.35 → 1.25) so eleven
+ *   worlds still buy the seven-slot wardrobe under six times. World 4's span
+ *   rose by two and world 9's by four to keep the ramp a wall with the helmet on;
+ *   the late boss multipliers came down again. `tests/pacing.test.ts` holds.
  *
  * PHASE 11 — THE TWO POLES MEET. A world ends twice: when its waves run out of
  *   ⚡ and when its boss gate opens. Measured against a real trainee they were
@@ -261,7 +271,7 @@ export const BALANCE = {
        * does: a flat 1.7× compounded over nine worlds would hand 28,000 🪙 for a
        * single kill, which is the entire wardrobe twice over.
        */
-      coinsBase: 400, coinsWorldMult: 1.7, coinsLateWorldMult: 1.35,
+      coinsBase: 400, coinsWorldMult: 1.7, coinsLateWorldMult: 1.25,
       /** Bosses swing slowly and hard. */
       attackIntervalMs: 2400,
       /**
@@ -314,19 +324,19 @@ export const BALANCE = {
        * keep 1.6×, later worlds step by `lateWorldMult`), because a purse that
        * kept compounding at 1.6× would pay ~2,300 🪙 for a single world-9 wave —
        * a quarter of the whole shop, per wave. As tapered, the nine worlds pay
-       * ≈252,500 🪙 (2,385 / 5,706 / 12,128 / 22,659 / 27,588 / 33,480 / 40,528 /
-       * 48,974 / 59,125) against ≈47,250 🪙 of sinks — three tiers × SIX slots,
-       * every one of them taken to +3, an item's lifetime cost being 3× its
-       * price. That is a little over five wardrobes' worth of income across the
-       * campaign, which is the ratio the shop is tuned for: the late worlds are
-       * meant to be fought in fully upgraded tier-3 gear, and no slot is ever
-       * out of reach of the world that is supposed to pay for it.
-       * PHASE 11 made the worlds 1.6× longer; the late step eased from 1.2 to
-       * 1.12 so the take stayed under six wardrobes, and `waveStep` here is the
+       * ≈313,000 🪙 across eleven worlds against ≈53,310 🪙 of sinks — three tiers
+       * × SEVEN slots, every one of them taken to +3, an item's lifetime cost
+       * being 3× its price. That is a little under six wardrobes' worth of
+       * income across the campaign, which is the ratio the shop is tuned for:
+       * the late worlds are meant to be fought in fully upgraded tier-3 gear,
+       * and no slot is ever out of reach of the world that is supposed to pay
+       * for it. PHASE 11 made the worlds 1.6× longer and eased the late step
+       * from 1.2 to 1.12; PHASE 12 added two worlds and eased it again to 1.05
+       * (bosses 1.35 → 1.25) for the same reason. `waveStep` here is the
        * CLASSIC 49-step ramp (`coinStretch`), never the world's `span`.
        * `tests/shop.test.ts` pins both halves of that arithmetic.
        */
-      base: 5, perWave: 1, worldMult: 1.6, lateWorldMult: 1.12, miniBossMult: 4,
+      base: 5, perWave: 1, worldMult: 1.6, lateWorldMult: 1.05, miniBossMult: 4,
     },
     tap: {
       /** Tap damage as a fraction of ATK. */

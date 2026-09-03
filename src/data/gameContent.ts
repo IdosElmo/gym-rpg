@@ -41,7 +41,8 @@ export interface WorldDef {
    * PER-WORLD ON PURPOSE. The counts grow — and the growth DECELERATES — so the
    * journey lengthens without the late game ballooning:
    *
-   *   50 · 80 · 110 · 130 · 140 · 150 · 160 · 170 · 180   (1,170 waves ≈ 53 workouts of ⚡)
+   *   50 · 80 · 110 · 130 · 140 · 150 · 160 · 170 · 180 · 190 · 200
+ *   (1,560 waves ≈ 71 workouts of ⚡ — PHASE 12 added the last two)
    *
    * PHASE 11 lengthened every world past the first so that a world's waves run
    * out roughly when its boss gate opens (`tests/pacing.test.ts` pins the two
@@ -112,7 +113,7 @@ export const WORLDS: readonly WorldDef[] = [
     accent: '#A78BFA',
     bg: ['#312A55', '#191428'],
     waves: 130,
-    span: 54,
+    span: 56,
   },
   {
     id: 5,
@@ -167,7 +168,29 @@ export const WORLDS: readonly WorldDef[] = [
     accent: '#F87171',
     bg: ['#4A1B18', '#200C0B'],
     waves: 180,
-    span: 66,
+    span: 70,
+  },
+  {
+    id: 10,
+    he: 'עיר המכונות',
+    en: 'Machine City',
+    tagline: 'פלדה, שמן וכוונות. הן משוריינות — והן יודעות לכוון',
+    icon: '⚙️',
+    accent: '#A3E635',
+    bg: ['#2A3A1B', '#141A0E'],
+    waves: 190,
+    span: 64,
+  },
+  {
+    id: 11,
+    he: 'מעבר לכוכבים',
+    en: 'Beyond the Stars',
+    tagline: 'הסוף האמיתי. מה שחי כאן חומק ומחלים — והכול מסתובב',
+    icon: '🌌',
+    accent: '#F472B6',
+    bg: ['#3B1A4A', '#150A1E'],
+    waves: 200,
+    span: 55,
   },
 ] as const;
 
@@ -381,6 +404,60 @@ const W1: readonly EnemyDef[] = [
       ${eyes(50, 70, 74, 5, '#F87171')}
       <path d="M48 92 q12 -9 24 0" stroke="#F87171" stroke-width="3" fill="none" stroke-linecap="round"/>`),
   },
+  /* --- PHASE 12 additions: three more faces of the abandoned gym --------- */
+  {
+    id: 'w1_medball',
+    he: 'כדור כוח מתגלגל',
+    en: 'Rolling Medicine Ball',
+    world: 1,
+    kind: 'regular',
+    /* nimble */ hpMult: 0.8,
+    atkMult: 1.2,
+    svg: sprite(`
+      <circle cx="60" cy="66" r="36" fill="#7C2D12" stroke="#431407" stroke-width="3"/>
+      <path d="M28 54 q32 -18 64 0" stroke="#9A3412" stroke-width="6" fill="none" stroke-linecap="round"/>
+      <path d="M26 80 q34 20 68 0" stroke="#9A3412" stroke-width="6" fill="none" stroke-linecap="round"/>
+      ${eyes(48, 72, 62, 5, '#FDE68A')}
+      <path d="M48 80 q12 10 24 0" stroke="#FDE68A" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M8 104 q12 -6 24 0 M88 104 q12 -6 24 0" stroke="#8B96AB" stroke-width="4" fill="none" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w1_rack',
+    he: 'מתקן סקוואט חורק',
+    en: 'Creaking Squat Rack',
+    world: 1,
+    kind: 'regular',
+    /* tank */ hpMult: 1.3,
+    atkMult: 0.8,
+    svg: sprite(`
+      <rect x="20" y="10" width="12" height="98" rx="5" fill="#4E5C78" stroke="#22304C" stroke-width="2"/>
+      <rect x="88" y="10" width="12" height="98" rx="5" fill="#4E5C78" stroke="#22304C" stroke-width="2"/>
+      <rect x="8" y="100" width="36" height="10" rx="4" fill="#3B4E76"/>
+      <rect x="76" y="100" width="36" height="10" rx="4" fill="#3B4E76"/>
+      <rect x="14" y="34" width="92" height="10" rx="5" fill="#8FA1C4"/>
+      <rect x="2" y="26" width="16" height="26" rx="5" fill="#2F3A52"/>
+      <rect x="102" y="26" width="16" height="26" rx="5" fill="#2F3A52"/>
+      <rect x="40" y="56" width="40" height="30" rx="8" fill="#3B4E76" stroke="#22304C" stroke-width="3"/>
+      ${eyes(51, 69, 68, 4.5, '#F59E0B')}
+      <path d="M50 80 h20" stroke="#0B0F19" stroke-width="3.5" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w1_mirror',
+    he: 'מראה סדוקה',
+    en: 'Cracked Mirror',
+    world: 1,
+    kind: 'regular',
+    /* bruiser */ hpMult: 1.0,
+    atkMult: 1.0,
+    svg: sprite(`
+      <rect x="24" y="8" width="72" height="104" rx="10" fill="#4E5C78" stroke="#22304C" stroke-width="3"/>
+      <rect x="32" y="16" width="56" height="88" rx="6" fill="#9FB4D6"/>
+      <path d="M40 24 l18 30 -10 14 22 30" stroke="#E2E8F0" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M58 54 l16 -8 M48 68 l-10 6" stroke="#E2E8F0" stroke-width="2" stroke-linecap="round"/>
+      ${eyes(50, 70, 50, 4.5, '#1B2438')}
+      <path d="M48 76 q12 -10 24 0" stroke="#1B2438" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <rect x="44" y="108" width="32" height="8" rx="4" fill="#2F3A52"/>`),
+  },
 ];
 
 const W1_MINI: EnemyDef = {
@@ -510,6 +587,61 @@ const W2: readonly EnemyDef[] = [
       <rect x="24" y="70" width="72" height="13" rx="6" fill="#8A6244" stroke="#4A2A16" stroke-width="2"/>
       <rect x="34" y="96" width="52" height="8" rx="4" fill="#DC2626"/>`),
   },
+  /* --- PHASE 12 additions: more of the street ---------------------------- */
+  {
+    id: 'w2_pigeon',
+    he: 'יונה חצופה',
+    en: 'Cheeky Pigeon',
+    world: 2,
+    kind: 'regular',
+    /* nimble */ hpMult: 0.78,
+    atkMult: 1.22,
+    svg: sprite(`
+      <ellipse cx="56" cy="74" rx="34" ry="24" fill="#94A3B8"/>
+      <path d="M22 70 q-18 -6 -12 -24 q14 6 22 18 Z" fill="#64748B"/>
+      <circle cx="88" cy="52" r="16" fill="#A5B4CB"/>
+      <path d="M102 52 l14 4 -14 4 Z" fill="#F59E0B"/>
+      <path d="M84 40 q6 -14 16 -6" stroke="#4ADE80" stroke-width="4" fill="none" stroke-linecap="round"/>
+      ${eyes(86, 96, 50, 3.2, '#EF4444')}
+      <path d="M44 96 v14 M64 96 v14" stroke="#F59E0B" stroke-width="4" stroke-linecap="round"/>
+      <path d="M38 110 h12 M58 110 h12" stroke="#F59E0B" stroke-width="3" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w2_scooter',
+    he: 'קורקינט חשמלי משתולל',
+    en: 'Rogue E-Scooter',
+    world: 2,
+    kind: 'regular',
+    hpMult: 0.95,
+    atkMult: 1.1,
+    svg: sprite(`
+      <path d="M22 96 h60 l6 -14 h-56 Z" fill="#1F2937" stroke="#0B0F19" stroke-width="3"/>
+      <rect x="84" y="16" width="8" height="72" rx="4" fill="#374151"/>
+      <rect x="66" y="10" width="44" height="12" rx="6" fill="#374151"/>
+      <circle cx="26" cy="104" r="11" fill="#111827" stroke="#4B5563" stroke-width="3"/>
+      <circle cx="94" cy="104" r="11" fill="#111827" stroke="#4B5563" stroke-width="3"/>
+      <rect x="34" y="52" width="36" height="26" rx="8" fill="#10B981" stroke="#065F46" stroke-width="3"/>
+      ${eyes(46, 60, 64, 4, '#0B0F19')}
+      <path d="M44 72 h14" stroke="#0B0F19" stroke-width="3" stroke-linecap="round"/>
+      <path d="M100 30 l8 -8 M104 40 l10 -2" stroke="#FDE68A" stroke-width="3" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w2_dumpster',
+    he: 'מכולת אשפה',
+    en: 'Dumpster',
+    world: 2,
+    kind: 'regular',
+    /* tank */ hpMult: 1.35,
+    atkMult: 0.78,
+    svg: sprite(`
+      <path d="M14 46 h92 l-6 58 h-80 Z" fill="#166534" stroke="#052E16" stroke-width="3"/>
+      <path d="M8 34 h104 l-4 12 h-96 Z" fill="#15803D" stroke="#052E16" stroke-width="3"/>
+      <path d="M30 34 l6 -14 h48 l6 14" fill="#22C55E" stroke="#052E16" stroke-width="3"/>
+      ${eyes(46, 74, 68, 5.5, '#FDE68A')}
+      <path d="M44 86 q16 12 32 0" stroke="#FDE68A" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+      <circle cx="26" cy="108" r="6" fill="#0B0F19"/><circle cx="94" cy="108" r="6" fill="#0B0F19"/>
+      <path d="M40 22 q4 -10 10 -4 M70 22 q-4 -12 -10 -6" stroke="#A3E635" stroke-width="2.5" fill="none" stroke-linecap="round"/>`),
+  },
 ];
 
 const W2_MINI: EnemyDef = {
@@ -632,6 +764,64 @@ const W3: readonly EnemyDef[] = [
       <path d="M34 48 h34 l6 54 h-46 Z" fill="#7C2D12" stroke="#4A1A08" stroke-width="3"/>
       <path d="M52 60 h40" stroke="#94A3B8" stroke-width="3.5" stroke-linecap="round"/>
       <path d="M98 60 l-10 -6 v12 Z" fill="#E2E8F0"/>`),
+  },
+  /* --- PHASE 12 additions: the arena fills up ---------------------------- */
+  {
+    id: 'w3_tiger',
+    he: 'נמר הזירה',
+    en: 'Arena Tiger',
+    world: 3,
+    kind: 'regular',
+    /* nimble */ hpMult: 0.85,
+    atkMult: 1.18,
+    svg: sprite(`
+      <ellipse cx="52" cy="76" rx="40" ry="22" fill="#F59E0B"/>
+      <path d="M30 60 v30 M46 56 v36 M62 58 v34" stroke="#7C2D12" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="90" cy="54" r="21" fill="#FBBF24"/>
+      <path d="M74 38 l-4 -16 14 10 Z M106 38 l4 -16 -14 10 Z" fill="#F59E0B"/>
+      ${eyes(84, 98, 52, 3.6, '#14532D')}
+      <path d="M86 62 q5 6 10 0" stroke="#7C2D12" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M96 66 l4 8 M86 66 l-4 8" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+      <path d="M14 78 q-10 -14 2 -24" stroke="#F59E0B" stroke-width="6" fill="none" stroke-linecap="round"/>
+      <rect x="32" y="92" width="10" height="16" rx="4" fill="#D97706"/><rect x="64" y="92" width="10" height="16" rx="4" fill="#D97706"/>`),
+  },
+  {
+    id: 'w3_chariot',
+    he: 'מרכבה דוהרת',
+    en: 'Charging Chariot',
+    world: 3,
+    kind: 'regular',
+    /* bruiser */ hpMult: 1.05,
+    atkMult: 1.05,
+    svg: sprite(`
+      <path d="M30 50 h56 l8 36 h-70 Z" fill="#B45309" stroke="#78350F" stroke-width="3"/>
+      <circle cx="40" cy="96" r="16" fill="#78350F" stroke="#451A03" stroke-width="3"/>
+      <circle cx="40" cy="96" r="5" fill="#FDE68A"/>
+      <path d="M40 80 v32 M24 96 h32 M29 85 l22 22 M51 85 l-22 22" stroke="#FDE68A" stroke-width="2.5"/>
+      <circle cx="58" cy="34" r="14" fill="#C79B75"/>
+      <path d="M44 28 q14 -14 28 0 q-4 -10 -14 -10 -10 0 -14 10 Z" fill="#DC2626"/>
+      ${eyes(53, 63, 34, 3, '#1B2438')}
+      <path d="M92 60 l22 -8 -4 8 6 8 -24 -4 Z" fill="#94A3B8"/>
+      <path d="M86 92 l14 14 M100 92 l-14 14" stroke="#F59E0B" stroke-width="4" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w3_statue',
+    he: 'פסל ברונזה חי',
+    en: 'Living Bronze Statue',
+    world: 3,
+    kind: 'regular',
+    /* tank */ hpMult: 1.35,
+    atkMult: 0.78,
+    svg: sprite(`
+      <rect x="30" y="98" width="60" height="14" rx="4" fill="#57534E" stroke="#292524" stroke-width="3"/>
+      <path d="M36 98 q-2 -46 24 -56 q26 10 24 56 Z" fill="#A16207" stroke="#713F12" stroke-width="3"/>
+      <circle cx="60" cy="34" r="19" fill="#CA8A04" stroke="#713F12" stroke-width="3"/>
+      <path d="M40 30 q20 -18 40 0 q-4 -14 -20 -14 -16 0 -20 14 Z" fill="#854D0E"/>
+      ${eyes(52, 68, 34, 3.8, '#F0FDF4')}
+      <path d="M52 46 h16" stroke="#713F12" stroke-width="3" stroke-linecap="round"/>
+      <path d="M22 56 q-14 10 -6 30" stroke="#A16207" stroke-width="10" fill="none" stroke-linecap="round"/>
+      <path d="M98 56 q14 10 6 30" stroke="#A16207" stroke-width="10" fill="none" stroke-linecap="round"/>
+      <path d="M46 66 l10 12 -6 8" stroke="#4ADE80" stroke-width="2.5" fill="none" stroke-linecap="round"/>`),
   },
 ];
 
@@ -762,6 +952,63 @@ const W4: readonly EnemyDef[] = [
       <ellipse cx="60" cy="52" rx="12" ry="8" fill="#7C4A38"/>
       <circle cx="55" cy="52" r="2.4" fill="#1B2438"/><circle cx="65" cy="52" r="2.4" fill="#1B2438"/>
       <path d="M46 80 h28" stroke="#B45309" stroke-width="5" stroke-linecap="round"/>`),
+  },
+  /* --- PHASE 12 additions: more of Olympus ------------------------------- */
+  {
+    id: 'w4_pegasus',
+    he: 'פגסוס',
+    en: 'Pegasus',
+    world: 4,
+    kind: 'regular',
+    /* nimble */ hpMult: 0.8,
+    atkMult: 1.2,
+    svg: sprite(`
+      <path d="M20 66 q-20 -30 14 -46 q10 22 6 40 Z" fill="#E2E8F0" stroke="#94A3B8" stroke-width="2"/>
+      <path d="M100 66 q20 -30 -14 -46 q-10 22 -6 40 Z" fill="#E2E8F0" stroke="#94A3B8" stroke-width="2"/>
+      <ellipse cx="60" cy="78" rx="34" ry="20" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="2"/>
+      <path d="M86 70 q16 -18 14 -36 q-16 4 -22 22" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="2"/>
+      <circle cx="98" cy="40" r="12" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="2"/>
+      <path d="M92 26 q6 -12 14 -4" stroke="#A78BFA" stroke-width="4" fill="none" stroke-linecap="round"/>
+      ${eyes(96, 104, 40, 2.8, '#312E81')}
+      <path d="M40 96 v16 M56 98 v14 M72 96 v16" stroke="#CBD5E1" stroke-width="5" stroke-linecap="round"/>
+      <path d="M26 80 q-14 8 -12 24" stroke="#C4B5FD" stroke-width="5" fill="none" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w4_satyr',
+    he: 'סאטיר',
+    en: 'Satyr',
+    world: 4,
+    kind: 'regular',
+    hpMult: 0.95,
+    atkMult: 1.05,
+    svg: sprite(`
+      <path d="M32 108 q0 -40 28 -46 q28 6 28 46 Z" fill="#78350F" stroke="#431407" stroke-width="3"/>
+      <path d="M40 88 q20 12 40 0" stroke="#92400E" stroke-width="5" fill="none"/>
+      <circle cx="60" cy="40" r="20" fill="#D4A574"/>
+      <path d="M44 26 q-12 -14 -6 -24 q6 12 12 18 Z M76 26 q12 -14 6 -24 q-6 12 -12 18 Z" fill="#78350F"/>
+      ${eyes(52, 68, 38, 3.8, '#1B2438')}
+      <path d="M50 50 q10 8 20 0" stroke="#7C2D12" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M100 40 v50" stroke="#A16207" stroke-width="4" stroke-linecap="round"/>
+      <path d="M94 40 h12 M96 32 h8" stroke="#A16207" stroke-width="3" stroke-linecap="round"/>
+      <path d="M44 108 l-4 8 M76 108 l4 8" stroke="#1C1917" stroke-width="5" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w4_titanling',
+    he: 'טיטאן צעיר',
+    en: 'Young Titan',
+    world: 4,
+    kind: 'regular',
+    /* tank */ hpMult: 1.3,
+    atkMult: 0.8,
+    svg: sprite(`
+      <path d="M14 112 q4 -60 46 -70 q42 10 46 70 Z" fill="#475569" stroke="#1E293B" stroke-width="4"/>
+      <path d="M36 78 q24 16 48 0 l-4 24 q-20 10 -40 0 Z" fill="#64748B"/>
+      <circle cx="60" cy="34" r="24" fill="#94A3B8" stroke="#1E293B" stroke-width="3"/>
+      <path d="M38 24 q22 -22 44 0 q-6 -16 -22 -16 -16 0 -22 16 Z" fill="#334155"/>
+      ${eyes(50, 70, 34, 5, '#FDE68A')}
+      <path d="M48 48 q12 8 24 0" stroke="#1E293B" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+      <path d="M8 70 q-8 16 4 30" stroke="#94A3B8" stroke-width="12" fill="none" stroke-linecap="round"/>
+      <path d="M112 70 q8 16 -4 30" stroke="#94A3B8" stroke-width="12" fill="none" stroke-linecap="round"/>`),
   },
 ];
 
@@ -906,6 +1153,60 @@ const W5: readonly EnemyDef[] = [
       <circle cx="62" cy="12" r="16" fill="#FDE68A" opacity=".22"/>
       ${eyes(44, 66, 62, 5, '#F87171')}
       <circle cx="44" cy="62" r="2" fill="#0B0F19"/><circle cx="66" cy="62" r="2" fill="#0B0F19"/>`),
+  },
+  /* --- PHASE 12 additions: deeper water ---------------------------------- */
+  {
+    id: 'w5_shark',
+    he: 'כריש מצולות',
+    en: 'Deep Shark',
+    world: 5,
+    kind: 'regular',
+    /* nimble */ hpMult: 0.8,
+    atkMult: 1.2,
+    svg: sprite(`
+      <path d="M6 66 q30 -30 74 -22 q20 4 34 22 q-14 18 -34 22 q-44 8 -74 -22 Z" fill="#334155" stroke="#0F172A" stroke-width="3"/>
+      <path d="M52 44 l10 -30 12 30 Z" fill="#475569" stroke="#0F172A" stroke-width="2"/>
+      <path d="M6 66 l-6 -22 14 12 Z M6 66 l-6 22 14 -12 Z" fill="#475569" stroke="#0F172A" stroke-width="2"/>
+      <path d="M72 74 q16 4 32 -6 q-12 14 -32 12 Z" fill="#F8FAFC"/>
+      <path d="M78 74 l2 8 M86 73 l2 8 M94 71 l2 7" stroke="#0F172A" stroke-width="2"/>
+      ${eyes(90, 104, 58, 3.4, '#F8FAFC')}
+      <circle cx="90" cy="58" r="1.6" fill="#0F172A"/><circle cx="104" cy="58" r="1.6" fill="#0F172A"/>`),
+  },
+  {
+    id: 'w5_octopus',
+    he: 'תמנון ענק',
+    en: 'Giant Octopus',
+    world: 5,
+    kind: 'regular',
+    /* bruiser */ hpMult: 1.0,
+    atkMult: 1.0,
+    def: 14,
+    svg: sprite(`
+      <ellipse cx="60" cy="44" rx="34" ry="30" fill="#7E22CE" stroke="#3B0764" stroke-width="3"/>
+      <path d="M30 66 q-16 20 -6 44 M46 70 q-10 22 2 42 M74 70 q10 22 -2 42 M90 66 q16 20 6 44"
+        stroke="#7E22CE" stroke-width="9" fill="none" stroke-linecap="round"/>
+      <path d="M58 72 q0 24 8 40" stroke="#7E22CE" stroke-width="8" fill="none" stroke-linecap="round"/>
+      <circle cx="28" cy="98" r="3" fill="#F0ABFC"/><circle cx="50" cy="100" r="3" fill="#F0ABFC"/><circle cx="72" cy="100" r="3" fill="#F0ABFC"/>
+      ${eyes(48, 72, 44, 6, '#FDE68A')}
+      <circle cx="48" cy="44" r="2.6" fill="#0B0F19"/><circle cx="72" cy="44" r="2.6" fill="#0B0F19"/>`),
+  },
+  {
+    id: 'w5_urchin',
+    he: 'קיפוד ים משוריין',
+    en: 'Armoured Urchin',
+    world: 5,
+    kind: 'regular',
+    /* tank */ hpMult: 1.25,
+    atkMult: 0.78,
+    def: 30,
+    svg: sprite(`
+      <path d="M60 14 l6 22 -12 0 Z M60 106 l6 -22 -12 0 Z M14 60 l22 6 0 -12 Z M106 60 l-22 6 0 -12 Z
+        M28 28 l18 12 -8 8 Z M92 28 l-18 12 8 8 Z M28 92 l18 -12 -8 -8 Z M92 92 l-18 -12 8 -8 Z"
+        fill="#1E1B4B" stroke="#0B0F19" stroke-width="2"/>
+      <circle cx="60" cy="60" r="28" fill="#312E81" stroke="#0B0F19" stroke-width="3"/>
+      <circle cx="60" cy="60" r="18" fill="#4338CA"/>
+      ${eyes(52, 68, 58, 4.4, '#C7D2FE')}
+      <path d="M52 70 q8 6 16 0" stroke="#C7D2FE" stroke-width="3" fill="none" stroke-linecap="round"/>`),
   },
 ];
 
@@ -1053,6 +1354,63 @@ const W6: readonly EnemyDef[] = [
       <path d="M12 76 q-6 16 6 26 M108 76 q6 16 -6 26" stroke="#E2E8F0" stroke-width="12"
         fill="none" stroke-linecap="round"/>`),
   },
+  /* --- PHASE 12 additions: deeper into the frost ------------------------ */
+  {
+    id: 'w6_penguin',
+    he: 'פינגווין קרבי',
+    en: 'Battle Penguin',
+    world: 6,
+    kind: 'regular',
+    /* nimble */ hpMult: 0.8,
+    atkMult: 1.2,
+    svg: sprite(`
+      <ellipse cx="60" cy="70" rx="32" ry="38" fill="#0F172A" stroke="#020617" stroke-width="3"/>
+      <ellipse cx="60" cy="78" rx="20" ry="26" fill="#F8FAFC"/>
+      <path d="M30 60 q-16 14 -8 34 M90 60 q16 14 8 34" stroke="#0F172A" stroke-width="9" fill="none" stroke-linecap="round"/>
+      <path d="M52 32 l8 -12 8 12 Z" fill="#F59E0B"/>
+      ${eyes(51, 69, 46, 4, '#F8FAFC')}
+      <circle cx="52" cy="46" r="1.8" fill="#0B0F19"/><circle cx="70" cy="46" r="1.8" fill="#0B0F19"/>
+      <path d="M54 58 l6 6 6 -6" fill="#F59E0B"/>
+      <path d="M42 108 h14 M64 108 h14" stroke="#F59E0B" stroke-width="5" stroke-linecap="round"/>
+      <path d="M78 40 l8 -10 4 6" stroke="#93C5FD" stroke-width="3" fill="none" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w6_avalanche',
+    he: 'מפולת שלגים',
+    en: 'Avalanche',
+    world: 6,
+    kind: 'regular',
+    /* tank */ hpMult: 1.3,
+    atkMult: 0.8,
+    attackSlowMult: 1.25,
+    svg: sprite(`
+      <path d="M4 108 q30 -60 56 -74 q30 14 56 74 Z" fill="#E0F2FE" stroke="#7DD3FC" stroke-width="3"/>
+      <circle cx="40" cy="86" r="14" fill="#F8FAFC" stroke="#BAE6FD" stroke-width="2"/>
+      <circle cx="80" cy="90" r="12" fill="#F8FAFC" stroke="#BAE6FD" stroke-width="2"/>
+      <circle cx="60" cy="100" r="10" fill="#F8FAFC" stroke="#BAE6FD" stroke-width="2"/>
+      ${eyes(50, 70, 66, 5, '#1D4ED8')}
+      <path d="M48 80 q12 -8 24 0" stroke="#1D4ED8" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M22 60 l-10 -14 M98 60 l10 -14" stroke="#BAE6FD" stroke-width="4" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w6_walrus',
+    he: 'ניב הקרח',
+    en: 'Ice Walrus',
+    world: 6,
+    kind: 'regular',
+    hpMult: 1.05,
+    atkMult: 0.95,
+    attackSlowMult: 1.1,
+    svg: sprite(`
+      <ellipse cx="56" cy="80" rx="46" ry="26" fill="#7C5C44" stroke="#3F2A1D" stroke-width="3"/>
+      <circle cx="88" cy="58" r="22" fill="#8B6B52"/>
+      <path d="M96 76 v22 M80 76 v22" stroke="#F8FAFC" stroke-width="6" stroke-linecap="round"/>
+      <path d="M78 66 q10 8 20 0" stroke="#3F2A1D" stroke-width="3" fill="none"/>
+      ${eyes(82, 96, 54, 3.4, '#0B0F19')}
+      <path d="M8 90 q-10 -10 2 -18" stroke="#7C5C44" stroke-width="8" fill="none" stroke-linecap="round"/>
+      <path d="M30 104 q10 8 20 0" stroke="#5C3F2E" stroke-width="5" fill="none" stroke-linecap="round"/>
+      <path d="M40 46 l-4 -12 M52 44 l0 -12" stroke="#93C5FD" stroke-width="3" stroke-linecap="round"/>`),
+  },
 ];
 
 const W6_MINI: EnemyDef = {
@@ -1197,6 +1555,60 @@ const W7: readonly EnemyDef[] = [
       <path d="M14 84 q6 -16 18 -14 M106 84 q-6 -16 -18 -14" stroke="#463C6E" stroke-width="7"
         fill="none" stroke-linecap="round"/>`),
   },
+  /* --- PHASE 12 additions: more shapes in the dark ----------------------- */
+  {
+    id: 'w7_whisper',
+    he: 'לחישה',
+    en: 'Whisper',
+    world: 7,
+    kind: 'regular',
+    /* nimble */ hpMult: 0.78,
+    atkMult: 1.2,
+    dodgeChance: 0.22,
+    svg: sprite(`
+      <path d="M40 100 q-20 -40 20 -76 q40 36 20 76 q-10 -12 -20 0 q-10 -12 -20 0 Z" fill="#1E1B4B" opacity=".85" stroke="#4C1D95" stroke-width="2"/>
+      <path d="M44 84 q16 -6 32 0" stroke="#7C3AED" stroke-width="2.5" fill="none" stroke-linecap="round" opacity=".7"/>
+      ${eyes(51, 69, 50, 4.2, '#C084FC')}
+      <circle cx="51" cy="50" r="8" fill="#C084FC" opacity=".18"/><circle cx="69" cy="50" r="8" fill="#C084FC" opacity=".18"/>
+      <path d="M22 60 q-14 -10 -8 -26 M98 60 q14 -10 8 -26" stroke="#4C1D95" stroke-width="3" fill="none" stroke-linecap="round" opacity=".6"/>`),
+  },
+  {
+    id: 'w7_gargoyle',
+    he: 'גרגויל אבן',
+    en: 'Stone Gargoyle',
+    world: 7,
+    kind: 'regular',
+    /* tank */ hpMult: 1.32,
+    atkMult: 0.8,
+    svg: sprite(`
+      <path d="M10 60 q-10 -30 20 -38 q6 22 10 34 Z M110 60 q10 -30 -20 -38 q-6 22 -10 34 Z" fill="#3F3F46" stroke="#18181B" stroke-width="3"/>
+      <path d="M24 110 q0 -50 36 -60 q36 10 36 60 Z" fill="#52525B" stroke="#18181B" stroke-width="3"/>
+      <circle cx="60" cy="42" r="22" fill="#71717A" stroke="#18181B" stroke-width="3"/>
+      <path d="M44 26 l-6 -16 12 10 Z M76 26 l6 -16 -12 10 Z" fill="#3F3F46"/>
+      ${eyes(51, 69, 42, 4.6, '#C084FC')}
+      <path d="M48 56 l6 6 6 -6 6 6 6 -6" stroke="#18181B" stroke-width="3" fill="none" stroke-linejoin="round"/>
+      <path d="M40 90 q20 10 40 0" stroke="#3F3F46" stroke-width="4" fill="none"/>`),
+  },
+  {
+    id: 'w7_lantern',
+    he: 'פנס נשמות',
+    en: 'Soul Lantern',
+    world: 7,
+    kind: 'regular',
+    hpMult: 1.0,
+    atkMult: 1.0,
+    dodgeChance: 0.14,
+    svg: sprite(`
+      <path d="M60 6 v14" stroke="#4C1D95" stroke-width="4" stroke-linecap="round"/>
+      <rect x="44" y="18" width="32" height="10" rx="4" fill="#312E81"/>
+      <path d="M36 28 h48 l-4 60 h-40 Z" fill="#1E1B4B" stroke="#4C1D95" stroke-width="3"/>
+      <path d="M44 36 h32 l-3 44 h-26 Z" fill="#C084FC" opacity=".35"/>
+      <circle cx="60" cy="60" r="12" fill="#E9D5FF" opacity=".9"/>
+      ${eyes(55, 65, 58, 2.6, '#4C1D95')}
+      <path d="M56 66 q4 3 8 0" stroke="#4C1D95" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <rect x="40" y="88" width="40" height="10" rx="4" fill="#312E81"/>
+      <path d="M50 98 q10 14 20 0" stroke="#7C3AED" stroke-width="3" fill="none" stroke-linecap="round" opacity=".6"/>`),
+  },
 ];
 
 const W7_MINI: EnemyDef = {
@@ -1336,6 +1748,63 @@ const W8: readonly EnemyDef[] = [
       <circle cx="60" cy="60" r="18" fill="#FEF3C7" stroke="#B45309" stroke-width="3"/>
       ${eyes(53, 67, 57, 4, '#7C2D12')}
       <path d="M53 68 q7 6 14 0" stroke="#7C2D12" stroke-width="3" fill="none" stroke-linecap="round"/>`),
+  },
+  /* --- PHASE 12 additions: more of the host ------------------------------ */
+  {
+    id: 'w8_dove',
+    he: 'יונת אור',
+    en: 'Light Dove',
+    world: 8,
+    kind: 'regular',
+    /* nimble */ hpMult: 0.78,
+    atkMult: 1.22,
+    svg: sprite(`
+      <path d="M56 70 q-30 -30 -50 -8 q20 4 30 22 Z" fill="#F8FAFC" stroke="#FDE68A" stroke-width="2"/>
+      <path d="M64 70 q30 -30 50 -8 q-20 4 -30 22 Z" fill="#F8FAFC" stroke="#FDE68A" stroke-width="2"/>
+      <ellipse cx="60" cy="74" rx="22" ry="16" fill="#FFFFFF" stroke="#FDE68A" stroke-width="2"/>
+      <circle cx="60" cy="52" r="12" fill="#FFFFFF" stroke="#FDE68A" stroke-width="2"/>
+      <path d="M60 60 l4 6 -8 0 Z" fill="#F59E0B"/>
+      ${eyes(55, 65, 50, 2.6, '#0B0F19')}
+      <ellipse cx="60" cy="34" rx="12" ry="3" fill="none" stroke="#FBBF24" stroke-width="3"/>
+      <path d="M50 88 l-6 12 M70 88 l6 12" stroke="#FDE68A" stroke-width="3" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w8_pillar',
+    he: 'עמוד שמיים',
+    en: 'Sky Pillar',
+    world: 8,
+    kind: 'regular',
+    /* tank */ hpMult: 1.34,
+    atkMult: 0.76,
+    regenPct: 0.02,
+    svg: sprite(`
+      <rect x="26" y="10" width="68" height="12" rx="4" fill="#F1F5F9" stroke="#CBD5E1" stroke-width="2"/>
+      <rect x="36" y="22" width="48" height="76" rx="6" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="3"/>
+      <path d="M44 28 v64 M60 28 v64 M76 28 v64" stroke="#E2E8F0" stroke-width="4" stroke-linecap="round"/>
+      <rect x="26" y="98" width="68" height="14" rx="4" fill="#F1F5F9" stroke="#CBD5E1" stroke-width="2"/>
+      ${eyes(50, 70, 52, 4.6, '#FBBF24')}
+      <path d="M50 66 q10 6 20 0" stroke="#B45309" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M12 40 q6 -8 14 0 M94 40 q6 -8 14 0" stroke="#FDE68A" stroke-width="3" fill="none" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w8_scribe',
+    he: 'סופר השמיים',
+    en: 'Sky Scribe',
+    world: 8,
+    kind: 'regular',
+    hpMult: 1.0,
+    atkMult: 1.0,
+    regenPct: 0.015,
+    svg: sprite(`
+      <path d="M26 112 q2 -56 34 -64 q32 8 34 64 Z" fill="#F8FAFC" stroke="#B45309" stroke-width="3"/>
+      <circle cx="60" cy="34" r="20" fill="#FDE7CE" stroke="#D9A066" stroke-width="3"/>
+      <ellipse cx="60" cy="8" rx="16" ry="4" fill="none" stroke="#FBBF24" stroke-width="4"/>
+      ${eyes(52, 68, 34, 3.8, '#0B0F19')}
+      <path d="M52 46 q8 5 16 0" stroke="#7C2D12" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <rect x="82" y="60" width="26" height="36" rx="3" fill="#FEF3C7" stroke="#B45309" stroke-width="2"/>
+      <path d="M88 70 h14 M88 78 h14 M88 86 h10" stroke="#B45309" stroke-width="2" stroke-linecap="round"/>
+      <path d="M16 66 q-10 12 -2 26" stroke="#FDE7CE" stroke-width="10" fill="none" stroke-linecap="round"/>
+      <path d="M100 52 l6 -14 4 8" stroke="#FBBF24" stroke-width="3" fill="none" stroke-linecap="round"/>`),
   },
 ];
 
@@ -1493,6 +1962,63 @@ const W9: readonly EnemyDef[] = [
       <path d="M8 74 l14 6 -12 12" stroke="#92400E" stroke-width="8" fill="none" stroke-linecap="round"/>
       <path d="M112 74 l-14 6 12 12" stroke="#92400E" stroke-width="8" fill="none" stroke-linecap="round"/>`),
   },
+  /* --- PHASE 12 additions: more of the pit ------------------------------- */
+  {
+    id: 'w9_bat',
+    he: 'עטלף גופרית',
+    en: 'Brimstone Bat',
+    world: 9,
+    kind: 'regular',
+    /* nimble */ hpMult: 0.78,
+    atkMult: 1.22,
+    critChance: 0.12,
+    critMultiplier: 1.5,
+    svg: sprite(`
+      <path d="M52 62 q-30 -34 -50 -10 q14 -2 18 10 q8 -4 14 6 q6 -4 18 2 Z" fill="#450A0A" stroke="#1C0505" stroke-width="2"/>
+      <path d="M68 62 q30 -34 50 -10 q-14 -2 -18 10 q-8 -4 -14 6 q-6 -4 -18 2 Z" fill="#450A0A" stroke="#1C0505" stroke-width="2"/>
+      <ellipse cx="60" cy="70" rx="16" ry="22" fill="#7F1D1D" stroke="#1C0505" stroke-width="3"/>
+      <path d="M50 50 l-4 -14 10 8 Z M70 50 l4 -14 -10 8 Z" fill="#7F1D1D"/>
+      ${eyes(54, 66, 62, 3.6, '#F97316')}
+      <path d="M54 76 l3 6 3 -6 3 6 3 -6" stroke="#FDE68A" stroke-width="2.5" fill="none" stroke-linejoin="round"/>
+      <path d="M52 92 l-4 14 M68 92 l4 14" stroke="#1C0505" stroke-width="3" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w9_furnace',
+    he: 'כבשן חי',
+    en: 'Living Furnace',
+    world: 9,
+    kind: 'regular',
+    /* tank */ hpMult: 1.35,
+    atkMult: 0.78,
+    svg: sprite(`
+      <rect x="20" y="30" width="80" height="80" rx="10" fill="#292524" stroke="#0C0A09" stroke-width="4"/>
+      <rect x="34" y="52" width="52" height="34" rx="6" fill="#7C2D12"/>
+      <path d="M40 86 q6 -22 14 -12 q4 -22 12 -10 q4 -16 12 -4 q4 -12 8 6 Z" fill="#F97316"/>
+      <path d="M46 86 q4 -12 10 -6 q4 -10 10 -2 q4 -8 8 2 Z" fill="#FDE68A"/>
+      ${eyes(46, 74, 44, 4, '#F97316')}
+      <path d="M32 22 q4 -14 12 -8 M76 22 q4 -14 12 -8" stroke="#78716C" stroke-width="4" fill="none" stroke-linecap="round"/>
+      <rect x="28" y="96" width="64" height="8" rx="3" fill="#0C0A09"/>`),
+  },
+  {
+    id: 'w9_succubus',
+    he: 'מפתה הלהבות',
+    en: 'Flame Temptress',
+    world: 9,
+    kind: 'regular',
+    hpMult: 0.95,
+    atkMult: 1.05,
+    critChance: 0.16,
+    critMultiplier: 1.6,
+    svg: sprite(`
+      <path d="M30 112 q2 -54 30 -62 q28 8 30 62 Z" fill="#7F1D1D" stroke="#450A0A" stroke-width="3"/>
+      <path d="M8 60 q-12 -34 16 -38 q4 22 6 34 Z M112 60 q12 -34 -16 -38 q-4 22 -6 34 Z" fill="#991B1B" stroke="#450A0A" stroke-width="2"/>
+      <circle cx="60" cy="34" r="20" fill="#DC2626" stroke="#450A0A" stroke-width="3"/>
+      <path d="M44 22 q-8 -14 -2 -20 q6 8 10 16 Z M76 22 q8 -14 2 -20 q-6 8 -10 16 Z" fill="#450A0A"/>
+      ${eyes(52, 68, 32, 3.8, '#FDE68A')}
+      <path d="M52 44 q8 6 16 0" stroke="#1C0505" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M92 70 q18 4 14 26 q-8 -8 -4 -14" stroke="#F97316" stroke-width="4" fill="none" stroke-linecap="round"/>
+      <path d="M40 76 q20 10 40 0" stroke="#F97316" stroke-width="3" fill="none"/>`),
+  },
 ];
 
 const W9_MINI: EnemyDef = {
@@ -1517,6 +2043,362 @@ const W9_MINI: EnemyDef = {
     <path d="M104 8 l-14 24 h28 Z" fill="#F97316" stroke="#7C2D12" stroke-width="3"/>`),
 };
 
+/* --- world 10 — עיר המכונות --------------------------------------------- */
+
+/**
+ * THE MACHINE WORLD (PHASE 12). Two flavours the engine already knows, worn
+ * together for the first time: ARMOUR (`def`, the deep's) on the heavy plant,
+ * and CRIT (`critChance`, hell's) on the targeting systems. Nothing new in
+ * `core/combat.ts`; the roster only opts into both.
+ */
+const W10: readonly EnemyDef[] = [
+  {
+    id: 'w10_drone',
+    he: 'רחפן צייד',
+    en: 'Hunter Drone',
+    world: 10,
+    kind: 'regular',
+    /* nimble */ hpMult: 0.78,
+    atkMult: 1.22,
+    critChance: 0.12,
+    critMultiplier: 1.5,
+    svg: sprite(`
+      <path d="M18 40 h84 M18 40 l-8 -10 M102 40 l8 -10" stroke="#3F6212" stroke-width="5" stroke-linecap="round"/>
+      <ellipse cx="18" cy="30" rx="16" ry="4" fill="#A3E635" opacity=".7"/><ellipse cx="102" cy="30" rx="16" ry="4" fill="#A3E635" opacity=".7"/>
+      <rect x="36" y="44" width="48" height="34" rx="12" fill="#1A2E05" stroke="#365314" stroke-width="3"/>
+      ${eyes(52, 68, 60, 5, '#EF4444')}
+      <circle cx="52" cy="60" r="2" fill="#FEE2E2"/><circle cx="68" cy="60" r="2" fill="#FEE2E2"/>
+      <path d="M48 78 l-6 22 M72 78 l6 22" stroke="#365314" stroke-width="4" stroke-linecap="round"/>
+      <path d="M40 100 h16 M64 100 h16" stroke="#A3E635" stroke-width="3" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w10_crusher',
+    he: 'מכבש',
+    en: 'Crusher',
+    world: 10,
+    kind: 'regular',
+    /* tank */ hpMult: 1.35,
+    atkMult: 0.76,
+    def: 30,
+    svg: sprite(`
+      <rect x="14" y="20" width="92" height="24" rx="6" fill="#3F3F46" stroke="#18181B" stroke-width="3"/>
+      <rect x="30" y="44" width="60" height="16" rx="4" fill="#52525B"/>
+      <rect x="20" y="60" width="80" height="44" rx="8" fill="#27272A" stroke="#18181B" stroke-width="3"/>
+      <path d="M30 104 v10 M90 104 v10" stroke="#18181B" stroke-width="6" stroke-linecap="round"/>
+      ${eyes(46, 74, 80, 5.5, '#A3E635')}
+      <path d="M46 94 h28" stroke="#A3E635" stroke-width="3.5" stroke-linecap="round"/>
+      <path d="M24 32 h12 M84 32 h12" stroke="#A3E635" stroke-width="3" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w10_welder',
+    he: 'רובוט ריתוך',
+    en: 'Welding Bot',
+    world: 10,
+    kind: 'regular',
+    hpMult: 0.95,
+    atkMult: 1.1,
+    critChance: 0.1,
+    critMultiplier: 1.5,
+    svg: sprite(`
+      <rect x="30" y="40" width="60" height="56" rx="10" fill="#365314" stroke="#1A2E05" stroke-width="3"/>
+      <rect x="40" y="18" width="40" height="26" rx="8" fill="#4D7C0F" stroke="#1A2E05" stroke-width="3"/>
+      ${eyes(52, 68, 31, 4, '#FDE68A')}
+      <path d="M50 38 h20" stroke="#1A2E05" stroke-width="3" stroke-linecap="round"/>
+      <path d="M90 60 h18 l6 10" stroke="#52525B" stroke-width="6" fill="none" stroke-linecap="round"/>
+      <path d="M114 70 l4 -6 2 8 4 -4" stroke="#FDE68A" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+      <path d="M30 62 h-14 v22" stroke="#52525B" stroke-width="6" fill="none" stroke-linecap="round"/>
+      <rect x="40" y="96" width="14" height="14" rx="3" fill="#27272A"/><rect x="66" y="96" width="14" height="14" rx="3" fill="#27272A"/>`),
+  },
+  {
+    id: 'w10_conveyor',
+    he: 'מסוע רעב',
+    en: 'Hungry Conveyor',
+    world: 10,
+    kind: 'regular',
+    hpMult: 1.1,
+    atkMult: 0.9,
+    def: 14,
+    svg: sprite(`
+      <path d="M8 76 h104 v22 h-104 Z" fill="#27272A" stroke="#18181B" stroke-width="3"/>
+      <circle cx="22" cy="87" r="8" fill="#52525B"/><circle cx="60" cy="87" r="8" fill="#52525B"/><circle cx="98" cy="87" r="8" fill="#52525B"/>
+      <path d="M8 76 q26 -12 52 0 q26 12 52 0" stroke="#A3E635" stroke-width="3" fill="none"/>
+      <path d="M36 62 l8 -12 8 12 8 -12 8 12 8 -12 8 12" stroke="#F8FAFC" stroke-width="3" fill="none" stroke-linejoin="round"/>
+      <rect x="28" y="36" width="64" height="26" rx="8" fill="#3F3F46" stroke="#18181B" stroke-width="3"/>
+      ${eyes(48, 72, 49, 4.4, '#A3E635')}
+      <path d="M16 108 h88" stroke="#18181B" stroke-width="4" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w10_sentry',
+    he: 'צריח שמירה',
+    en: 'Sentry Turret',
+    world: 10,
+    kind: 'regular',
+    hpMult: 0.9,
+    atkMult: 1.15,
+    critChance: 0.15,
+    critMultiplier: 1.6,
+    svg: sprite(`
+      <path d="M30 110 h60 l-8 -18 h-44 Z" fill="#3F3F46" stroke="#18181B" stroke-width="3"/>
+      <rect x="52" y="64" width="16" height="30" rx="4" fill="#52525B"/>
+      <circle cx="60" cy="52" r="24" fill="#365314" stroke="#1A2E05" stroke-width="3"/>
+      <path d="M78 44 h34" stroke="#27272A" stroke-width="8" stroke-linecap="round"/>
+      <path d="M110 44 l8 0" stroke="#EF4444" stroke-width="4" stroke-linecap="round"/>
+      ${eyes(52, 66, 50, 4.4, '#EF4444')}
+      <circle cx="52" cy="50" r="7" fill="#EF4444" opacity=".2"/>
+      <path d="M50 62 h16" stroke="#1A2E05" stroke-width="3" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w10_forklift',
+    he: 'מלגזה משתוללת',
+    en: 'Rogue Forklift',
+    world: 10,
+    kind: 'regular',
+    hpMult: 1.2,
+    atkMult: 0.85,
+    def: 20,
+    svg: sprite(`
+      <rect x="30" y="46" width="60" height="44" rx="8" fill="#CA8A04" stroke="#713F12" stroke-width="3"/>
+      <rect x="40" y="26" width="40" height="22" rx="6" fill="#1C1917" stroke="#713F12" stroke-width="3"/>
+      <rect x="92" y="20" width="8" height="82" rx="3" fill="#3F3F46"/>
+      <path d="M100 92 h18 M100 100 h18" stroke="#3F3F46" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="42" cy="100" r="11" fill="#18181B" stroke="#52525B" stroke-width="3"/>
+      <circle cx="82" cy="100" r="11" fill="#18181B" stroke="#52525B" stroke-width="3"/>
+      ${eyes(50, 70, 66, 4.6, '#FDE68A')}
+      <path d="M48 80 q12 -8 24 0" stroke="#713F12" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M20 40 l8 8 M20 56 l8 -8" stroke="#F59E0B" stroke-width="3" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w10_spider',
+    he: 'עכביש מכני',
+    en: 'Mech Spider',
+    world: 10,
+    kind: 'regular',
+    hpMult: 0.82,
+    atkMult: 1.18,
+    svg: sprite(`
+      <path d="M40 70 l-26 -22 M40 78 l-30 6 M40 86 l-24 22 M80 70 l26 -22 M80 78 l30 6 M80 86 l24 22"
+        stroke="#3F3F46" stroke-width="5" fill="none" stroke-linecap="round"/>
+      <ellipse cx="60" cy="80" rx="26" ry="20" fill="#27272A" stroke="#18181B" stroke-width="3"/>
+      <circle cx="60" cy="50" r="16" fill="#3F3F46" stroke="#18181B" stroke-width="3"/>
+      ${eyes(54, 66, 48, 3.6, '#A3E635')}
+      <circle cx="48" cy="44" r="2.4" fill="#A3E635"/><circle cx="72" cy="44" r="2.4" fill="#A3E635"/>
+      <path d="M54 60 l3 6 3 -6 3 6 3 -6" stroke="#A3E635" stroke-width="2.5" fill="none" stroke-linejoin="round"/>
+      <path d="M48 84 h24" stroke="#A3E635" stroke-width="2" stroke-linecap="round" opacity=".6"/>`),
+  },
+  {
+    id: 'w10_vault',
+    he: 'כספת מהלכת',
+    en: 'Walking Vault',
+    world: 10,
+    kind: 'regular',
+    /* tank */ hpMult: 1.3,
+    atkMult: 0.8,
+    def: 34,
+    svg: sprite(`
+      <rect x="22" y="16" width="76" height="80" rx="10" fill="#52525B" stroke="#18181B" stroke-width="4"/>
+      <rect x="30" y="24" width="60" height="64" rx="6" fill="#3F3F46"/>
+      <circle cx="60" cy="56" r="16" fill="#27272A" stroke="#A3E635" stroke-width="3"/>
+      <path d="M60 44 v-6 M60 68 v6 M48 56 h-6 M72 56 h6 M51 47 l-4 -4 M69 47 l4 -4" stroke="#A3E635" stroke-width="3" stroke-linecap="round"/>
+      ${eyes(40, 80, 34, 3.6, '#FDE68A')}
+      <path d="M40 96 v14 M80 96 v14" stroke="#18181B" stroke-width="7" stroke-linecap="round"/>
+      <path d="M32 114 h16 M72 114 h16" stroke="#18181B" stroke-width="4" stroke-linecap="round"/>`),
+  },
+];
+
+const W10_MINI: EnemyDef = {
+  id: 'w10_foreman',
+  he: 'מנהל המפעל',
+  en: 'Foreman Mech',
+  world: 10,
+  kind: 'mini',
+  def: 24,
+  critChance: 0.12,
+  critMultiplier: 1.5,
+  svg: sprite(`
+    <path d="M18 112 q2 -56 42 -66 q40 10 42 66 Z" fill="#3F3F46" stroke="#18181B" stroke-width="4"/>
+    <rect x="34" y="66" width="52" height="30" rx="6" fill="#27272A"/>
+    <path d="M42 74 h36 M42 84 h24" stroke="#A3E635" stroke-width="3" stroke-linecap="round"/>
+    <rect x="36" y="14" width="48" height="36" rx="10" fill="#365314" stroke="#1A2E05" stroke-width="3"/>
+    <rect x="30" y="8" width="60" height="10" rx="4" fill="#CA8A04" stroke="#713F12" stroke-width="2"/>
+    ${eyes(50, 70, 32, 5.5, '#EF4444')}
+    <path d="M48 44 h24" stroke="#1A2E05" stroke-width="3.5" stroke-linecap="round"/>
+    <path d="M8 66 q-8 16 4 30 M112 66 q8 16 -4 30" stroke="#52525B" stroke-width="12" fill="none" stroke-linecap="round"/>
+    <path d="M104 40 v40" stroke="#27272A" stroke-width="5" stroke-linecap="round"/>
+    <path d="M96 40 h16 l-8 -10 Z" fill="#A3E635"/>`),
+};
+
+/* --- world 11 — מעבר לכוכבים ------------------------------------------- */
+
+/**
+ * THE COSMIC WORLD (PHASE 12) — the finale, and the champion's endless road.
+ * DODGE (the shadow realm's) on what phases and drifts, REGEN (heaven's) on
+ * what is made of gas and gravity. Again nothing new in the engine: the
+ * roster opts into two flavours the campaign already taught.
+ */
+const W11: readonly EnemyDef[] = [
+  {
+    id: 'w11_comet',
+    he: 'שביט',
+    en: 'Comet',
+    world: 11,
+    kind: 'regular',
+    /* nimble */ hpMult: 0.78,
+    atkMult: 1.22,
+    dodgeChance: 0.18,
+    svg: sprite(`
+      <path d="M78 42 q-40 -30 -76 -14 q30 2 44 20 q-30 6 -42 30 q34 -12 60 0 Z" fill="#7DD3FC" opacity=".55"/>
+      <path d="M84 48 q-30 -20 -60 -8 q22 2 32 14 q-20 6 -26 20 q24 -8 46 -2 Z" fill="#E0F2FE" opacity=".7"/>
+      <circle cx="90" cy="60" r="22" fill="#F8FAFC" stroke="#7DD3FC" stroke-width="3"/>
+      ${eyes(84, 98, 56, 3.8, '#0C4A6E')}
+      <path d="M84 68 q6 5 12 0" stroke="#0C4A6E" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <circle cx="16" cy="90" r="3" fill="#F8FAFC"/><circle cx="30" cy="104" r="2" fill="#F8FAFC"/>`),
+  },
+  {
+    id: 'w11_nebula',
+    he: 'ערפילית',
+    en: 'Nebula',
+    world: 11,
+    kind: 'regular',
+    /* tank */ hpMult: 1.3,
+    atkMult: 0.78,
+    regenPct: 0.02,
+    svg: sprite(`
+      <ellipse cx="60" cy="64" rx="50" ry="36" fill="#A21CAF" opacity=".45"/>
+      <ellipse cx="52" cy="60" rx="34" ry="26" fill="#C026D3" opacity=".55"/>
+      <ellipse cx="68" cy="68" rx="26" ry="20" fill="#F0ABFC" opacity=".55"/>
+      <circle cx="30" cy="44" r="3" fill="#FDF4FF"/><circle cx="92" cy="52" r="2.5" fill="#FDF4FF"/><circle cx="82" cy="92" r="2" fill="#FDF4FF"/>
+      ${eyes(50, 70, 62, 5, '#FDF4FF')}
+      <circle cx="50" cy="62" r="2.2" fill="#4A044E"/><circle cx="70" cy="62" r="2.2" fill="#4A044E"/>
+      <path d="M50 76 q10 6 20 0" stroke="#FDF4FF" stroke-width="3" fill="none" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w11_astronaut',
+    he: 'אסטרונאוט אבוד',
+    en: 'Lost Astronaut',
+    world: 11,
+    kind: 'regular',
+    hpMult: 1.0,
+    atkMult: 1.0,
+    dodgeChance: 0.12,
+    svg: sprite(`
+      <path d="M30 110 q0 -46 30 -54 q30 8 30 54 Z" fill="#E2E8F0" stroke="#94A3B8" stroke-width="3"/>
+      <rect x="46" y="68" width="28" height="20" rx="4" fill="#94A3B8"/>
+      <circle cx="60" cy="38" r="24" fill="#F8FAFC" stroke="#94A3B8" stroke-width="3"/>
+      <path d="M40 38 a20 16 0 0 1 40 0 v6 h-40 Z" fill="#1E1B4B"/>
+      ${eyes(52, 68, 36, 3.6, '#F472B6')}
+      <path d="M12 60 q-10 16 4 30 M108 60 q10 16 -4 30" stroke="#E2E8F0" stroke-width="10" fill="none" stroke-linecap="round"/>
+      <path d="M92 40 q22 -10 22 16" stroke="#94A3B8" stroke-width="3" fill="none" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w11_moon',
+    he: 'ירח זועף',
+    en: 'Grumpy Moon',
+    world: 11,
+    kind: 'regular',
+    /* tank */ hpMult: 1.35,
+    atkMult: 0.76,
+    regenPct: 0.015,
+    svg: sprite(`
+      <circle cx="60" cy="60" r="44" fill="#CBD5E1" stroke="#64748B" stroke-width="3"/>
+      <circle cx="36" cy="44" r="8" fill="#94A3B8"/><circle cx="82" cy="86" r="10" fill="#94A3B8"/><circle cx="84" cy="36" r="5" fill="#94A3B8"/>
+      ${eyes(48, 72, 58, 5, '#1E293B')}
+      <path d="M44 50 l10 4 M76 50 l-10 4" stroke="#1E293B" stroke-width="3" stroke-linecap="round"/>
+      <path d="M48 80 q12 -10 24 0" stroke="#1E293B" stroke-width="3.5" fill="none" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w11_alien',
+    he: 'חייזר ירוק',
+    en: 'Green Alien',
+    world: 11,
+    kind: 'regular',
+    hpMult: 0.9,
+    atkMult: 1.15,
+    dodgeChance: 0.16,
+    svg: sprite(`
+      <path d="M40 110 q-2 -36 20 -44 q22 8 20 44 Z" fill="#22C55E" stroke="#14532D" stroke-width="3"/>
+      <ellipse cx="60" cy="40" rx="28" ry="24" fill="#4ADE80" stroke="#14532D" stroke-width="3"/>
+      <path d="M40 22 q-10 -14 -4 -20 M80 22 q10 -14 4 -20" stroke="#14532D" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <circle cx="34" cy="2" r="3" fill="#F472B6"/><circle cx="86" cy="2" r="3" fill="#F472B6"/>
+      ${eyes(48, 72, 40, 7, '#0B0F19')}
+      <circle cx="50" cy="38" r="2" fill="#F8FAFC"/><circle cx="74" cy="38" r="2" fill="#F8FAFC"/>
+      <path d="M54 56 q6 4 12 0" stroke="#14532D" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+      <path d="M18 70 q-10 10 0 26 M102 70 q10 10 0 26" stroke="#22C55E" stroke-width="7" fill="none" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w11_blackhole',
+    he: 'חור שחור קטן',
+    en: 'Little Black Hole',
+    world: 11,
+    kind: 'regular',
+    hpMult: 1.1,
+    atkMult: 0.95,
+    regenPct: 0.02,
+    svg: sprite(`
+      <ellipse cx="60" cy="60" rx="54" ry="16" fill="none" stroke="#F472B6" stroke-width="4" opacity=".6"/>
+      <ellipse cx="60" cy="60" rx="42" ry="10" fill="none" stroke="#FDA4AF" stroke-width="3" opacity=".8"/>
+      <circle cx="60" cy="60" r="28" fill="#0B0F19" stroke="#F472B6" stroke-width="3"/>
+      <circle cx="60" cy="60" r="20" fill="#1E1B4B"/>
+      ${eyes(51, 69, 58, 4.4, '#F472B6')}
+      <path d="M52 70 q8 6 16 0" stroke="#F472B6" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <circle cx="12" cy="30" r="2.5" fill="#FDF2F8"/><circle cx="106" cy="96" r="2.5" fill="#FDF2F8"/>`),
+  },
+  {
+    id: 'w11_meteor',
+    he: 'מטאור',
+    en: 'Meteor',
+    world: 11,
+    kind: 'regular',
+    hpMult: 0.85,
+    atkMult: 1.18,
+    svg: sprite(`
+      <path d="M20 110 q10 -40 40 -60 q-6 30 -24 62 Z" fill="#F97316" opacity=".6"/>
+      <path d="M32 112 q8 -28 30 -44 q-4 22 -18 46 Z" fill="#FDE68A" opacity=".7"/>
+      <circle cx="76" cy="44" r="30" fill="#78350F" stroke="#431407" stroke-width="3"/>
+      <circle cx="66" cy="34" r="6" fill="#92400E"/><circle cx="90" cy="54" r="7" fill="#92400E"/>
+      ${eyes(68, 86, 46, 4.4, '#FDE68A')}
+      <path d="M68 58 q9 6 18 0" stroke="#431407" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M100 20 l10 -10 M104 34 l14 -2" stroke="#F97316" stroke-width="3" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'w11_satellite',
+    he: 'לוויין רפאים',
+    en: 'Ghost Satellite',
+    world: 11,
+    kind: 'regular',
+    hpMult: 0.95,
+    atkMult: 1.05,
+    dodgeChance: 0.14,
+    svg: sprite(`
+      <rect x="4" y="50" width="34" height="20" rx="3" fill="#1D4ED8" stroke="#1E3A8A" stroke-width="2"/>
+      <rect x="82" y="50" width="34" height="20" rx="3" fill="#1D4ED8" stroke="#1E3A8A" stroke-width="2"/>
+      <path d="M12 60 h18 M90 60 h18 M21 52 v16 M99 52 v16" stroke="#93C5FD" stroke-width="1.5"/>
+      <rect x="40" y="40" width="40" height="40" rx="8" fill="#E2E8F0" stroke="#94A3B8" stroke-width="3"/>
+      <path d="M60 40 v-14 M52 26 h16" stroke="#94A3B8" stroke-width="3" stroke-linecap="round"/>
+      <path d="M46 26 a14 14 0 0 1 28 0" stroke="#F472B6" stroke-width="3" fill="none"/>
+      ${eyes(52, 68, 58, 4, '#F472B6')}
+      <path d="M52 70 h16" stroke="#94A3B8" stroke-width="3" stroke-linecap="round"/>
+      <path d="M50 80 l-4 14 M70 80 l4 14" stroke="#94A3B8" stroke-width="3" stroke-linecap="round"/>`),
+  },
+];
+
+const W11_MINI: EnemyDef = {
+  id: 'w11_supernova',
+  he: 'סופרנובה',
+  en: 'Supernova',
+  world: 11,
+  kind: 'mini',
+  dodgeChance: 0.1,
+  regenPct: 0.005,
+  svg: sprite(`
+    <path d="M60 4 l8 30 30 -12 -20 24 30 14 -32 2 12 30 -28 -18 -12 30 -2 -32 -30 12 20 -24 -30 -14 32 -2 -12 -30 28 18 Z"
+      fill="#F472B6" opacity=".55"/>
+    <circle cx="60" cy="60" r="30" fill="#FDF2F8" stroke="#F472B6" stroke-width="3"/>
+    <circle cx="60" cy="60" r="20" fill="#FBCFE8"/>
+    ${eyes(51, 69, 58, 5, '#831843')}
+    <path d="M50 70 q10 8 20 0" stroke="#831843" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+    <circle cx="14" cy="14" r="2.5" fill="#FDF2F8"/><circle cx="106" cy="110" r="2.5" fill="#FDF2F8"/>`),
+};
+
 /* --------------------------------------------------------------- rosters */
 
 const ROSTERS: Readonly<Record<number, { regular: readonly EnemyDef[]; mini: EnemyDef }>> = {
@@ -1529,6 +2411,8 @@ const ROSTERS: Readonly<Record<number, { regular: readonly EnemyDef[]; mini: Ene
   7: { regular: W7, mini: W7_MINI },
   8: { regular: W8, mini: W8_MINI },
   9: { regular: W9, mini: W9_MINI },
+  10: { regular: W10, mini: W10_MINI },
+  11: { regular: W11, mini: W11_MINI },
 };
 
 /** Every regular enemy + mini-boss, flattened (used by tests and the codex UI). */
@@ -1593,8 +2477,8 @@ export function enemyById(id: string): EnemyDef | undefined {
  * last wave — usually a little before it — and the RAMP of the waves (the
  * world's `span`) is what sends the player back to the gym, never the gate.
  *
- *   world   1   2   3   4   5   6   7   8   9
- *   band    3   4   5   6   7   8   9   9  10     (the steepest requirement)
+ *   world   1   2   3   4   5   6   7   8   9  10  11
+ *   band    3   4   5   6   7   8   9   9  10  10  11     (the steepest requirement)
  *
  * The earlier ladder (3/5/7/8/9/9/10/10/10) was tuned against a combat curve
  * from before skills, six equipment slots, upgrades and the streak buff; those
@@ -1806,7 +2690,7 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     world: 9,
     kind: 'boss',
     requires: { chest: 8, back: 10, legs: 9, shoulders: 9, arms: 10, core: 9 },
-    hpMult: 2.95,
+    hpMult: 2.8,
     atkMult: 0.85,
     critChance: 0.15,
     critMultiplier: 1.7,
@@ -1827,6 +2711,56 @@ export const WORLD_BOSSES: readonly BossDef[] = [
       <path d="M108 22 v88" stroke="#292524" stroke-width="7" stroke-linecap="round"/>
       <path d="M108 6 l-16 26 h32 Z" fill="#F97316" stroke="#7C2D12" stroke-width="3"/>
       <path d="M10 66 q-10 16 2 28" stroke="#991B1B" stroke-width="11" fill="none" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'boss_w10',
+    he: 'מנוע המלחמה',
+    en: 'War Engine',
+    world: 10,
+    kind: 'boss',
+    requires: { chest: 9, back: 10, legs: 10, shoulders: 9, arms: 10, core: 9 },
+    hpMult: 2.6,
+    atkMult: 0.9,
+    def: 22,
+    critChance: 0.12,
+    critMultiplier: 1.6,
+    svg: sprite(`
+      <ellipse cx="60" cy="112" rx="48" ry="7" fill="#A3E635" opacity=".25"/>
+      <path d="M12 110 q0 -58 48 -70 q48 12 48 70 Z" fill="#3F3F46" stroke="#18181B" stroke-width="4"/>
+      <rect x="30" y="66" width="60" height="34" rx="8" fill="#27272A"/>
+      <circle cx="60" cy="83" r="12" fill="#1A2E05" stroke="#A3E635" stroke-width="3"/>
+      <path d="M60 71 v24 M48 83 h24" stroke="#A3E635" stroke-width="2.5"/>
+      <rect x="34" y="12" width="52" height="38" rx="12" fill="#365314" stroke="#1A2E05" stroke-width="3"/>
+      ${eyes(50, 70, 31, 6, '#EF4444')}
+      <circle cx="50" cy="31" r="11" fill="#EF4444" opacity=".2"/><circle cx="70" cy="31" r="11" fill="#EF4444" opacity=".2"/>
+      <path d="M46 44 h28" stroke="#1A2E05" stroke-width="4" stroke-linecap="round"/>
+      <path d="M6 62 q-10 18 6 34 M114 62 q10 18 -6 34" stroke="#52525B" stroke-width="14" fill="none" stroke-linecap="round"/>
+      <path d="M100 12 h16 v12 l-8 6 -8 -6 Z" fill="#CA8A04" stroke="#713F12" stroke-width="2"/>
+      <path d="M22 26 q8 -18 20 -10" stroke="#A3E635" stroke-width="3" fill="none" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'boss_w11',
+    he: 'טיטאן הריק',
+    en: 'Void Titan',
+    world: 11,
+    kind: 'boss',
+    requires: { chest: 9, back: 11, legs: 10, shoulders: 10, arms: 11, core: 9 },
+    hpMult: 2.6,
+    atkMult: 0.85,
+    dodgeChance: 0.12,
+    regenPct: 0.003,
+    svg: sprite(`
+      <ellipse cx="60" cy="60" rx="58" ry="16" fill="none" stroke="#F472B6" stroke-width="3" opacity=".5"/>
+      <path d="M10 112 q-4 -64 50 -76 q54 12 50 76 Z" fill="#1E1B4B" stroke="#0B0F19" stroke-width="4"/>
+      <path d="M32 66 q28 18 56 0 l-6 30 q-22 12 -44 0 Z" fill="#312E81"/>
+      <circle cx="60" cy="36" r="26" fill="#0B0F19" stroke="#F472B6" stroke-width="3"/>
+      <circle cx="60" cy="36" r="16" fill="#1E1B4B"/>
+      ${eyes(50, 70, 34, 6, '#F472B6')}
+      <circle cx="50" cy="34" r="11" fill="#F472B6" opacity=".2"/><circle cx="70" cy="34" r="11" fill="#F472B6" opacity=".2"/>
+      <path d="M46 50 l7 6 7 -6 7 6 7 -6" stroke="#FDA4AF" stroke-width="3.5" fill="none" stroke-linejoin="round"/>
+      <path d="M6 70 q-10 16 4 30 M114 70 q10 16 -4 30" stroke="#312E81" stroke-width="12" fill="none" stroke-linecap="round"/>
+      <circle cx="16" cy="18" r="3" fill="#FDF2F8"/><circle cx="104" cy="14" r="2.5" fill="#FDF2F8"/><circle cx="110" cy="100" r="2" fill="#FDF2F8"/>
+      <path d="M100 30 l8 -12 M104 44 l14 -4" stroke="#F472B6" stroke-width="3" stroke-linecap="round"/>`),
   },
 ] as const;
 
@@ -1884,7 +2818,7 @@ export function bossGateStatus(
 /* ------------------------------------------------------------- equipment */
 
 /**
- * THE SIX SLOTS, head to toe.
+ * THE SEVEN SLOTS, head to toe (the 🪖 helmet joined in PHASE 12).
  *
  * Nothing anywhere counts them: every slot-keyed surface — the shop drawers, the
  * SVG layers, `normalizeEquipment`, the ghost payload's `equipped` map — is
@@ -1894,7 +2828,7 @@ export function bossGateStatus(
  * exactly valid: the missing keys mean "wearing nothing there", which is what
  * they always meant.
  */
-export type EquipmentSlot = 'gloves' | 'shirt' | 'belt' | 'leggings' | 'shoes' | 'cape';
+export type EquipmentSlot = 'helmet' | 'gloves' | 'shirt' | 'belt' | 'leggings' | 'shoes' | 'cape';
 
 /**
  * ORDER IS THE SHOP'S ORDER, and it is anatomical: hands · chest · waist · legs
@@ -1902,6 +2836,7 @@ export type EquipmentSlot = 'gloves' | 'shirt' | 'belt' | 'leggings' | 'shoes' |
  * than appended, so the drawer list reads as a wardrobe instead of a changelog.
  */
 export const EQUIPMENT_SLOTS: readonly EquipmentSlot[] = [
+  'helmet',
   'gloves',
   'shirt',
   'belt',
@@ -1911,6 +2846,7 @@ export const EQUIPMENT_SLOTS: readonly EquipmentSlot[] = [
 ] as const;
 
 export const SLOT_HE: Readonly<Record<EquipmentSlot, string>> = {
+  helmet: 'קסדה',
   gloves: 'כפפות',
   shirt: 'חולצה',
   belt: 'חגורה',
@@ -1920,6 +2856,7 @@ export const SLOT_HE: Readonly<Record<EquipmentSlot, string>> = {
 };
 
 export const SLOT_EMOJI: Readonly<Record<EquipmentSlot, string>> = {
+  helmet: '🪖',
   gloves: '🥊',
   shirt: '👕',
   belt: '🎗',
@@ -1968,7 +2905,7 @@ function icon(inner: string): string {
 }
 
 /**
- * The shop roster: six slots × three tiers.
+ * The shop roster: seven slots × three tiers.
  *
  * PRICE TUNING — world 1's fifty waves pay ≈1 800 🪙 and each world multiplies
  * the payout by `BALANCE.combat.coins.worldMult`, on top of a large boss purse.
@@ -1988,6 +2925,52 @@ function icon(inner: string): string {
  * lifetime cost is 3× the sum of its three tiers).
  */
 export const EQUIPMENT: readonly EquipmentDef[] = [
+  /* --- helmet: focus — crit, the arms' family, worn on the head ---------
+   * THE SEVENTH SLOT (PHASE 12). Priced and weighted UNDER the gloves it shares
+   * a stat family with, for the same reason the shirt sits under the belt: a
+   * wardrobe is worn all at once, and the era kits the pacing is pinned against
+   * now carry seven pieces. Its lifetime cost (≈6,060 🪙) is what the two new
+   * worlds were added to pay for. */
+  {
+    id: 'helmet_1',
+    he: 'בנדנה אדומה',
+    en: 'Red Bandana',
+    slot: 'helmet',
+    tier: 1,
+    cost: 100,
+    bonus: { critChance: 0.02 },
+    color: '#B91C1C',
+    accent: '#FCA5A5',
+    note: 'קשורה חזק. הזיעה נשארת מחוץ לעיניים — והמכה נכנסת איפה שצריך.',
+    icon: icon(`<path d="M10 22 q14 -14 28 0 v6 h-28 Z" fill="#B91C1C" stroke="#FCA5A5" stroke-width="2" stroke-linejoin="round"/><path d="M36 26 l8 6 -6 2 4 6" stroke="#B91C1C" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`),
+  },
+  {
+    id: 'helmet_2',
+    he: 'קסדת אימון',
+    en: 'Training Helm',
+    slot: 'helmet',
+    tier: 2,
+    cost: 440,
+    bonus: { critChance: 0.05, critMultiplier: 0.1 },
+    color: '#1F2937',
+    accent: '#60A5FA',
+    note: 'מצחייה כחולה וריפוד. הראש שקט, היד מדויקת.',
+    icon: icon(`<path d="M10 26 a14 14 0 0 1 28 0 v4 h-28 Z" fill="#1F2937" stroke="#60A5FA" stroke-width="2" stroke-linejoin="round"/><path d="M8 30 h32" stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/><circle cx="24" cy="19" r="2.5" fill="#60A5FA"/>`),
+  },
+  {
+    id: 'helmet_3',
+    he: 'קסדת האלופים',
+    en: "Champion's Helm",
+    slot: 'helmet',
+    tier: 3,
+    cost: 1480,
+    bonus: { critChance: 0.07, critMultiplier: 0.3, def: 8 },
+    color: '#B08D57',
+    accent: '#FDE68A',
+    note: 'זהב עם ציצית. מי שחובש אותה כבר ניצח פעם — ויודע איך.',
+    icon: icon(`<path d="M9 28 a15 15 0 0 1 30 0 v5 h-30 Z" fill="#B08D57" stroke="#FDE68A" stroke-width="2" stroke-linejoin="round"/><rect x="22.5" y="24" width="3" height="10" rx="1.5" fill="#B08D57"/><path d="M15 12 q9 -10 18 0 q-9 -4 -18 0 Z" fill="#FDE68A"/><path d="M9 33 h30" stroke="#FDE68A" stroke-width="2.5" stroke-linecap="round"/>`),
+  },
+
   /* --- gloves: attack & crit ------------------------------------------- */
   {
     id: 'gloves_1',

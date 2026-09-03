@@ -248,6 +248,8 @@ export function characterGeometry(parts: PartsProgress, body: BodyGeometry = 'ma
  * here). Exported so the shop items can be authored against stable coordinates.
  */
 export interface CharacterAnchors {
+  /** The skull: centre and radius. A helmet is cut to the head it sits on. */
+  helmet: { x: number; y: number; r: number };
   belt: { x: number; y: number; halfWidth: number };
   /**
    * THE TORSO GARMENT, as the five numbers a tank top is cut from: the shoulder
@@ -322,6 +324,7 @@ export function characterAnchors(geo: CharacterGeometry): CharacterAnchors {
     };
   };
   return {
+    helmet: { x: CX, y: HEAD_CY, r: geo.headR },
     belt: { x: CX, y: HIP_Y - 8, halfWidth: geo.waistHalf + 2 },
     shirt: {
       x: CX,
@@ -362,6 +365,44 @@ export function characterAnchors(geo: CharacterGeometry): CharacterAnchors {
  * silhouette plus at most one accent detail. Nothing here relies on a stroke
  * thinner than 2 user units (≈0.9px at arena scale).
  */
+
+/**
+ * THE HELMET — the one piece worn on the head, drawn AFTER the head group so it
+ * sits over the skin's own hair and decoration. Every measure is a fraction of
+ * the head radius, so it fits the smaller female skull the same way it fits the
+ * male one, and the eyes (at `cy − 0.11r`) always stay visible under the brim.
+ *
+ *   tier 1 — a bandana: a band across the forehead, knotted behind the ear;
+ *   tier 2 — a training helm: a half-dome over the crown with a padded brim;
+ *   tier 3 — the champion's helm: a full dome, cheek guards and a crest.
+ */
+function helmetLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: EquipmentDef): string {
+  const { x, y, r } = a.helmet;
+  if (item.tier === 1) {
+    const top = y - r * 0.62;
+    const bottom = y - r * 0.3;
+    return `<path d="M ${n(x - r - 0.5)} ${n(bottom)} Q ${n(x)} ${n(top - r * 0.35)} ${n(x + r + 0.5)} ${n(bottom)}
+        Q ${n(x)} ${n(bottom + r * 0.1)} ${n(x - r - 0.5)} ${n(bottom)} Z" fill="${item.color}" stroke="${item.accent}" stroke-width="1.6"/>
+      <path d="M ${n(x + r - 1)} ${n(bottom - 1)} l ${n(r * 0.5)} ${n(r * 0.3)} l ${n(-r * 0.3)} ${n(r * 0.12)} l ${n(r * 0.28)} ${n(r * 0.36)}"
+        stroke="${item.color}" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }
+  const brimY = y - r * 0.36;
+  const dome = `<path d="M ${n(x - r - 1.5)} ${n(brimY)} a ${n(r + 1.5)} ${n(r + 1.5)} 0 0 1 ${n(r * 2 + 3)} 0 Z"
+      fill="${item.color}" stroke="${item.accent}" stroke-width="1.8"/>`;
+  if (item.tier === 2) {
+    return `${dome}<rect x="${n(x - r - 3)}" y="${n(brimY - 2)}" width="${n(r * 2 + 6)}" height="4.5" rx="2.2" fill="${item.accent}"/>
+      <circle cx="${n(x)}" cy="${n(y - r * 0.82)}" r="${n(r * 0.14)}" fill="${item.accent}"/>`;
+  }
+  // Tier 3: cheek guards down the sides, a nose bar, and a crest along the crown.
+  const cheek = (side: -1 | 1): string =>
+    `<path d="M ${n(x + side * (r + 1.5))} ${n(brimY)} v ${n(r * 0.9)} q 0 ${n(r * 0.3)} ${n(-side * r * 0.3)} ${n(r * 0.3)}
+      l ${n(-side * r * 0.12)} ${n(-r * 1.1)} Z" fill="${item.color}" stroke="${item.accent}" stroke-width="1.4"/>`;
+  return `${dome}${cheek(-1)}${cheek(1)}
+    <rect x="${n(x - 1.8)}" y="${n(brimY)}" width="3.6" height="${n(r * 0.7)}" rx="1.6" fill="${item.color}"/>
+    <path d="M ${n(x - r * 0.6)} ${n(y - r * 0.98)} q ${n(r * 0.6)} ${n(-r * 0.85)} ${n(r * 1.2)} 0
+      q ${n(-r * 0.6)} ${n(-r * 0.3)} ${n(-r * 1.2)} 0 Z" fill="${item.accent}"/>
+    <path d="M ${n(x - r - 2)} ${n(brimY + 1)} h ${n(r * 2 + 4)}" stroke="${item.accent}" stroke-width="2.2" stroke-linecap="round"/>`;
+}
 
 function capeLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: EquipmentDef): string {
   const { x, y } = a.cape;
@@ -690,6 +731,7 @@ function leggingsLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: Equip
 const SLOT_DRAW: Readonly<
   Record<EquipmentSlot, (geo: CharacterGeometry, a: CharacterAnchors, item: EquipmentDef) => string>
 > = {
+  helmet: helmetLayer,
   cape: capeLayer,
   shirt: shirtLayer,
   belt: beltLayer,
@@ -710,6 +752,9 @@ const SLOT_DRAW: Readonly<
  */
 function flairSpots(slot: EquipmentSlot, a: CharacterAnchors): Array<{ x: number; y: number; r: number }> {
   switch (slot) {
+    case 'helmet':
+      // The crown — the one point of a helmet nothing else ever covers.
+      return [{ x: a.helmet.x, y: a.helmet.y - a.helmet.r * 0.55, r: Math.max(7, a.helmet.r * 0.5) }];
     case 'gloves':
       return a.gloves.map((g) => ({ x: g.x, y: g.y, r: Math.max(7, g.r + 2) }));
     case 'shoes':
@@ -1446,6 +1491,10 @@ export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {
   </g>
 
   ${headGroup(geo, look)}
+
+  <!-- THE HELMET sits on the finished head: over the skin's hair and its own
+       head covering, which is what a helmet does. -->
+  ${group('helmet')}
 
   <!-- Equipment layers worn ON TOP of the body (see characterAnchors), in the
        order clothes actually overlap: the leggings' waistband sits on the hips,

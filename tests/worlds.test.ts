@@ -77,7 +77,7 @@ function rosterOf(world: number): ReturnType<typeof regularEnemies> {
 describe('per-world wave counts', () => {
   it('grows world by world, with a DECELERATING step', () => {
     const counts = WORLDS.map((w) => w.waves);
-    expect(counts).toEqual([50, 80, 110, 130, 140, 150, 160, 170, 180]);
+    expect(counts).toEqual([50, 80, 110, 130, 140, 150, 160, 170, 180, 190, 200]);
     expect(counts[0]).toBe(BALANCE.combat.wavesFirstWorld);
     for (let i = 1; i < counts.length; i += 1) {
       expect(counts[i] as number, `world ${i + 1}`).toBeGreaterThan(counts[i - 1] as number);
@@ -376,7 +376,7 @@ describe('per-world combat flavours', () => {
     const armoured = rosterOf(5).filter((e) => (e.def ?? 0) > 0);
     expect(armoured.length).toBeGreaterThanOrEqual(3);
     for (const e of ENEMIES) {
-      if ((e.def ?? 0) > 0) expect(e.world, `${e.id} is armoured`).toBe(5);
+      if ((e.def ?? 0) > 0) expect([5, 10], `${e.id} is armoured`).toContain(e.world);
     }
     const enemy = spawnOf(5, 1); // w5_crab
     expect(enemy?.def).toBe(30);
@@ -414,7 +414,7 @@ describe('per-world combat flavours', () => {
     const shades = rosterOf(7).filter((e) => (e.dodgeChance ?? 0) > 0);
     expect(shades.length).toBeGreaterThanOrEqual(3);
     for (const e of ENEMIES) {
-      if ((e.dodgeChance ?? 0) > 0) expect(e.world, `${e.id} dodges`).toBe(7);
+      if ((e.dodgeChance ?? 0) > 0) expect([7, 11], `${e.id} dodges`).toContain(e.world);
     }
 
     // A character with a huge crit chance meets a shade: over a long fight the
@@ -436,7 +436,7 @@ describe('per-world combat flavours', () => {
     const healers = rosterOf(8).filter((e) => (e.regenPct ?? 0) > 0);
     expect(healers.length).toBeGreaterThanOrEqual(3);
     for (const e of ENEMIES) {
-      if ((e.regenPct ?? 0) > 0) expect(e.world, `${e.id} heals`).toBe(8);
+      if ((e.regenPct ?? 0) > 0) expect([8, 11], `${e.id} heals`).toContain(e.world);
     }
     // wave 2 of גן עדן is מלאך שומר, the 2%-per-second guardian
     const enemy = spawnOf(8, 2);
@@ -452,7 +452,7 @@ describe('per-world combat flavours', () => {
     const critters = rosterOf(9).filter((e) => (e.critChance ?? 0) > 0);
     expect(critters.length).toBeGreaterThanOrEqual(3);
     for (const e of ENEMIES) {
-      if ((e.critChance ?? 0) > 0) expect(e.world, `${e.id} crits`).toBe(9);
+      if ((e.critChance ?? 0) > 0) expect([9, 10], `${e.id} crits`).toContain(e.world);
     }
     const enemy = spawnOf(9, 1); // w9_imp
     expect(enemy?.critChance).toBe(0.15);
@@ -488,9 +488,12 @@ describe('per-world combat flavours', () => {
  */
 describe('world 1 replays byte-for-byte, curve and RNG stream alike', () => {
   it('deals the identical damage sequence for a recorded seed', () => {
+    // Re-pinned in PHASE 12: the roster grew from six regulars to nine, so the
+    // enemy standing on wave 8+ changed (the roster lap is longer) — the RNG
+    // stream did not. Waves 1–7 are byte-identical to the six-enemy build.
     const GOLDEN_DAMAGE = [
-      6.3, 6.3, 6, 6.6, 6.9, 27.9, 12.2, 6.1, 11.2, 7.2, 6.7, 27.3, 6.5, 6, 7, 6.9, 6.7, 6.8, 28, 6.2,
-      12.4, 6.8, 7.1, 6.7, 7.1, 29.9, 12, 11, 6.9, 7, 7, 30, 12.5, 7.1, 6.4, 7.1, 6.8, 32.9, 6,
+      6.3, 6.3, 6, 6.6, 6.9, 27.9, 12.2, 6.1, 11.2, 7.2, 6.7, 30, 6, 6.5, 6, 7, 6.9, 27.2, 6.7, 6.8,
+      6.2, 6.2, 12.4, 30.9, 7.1, 6.7, 7.1, 6.6, 6.2, 7.2, 31.7, 12, 11, 6.9, 7, 31.8, 12.5, 7.1,
     ];
     const stats = statsAt(6);
     const state = createBattle({ seed: 777, world: 1, wave: 7, energy: 1000, stats });
@@ -530,8 +533,9 @@ describe('world 1 replays byte-for-byte, curve and RNG stream alike', () => {
     const golden: Record<number, string> = {
       1: '32:6:5',
       10: '105:9.8:56',
-      25: '92:12.2:29',
-      49: '265:24.8:53',
+      // (PHASE 12: waves 25 and 49 meet a different member of the grown roster)
+      25: '74:14.6:29',
+      49: '212:29.8:53',
       50: '609:31.9:216',
     };
     for (const [wave, want] of Object.entries(golden)) {
@@ -557,29 +561,30 @@ describe('world 1 replays byte-for-byte, curve and RNG stream alike', () => {
 describe('the nine-world journey, in real workouts', () => {
   const ENERGY_PER_WORKOUT = 225;
 
-  it('costs ≈53 workouts of ENERGY in total, rising world by world', () => {
+  it('costs ≈70 workouts of ENERGY in total, rising world by world', () => {
     const perWorld = WORLDS.map(
       (w) => w.waves * BALANCE.combat.energyPerWave + BALANCE.combat.boss.energyCost,
     );
     const workouts = perWorld.map((e) => e / ENERGY_PER_WORKOUT);
 
-    // world 1 ≈ 2.4 workouts, the finale ≈ 8.1 — the documented spread
+    // world 1 ≈ 2.4 workouts, the finale ≈ 9.0 — the documented spread
     expect(workouts[0]).toBeCloseTo(2.4, 1);
-    expect(workouts[WORLD_COUNT - 1]).toBeCloseTo(8.1, 1);
+    expect(workouts[WORLD_COUNT - 1]).toBeCloseTo(9.0, 1);
     for (let i = 1; i < workouts.length; i += 1) {
       expect(workouts[i] as number).toBeGreaterThan(workouts[i - 1] as number);
     }
     const total = perWorld.reduce((a, b) => a + b, 0) / ENERGY_PER_WORKOUT;
-    expect(total).toBeGreaterThan(48);
-    expect(total).toBeLessThan(58);
+    expect(total).toBeGreaterThan(65);
+    expect(total).toBeLessThan(75);
   });
 
   it('asks for a gate the world’s own waves already trained you past', () => {
     // Every gate is met by a character whose parts sit at the band the README
-    // publishes for that world (3/4/5/6/7/8/9/9/10) — the level its steepest
-    // requirement asks for — and one level below it, something is still open.
-    // Where each gate sits against a REAL trainee is `tests/pacing.test.ts`.
-    const band: readonly number[] = [3, 4, 5, 6, 7, 8, 9, 9, 10];
+    // publishes for that world (3/4/5/6/7/8/9/9/10/10/11) — the level its
+    // steepest requirement asks for — and one level below it, something is
+    // still open. Where each gate sits against a REAL trainee is
+    // `tests/pacing.test.ts`.
+    const band: readonly number[] = [3, 4, 5, 6, 7, 8, 9, 9, 10, 10, 11];
     for (const w of WORLDS) {
       const level = band[w.id - 1] as number;
       const levels = {} as Record<BodyPart, number>;
@@ -611,8 +616,9 @@ describe('the nine-world journey, in real workouts', () => {
     expect(purses[0] as number).toBeLessThan(4000);
     // …and nine worlds together must not pay a hundred wardrobes: the campaign
     // buys the fully upgraded shop between three and six times over.
+    // (against the SEVEN-slot wardrobe's lifetime cost, pinned in tests/shop.test.ts)
     const income = purses.reduce((a, b) => a + b, 0);
-    expect(income).toBeLessThan(47_250 * 6);
-    expect(income).toBeGreaterThan(47_250 * 3.5);
+    expect(income).toBeLessThan(53_310 * 6);
+    expect(income).toBeGreaterThan(53_310 * 3.5);
   });
 });

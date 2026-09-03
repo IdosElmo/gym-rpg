@@ -65,11 +65,12 @@ const mean = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0) / 
 /* ----------------------------------------------------------------- roster */
 
 describe('enemy roster', () => {
-  it('gives every world 5–6 regulars plus exactly one mini-boss', () => {
+  it('gives every world 8–9 regulars plus exactly one mini-boss', () => {
+    // PHASE 12 grew every roster by three (the new worlds ship with eight).
     for (const w of WORLDS) {
       const regulars = regularEnemies(w.id);
-      expect(regulars.length, `world ${w.id}`).toBeGreaterThanOrEqual(5);
-      expect(regulars.length, `world ${w.id}`).toBeLessThanOrEqual(6);
+      expect(regulars.length, `world ${w.id}`).toBeGreaterThanOrEqual(8);
+      expect(regulars.length, `world ${w.id}`).toBeLessThanOrEqual(9);
       expect(regulars.every((e) => e.kind === 'regular')).toBe(true);
       expect(regulars.every((e) => e.world === w.id)).toBe(true);
       expect(miniBossOf(w.id).kind).toBe('mini');
