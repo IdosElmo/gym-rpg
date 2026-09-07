@@ -1333,11 +1333,12 @@ const X33: ExerciseDemo = one('x33', {
   // pelvis is byte-identical between the frames: it is the one thing the
   // coaching copy says must not move. Like b5 it is a HOLD, so it breathes:
   // the legs and the shoulders drift a degree and come back. The arms reach
-  // at 55° rather than flat along the ears because from the side an arm by
-  // the ear runs straight through the skull; here they clear it.
+  // at ~65° rather than flat along the ears because from the side an arm by
+  // the ear runs straight through the skull; at 50° off the spine they clear
+  // it by more than the head's radius.
   frames: [
-    { x: 78, y: 95, torso: -14, head: -14, arm: [-55, -55], armF: [-53, -53], leg: [-166, -166, -150], legF: [-165, -165, -149] },
-    { x: 78, y: 95, torso: -12, head: -12, arm: [-53, -53], armF: [-51, -51], leg: [-164, -164, -148], legF: [-163, -163, -147] },
+    { x: 78, y: 95, torso: -14, head: -14, arm: [-64, -64], armF: [-62, -62], leg: [-166, -166, -150], legF: [-165, -165, -149] },
+    { x: 78, y: 95, torso: -12, head: -12, arm: [-62, -62], armF: [-60, -60], leg: [-164, -164, -148], legF: [-163, -163, -147] },
   ],
   props: () => matProp(30, 130, 100) + floorProp(22, 140, 103.4),
   hold: { k: 'none' },

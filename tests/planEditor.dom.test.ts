@@ -251,10 +251,12 @@ describe('day management', () => {
     click('#plSave');
     expect(planEvents(store)).toHaveLength(0);
 
-    // …give it an exercise and the same save goes through
+    // …give it an exercise and the same save goes through: pick a row, then
+    // press the card's ➕
     click('#plAdd');
-    const first = document.querySelector<HTMLButtonElement>('[data-add]');
+    const first = document.querySelector<HTMLButtonElement>('[data-pick]');
     first?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    click('[data-add]');
     click('#plSave');
     expect(planEvents(store)).toHaveLength(1);
     expect(store.getState().plan?.days).toHaveLength(4);
@@ -379,7 +381,8 @@ describe('weekday assignment', () => {
     const { store } = mount();
     openEditor();
     click('#plDayAdd'); // the library opens for the new day
-    click('[data-add="x21"]'); // adding a row closes the sheet
+    click('[data-pick="x21"]'); // the treadmill's preview card opens…
+    click('[data-add="x21"]'); // …and its ➕ adds the row and closes the sheet
     click('[data-wd="3"]'); // the treadmill on Wednesday
     expect(targetText()).toContain('יעד שבועי: 4');
     // the built-in days now carry the weekday that names each of them
@@ -403,6 +406,7 @@ describe('weekday assignment', () => {
     const { store } = mount();
     openEditor();
     click('#plDayAdd');
+    click('[data-pick="x21"]');
     click('[data-add="x21"]');
     expect(document.querySelector<HTMLInputElement>('[data-edit="sets"][data-id="x21"]')?.max).toBe('24');
     type('[data-edit="sets"][data-id="x21"]', '12');
@@ -715,13 +719,65 @@ describe('editing the draft', () => {
     click('#plAdd');
     expect(document.querySelector('.pl-sheet')).not.toBeNull();
     // the sheet never offers something already in the day
-    const offered = [...document.querySelectorAll<HTMLElement>('[data-add]')].map((b) => b.dataset['add']);
+    const offered = [...document.querySelectorAll<HTMLElement>('[data-pick]')].map((b) => b.dataset['pick']);
     expect(offered).toContain(victim);
     expect(offered).not.toContain(rowIds()[0]);
+    // …and it is ALPHABETICAL by Hebrew name
+    const names = [...document.querySelectorAll<HTMLElement>('[data-pick] b')].map((b) => b.textContent ?? '');
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b, 'he')));
 
+    click(`[data-pick="${victim}"]`);
     click(`[data-add="${victim}"]`);
     expect(document.querySelector('.pl-sheet')).toBeNull();
     expect(rowIds()).toContain(victim);
+  });
+
+  it('a tap on a library row opens a PREVIEW CARD — demo, scheme, cue, ➕ — and only the ➕ adds', () => {
+    mount();
+    openEditor();
+    click('#plDayAdd'); // an empty new day, the library open
+    expect(document.querySelector('.pl-preview')).toBeNull();
+    expect(document.querySelector('[data-add]')).toBeNull(); // nothing adds before a pick
+
+    click('[data-pick="x21"]');
+    const card = document.querySelector<HTMLElement>('.pl-preview[data-preview="x21"]');
+    expect(card).not.toBeNull();
+    // the coach demo the workout screen shows, mounted inside the card
+    expect(card?.querySelector('.ex-demo[data-demo="x21"] .cd-svg')).not.toBeNull();
+    // equipment · muscle · scheme, and the cue
+    expect(card?.querySelector('.pl-preview-meta')?.textContent).toContain('מכונה');
+    expect(card?.querySelector('.pl-preview-meta')?.textContent).toContain('6 שלבים × 5 דק׳');
+    expect(card?.querySelector('.pl-preview-cue')?.textContent).toContain('דחפו מהישבן');
+    // the row it hangs off is marked open; nothing has been added yet
+    expect(document.querySelector('[data-pick="x21"]')?.getAttribute('aria-expanded')).toBe('true');
+    expect(rowIds()).toHaveLength(0);
+    expect(document.querySelectorAll('[data-add]')).toHaveLength(1);
+
+    // a second tap on the row folds the card away again
+    click('[data-pick="x21"]');
+    expect(document.querySelector('.pl-preview')).toBeNull();
+    expect(document.querySelector('[data-pick="x21"]')?.getAttribute('aria-expanded')).toBe('false');
+
+    // picking another row moves the ONE card there
+    click('[data-pick="x21"]');
+    click('[data-pick="x1"]');
+    expect(document.querySelectorAll('.pl-preview')).toHaveLength(1);
+    expect(document.querySelector('.pl-preview')?.getAttribute('data-preview')).toBe('x1');
+    expect(document.querySelector('.ex-demo[data-demo="x1"]')).not.toBeNull();
+
+    // ✕ on the card closes it and keeps the sheet
+    click('[data-unpick]');
+    expect(document.querySelector('.pl-preview')).toBeNull();
+    expect(document.querySelector('.pl-sheet')).not.toBeNull();
+
+    // the ➕ is what adds — the row lands in the day and the sheet closes
+    click('[data-pick="x1"]');
+    click('[data-add="x1"]');
+    expect(rowIds()).toEqual(['x1']);
+    expect(document.querySelector('.pl-sheet')).toBeNull();
+    // reopening the sheet starts with no card open
+    click('#plAdd');
+    expect(document.querySelector('.pl-preview')).toBeNull();
   });
 
   it('closes the sheet from ✕ and from the backdrop', () => {
@@ -768,6 +824,35 @@ describe('the ✨ new-exercise form', () => {
     );
     expect(document.querySelector('#plNewForm')).not.toBeNull(); // still open
     expect(rowIds()).toHaveLength(before);
+  });
+
+  it('a custom exercise opens a card with NO demo — and still adds from its ➕', () => {
+    mount();
+    openEditor();
+    openForm();
+    const he = document.querySelector<HTMLInputElement>('#nxHe');
+    if (!he) throw new Error('form not rendered');
+    he.value = 'תרגיל שלי';
+    document.querySelector<HTMLFormElement>('#plNewForm')?.dispatchEvent(
+      new Event('submit', { bubbles: true, cancelable: true }),
+    );
+    const cx = rowIds().at(-1) ?? '';
+    expect(cx.startsWith('cx_')).toBe(true);
+    // take it back out of the day so the library offers it again
+    click(`[data-remove="${cx}"]`);
+    expect(rowIds()).not.toContain(cx);
+
+    click('#plAdd');
+    click(`[data-pick="${cx}"]`);
+    const card = document.querySelector<HTMLElement>(`.pl-preview[data-preview="${cx}"]`);
+    expect(card).not.toBeNull();
+    // a custom exercise has no demo on purpose; the card says so instead
+    expect(card?.querySelector('.ex-demo')).toBeNull();
+    expect(card?.querySelector('.pl-preview-nodemo')?.textContent).toContain('אין הדגמה');
+    expect(card?.querySelector('.pl-preview-meta')?.textContent).toContain('3 ×');
+    click(`[data-add="${cx}"]`);
+    expect(rowIds()).toContain(cx);
+    expect(document.querySelector('.pl-sheet')).toBeNull();
   });
 
   it('creates a custom exercise with a cx_ id and adds it to the day', () => {

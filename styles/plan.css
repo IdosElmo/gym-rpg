@@ -165,6 +165,22 @@
 .pl-lib b{display:block; font-size:14px; font-weight:700}
 .pl-lib span{display:block; font-size:11px; color:var(--muted)}
 .pl-new-btn{width:100%}
+
+/* The preview card: a tapped row opens under itself — the coach demo, the
+   equipment · muscle · scheme line, the cue — and ONE ➕ that actually adds.
+   The row and its card share one accent outline so they read as one thing. */
+.pl-lib[aria-expanded="true"]{border-color:var(--accent); border-radius:12px 12px 0 0}
+.pl-preview{
+  border:1px solid var(--accent); border-top:0; border-radius:0 0 12px 12px;
+  background:var(--card-2); padding:8px 12px 12px;
+}
+.pl-preview .ex-demo{margin:4px auto 8px}
+.pl-preview-meta{margin:0 0 4px; font-size:12px; color:var(--muted)}
+.pl-preview-cue{margin:0 0 10px; font-size:12.5px; line-height:1.45}
+.pl-preview-nodemo{margin:6px 0 8px}
+.pl-preview-actions{display:flex; gap:8px; align-items:stretch}
+.pl-add-confirm{flex:1; min-height:46px}
+.pl-unpick{min-width:44px; min-height:44px}
 .pl-preset{min-height:64px}
 .pl-preset span{line-height:1.45; margin-top:2px}
 

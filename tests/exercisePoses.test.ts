@@ -1230,8 +1230,8 @@ describe('x33 and x34 — the hollow hold and the pike', () => {
       expect(j.near.ankle.y).toBeLessThan(95);
       expect(j.near.ankle.x).toBeLessThan(j.pelvis.x - 25);
       // arms reaching up and over the head, clear of the skull
-      expect(j.near.grip.x).toBeGreaterThan(j.head.x + 4);
-      expect(j.near.grip.y).toBeLessThan(j.head.y - 10);
+      expect(j.near.grip.x).toBeGreaterThan(j.head.x + 1);
+      expect(j.near.grip.y).toBeLessThan(j.head.y - 15);
       expect(segDist(j.head, j.near.shoulder, j.near.elbow)).toBeGreaterThan(8);
       expect(segDist(j.head, j.near.elbow, j.near.grip)).toBeGreaterThan(8);
     }

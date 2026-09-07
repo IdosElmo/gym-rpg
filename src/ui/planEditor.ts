@@ -34,6 +34,7 @@ import {
   type BodyPart,
   type DayKey,
   type EquipmentKey,
+  type Exercise,
 } from '../data/program.ts';
 import {
   isCustomId,
@@ -76,6 +77,7 @@ import {
 import { PLAN_PRESETS, presetById } from '../data/presets.ts';
 import type { DataStore } from '../storage/DataStore.ts';
 import { esc } from './dom.ts';
+import { mountExerciseDemo, type DemoHandle } from './exerciseDemo.ts';
 import { toast } from './toast.ts';
 
 export interface PlanEditorDeps {
@@ -99,6 +101,19 @@ let activeDay: DayKey = 'A';
 type Sheet = 'closed' | 'library' | 'new' | 'presets';
 let sheet: Sheet = 'closed';
 /**
+ * The exercise whose PREVIEW CARD is open in the library sheet, or `null`.
+ *
+ * Tapping a name in the library does not add it: fifty names are a lot to
+ * tell apart by text, and half of them are a choice between two lifts. So a
+ * tap opens the exercise under its own row — the coach demo the workout
+ * screen shows, the equipment, the muscle, the scheme — and ONE button on
+ * that card is what adds. The demo is mounted after each render into the
+ * card's host and torn down before the next one (`preview`), the same
+ * handle discipline `ui/workout.ts` keeps.
+ */
+let picked: string | null = null;
+let preview: DemoHandle | null = null;
+/**
  * The one-line explanation of the last weekday move ("ראשון הועבר מחלק ב׳").
  *
  * A weekday belongs to AT MOST ONE day, so switching it on somewhere takes it
@@ -121,6 +136,9 @@ export function resetPlanDraft(): void {
   activeDay = 'A';
   sheet = 'closed';
   weekdayHint = '';
+  picked = null;
+  preview?.destroy();
+  preview = null;
 }
 
 /** The day currently being edited — the first one when `activeDay` is stale. */
@@ -389,20 +407,49 @@ function presetList(store: DataStore): string {
 function libraryList(doc: PlanDoc): string {
   const inDay = new Set(rowsOf(doc, activeDay).map((r) => r.id));
   const available = libraryExercises(doc).filter((ex) => !inDay.has(ex.id));
+  // a card can only be open on something the list still offers
+  if (picked !== null && !available.some((ex) => ex.id === picked)) picked = null;
   const items = available
-    .map(
-      (ex) => `<li>
-      <button class="pl-lib" data-add="${esc(ex.id)}">
+    .map((ex) => {
+      const open = ex.id === picked;
+      return `<li${open ? ' class="pl-lib-open"' : ''}>
+      <button class="pl-lib" data-pick="${esc(ex.id)}" aria-expanded="${open ? 'true' : 'false'}">
         <b>${esc(ex.he)}</b>
         <span>${esc([ex.en, ex.muscle].filter(Boolean).join(' · '))}</span>
         ${isCustomId(ex.id) ? '<span class="pl-badge">מותאם אישית</span>' : ''}
       </button>
-    </li>`,
-    )
+      ${open ? previewCard(ex) : ''}
+    </li>`;
+    })
     .join('');
   return `
     ${items ? `<ul class="pl-lib-list">${items}</ul>` : '<p class="gc-note">כל התרגילים כבר נמצאים ביום הזה. אפשר ליצור תרגיל חדש. ✨</p>'}
     <button class="action-btn pl-new-btn" id="plNewToggle">✨ יצירת תרגיל חדש</button>`;
+}
+
+/**
+ * THE PREVIEW CARD under a picked library row: the coach demo (mounted into
+ * `#plPreviewDemo` by `renderPlanEditor`, because a demo is a live element and
+ * not a string), the equipment · muscle · scheme line, the cue, and the one
+ * button that adds. A custom exercise has no demo on purpose (`demoFor`
+ * explains why a stand-in would be a guess), so its card says so and still
+ * offers the button.
+ */
+function previewCard(ex: Exercise): string {
+  const scheme = isCardio(ex) ? `${ex.sets} שלבים × ${ex.reps}` : `${ex.sets} × ${ex.reps}`;
+  const meta = [ex.equip.map(equipHe).join(' / '), ex.muscle, scheme].filter(Boolean).join(' · ');
+  const demo = isCustomId(ex.id)
+    ? '<p class="gc-note dim pl-preview-nodemo">לתרגיל מותאם אישית אין הדגמה — הוא נראה כמו שאתם מבצעים אותו.</p>'
+    : '<div class="pl-preview-demo" id="plPreviewDemo"></div>';
+  return `<div class="pl-preview" data-preview="${esc(ex.id)}">
+      ${demo}
+      <p class="pl-preview-meta">${esc(meta)}</p>
+      ${ex.cue ? `<p class="pl-preview-cue">${esc(ex.cue)}</p>` : ''}
+      <div class="pl-preview-actions">
+        <button class="action-btn pl-add-confirm" data-add="${esc(ex.id)}">➕ הוספה ליום</button>
+        <button class="pl-mini pl-unpick" data-unpick aria-label="סגירת התצוגה המקדימה">✕</button>
+      </div>
+    </div>`;
 }
 
 function newExerciseForm(): string {
@@ -474,6 +521,21 @@ export function renderPlanEditor(main: HTMLElement, deps: PlanEditorDeps): void 
   </section>
   ${sheetHtml(doc, deps.store)}`;
 
+  // The preview demo is a LIVE element: it is mounted into the card's host
+  // after the markup exists, and the previous one is torn down first so a
+  // re-render never leaves a loop running on a detached node. The card is
+  // then scrolled into view — the sheet was rebuilt from the top, and the
+  // row the user tapped may be far down a list of fifty.
+  preview?.destroy();
+  preview = null;
+  const host = main.querySelector<HTMLElement>('#plPreviewDemo');
+  if (host && picked !== null) {
+    const ex = libraryExercises(doc).find((e) => e.id === picked);
+    preview = mountExerciseDemo(host, picked, { label: `הדגמת ביצוע: ${ex?.he ?? ''}` });
+  }
+  const card = main.querySelector<HTMLElement>('.pl-preview');
+  if (card && typeof card.scrollIntoView === 'function') card.scrollIntoView({ block: 'nearest' });
+
   bind(main, deps);
 }
 
@@ -494,6 +556,7 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
       if (!d || !planDay(doc, d)) return;
       activeDay = d;
       sheet = 'closed';
+      picked = null;
       weekdayHint = '';
       refresh();
     });
@@ -513,6 +576,7 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
     // A day with no exercises cannot be saved, so the library opens immediately:
     // adding a day and choosing its first exercise is ONE gesture, not two.
     sheet = 'library';
+    picked = null;
     refresh();
   });
 
@@ -661,18 +725,38 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
   /* ------------------------------------------------------- the add sheet -- */
   main.querySelector<HTMLButtonElement>('#plAdd')?.addEventListener('click', () => {
     sheet = 'library';
+    picked = null;
     refresh();
   });
   main.querySelector<HTMLButtonElement>('#plSheetClose')?.addEventListener('click', () => {
     sheet = 'closed';
+    picked = null;
     refresh();
   });
   main.querySelector<HTMLElement>('#plBackdrop')?.addEventListener('click', () => {
     sheet = 'closed';
+    picked = null;
     refresh();
   });
   main.querySelector<HTMLButtonElement>('#plNewToggle')?.addEventListener('click', () => {
     sheet = 'new';
+    picked = null;
+    refresh();
+  });
+
+  /* ------------------------------------------------- the preview card ---- */
+  // a tap on a name OPENS it (a second tap closes it); nothing is added until
+  // the card's own ➕ is pressed
+  main.querySelectorAll<HTMLButtonElement>('[data-pick]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const id = b.dataset['pick'];
+      if (!id) return;
+      picked = picked === id ? null : id;
+      refresh();
+    });
+  });
+  main.querySelector<HTMLButtonElement>('[data-unpick]')?.addEventListener('click', () => {
+    picked = null;
     refresh();
   });
 
@@ -745,6 +829,7 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
       if (!id) return;
       addRow(doc, id);
       sheet = 'closed';
+      picked = null;
       refresh();
     });
   });
