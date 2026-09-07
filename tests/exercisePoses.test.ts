@@ -164,7 +164,7 @@ const eachFrame = (d: DemoVariant, fn: (j: Joints, pose: Pose, i: number) => voi
 describe('coverage', () => {
   it('demonstrates every built-in exercise, exactly once, and nothing else', () => {
     const builtIn = builtInExercises().map((e) => e.id);
-    expect(builtIn).toHaveLength(47);
+    expect(builtIn).toHaveLength(50);
     expect(EXERCISE_DEMOS.map((d) => d.id).sort()).toEqual([...builtIn].sort());
     expect(new Set(EXERCISE_DEMOS.map((d) => d.id)).size).toBe(EXERCISE_DEMOS.length);
     for (const d of EXERCISE_DEMOS) expect(findExercise(d.id)).not.toBeNull();
@@ -191,7 +191,7 @@ describe('coverage', () => {
       if (d.variants.length === 1) expect(d.variants[0]?.caption, d.id).toBeUndefined();
       else for (const v of d.variants) expect(v.caption, d.id).toBeTruthy();
     }
-    expect(ALL).toHaveLength(53);
+    expect(ALL).toHaveLength(56);
     // two variants of one exercise are two DIFFERENT pictures, never a copy
     for (const d of EXERCISE_DEMOS) {
       if (d.variants.length < 2) continue;
@@ -1141,6 +1141,72 @@ describe('the strength-day additions', () => {
   });
 });
 
+/* --------------------------------------------------------------- the push-ups */
+
+describe('x30, x31, x32 — three push-ups, one plank on its toes', () => {
+  for (const id of ['x30', 'x31', 'x32']) {
+    it(`${id} lowers a straight body on planted hands and toes`, () => {
+      const d = demo(id);
+      expect(d.view).toBe('side');
+      expect(d.hold).toEqual({ k: 'none' });
+      expect(d.props()).toContain('cd-mat');
+      const top = at(id, 0);
+      const bottom = at(id, endOf(id));
+      // the toes and both hands never move: they are the base
+      expect(dist(top.near.toe, bottom.near.toe)).toBeLessThan(0.5);
+      expect(dist(top.near.grip, bottom.near.grip)).toBeLessThan(0.5);
+      expect(dist(top.far.grip, bottom.far.grip)).toBeLessThan(0.5);
+      // hands and toes on the mat
+      for (const j of [top, bottom]) {
+        expect(Math.abs(j.near.grip.y - 99)).toBeLessThan(1);
+        expect(Math.abs(j.far.grip.y - 99)).toBeLessThan(1);
+        expect(Math.abs(j.near.toe.y - 100)).toBeLessThan(1);
+        // the body is ONE line: the pelvis sits on the shoulder→ankle line
+        const t = (j.shoulders.x - j.pelvis.x) / (j.shoulders.x - j.near.ankle.x);
+        const lineY = j.shoulders.y + t * (j.near.ankle.y - j.shoulders.y);
+        expect(Math.abs(j.pelvis.y - lineY)).toBeLessThan(2);
+        // …and the head stays off the arms
+        expect(segDist(j.head, j.near.shoulder, j.near.elbow)).toBeGreaterThan(7);
+      }
+      // the chest travels: shoulders drop, arms go from near-straight to folded
+      expect(bottom.shoulders.y - top.shoulders.y).toBeGreaterThan(8);
+      expect(flexion(frameOf(id, 0).arm[0], frameOf(id, 0).arm[1])).toBeLessThan(25);
+      expect(flexion(frameOf(id, endOf(id)).arm[0], frameOf(id, endOf(id)).arm[1])).toBeGreaterThan(80);
+      // the elbow travels BACK, behind the wrist (a tucked diamond elbow ends
+      // only just behind a hand that already sits under the chest), and the
+      // shoulders drift forward over the hands as the body pivots on its toes
+      expect(bottom.near.elbow.x).toBeLessThan(bottom.near.grip.x - 2);
+      expect(bottom.shoulders.x).toBeGreaterThan(top.shoulders.x + 2);
+    });
+  }
+
+  it('the three are told apart by the hands: under the shoulders, together under the chest, spread wide', () => {
+    const std = at('x30', 0);
+    const dia = at('x31', 0);
+    const wide = at('x32', 0);
+    // standard: the near hand on the shoulder line, the far one the rig's own
+    // depth nudge behind it
+    expect(Math.abs(std.near.grip.x - std.shoulders.x)).toBeLessThan(0.5);
+    expect(std.near.grip.x - std.far.grip.x).toBeCloseTo(2.6, 0);
+    // diamond: BOTH hands on one point, behind the shoulder line under the chest
+    expect(dist(dia.near.grip, dia.far.grip)).toBeLessThan(0.5);
+    expect(dia.near.grip.x).toBeLessThan(dia.shoulders.x - 4);
+    // wide: the two hands pulled apart along the depth cue, well past the default
+    expect(wide.near.grip.x - wide.far.grip.x).toBeGreaterThan(9);
+    expect(wide.near.grip.x).toBeGreaterThan(std.near.grip.x + 2);
+    expect(wide.far.grip.x).toBeLessThan(std.far.grip.x - 4);
+    // depth: the diamond goes deepest (chest to the hands), the wide stops highest
+    const depth = (id: string): number => at(id, endOf(id)).shoulders.y - at(id, 0).shoulders.y;
+    expect(depth('x31')).toBeGreaterThan(depth('x30'));
+    expect(depth('x32')).toBeLessThan(depth('x30'));
+    // and the diamond is the one that needed a middle keyframe: a hand that
+    // stays on one point while the arm folds that far slides otherwise
+    expect(demo('x31').frames).toHaveLength(3);
+    expect(demo('x30').frames).toHaveLength(2);
+    expect(demo('x32').frames).toHaveLength(2);
+  });
+});
+
 /* ------------------------------------------------------------------ the bikes */
 
 describe('x22 and x23 — the bikes turn a crank', () => {
@@ -1323,6 +1389,9 @@ describe('the load travels a path, not a loop', () => {
     x17: (j) => j.head,
     x25: (j) => j.near.ankle,
     x27: (j) => j.near.ankle,
+    x30: (j) => j.shoulders,
+    x31: (j) => j.shoulders,
+    x32: (j) => j.shoulders,
   };
 
   const guided = (id: string, d: DemoVariant): ((j: Joints) => Vec) | null => {
@@ -1376,8 +1445,9 @@ describe('the load travels a path, not a loop', () => {
   });
 
   it('welds a bodyweight grip to the bar it hangs from — or rests on', () => {
-    // …and a rider's hands to the bars: the legs turn, the grip does not
-    for (const [id, vi] of [['a6', 0], ['b2', 1], ['b3', 0], ['x13', 0], ['x14', 0], ['x17', 0], ['x22', 0], ['x23', 0]] as Array<[string, number]>) {
+    // …a rider's hands to the bars (the legs turn, the grip does not), and a
+    // push-up's hands to the mat
+    for (const [id, vi] of [['a6', 0], ['b2', 1], ['b3', 0], ['x13', 0], ['x14', 0], ['x17', 0], ['x22', 0], ['x23', 0], ['x30', 0], ['x31', 0], ['x32', 0]] as Array<[string, number]>) {
       const d = demo(id, vi);
       const first = tween(d, 0).near.grip;
       for (let i = 0; i <= 40; i++) {
