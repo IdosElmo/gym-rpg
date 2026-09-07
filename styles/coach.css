@@ -69,6 +69,11 @@
 /* a bench seen at three quarters: a big surface, so it sits back further */
 .cd-slab{fill:var(--cd-pad); opacity:.42}
 .cd-roller{fill:#6A7EA6}
+/* a bike: the flywheel is a disc (a mass, so it sits back like a slab), the
+   bottom bracket a small hub the crank arms turn about */
+.cd-flywheel{fill:var(--cd-pad); fill-opacity:.35; stroke-width:2.6}
+.cd-crank{fill:var(--bg)}
+.cd-pedal{stroke-width:3.4}
 
 /* the iron */
 .cd-iron{fill:none; stroke:var(--cd-iron); stroke-width:3; stroke-linecap:round}

@@ -84,6 +84,14 @@ export interface Pose {
   readonly legF: LegAngles;
   /** FRONT view only: shoulder-line roll, i.e. how far the torso has twisted. */
   readonly roll?: number;
+  /**
+   * FRONT view only: the HIP line's roll. Defaults to square (0) — a russian
+   * twist turns the shoulders and leaves the pelvis where it is — so a body
+   * that has rolled as a whole (a side plank: on one elbow, hips stacked over
+   * each other) says so with both angles. The turned view ignores it: there
+   * the whole body turns with `roll` by construction.
+   */
+  readonly hipRoll?: number;
   /** Shoulder elevation along the spine (a shrug). Positive = shoulders up. */
   readonly shrug?: number;
 }
@@ -234,6 +242,9 @@ export function forwardKinematics(pose: Pose, view: View = 'side'): Joints {
   if (view === 'front' || view === 'threeQuarter') {
     const roll = pose.roll ?? 0;
     const q = view === 'threeQuarter';
+    // the hips: turned with the whole body at three quarters, square in the
+    // front view unless the pose rolled them too (`hipRoll`)
+    const hipRoll = q ? roll : (pose.hipRoll ?? 0);
     const spread = q ? Q.spread : 1;
     const scale = q ? Q.foreshorten : 1;
     const on = (p: Vec, d: Vec): Vec => (q ? { x: p.x + d.x, y: p.y + d.y } : p);
@@ -244,14 +255,14 @@ export function forwardKinematics(pose: Pose, view: View = 'side'): Joints {
       head,
       near: side(
         on(step(shoulders, roll, RIG.shoulderHalf * spread), Q.near),
-        on(q ? step(pelvis, roll, RIG.hipHalf * spread) : { x: pelvis.x + RIG.hipHalf, y: pelvis.y }, Q.near),
+        on(step(pelvis, hipRoll, RIG.hipHalf * spread), Q.near),
         pose.arm,
         pose.leg,
         1,
       ),
       far: side(
         on(step(shoulders, roll + 180, RIG.shoulderHalf * spread), Q.far),
-        on(q ? step(pelvis, roll + 180, RIG.hipHalf * spread) : { x: pelvis.x - RIG.hipHalf, y: pelvis.y }, Q.far),
+        on(step(pelvis, hipRoll + 180, RIG.hipHalf * spread), Q.far),
         pose.armF,
         pose.legF,
         -1,
@@ -301,6 +312,7 @@ export function lerpPose(a: Pose, b: Pose, t: number): Pose {
     leg: mixLeg(a.leg, b.leg, t),
     legF: mixLeg(a.legF, b.legF, t),
     roll: mix(a.roll ?? 0, b.roll ?? 0, t),
+    hipRoll: mix(a.hipRoll ?? 0, b.hipRoll ?? 0, t),
     shrug: mix(a.shrug ?? 0, b.shrug ?? 0, t),
   };
 }
@@ -562,6 +574,34 @@ export function treadmillProp(o: { x1: number; y1: number; x2: number; y2: numbe
   );
 }
 
+/**
+ * A STATIONARY BIKE, seen from the side, the rider facing right. Four points
+ * say all of it: the saddle the pelvis sits on, the crank the pedals turn
+ * about, the bars the hands rest on and the flywheel out front. The frame is
+ * drawn between them — seat tube from saddle to crank, down tube from crank to
+ * the head tube, the stem up to the bars and the fork down to the wheel — and
+ * the crank centre carries `cd-crank` so a test can read off the markup where
+ * the pedals have to turn. The pedals themselves are NOT here: they ride the
+ * feet, so they are a `Hold` (`pedals`) and move with the pose.
+ */
+export function bikeProp(o: { saddle: Vec; crank: Vec; bars: Vec; flywheel: Vec; floorY?: number }): string {
+  const floorY = o.floorY ?? STAGE.floorY;
+  const headTube: Vec = { x: o.bars.x - 4, y: o.bars.y + 12 };
+  return (
+    // the frame: seat tube, the post to the floor, down tube, stem, fork
+    `<path class="cd-frame" d="${line(o.saddle, o.crank)} ${line(o.crank, { x: o.crank.x, y: floorY })} ${line(o.crank, headTube)} ${line(headTube, o.bars)} ${line(headTube, o.flywheel)}"/>` +
+    // the flywheel, a disc rather than a wheel: it is a mass, not a pulley
+    `<circle class="cd-frame cd-flywheel" cx="${n(o.flywheel.x)}" cy="${n(o.flywheel.y)}" r="10"/>` +
+    `<circle class="cd-hub" cx="${n(o.flywheel.x)}" cy="${n(o.flywheel.y)}" r="2"/>` +
+    // the saddle and the bars are the two pads the body touches
+    padProp({ x: o.saddle.x - 5, y: o.saddle.y }, { x: o.saddle.x + 5, y: o.saddle.y }) +
+    padProp({ x: o.bars.x - 5, y: o.bars.y }, { x: o.bars.x + 5, y: o.bars.y }) +
+    // the bottom bracket, where the cranks turn
+    `<circle class="cd-frame cd-crank" cx="${n(o.crank.x)}" cy="${n(o.crank.y)}" r="2.6"/>` +
+    floorProp(o.saddle.x - 16, o.flywheel.x + 16, floorY)
+  );
+}
+
 /** A machine frame: an upright with a foot, the skeleton every station shares. */
 export function frameProp(x: number, y1: number, y2: number): string {
   return `<path class="cd-frame" d="${line({ x, y: y1 }, { x, y: y2 })}"/>`;
@@ -623,7 +663,9 @@ export type Hold =
   /** One cable per hand, from two anchors (a crossover). */
   | { readonly k: 'cables'; readonly from: readonly (readonly [number, number])[] }
   /** A padded roller riding a joint of the near leg. */
-  | { readonly k: 'roller'; readonly joint: 'ankle' | 'knee' };
+  | { readonly k: 'roller'; readonly joint: 'ankle' | 'knee' }
+  /** A pedal under each foot, on a crank arm from `crank` (a bike). */
+  | { readonly k: 'pedals'; readonly crank: readonly [number, number] };
 
 function mid(a: Vec, b: Vec): Vec {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -663,7 +705,21 @@ export function holdAnchors(hold: Hold, j: Joints): Vec[] {
       return [j.near.grip, j.far.grip];
     case 'roller':
       return [hold.joint === 'ankle' ? j.near.ankle : j.near.knee];
+    // a pedal is under the ball of the foot — the toe, in this rig — and
+    // there are two of them, one per side
+    case 'pedals':
+      return [j.near.toe, j.far.toe];
   }
+}
+
+/** One pedal under a foot, and the crank arm that carries it to the bottom bracket. */
+function pedalSvg(hold: { readonly crank: readonly [number, number] }, toe: Vec): string {
+  const crank: Vec = { x: hold.crank[0] ?? 0, y: hold.crank[1] ?? 0 };
+  const under: Vec = { x: toe.x, y: toe.y + 1.2 };
+  return (
+    `<path class="cd-frame" d="${line(crank, under)}"/>` +
+    `<path class="cd-iron cd-pedal" d="${line({ x: under.x - 3, y: under.y }, { x: under.x + 3, y: under.y })}"/>`
+  );
 }
 
 /** The one hold whose two halves live on two sides of the body: the rope. */
@@ -690,6 +746,9 @@ function ropeParts(hold: { readonly from: readonly [number, number] }, j: Joints
  * and the head is a filled circle, so putting it in this layer is the whole fix.
  */
 export function holdBackSvg(hold: Hold, j: Joints): string {
+  // the far pedal and its crank arm are on the far side of the bike, behind
+  // the frame and the near leg, for the same reason the far rope end is
+  if (hold.k === 'pedals') return pedalSvg(hold, j.far.toe);
   if (hold.k !== 'rope') return '';
   return ropeParts(hold, j).strand(j.far.grip);
 }
@@ -766,5 +825,9 @@ export function holdSvg(hold: Hold, j: Joints): string {
     }
     case 'roller':
       return rollerSvg(hold.joint === 'ankle' ? j.near.ankle : j.near.knee);
+    // only the NEAR pedal is drawn here; the far one is behind the body — see
+    // `holdBackSvg`
+    case 'pedals':
+      return pedalSvg(hold, j.near.toe);
   }
 }

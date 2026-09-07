@@ -55,10 +55,11 @@ afterEach(() => {
 /* ------------------------------------------------------------------ setup */
 
 /** The built-in three days plus a fourth: the treadmill, three stages, on Wednesdays. */
-function cardioPlan(stages = 3): { doc: PlanDoc; key: string } {
+function cardioPlan(stages = 3, id = 'x21'): { doc: PlanDoc; key: string } {
   const doc = defaultPlanDoc();
   const key = newDayKey();
-  doc.days.push(makePlanDay(key, 'קרדיו — הליכון', [3], [{ id: 'x21', sets: stages, reps: '5 דק׳', rest: 300 }]));
+  const bike = id !== 'x21';
+  doc.days.push(makePlanDay(key, bike ? 'קרדיו — אופניים' : 'קרדיו — הליכון', [3], [{ id, sets: stages, reps: bike ? '10 דק׳' : '5 דק׳', rest: bike ? 600 : 300 }]));
   doc.weeklyTarget = deriveWeeklyTarget(doc.days);
   return { doc, key };
 }
@@ -70,9 +71,9 @@ interface Mounted {
   starts: () => { seconds: number; label: string; opts: StartOptions }[];
 }
 
-function mount(stages = 3): Mounted {
+function mount(stages = 3, id = 'x21'): Mounted {
   const store = new LocalStore(fakeStorage());
-  const { doc, key } = cardioPlan(stages);
+  const { doc, key } = cardioPlan(stages, id);
   const res = savePlan(store, doc);
   if (!res.ok) throw new Error(res.errors.join(', '));
   const el = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
@@ -196,6 +197,19 @@ describe('the stage timer', () => {
     expect(text('#tTitle')).toBe('🏃 שלב 1/3 · שיפוע 1%');
     expect(text('#tSub')).toBe('טיימר שלב');
     expect(document.getElementById('timerBar')?.classList.contains('show')).toBe(true);
+  });
+
+  it('a FLAT ladder (the zone-2 ride) keeps its power from stage to stage, and the chime says "on to the next" rather than "raise"', () => {
+    const m = mount(3, 'x22');
+    click('#main .stage-start[data-stage="x22"]');
+    expect(m.starts()).toEqual([
+      { seconds: 600, label: '🏃 שלב 1/3 · הספק 120W', opts: { sub: 'טיימר שלב', doneLabel: 'שלב 1 הסתיים — סמנו ✓ והמשיכו לשלב הבא! 💪' } },
+    ]);
+    click('#main .chk[data-ex="x22"][data-set="0"]');
+    // stage 2 suggests the SAME power — nothing climbs on a zone-2 ride
+    expect(m.starts()[1]).toMatchObject({ seconds: 600, label: '🏃 שלב 2/3 · הספק 120W' });
+    expect(text('#card-x22 .badge.scheme')).toBe('3 שלבים × 10 דק׳');
+    expect(text('#card-x22 .rest-hint')).toContain('כל שלב 10:00');
   });
 
   it('✓ on a stage starts the NEXT stage with its new incline, and the last ✓ starts nothing', () => {

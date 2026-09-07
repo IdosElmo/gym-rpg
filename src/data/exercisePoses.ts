@@ -3,8 +3,8 @@
  *
  * A demo is DATA, not media: a view (which plane the camera is on), two to
  * three keyframes of joint angles for `ui/coachFigure.ts`, the props the lift
- * happens on, what the hands are holding, and a rep tempo. Roughly 11 kB of
- * numbers for all 39 exercises — the whole feature ships without a single byte
+ * happens on, what the hands are holding, and a rep tempo. Roughly 13 kB of
+ * numbers for all 47 exercises — the whole feature ships without a single byte
  * of image, video or font, which is what keeps the single-file build honest.
  *
  * AN EXERCISE CAN HAVE TWO IMPLEMENTATIONS, AND THEN IT SHOWS BOTH. Half the
@@ -72,6 +72,7 @@ import {
   barProp,
   benchDiagProp,
   benchProp,
+  bikeProp,
   dipBarsProp,
   floorProp,
   frameProp,
@@ -1069,6 +1070,187 @@ const X21: ExerciseDemo = one('x21', {
   hold: { k: 'none' },
 });
 
+/* ------------------------------------------------------------------ the bike */
+
+/**
+ * ONE PEDAL STROKE, as a yoyo. A crank turns, and a two-keyframe yoyo cannot
+ * turn: what it can do is what the treadmill does — a stride and its mirror,
+ * with the blend between them as the gait. So the two keyframes are the two
+ * halves of the stroke, near foot at the top of the circle and far foot at the
+ * bottom, then swapped, and the legs pump in antiphase between them. Both
+ * pedals were solved ON the crank circle: the ball of the foot (`toe`) sits
+ * 7 units straight above and below the bottom bracket the prop draws, the toes
+ * pitched down, and the knee at the top of the stroke folds to 130° — which
+ * is what a properly set saddle gives. The pelvis, the torso and the hands on
+ * the bars are byte-identical between the frames: the rider sits still and
+ * only the legs turn.
+ */
+const BIKE = { saddle: { x: 57, y: 65 }, crank: { x: 66, y: 86 }, flywheel: { x: 98, y: 91 } } as const;
+const PEDAL_TOP = [15.8, 146.1, 35] as const;
+const PEDAL_BOTTOM = [51.9, 117.6, 35] as const;
+
+const X22: ExerciseDemo = one('x22', {
+  view: 'side',
+  loopMs: 2400,
+  forwardShare: 0.5,
+  // ZONE 2: sat up at 35° from vertical, hands resting on the bars, the head
+  // level — the easy, two-hour posture. The elbows hang soft under the chord
+  // from shoulder to bars, because nobody rides two hours with locked arms.
+  frames: [
+    { x: 58, y: 62, torso: -55, head: -40, arm: [49.3, 5.3], armF: [49.3, 5.3], leg: [...PEDAL_TOP], legF: [...PEDAL_BOTTOM] },
+    { x: 58, y: 62, torso: -55, head: -40, arm: [49.3, 5.3], armF: [49.3, 5.3], leg: [...PEDAL_BOTTOM], legF: [...PEDAL_TOP] },
+  ],
+  props: () => bikeProp({ ...BIKE, bars: { x: 96, y: 54 }, floorY: FLOOR }),
+  hold: { k: 'pedals', crank: [BIKE.crank.x, BIKE.crank.y] },
+});
+
+const X23: ExerciseDemo = one('x23', {
+  view: 'side',
+  loopMs: 1800,
+  forwardShare: 0.5,
+  // VO2 MAX: the same bike and the same stroke, ridden HARD — the torso down
+  // another 10°, the bars lower and further out, the head dropped into the
+  // effort, and the cadence at the fastest loop the demos allow. The two
+  // rides are told apart by posture and tempo, which is exactly how they are
+  // told apart on the bike.
+  frames: [
+    { x: 58, y: 62, torso: -45, head: -30, arm: [42, 14.7], armF: [42, 14.7], leg: [...PEDAL_TOP], legF: [...PEDAL_BOTTOM] },
+    { x: 58, y: 62, torso: -45, head: -30, arm: [42, 14.7], armF: [42, 14.7], leg: [...PEDAL_BOTTOM], legF: [...PEDAL_TOP] },
+  ],
+  props: () => bikeProp({ ...BIKE, bars: { x: 100, y: 58 }, floorY: FLOOR }),
+  hold: { k: 'pedals', crank: [BIKE.crank.x, BIKE.crank.y] },
+});
+
+/* ------------------------------------------------------------ strength 1 + 2 */
+
+const X24: ExerciseDemo = one('x24', {
+  view: 'side',
+  loopMs: 3200,
+  forwardShare: 0.45,
+  // CLEAN AND PRESS, in the three positions the lift is taught in: the pull
+  // start — hips back, knees bent to 60°, torso at 50° and the bells hanging
+  // just outside the knees; the RACK — standing tall, the bells at the
+  // shoulders with the elbows in front; and the LOCKOUT, straight overhead.
+  // The ankle is the same planted point in all three (the hinge frame's leg
+  // was solved from it), the pelvis is byte-identical between the two standing
+  // frames because the press is all arm, and the head tips back a touch at the
+  // top so the overhead arm passes the skull rather than through it.
+  frames: [
+    { x: 58, y: 72, torso: -40, head: -40, arm: [90, 90], armF: [92, 92], leg: [43.1, 106, 25], legF: [43.1, 106, 25] },
+    { x: 66, y: 66, torso: -90, head: -90, arm: [60, -80], armF: [62, -78], leg: [88, 92, 25], legF: [88, 92, 25] },
+    { x: 66, y: 66, torso: -90, head: -100, arm: [-65, -100], armF: [-63, -98], leg: [88, 92, 25], legF: [88, 92, 25] },
+  ],
+  props: () => floorProp(36, 120),
+  hold: { k: 'db' },
+});
+
+const X25: ExerciseDemo = one('x25', {
+  view: 'side',
+  loopMs: 3000,
+  forwardShare: 0.5,
+  // DEAD BUG: on the back, arms to the ceiling, hips and knees at right
+  // angles. One rep lowers the FAR arm overhead and the NEAR (opposite) leg
+  // out long — both hovering a hand above the mat, never resting on it —
+  // while the other arm, the other leg and above all the pelvis stay exactly
+  // where they were. The pelvis IS the exercise: it is the one thing the
+  // coaching copy says must not move, and it does not. The reaching arm is
+  // the FAR one for the reason the bird dog's is: lying down, an arm going
+  // overhead runs straight through the skull in this projection, and a far
+  // arm is drawn behind the head, so it vanishes behind the face and comes
+  // out past it — which is where an arm overhead is.
+  frames: [
+    { x: 76, y: 95, torso: 0, head: 0, arm: [-90, -90], armF: [-86, -86], leg: [-90, -180, -120], legF: [-90, -180, -120] },
+    { x: 76, y: 95, torso: 0, head: 0, arm: [-90, -90], armF: [-8, -8], leg: [-168, -168, -110], legF: [-90, -180, -120] },
+  ],
+  props: () => matProp(34, 136, 100) + floorProp(24, 144, 103.4),
+  hold: { k: 'none' },
+});
+
+const X26: ExerciseDemo = one('x26', {
+  view: 'front',
+  loopMs: 4200,
+  forwardShare: 0.5,
+  // SIDE PLANK, seen from the FRONT — which for a body on its side is the
+  // camera every picture of this hold uses, and the only one in which the
+  // lifted hip is visible at all: the sagittal camera would look down at the
+  // top of the head. The whole body is rolled onto its side, so both lines
+  // roll together (`roll` AND `hipRoll` at torso − 90): the FAR side is the
+  // one on the mat — its elbow planted directly under its shoulder, its
+  // forearm along the floor, its foot on the ground — and the NEAR side is
+  // stacked on top, the top arm straight up to the ceiling and the top foot
+  // resting on the bottom one. Shoulder, hip and ankle of the supporting side
+  // sit on one straight line at 20° to the floor. Like b5 it is a HOLD, so it
+  // breathes: the second frame lets the hip sag a unit toward the mat with the
+  // shoulders and the planted elbow exactly where they were, which is the
+  // difference between the cue and the mistake. Both feet lie ALONG the mat
+  // (toes towards the camera in life, so in this projection the foot runs on
+  // with the leg): a foot drawn "down" here would go through the floor.
+  frames: [
+    { x: 61.4, y: 85.7, torso: -20, head: -20, arm: [-90, -90], armF: [90, 180], leg: [153.8, 141.1, 160], legF: [13.4, 13.4, 15], roll: -110, hipRoll: -110 },
+    { x: 61.8, y: 86.7, torso: -22.5, head: -22.5, arm: [-90, -90], armF: [90, 180], leg: [160.2, 137.9, 160], legF: [11.6, 11.6, 15], roll: -112.5, hipRoll: -112.5 },
+  ],
+  props: () => matProp(22, 112, 100) + floorProp(14, 122, 103.4),
+  hold: { k: 'none' },
+});
+
+const X27: ExerciseDemo = one('x27', {
+  view: 'side',
+  loopMs: 3000,
+  forwardShare: 0.5,
+  // BIRD DOG: on all fours — knees under the hips, the shins flat, the hands
+  // on the floor a little ahead of the shoulders (this rig's arm is longer
+  // than its thigh, so a level-ish back puts the hands there). The rep
+  // extends the FAR arm forward and the NEAR leg back — opposite limbs, as the
+  // exercise asks — to level with the body, while the planted hand and knee
+  // and the whole pelvis stay byte-identical. The reaching arm is the FAR one
+  // on purpose: from the side an arm at shoulder height runs straight through
+  // the skull, and a far arm is drawn behind the head, so it disappears
+  // behind the face and re-emerges past it, which is where a reaching arm is.
+  frames: [
+    { x: 66, y: 82, torso: -15, head: -24, arm: [53.2, 53.2], armF: [53.2, 53.2], leg: [95, 180, 180], legF: [95, 180, 180] },
+    { x: 66, y: 82, torso: -15, head: -24, arm: [53.2, 53.2], armF: [-8, -8], leg: [172, 172, 100], legF: [95, 180, 180] },
+  ],
+  props: () => matProp(26, 124, 100) + floorProp(18, 134, 103.4),
+  hold: { k: 'none' },
+});
+
+const X28: ExerciseDemo = one('x28', {
+  view: 'side',
+  loopMs: 2800,
+  forwardShare: 0.58,
+  // BULGARIAN SPLIT SQUAT: a3's split stance with the rear foot up on a low
+  // bench behind. Both feet are the same planted points in both keyframes —
+  // the front ankle on the floor, the rear toe on the bench pad — and every
+  // leg angle was solved from them: the pelvis drops 12 and travels back a
+  // little, the front thigh arrives parallel with the shin vertical, and the
+  // rear knee drops to a hand above the floor. The dumbbells hang.
+  frames: [
+    { x: 74, y: 70, torso: -85, head: -85, arm: [90, 90], armF: [92, 90], leg: [52, 77.2, 25], legF: [132.6, -160.2, 125] },
+    { x: 68, y: 82, torso: -85, head: -85, arm: [90, 90], armF: [92, 90], leg: [4.4, 79, 25], legF: [145.3, -114.3, 125] },
+  ],
+  props: () => flatBench(22, 24) + floorProp(14, 122),
+  hold: { k: 'db' },
+});
+
+const X29: ExerciseDemo = one('x29', {
+  view: 'side',
+  loopMs: 2800,
+  forwardShare: 0.6,
+  // SINGLE-LEG RDL: c2's hinge on one leg. The standing (near) leg keeps a
+  // soft 20° knee and its ankle never moves; the torso hinges to 80° from
+  // vertical while the FREE leg rises behind onto the same line, so the body
+  // is one straight lever from head to heel — the "T" the coaching copy asks
+  // for — with the bells arriving at mid-shin. The hips travel back a little,
+  // less than c2's, because the raised leg is the counterweight, and the arms
+  // simply hang.
+  frames: [
+    { x: 68, y: 66, torso: -90, head: -90, arm: [90, 90], armF: [92, 90], leg: [90, 90, 25], legF: [90, 90, 25] },
+    { x: 63, y: 67, torso: -10, head: -20, arm: [90, 90], armF: [92, 90], leg: [70.4, 92.5, 25], legF: [170, 170, 120] },
+  ],
+  props: () => floorProp(22, 118),
+  hold: { k: 'db' },
+});
+
 /** Every demonstration, in program order. */
 export const EXERCISE_DEMOS: readonly ExerciseDemo[] = [
   A1, A2, A3, A4, A5, A6,
@@ -1076,6 +1258,7 @@ export const EXERCISE_DEMOS: readonly ExerciseDemo[] = [
   C1, C2, C3, C4, C5, C6,
   X1, X2, X3, X4, X5, X6, X7, X8, X9, X10,
   X11, X12, X13, X14, X15, X16, X17, X18, X19, X20, X21,
+  X22, X23, X24, X25, X26, X27, X28, X29,
 ];
 
 const BY_ID: ReadonlyMap<string, ExerciseDemo> = new Map(EXERCISE_DEMOS.map((d) => [d.id, d]));

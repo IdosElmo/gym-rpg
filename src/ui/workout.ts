@@ -312,9 +312,12 @@ function startStage(timer: RestTimer, ex: Exercise, n: number, load: string): vo
   const c = ex.cardio;
   const last = n + 1 >= ex.sets;
   const at = load !== '' ? ` · ${c.loadLabel} ${load}${c.loadUnit}` : '';
+  // a ladder climbs ("raise the incline"); a steady ride or an interval set
+  // keeps its load from stage to stage, and the chime says so
+  const next = c.loadStep > 0 ? `והעלו ${c.loadLabel}!` : 'והמשיכו לשלב הבא!';
   timer.start(ex.rest, `🏃 שלב ${n + 1}/${ex.sets}${at}`, {
     sub: 'טיימר שלב',
-    doneLabel: last ? 'השלב האחרון הסתיים — סמנו ✓ 🏁' : `שלב ${n + 1} הסתיים — סמנו ✓ והעלו ${c.loadLabel}! 💪`,
+    doneLabel: last ? 'השלב האחרון הסתיים — סמנו ✓ 🏁' : `שלב ${n + 1} הסתיים — סמנו ✓ ${next} 💪`,
   });
 }
 

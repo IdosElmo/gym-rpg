@@ -18,6 +18,7 @@ import {
   angleOf,
   benchDiagProp,
   benchProp,
+  bikeProp,
   dist,
   ease,
   figureSvg,
@@ -133,6 +134,28 @@ describe('forward kinematics — front view', () => {
     near(dist(rolled.near.shoulder, rolled.far.shoulder), RIG.shoulderHalf * 2, 1e-9);
     // the neck itself does not move: the twist is at the ribs
     near(rolled.neck.x, forwardKinematics(STANDING, 'front').neck.x);
+    // …and the HIPS stay square: a twist turns the shoulders, not the pelvis
+    const square = forwardKinematics(STANDING, 'front');
+    near(rolled.near.hip.x, square.near.hip.x);
+    near(rolled.near.hip.y, square.near.hip.y);
+  });
+
+  it('rolls the hip line too when the pose says so (a body on its side)', () => {
+    // a side plank rolls the WHOLE body: both lines turn, and the hips stack
+    // one over the other exactly as the shoulders do
+    const onSide = forwardKinematics({ ...STANDING, roll: -90, hipRoll: -90 }, 'front');
+    near(onSide.near.hip.x, onSide.far.hip.x);
+    expect(onSide.near.hip.y).toBeLessThan(onSide.far.hip.y);
+    near(dist(onSide.near.hip, onSide.far.hip), RIG.hipHalf * 2, 1e-9);
+    near(onSide.near.shoulder.x, onSide.far.shoulder.x);
+    // the pelvis itself is the root and does not move
+    near(onSide.pelvis.x, STANDING.x);
+    near(onSide.pelvis.y, STANDING.y);
+    // the turned view turns the whole body by construction and ignores it
+    const q = forwardKinematics({ ...STANDING, roll: 20 }, 'threeQuarter');
+    const qh = forwardKinematics({ ...STANDING, roll: 20, hipRoll: -90 }, 'threeQuarter');
+    near(qh.near.hip.x, q.near.hip.x);
+    near(qh.near.hip.y, q.near.hip.y);
   });
 });
 
@@ -210,6 +233,7 @@ describe('lerpPose / ease', () => {
     near(m.arm[1], 55);
     near(m.roll ?? 0, 15);
     near(m.shrug ?? 0, 2);
+    near(lerpPose(a, { ...b, hipRoll: -40 }, 0.5).hipRoll ?? 0, -20);
   });
 
   it('returns the endpoints exactly at t=0 and t=1', () => {
@@ -338,6 +362,33 @@ describe('what the hands hold is read off the joints', () => {
   it('gives an empty hold no markup at all', () => {
     expect(holdSvg({ k: 'none' }, j)).toBe('');
     expect(holdAnchors({ k: 'none' }, j)).toEqual([]);
+  });
+
+  it('puts a pedal under each foot on a crank arm from the bottom bracket — the far one behind', () => {
+    const hold = { k: 'pedals', crank: [66, 86] } as const;
+    expect(holdAnchors(hold, j)).toEqual([j.near.toe, j.far.toe]);
+    const front = holdSvg(hold, j);
+    const back = holdBackSvg(hold, j);
+    // one pedal per layer, each on its own crank arm leaving the bracket
+    expect(front.match(/class="cd-iron cd-pedal"/g)).toHaveLength(1);
+    expect(back.match(/class="cd-iron cd-pedal"/g)).toHaveLength(1);
+    expect(front).toContain('M 66 86');
+    expect(back).toContain('M 66 86');
+    expect(front).not.toBe(back);
+    expect(front + back).not.toMatch(/NaN|undefined/);
+  });
+});
+
+describe('the bike', () => {
+  it('draws the frame between four points, a flywheel, two pads and the bracket the pedals turn about', () => {
+    const svg = bikeProp({ saddle: { x: 57, y: 65 }, crank: { x: 66, y: 86 }, bars: { x: 96, y: 54 }, flywheel: { x: 98, y: 91 } });
+    expect(svg).toContain('<circle class="cd-frame cd-crank" cx="66" cy="86"');
+    expect(svg).toContain('class="cd-frame cd-flywheel" cx="98" cy="91"');
+    expect(svg.match(/class="cd-pad"/g)).toHaveLength(2); // the saddle and the bars
+    expect(svg).toContain('cd-floor');
+    // no pulley: a flywheel is a mass, not a wheel a cable leaves from
+    expect(svg).not.toContain('cd-wheel');
+    expect(svg).not.toMatch(/NaN|undefined|https?:|url\(/);
   });
 });
 
