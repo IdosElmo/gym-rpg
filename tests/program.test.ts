@@ -233,10 +233,10 @@ describe('program data', () => {
 
 /* --------------------------------------------------- the exercise library */
 
-describe('the cardio exercise (x21 — the treadmill incline walk)', () => {
-  it('is the ONE cardio exercise, and the three built-in days have none', () => {
+describe('the cardio exercises (x21 — the treadmill incline walk, and the two bike rides)', () => {
+  it('are the ONLY cardio exercises, and the three built-in days have none', () => {
     const cardio = builtInExercises().filter((e) => isCardio(e));
-    expect(cardio.map((e) => e.id)).toEqual(['x21']);
+    expect(cardio.map((e) => e.id)).toEqual(['x21', 'x22', 'x23']);
     for (const d of DAY_ORDER) for (const ex of PROGRAM[d].exercises) expect(ex.cardio).toBeUndefined();
     expect(isCardio(null)).toBe(false);
     expect(isCardio(findExercise('a1'))).toBe(false);
@@ -265,6 +265,32 @@ describe('the cardio exercise (x21 — the treadmill incline walk)', () => {
   it('feeds the legs first and the core a little — a walk is not a plank', () => {
     const ex = findExercise('x21');
     expect(ex && bodyPartWeights(ex)).toEqual({ chest: 0, back: 0, legs: 0.8, shoulders: 0, arms: 0, core: 0.2 });
+  });
+});
+
+describe('the bike rides (x22 — zone 2, x23 — VO2 max intervals)', () => {
+  it('log power × minutes on a FLAT ladder: the load stays put from stage to stage', () => {
+    const z2 = findExercise('x22');
+    const vo2 = findExercise('x23');
+    expect(z2 && isCardio(z2)).toBe(true);
+    expect(vo2 && isCardio(vo2)).toBe(true);
+    if (!z2 || !vo2) return;
+    for (const ex of [z2, vo2]) {
+      expect(ex.cardio).toMatchObject({ loadLabel: 'הספק', loadUnit: 'W', loadStep: 0 });
+      expect(ex.unit).toBe('דקות');
+      expect(ex.equip).toEqual(['Machine']);
+      expect(ex.muscle).toContain('קרדיו');
+      // every stage suggests the same power — that is what "zone 2" and "4×4" mean
+      for (let i = 0; i < ex.sets; i++) expect(stageLoad(ex, i)).toBe(ex.cardio?.loadStart);
+      expect(bodyPartWeights(ex).legs).toBeGreaterThan(0.8);
+    }
+    // two hours of 10-minute stages, and four hard 4-minute intervals
+    expect(z2.sets * stageMinutes(z2)).toBe(120);
+    expect(z2.rest).toBe(600);
+    expect(vo2.sets).toBe(4);
+    expect(stageMinutes(vo2)).toBe(4);
+    // the interval ride starts harder than the steady one
+    expect(vo2.cardio?.loadStart ?? 0).toBeGreaterThan(z2.cardio?.loadStart ?? 0);
   });
 });
 
