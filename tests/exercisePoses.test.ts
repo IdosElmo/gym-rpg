@@ -164,7 +164,7 @@ const eachFrame = (d: DemoVariant, fn: (j: Joints, pose: Pose, i: number) => voi
 describe('coverage', () => {
   it('demonstrates every built-in exercise, exactly once, and nothing else', () => {
     const builtIn = builtInExercises().map((e) => e.id);
-    expect(builtIn).toHaveLength(50);
+    expect(builtIn).toHaveLength(52);
     expect(EXERCISE_DEMOS.map((d) => d.id).sort()).toEqual([...builtIn].sort());
     expect(new Set(EXERCISE_DEMOS.map((d) => d.id)).size).toBe(EXERCISE_DEMOS.length);
     for (const d of EXERCISE_DEMOS) expect(findExercise(d.id)).not.toBeNull();
@@ -191,7 +191,7 @@ describe('coverage', () => {
       if (d.variants.length === 1) expect(d.variants[0]?.caption, d.id).toBeUndefined();
       else for (const v of d.variants) expect(v.caption, d.id).toBeTruthy();
     }
-    expect(ALL).toHaveLength(56);
+    expect(ALL).toHaveLength(58);
     // two variants of one exercise are two DIFFERENT pictures, never a copy
     for (const d of EXERCISE_DEMOS) {
       if (d.variants.length < 2) continue;
@@ -306,8 +306,8 @@ describe('every demo, structurally', () => {
       });
 
       it('actually MOVES — no demo is two copies of one pose', () => {
-        // b5 and x26 are HOLDS: they breathe rather than rep, and that is the point.
-        const least = id === 'b5' || id === 'x26' ? 0.4 : 3;
+        // b5, x26 and x33 are HOLDS: they breathe rather than rep, and that is the point.
+        const least = id === 'b5' || id === 'x26' || id === 'x33' ? 0.4 : 3;
         const a = poseAt(d, 0);
         const b = poseAt(d, d.loopMs / 2);
         const ja = forwardKinematics(a, d.view);
@@ -1207,6 +1207,67 @@ describe('x30, x31, x32 — three push-ups, one plank on its toes', () => {
   });
 });
 
+/* ---------------------------------------------------------- two core holds */
+
+describe('x33 and x34 — the hollow hold and the pike', () => {
+  it('x33 is a HOLD: shoulders and straight legs off the mat, the lower back pressed into it', () => {
+    const d = demo('x33');
+    expect(d.loopMs).toBeGreaterThan(3000);
+    expect(d.props()).toContain('cd-mat');
+    const a = frameOf('x33', 0);
+    const b = frameOf('x33', 1);
+    // the pelvis — the lower back on the mat — never moves
+    expect(b.x).toBe(a.x);
+    expect(b.y).toBe(a.y);
+    for (let i = 0; i < d.frames.length; i++) {
+      const j = at('x33', i);
+      const p = frameOf('x33', i);
+      // shoulder blades lifted: the torso's back edge is clear of the mat
+      expect(j.shoulders.y + 5.5).toBeLessThan(98);
+      // legs straight, toes pointed, feet a hand off the mat, out long
+      expect(flexion(p.leg[0], p.leg[1])).toBeLessThan(5);
+      expect(flexion(p.leg[1], p.leg[2])).toBeLessThan(25);
+      expect(j.near.ankle.y).toBeLessThan(95);
+      expect(j.near.ankle.x).toBeLessThan(j.pelvis.x - 25);
+      // arms reaching up and over the head, clear of the skull
+      expect(j.near.grip.x).toBeGreaterThan(j.head.x + 4);
+      expect(j.near.grip.y).toBeLessThan(j.head.y - 10);
+      expect(segDist(j.head, j.near.shoulder, j.near.elbow)).toBeGreaterThan(8);
+      expect(segDist(j.head, j.near.elbow, j.near.grip)).toBeGreaterThan(8);
+    }
+    // it breathes: the legs and shoulders drift a touch and come back
+    expect(dist(at('x33', 0).near.ankle, at('x33', 1).near.ankle)).toBeGreaterThan(0.5);
+  });
+
+  it('x34 folds a high plank into an inverted V on planted hands, the toes sliding in', () => {
+    const d = demo('x34');
+    expect(d.frames).toHaveLength(3);
+    expect(d.props()).toContain('cd-mat');
+    const plank = at('x34', 0);
+    const pike = at('x34', 2);
+    // the hands are the base: the same point in every keyframe
+    for (let i = 1; i < d.frames.length; i++) {
+      expect(dist(plank.near.grip, at('x34', i).near.grip)).toBeLessThan(1);
+      expect(dist(plank.far.grip, at('x34', i).far.grip)).toBeLessThan(1);
+    }
+    // the plank is x30's top position
+    expect(d.frames[0]).toEqual(demo('x30').frames[0]);
+    // the toes stay on the mat but SLIDE towards the hands
+    for (let i = 0; i < d.frames.length; i++) expect(Math.abs(at('x34', i).near.toe.y - 100)).toBeLessThan(2.5);
+    expect(pike.near.toe.x).toBeGreaterThan(plank.near.toe.x + 20);
+    // the hips rise to the apex, above the shoulders, with the shoulders
+    // arriving over the hands and the legs kept straight
+    expect(plank.pelvis.y - pike.pelvis.y).toBeGreaterThan(15);
+    expect(pike.pelvis.y).toBeLessThan(pike.shoulders.y - 5);
+    expect(Math.abs(pike.shoulders.x - pike.near.grip.x)).toBeLessThan(3);
+    for (const i of [0, 2]) expect(flexion(frameOf('x34', i).leg[0], frameOf('x34', i).leg[1])).toBeLessThan(30);
+    // and the head, looking at the toes, stays off the vertical arm
+    expect(segDist(pike.head, pike.near.shoulder, pike.near.grip)).toBeGreaterThan(7);
+    // between the keyframes the toe never goes through the floor
+    for (let i = 0; i <= 40; i++) expect(tween(d, i / 40).near.toe.y, `toe at ${i}`).toBeLessThan(103.4);
+  });
+});
+
 /* ------------------------------------------------------------------ the bikes */
 
 describe('x22 and x23 — the bikes turn a crank', () => {
@@ -1392,6 +1453,7 @@ describe('the load travels a path, not a loop', () => {
     x30: (j) => j.shoulders,
     x31: (j) => j.shoulders,
     x32: (j) => j.shoulders,
+    x34: (j) => j.pelvis,
   };
 
   const guided = (id: string, d: DemoVariant): ((j: Joints) => Vec) | null => {
@@ -1447,7 +1509,7 @@ describe('the load travels a path, not a loop', () => {
   it('welds a bodyweight grip to the bar it hangs from — or rests on', () => {
     // …a rider's hands to the bars (the legs turn, the grip does not), and a
     // push-up's hands to the mat
-    for (const [id, vi] of [['a6', 0], ['b2', 1], ['b3', 0], ['x13', 0], ['x14', 0], ['x17', 0], ['x22', 0], ['x23', 0], ['x30', 0], ['x31', 0], ['x32', 0]] as Array<[string, number]>) {
+    for (const [id, vi] of [['a6', 0], ['b2', 1], ['b3', 0], ['x13', 0], ['x14', 0], ['x17', 0], ['x22', 0], ['x23', 0], ['x30', 0], ['x31', 0], ['x32', 0], ['x34', 0]] as Array<[string, number]>) {
       const d = demo(id, vi);
       const first = tween(d, 0).near.grip;
       for (let i = 0; i <= 40; i++) {

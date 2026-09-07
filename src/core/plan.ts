@@ -1361,7 +1361,12 @@ export function deleteUserPreset(store: DataStore, presetId: string, now: number
 export function libraryExercises(plan: PlanDoc | null): Exercise[] {
   const out: Exercise[] = builtInExercises();
   if (plan) for (const c of plan.customExercises) out.push(customToExercise(c));
-  return out;
+  // ALPHABETICAL, by the Hebrew name the sheet shows. The data itself stays
+  // in program order (the parity tests pin it); this is the order a person
+  // scanning a list of fifty names can actually search. Custom exercises
+  // sort in among the built-ins rather than trailing them — a name is a
+  // name — and the sort is stable, so two identical names keep their order.
+  return out.sort((a, b) => a.he.localeCompare(b.he, 'he'));
 }
 
 /** Day key of a `PlanDoc`'s day, guarded for untrusted input. */

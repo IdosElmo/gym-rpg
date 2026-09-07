@@ -28,6 +28,7 @@ import {
   BUILTIN_WEEKDAYS,
   DAY_ORDER,
   EXTRA_EXERCISES,
+  builtInExercises,
   PROGRAM,
   bodyPartWeights,
   dayOf,
@@ -301,11 +302,26 @@ describe('makeResolver', () => {
   it('offers every built-in plus the customs in the add-exercise library', () => {
     const lib = libraryExercises(editedPlan()).map((e) => e.id);
     const builtinCount = DAY_ORDER.reduce((n, k) => n + PROGRAM[k].exercises.length, 0);
-    // the program's own exercises, the library additions, then the customs
+    // the program's own exercises, the library additions, and the customs
     expect(lib).toHaveLength(builtinCount + EXTRA_EXERCISES.length + 1);
     expect(lib).toContain('a3');
     expect(lib).toContain(EXTRA_EXERCISES[0]?.id);
     expect(lib).toContain(CUSTOM.id);
+  });
+
+  it('lists the library ALPHABETICALLY by Hebrew name, customs sorted in among the built-ins', () => {
+    const lib = libraryExercises(editedPlan());
+    const names = lib.map((e) => e.he);
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b, 'he')));
+    // the data itself is untouched: program order is what the parity tests pin
+    expect(builtInExercises().map((e) => e.id).slice(0, 3)).toEqual(['a1', 'a2', 'a3']);
+    // a custom exercise takes its place by name, not at the end
+    const at = lib.findIndex((e) => e.id === CUSTOM.id);
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(at).toBeLessThan(lib.length - 1);
+    // …and with no plan the built-ins alone are still alphabetical
+    const bare = libraryExercises(null).map((e) => e.he);
+    expect(bare).toEqual([...bare].sort((a, b) => a.localeCompare(b, 'he')));
   });
 
   it('mints custom ids with the cx_ prefix and no collisions', () => {

@@ -4,7 +4,7 @@
  * A demo is DATA, not media: a view (which plane the camera is on), two to
  * three keyframes of joint angles for `ui/coachFigure.ts`, the props the lift
  * happens on, what the hands are holding, and a rep tempo. Roughly 13 kB of
- * numbers for all 50 exercises — the whole feature ships without a single byte
+ * numbers for all 52 exercises — the whole feature ships without a single byte
  * of image, video or font, which is what keeps the single-file build honest.
  *
  * AN EXERCISE CAN HAVE TWO IMPLEMENTATIONS, AND THEN IT SHOWS BOTH. Half the
@@ -1321,6 +1321,53 @@ const X32: ExerciseDemo = one('x32', {
   hold: { k: 'none' },
 });
 
+/* ---------------------------------------------------- the two core holds */
+
+const X33: ExerciseDemo = one('x33', {
+  view: 'side',
+  loopMs: 4200,
+  forwardShare: 0.5,
+  // HOLLOW BODY HOLD: on the back, the shoulder blades and the straight legs
+  // lifted off the mat, the arms reaching up and over the head, the body one
+  // shallow arc pressed into the mat at the lower back — which is why the
+  // pelvis is byte-identical between the frames: it is the one thing the
+  // coaching copy says must not move. Like b5 it is a HOLD, so it breathes:
+  // the legs and the shoulders drift a degree and come back. The arms reach
+  // at 55° rather than flat along the ears because from the side an arm by
+  // the ear runs straight through the skull; here they clear it.
+  frames: [
+    { x: 78, y: 95, torso: -14, head: -14, arm: [-55, -55], armF: [-53, -53], leg: [-166, -166, -150], legF: [-165, -165, -149] },
+    { x: 78, y: 95, torso: -12, head: -12, arm: [-53, -53], armF: [-51, -51], leg: [-164, -164, -148], legF: [-163, -163, -147] },
+  ],
+  props: () => matProp(30, 130, 100) + floorProp(22, 140, 103.4),
+  hold: { k: 'none' },
+});
+
+const X34: ExerciseDemo = one('x34', {
+  view: 'side',
+  loopMs: 3000,
+  forwardShare: 0.5,
+  // PIKE PLANK: a high plank (x30's top position, hands under the shoulders)
+  // folded into an inverted V — the hips pulled up towards the ceiling, the
+  // legs kept straight, the shoulders arriving over the hands. The hands are
+  // the same point in all three frames; the TOES are not: they slide in along
+  // the mat towards the hands, which is what the towel or the sliders in the
+  // coaching copy are for. The middle keyframe is solved with the toe ON the
+  // mat AND the legs straight — the hips sit where a straight leg reaches the
+  // half-way toe — because with two frames the lerp pushed the toe four units
+  // through the floor, and a middle frame solved for the toe alone bent the
+  // knees to 70°, which is the exact mistake the copy warns against. With
+  // this one the toe never leaves the mat's own thickness and the knees stay
+  // within 25° of straight the whole way.
+  frames: [
+    { x: 67.5, y: 80.4, torso: -24.4, head: -36.4, arm: [101.4, 80.1], armF: [101.4, 80.1], leg: [155.6, 155.6, 85], legF: [155.6, 155.6, 85] },
+    { x: 65.4, y: 65, torso: 13.2, head: 0, arm: [100.1, 78.9], armF: [100.1, 78.9], leg: [118.3, 118.3, 78], legF: [118.3, 118.3, 78] },
+    { x: 65.6, y: 62.3, torso: 20, head: 35, arm: [98.7, 77.9], armF: [98.7, 77.9], leg: [83.4, 108.4, 70], legF: [83.4, 108.4, 70] },
+  ],
+  props: () => matProp(28, 118, 100) + floorProp(20, 128, 103.4),
+  hold: { k: 'none' },
+});
+
 /** Every demonstration, in program order. */
 export const EXERCISE_DEMOS: readonly ExerciseDemo[] = [
   A1, A2, A3, A4, A5, A6,
@@ -1329,7 +1376,7 @@ export const EXERCISE_DEMOS: readonly ExerciseDemo[] = [
   X1, X2, X3, X4, X5, X6, X7, X8, X9, X10,
   X11, X12, X13, X14, X15, X16, X17, X18, X19, X20, X21,
   X22, X23, X24, X25, X26, X27, X28, X29,
-  X30, X31, X32,
+  X30, X31, X32, X33, X34,
 ];
 
 const BY_ID: ReadonlyMap<string, ExerciseDemo> = new Map(EXERCISE_DEMOS.map((d) => [d.id, d]));
