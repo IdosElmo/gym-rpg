@@ -4,7 +4,7 @@
  * A demo is DATA, not media: a view (which plane the camera is on), two to
  * three keyframes of joint angles for `ui/coachFigure.ts`, the props the lift
  * happens on, what the hands are holding, and a rep tempo. Roughly 13 kB of
- * numbers for all 47 exercises — the whole feature ships without a single byte
+ * numbers for all 50 exercises — the whole feature ships without a single byte
  * of image, video or font, which is what keeps the single-file build honest.
  *
  * AN EXERCISE CAN HAVE TWO IMPLEMENTATIONS, AND THEN IT SHOWS BOTH. Half the
@@ -1251,6 +1251,76 @@ const X29: ExerciseDemo = one('x29', {
   hold: { k: 'db' },
 });
 
+/* ------------------------------------------------------------- the push-ups */
+
+/**
+ * THREE PUSH-UPS, ONE BODY. The camera is the side one — a push-up MOVES
+ * vertically, and no other plane shows that — so what tells the three apart
+ * is what the side camera can see: where the hands sit against the shoulder
+ * line, which way the elbow travels, how deep the chest goes, and the rig's
+ * own depth cue (`DEPTH`: the far side drawn a little to the left). A diamond
+ * push-up puts both hands on ONE point, so its two grips are solved to
+ * coincide; a wide one spreads them, so its near hand is drawn further right
+ * and its far hand further left than the default nudge. The body is a plank
+ * pivoting on the toes: the toe is the same point in every frame, the ankle
+ * with it, and the shoulders swing down along the arc a fixed heel allows —
+ * which is why they drift forward over the hands on the way down, exactly as
+ * a lifter's do. Both hands are welded to the mat.
+ */
+const PUSHUP_LEGS_TOP = [155.6, 155.6, 85] as const;
+
+const X30: ExerciseDemo = one('x30', {
+  view: 'side',
+  loopMs: 2400,
+  forwardShare: 0.55,
+  // STANDARD: hands under the shoulder line, elbows back at ~45°, the chest to
+  // a fist off the mat. Arms 21° short of straight at the top, folded past a
+  // right angle at the bottom with the elbow behind the wrist.
+  frames: [
+    { x: 67.5, y: 80.4, torso: -24.4, head: -36.4, arm: [101.4, 80.1], armF: [101.4, 80.1], leg: [...PUSHUP_LEGS_TOP], legF: [...PUSHUP_LEGS_TOP] },
+    { x: 69.7, y: 87.1, torso: -12.2, head: -24.2, arm: [161.1, 54.6], armF: [161.1, 54.6], leg: [167.8, 167.8, 85], legF: [167.8, 167.8, 85] },
+  ],
+  props: () => matProp(28, 118, 100) + floorProp(20, 128, 103.4),
+  hold: { k: 'none' },
+});
+
+const X31: ExerciseDemo = one('x31', {
+  view: 'side',
+  loopMs: 2400,
+  forwardShare: 0.55,
+  // DIAMOND: both hands on ONE point under the lower chest — six units behind
+  // the shoulder line, and the far arm solved to the very same grip as the
+  // near one so the two fists merge — with the elbows tucked and travelling
+  // straight back along the ribs. The chest goes all the way to the hands,
+  // so it is the deepest of the three. The MIDDLE keyframe is the usual cure
+  // for a hand that has to stay put while the arm folds a long way: with two
+  // frames the lerp slid the fist 3.2 units along the mat, with three it is
+  // solved on the grip at half depth and slides 1.5.
+  frames: [
+    { x: 67.5, y: 80.4, torso: -24.4, head: -36.4, arm: [101.9, 101.9], armF: [105.6, 89.1], leg: [...PUSHUP_LEGS_TOP], legF: [...PUSHUP_LEGS_TOP] },
+    { x: 69, y: 84.3, torso: -17.1, head: -29.1, arm: [150.8, 78], armF: [147.6, 69.5], leg: [162.9, 162.9, 85], legF: [162.9, 162.9, 85] },
+    { x: 70, y: 88.2, torso: -10.1, head: -22.1, arm: [180.6, 77.7], armF: [177.2, 67.7], leg: [169.9, 169.9, 85], legF: [169.9, 169.9, 85] },
+  ],
+  props: () => matProp(28, 118, 100) + floorProp(20, 128, 103.4),
+  hold: { k: 'none' },
+});
+
+const X32: ExerciseDemo = one('x32', {
+  view: 'side',
+  loopMs: 2400,
+  forwardShare: 0.55,
+  // WIDE: the hands spread along the depth cue — the near one three units
+  // further right than the standard grip, the far one eight further left —
+  // the elbows flaring with them, and a SHORTER range: the chest stops a
+  // fist higher, which is what a wide grip does and the coaching copy says.
+  frames: [
+    { x: 67.5, y: 80.4, torso: -24.4, head: -36.4, arm: [93.4, 75.8], armF: [100.7, 100.7], leg: [...PUSHUP_LEGS_TOP], legF: [...PUSHUP_LEGS_TOP] },
+    { x: 69.4, y: 85.6, torso: -14.8, head: -26.8, arm: [142.8, 47.1], armF: [160.3, 74.6], leg: [165.2, 165.2, 85], legF: [165.2, 165.2, 85] },
+  ],
+  props: () => matProp(28, 118, 100) + floorProp(20, 128, 103.4),
+  hold: { k: 'none' },
+});
+
 /** Every demonstration, in program order. */
 export const EXERCISE_DEMOS: readonly ExerciseDemo[] = [
   A1, A2, A3, A4, A5, A6,
@@ -1259,6 +1329,7 @@ export const EXERCISE_DEMOS: readonly ExerciseDemo[] = [
   X1, X2, X3, X4, X5, X6, X7, X8, X9, X10,
   X11, X12, X13, X14, X15, X16, X17, X18, X19, X20, X21,
   X22, X23, X24, X25, X26, X27, X28, X29,
+  X30, X31, X32,
 ];
 
 const BY_ID: ReadonlyMap<string, ExerciseDemo> = new Map(EXERCISE_DEMOS.map((d) => [d.id, d]));
