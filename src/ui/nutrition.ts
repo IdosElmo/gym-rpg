@@ -33,7 +33,7 @@ import {
   type MealInput,
   type MealRow,
 } from '../core/nutrition.ts';
-import type { EstimateError, MealEstimate, NutritionAiPort } from '../nutrition/aiPort.ts';
+import type { EstimateError, EstimateItem, MealEstimate, NutritionAiPort } from '../nutrition/aiPort.ts';
 import { downscalePhoto } from '../nutrition/photo.ts';
 import type { DataStore, MealSource, NutritionState, NutritionTargets } from '../storage/DataStore.ts';
 import { esc } from './dom.ts';
@@ -63,6 +63,28 @@ export const CONFIDENCE_HE: Readonly<Record<MealEstimate['confidence'], string>>
   medium: 'בינוני',
   high: 'גבוה',
 };
+
+/** "4 דפים דף אורז" → the quantity and the name, as one stored/spoken label. */
+function itemLabel(it: EstimateItem): string {
+  return it.quantity ? `${it.quantity} ${it.name}` : it.name;
+}
+
+/** The estimate's breakdown — one row per ingredient, ⚠️ where the quantity was assumed. */
+export function breakdownHtml(items: readonly EstimateItem[]): string {
+  return items
+    .map((it) => {
+      const nums =
+        it.kcal !== null && it.proteinG !== null
+          ? `<span class="nt-bd-nums">${it.grams ?? 0} ג׳ · 🔥 ${it.kcal} · 💪 ${it.proteinG} ג׳</span>`
+          : '';
+      const badge = it.assumed ? `<span class="nt-assumed">⚠️ כמות משוערת</span>` : '';
+      return `<li class="nt-bd-row ${it.assumed ? 'assumed' : ''}">
+        <span class="nt-bd-name">${esc(it.name)}${it.quantity ? ` <span class="dim">${esc(it.quantity)}</span>` : ''}${badge}</span>
+        ${nums}
+      </li>`;
+    })
+    .join('');
+}
 
 /* -------------------------------------------------------- screen-local state */
 
@@ -149,7 +171,8 @@ function addCard(showAi: boolean, date: string, today: string): string {
       <input type="file" id="ntPhoto" accept="image/*" hidden>
     </div>
     <p class="gc-note" id="ntPhotoNote" hidden>📷 תמונה צורפה <button class="nt-photo-clear" id="ntPhotoClear" type="button">הסרה</button></p>
-    <p class="gc-note" id="ntEstMsg" role="status"></p>`
+    <p class="gc-note" id="ntEstMsg" role="status"></p>
+    <ul class="nt-breakdown" id="ntEstBreakdown" hidden></ul>`
     : '';
   // On a past day the card says WHERE the meal will land — a forgotten dinner
   // is logged onto yesterday, not silently onto today.
@@ -326,7 +349,7 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
       time: typedTime !== '' ? typedTime : date === today ? nowHHMM() : '',
       source: fromAi ? est.source : 'manual',
       ...(fromAi
-        ? { ai: { model: 'gemini', confidence: est.estimate.confidence, items: est.estimate.items } }
+        ? { ai: { model: 'gemini', confidence: est.estimate.confidence, items: est.estimate.items.map(itemLabel) } }
         : {}),
     };
     const ev = logMeal(deps.store, input, crypto.randomUUID());
@@ -363,6 +386,7 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
   const ai = deps.ai;
   const estBtn = main.querySelector<HTMLButtonElement>('#ntEst');
   const estMsg = main.querySelector<HTMLElement>('#ntEstMsg');
+  const breakdown = main.querySelector<HTMLElement>('#ntEstBreakdown');
   const photoNote = main.querySelector<HTMLElement>('#ntPhotoNote');
   const photoInp = main.querySelector<HTMLInputElement>('#ntPhoto');
 
@@ -401,6 +425,10 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
       const label = estBtn.textContent;
       estBtn.textContent = 'מעריך…';
       if (estMsg) estMsg.textContent = '';
+      if (breakdown) {
+        breakdown.hidden = true;
+        breakdown.innerHTML = '';
+      }
       void ai
         .estimate({ text, ...(photo ? { photo } : {}) })
         .then((result) => {
@@ -414,11 +442,18 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
           if (calInp) calInp.value = String(est.calories);
           if (protInp) protInp.value = String(est.proteinG);
           if (estMsg) {
-            const found = est.items.length > 0 ? `נמצא: ${est.items.join(', ')} · ` : '';
+            const names = est.items.map(itemLabel);
+            const found = names.length > 0 ? `נמצא: ${names.join(', ')} · ` : '';
             // Anything short of high confidence says WHY, so the user knows what
             // to add to the description (a quantity, a preparation) and retry.
             const why = est.confidence !== 'high' && est.reason ? ` (${est.reason})` : '';
             estMsg.textContent = `${found}דיוק ${CONFIDENCE_HE[est.confidence]}${why} — אפשר לתקן לפני ההוספה.`;
+          }
+          // The breakdown IS the number: one line per ingredient, so the user
+          // can see where the total came from and which line to pin down.
+          if (breakdown) {
+            breakdown.innerHTML = breakdownHtml(est.items);
+            breakdown.hidden = est.items.length === 0;
           }
         })
         .finally(() => {

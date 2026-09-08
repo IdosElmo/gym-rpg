@@ -46,9 +46,31 @@ Deploy with JWT verification **on** (the default — do not pass
 ### Contract
 
 `POST` body `{ text: string, photo?: { mimeType: string, base64: string } }` →
-`200` with `{ calories, protein_g, items, confidence, reason }` — `reason` is a short
-Hebrew explanation of why confidence is below high, `''` when high (already normalized;
-the client re-validates in `src/nutrition/aiPort.ts`). Errors: `400` bad input,
-`413` photo too large, `429` rate limited, `500` secret missing, `502` Gemini
-unreachable or unreadable. The model (`gemini-3.5-flash-lite`) is a constant in
-`index.ts` — changing it is a redeploy, never an app release.
+`200` with:
+
+```
+{ calories, protein_g, confidence: 'low'|'medium'|'high', reason,
+  items: [{ name, quantity, grams, kcal, protein_g, assumed }] }
+```
+
+The answer is **itemized**: the model returns one line per ingredient (grams,
+kcal/100 g, protein/100 g), the function does the arithmetic, and `calories` /
+`protein_g` are the sums of `items`. `assumed` marks a line whose quantity the
+description did not state; `confidence` is capped by how many lines are
+assumed (any ⇒ at most `medium`; half or more, or a weightless line ⇒ `low`),
+and `reason` names them. Common Israeli staples are pinned to the `ANCHORS`
+table in `index.ts` so they price identically on every call; the request runs
+at `temperature: 0` with a fixed `seed`. The client re-validates and re-sums in
+`src/nutrition/aiPort.ts`, and still accepts the older name-only `items`.
+
+Errors: `400` bad input, `413` photo too large, `429` rate limited, `500`
+secret missing, `502` Gemini unreachable or unreadable. The model
+(`gemini-3.5-flash`) is a constant in `index.ts` — changing it is a redeploy,
+never an app release.
+
+### Reproducibility check (after deploying)
+
+Paste the same multi-line meal three times and press ✨ each time: the numbers
+must be identical, the breakdown must list every ingredient, and lines without
+a stated quantity must carry the ⚠️ badge with confidence at most `medium`.
+Add the missing quantities to the text → badges gone, confidence `high`.

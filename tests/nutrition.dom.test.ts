@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
-import type { EstimateResult, NutritionAiPort } from '../src/nutrition/aiPort.ts';
+import type { EstimateItem, EstimateResult, NutritionAiPort } from '../src/nutrition/aiPort.ts';
 import { createApp, type AppHooks } from '../src/ui/app.ts';
 import { ESTIMATE_ERROR_HE, resetNutritionScreen } from '../src/ui/nutrition.ts';
 import { RestTimer } from '../src/ui/timer.ts';
@@ -86,6 +86,16 @@ function fakePort(result: EstimateResult, configured = true): { port: NutritionA
 }
 
 const flush = (): Promise<void> => Promise.resolve().then(() => undefined);
+
+/** A name-only line (what an older function build returns). */
+function named(name: string): EstimateItem {
+  return { name, quantity: '', grams: null, kcal: null, proteinG: null, assumed: false };
+}
+
+/** A fully priced line (what the itemized function returns). */
+function priced(name: string, quantity: string, grams: number, kcal: number, proteinG: number, assumed = false): EstimateItem {
+  return { name, quantity, grams, kcal, proteinG, assumed };
+}
 
 describe('the תזונה screen', () => {
   it('opens from the 🍽️ hub with header totals and an empty day', () => {
@@ -213,7 +223,7 @@ describe('the תזונה screen', () => {
   it('an estimate PREFILLS the fields and appends no event until הוספה', async () => {
     const { port, calls } = fakePort({
       ok: true,
-      estimate: { calories: 620, proteinG: 42, items: ['אורז', 'חזה עוף'], confidence: 'medium' },
+      estimate: { calories: 620, proteinG: 42, items: [named('אורז'), named('חזה עוף')], confidence: 'medium' },
     });
     const { store } = mount({ nutrition: { ai: port } });
     openNutrition();
@@ -257,7 +267,7 @@ describe('the תזונה screen', () => {
   it('explains WHY when confidence is below high, and stays quiet when it is high', async () => {
     const low = fakePort({
       ok: true,
-      estimate: { calories: 400, proteinG: 20, items: ['טוסט'], confidence: 'medium', reason: 'כמות הגבינה לא ברורה' },
+      estimate: { calories: 400, proteinG: 20, items: [named('טוסט')], confidence: 'medium', reason: 'כמות הגבינה לא ברורה' },
     });
     mount({ nutrition: { ai: low.port } });
     openNutrition();
@@ -281,6 +291,52 @@ describe('the תזונה screen', () => {
     await flush();
     await flush();
     expect(document.querySelector('#ntEstMsg')?.textContent).not.toContain('לא אמור להופיע');
+  });
+
+  it('shows the itemized breakdown, badges assumed lines, and stores quantity+name labels', async () => {
+    const { port } = fakePort({
+      ok: true,
+      estimate: {
+        calories: 396,
+        proteinG: 21,
+        items: [
+          priced('דף אורז', '4 דפים', 36, 119, 1),
+          priced('ביצה', '2 יחידות', 110, 157, 14),
+          priced('סלט ירקות', 'קערה', 150, 33, 2, true),
+          priced('שמן זית', 'חצי כפית', 2, 20, 0),
+          priced('טונה במים', 'כף גדושה', 25, 29, 7),
+          priced('אבוקדו', 'חצי קטן', 60, 96, 1),
+        ],
+        confidence: 'medium',
+        reason: 'כמות לא צוינה: סלט ירקות',
+      },
+    });
+    const { store } = mount({ nutrition: { ai: port } });
+    openNutrition();
+    type('#ntName', 'דפי אורז, ביצים, סלט');
+    click('#ntEst');
+    await flush();
+    await flush();
+
+    const rows = [...document.querySelectorAll('#ntEstBreakdown .nt-bd-row')];
+    expect(rows).toHaveLength(6);
+    expect(document.querySelector<HTMLElement>('#ntEstBreakdown')?.hidden).toBe(false);
+    expect(rows[0]?.textContent).toContain('דף אורז');
+    expect(rows[0]?.textContent).toContain('4 דפים');
+    expect(rows[0]?.textContent).toContain('119');
+    // the one line without a stated quantity is the one flagged
+    expect(document.querySelectorAll('#ntEstBreakdown .nt-assumed')).toHaveLength(1);
+    expect(rows[2]?.classList.contains('assumed')).toBe(true);
+    // the prefilled numbers are the estimate's totals
+    expect(document.querySelector<HTMLInputElement>('#ntCal')?.value).toBe('396');
+    expect(document.querySelector<HTMLInputElement>('#ntProt')?.value).toBe('21');
+    expect(document.querySelector('#ntEstMsg')?.textContent).toContain('4 דפים דף אורז');
+
+    click('#ntAdd');
+    const ev = store.getEvents().find((e) => e.type === 'meal_logged');
+    const ai = ev?.payload['ai'] as { items?: string[] } | undefined;
+    expect(ai?.items?.[0]).toBe('4 דפים דף אורז');
+    expect(ai?.items?.[2]).toBe('קערה סלט ירקות');
   });
 
   it('takes the description from a multi-line box and stores it as one line', () => {

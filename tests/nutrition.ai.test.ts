@@ -6,14 +6,39 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { mapInvokeError, parseEstimate } from '../src/nutrition/aiPort.ts';
+import { capConfidence, mapInvokeError, parseEstimate, totalsOf, type EstimateItem } from '../src/nutrition/aiPort.ts';
 import { createEdgeAiPort } from '../src/nutrition/edgePort.ts';
 
 const GOOD = { calories: 550, protein_g: 45.4, items: ['אורז', 'חזה עוף'], confidence: 'high' };
 
-describe('parseEstimate', () => {
-  it('reads a well-formed answer, rounding the protein', () => {
-    expect(parseEstimate(GOOD)).toEqual({ calories: 550, proteinG: 45, items: ['אורז', 'חזה עוף'], confidence: 'high' });
+/** A name-only line, as parsed from an older function build. */
+const named = (name: string): EstimateItem => ({ name, quantity: '', grams: null, kcal: null, proteinG: null, assumed: false });
+/** What the itemized function returns for one line. */
+const line = (name: string, quantity: string, grams: number, kcal: number, protein_g: number, assumed = false) => ({
+  name,
+  quantity,
+  grams,
+  kcal,
+  protein_g,
+  assumed,
+});
+
+const ITEMIZED = {
+  calories: 999, // deliberately WRONG: the client must trust the breakdown, not this
+  protein_g: 999,
+  items: [line('דף אורז', '4 דפים', 36, 119, 1), line('ביצה', '2 יחידות', 110, 157, 14), line('אבוקדו', 'חצי קטן', 60, 96, 1)],
+  confidence: 'high',
+  reason: '',
+};
+
+describe('parseEstimate — the legacy name-only answer', () => {
+  it('reads it, rounding the protein and lifting names into number-less lines', () => {
+    expect(parseEstimate(GOOD)).toEqual({
+      calories: 550,
+      proteinG: 45,
+      items: [named('אורז'), named('חזה עוף')],
+      confidence: 'high',
+    });
   });
 
   it('clamps hostile numbers and defaults a junk confidence to low', () => {
@@ -22,9 +47,9 @@ describe('parseEstimate', () => {
   });
 
   it('caps and trims the items list', () => {
-    const est = parseEstimate({ ...GOOD, items: Array.from({ length: 20 }, (_, i) => `  פריט ${i}  `) });
-    expect(est?.items).toHaveLength(10);
-    expect(est?.items[0]).toBe('פריט 0');
+    const est = parseEstimate({ ...GOOD, items: Array.from({ length: 30 }, (_, i) => `  פריט ${i}  `) });
+    expect(est?.items).toHaveLength(20);
+    expect(est?.items[0]?.name).toBe('פריט 0');
   });
 
   it('carries a reason only when one was given, trimmed and capped', () => {
@@ -41,6 +66,65 @@ describe('parseEstimate', () => {
     expect(parseEstimate('550 קלוריות')).toBeNull();
     expect(parseEstimate({ calories: 'הרבה', protein_g: 4 })).toBeNull();
     expect(parseEstimate({ calories: 550 })).toBeNull();
+  });
+});
+
+describe('parseEstimate — the itemized answer', () => {
+  it('sums the breakdown itself and ignores the server totals', () => {
+    const est = parseEstimate(ITEMIZED);
+    expect(est?.calories).toBe(119 + 157 + 96);
+    expect(est?.proteinG).toBe(1 + 14 + 1);
+    expect(est?.items[0]).toEqual({ name: 'דף אורז', quantity: '4 דפים', grams: 36, kcal: 119, proteinG: 1, assumed: false });
+    expect(est?.confidence).toBe('high');
+  });
+
+  it('accepts a breakdown even when the server totals are missing', () => {
+    const { calories: _c, protein_g: _p, ...noTotals } = ITEMIZED;
+    expect(parseEstimate(noTotals)?.calories).toBe(372);
+  });
+
+  it('falls back to the server totals when a line has no numbers', () => {
+    const est = parseEstimate({ ...ITEMIZED, calories: 500, protein_g: 40, items: [...ITEMIZED.items, 'מלח'] });
+    expect(est?.calories).toBe(500);
+    expect(est?.items).toHaveLength(4);
+    expect(est?.items[3]).toEqual(named('מלח'));
+  });
+
+  it('clamps each line and drops nameless ones', () => {
+    const est = parseEstimate({
+      ...ITEMIZED,
+      items: [line('שמן', 'הרבה', 1e9, -4, 5), { grams: 10, kcal: 10, protein_g: 1 }, 7],
+    });
+    expect(est?.items).toHaveLength(1);
+    expect(est?.items[0]).toEqual({ name: 'שמן', quantity: 'הרבה', grams: 2000, kcal: 0, proteinG: 5, assumed: false });
+  });
+
+  it('caps the confidence by the assumed lines whatever the model claimed', () => {
+    const one = parseEstimate({ ...ITEMIZED, items: [ITEMIZED.items[0], ITEMIZED.items[1], line('סלט', 'קערה', 150, 33, 2, true)] });
+    expect(one?.confidence).toBe('medium');
+    const half = parseEstimate({ ...ITEMIZED, items: [ITEMIZED.items[0], line('סלט', 'קערה', 150, 33, 2, true)] });
+    expect(half?.confidence).toBe('low');
+    const weightless = parseEstimate({ ...ITEMIZED, items: [ITEMIZED.items[0], line('רוטב', '', 0, 0, 0)] });
+    expect(weightless?.confidence).toBe('low');
+    // …and the model's own word can still lower it
+    expect(parseEstimate({ ...ITEMIZED, confidence: 'low' })?.confidence).toBe('low');
+  });
+});
+
+describe('totalsOf / capConfidence', () => {
+  it('totalsOf is null for an empty or partly priced breakdown', () => {
+    expect(totalsOf([])).toBeNull();
+    expect(totalsOf([named('x')])).toBeNull();
+    expect(totalsOf([{ ...named('x'), kcal: 5, proteinG: 1 }, named('y')])).toBeNull();
+    expect(totalsOf([{ ...named('x'), kcal: 5, proteinG: 1 }, { ...named('y'), kcal: 7, proteinG: 2 }])).toEqual({
+      calories: 12,
+      proteinG: 3,
+    });
+  });
+
+  it('capConfidence leaves a name-only breakdown to the model', () => {
+    expect(capConfidence([named('x'), named('y')], 'high')).toBe('high');
+    expect(capConfidence([], 'medium')).toBe('medium');
   });
 });
 
@@ -81,7 +165,7 @@ describe('createEdgeAiPort', () => {
     });
     expect(port.configured()).toBe(true);
     const res = await port.estimate({ text: 'אורז עם עוף', photo: { mimeType: 'image/jpeg', base64: 'aGk=' } });
-    expect(res).toEqual({ ok: true, estimate: { calories: 550, proteinG: 45, items: ['אורז', 'חזה עוף'], confidence: 'high' } });
+    expect(res).toEqual({ ok: true, estimate: { calories: 550, proteinG: 45, items: [named('אורז'), named('חזה עוף')], confidence: 'high' } });
     expect(bodies).toEqual([{ text: 'אורז עם עוף', photo: { mimeType: 'image/jpeg', base64: 'aGk=' } }]);
     // no photo -> no photo key at all (the function treats absence as text-only)
     await port.estimate({ text: 'סלט' });
