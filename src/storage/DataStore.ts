@@ -65,7 +65,7 @@ export interface Session {
  * ADDED, never renamed or reused, which is what makes an install left on any
  * older screen open on exactly that screen after the update.
  */
-export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL' | 'ST' | 'SS' | 'LG' | 'NT';
+export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL' | 'ST' | 'SS' | 'LG' | 'NT' | 'WT';
 
 export interface UiState {
   view: ViewKey;
@@ -529,11 +529,14 @@ export interface AppState {
    */
   planPresets: Record<string, UserPreset>;
   /**
-   * The 🍽️ meal tracker — meals, delete-tombstones and daily targets. Like
-   * `sessions` and `plan`, a CACHE of the log: folded from `meal_logged` /
-   * `meal_deleted` / `nutrition_targets_set` by `rebuildFromEvents` via the one
-   * shared fold in core/nutrition.ts. Deliberately NOT part of `GameState` —
-   * meals grant nothing, so the game's version and reducers never move for it.
+   * The 🍽️ meal tracker — meals, delete-tombstones and daily targets — and,
+   * beside it, the ⚖️ weight log (`weights` / `weightDeleted` / `weightTarget`,
+   * see core/weight.ts). Like `sessions` and `plan`, a CACHE of the log: folded
+   * from `meal_logged` / `meal_deleted` / `nutrition_targets_set` and
+   * `weight_logged` / `weight_deleted` / `weight_target_set` by
+   * `rebuildFromEvents` via the one shared fold in core/nutrition.ts.
+   * Deliberately NOT part of `GameState` — meals and weigh-ins grant nothing,
+   * so the game's version and reducers never move for it.
    */
   nutrition: NutritionState;
   meta: AppMeta;
@@ -602,7 +605,14 @@ export type EventType =
   // event, idempotent per meal ID; deletion is a tombstone; targets are LWW.
   | 'meal_logged'
   | 'meal_deleted'
-  | 'nutrition_targets_set';
+  | 'nutrition_targets_set'
+  // Phase 14 — the ⚖️ weight log, the nutrition hub's second inner tab. The
+  // same three laws as meals: one weigh-in per event, idempotent per entry ID;
+  // deletion is a tombstone; the goal weight is LWW. Folded into
+  // `state.nutrition` beside the meals (see core/weight.ts).
+  | 'weight_logged'
+  | 'weight_deleted'
+  | 'weight_target_set';
 
 export interface AppEvent {
   readonly id: string;
@@ -1276,12 +1286,55 @@ export interface MealRecord {
   ai?: MealAiInfo;
 }
 
+/* ---------------------------------------------- Phase 14 weight payloads */
+
+/**
+ * ONE weigh-in. `id` — a uuid minted at log time — is THE idempotency key,
+ * exactly as for a meal: the fold applies the FIRST `weight_logged` per id in
+ * the `(ts, id)` order and ignores every duplicate.
+ */
+export interface WeightLoggedPayload extends Record<string, unknown> {
+  id: string;
+  /** 'YYYY-MM-DD' — the day of the weigh-in. */
+  date: string;
+  /** 'HH:MM' for display and ordering within a day, or ''. */
+  time: string;
+  /** Kilograms, one decimal. */
+  kg: number;
+  /** A short free-text remark ("אחרי אימון"), or ''. */
+  note: string;
+}
+
+/** Deletion is a TOMBSTONE — the `meal_deleted` rule, verbatim. */
+export interface WeightDeletedPayload extends Record<string, unknown> {
+  id: string;
+}
+
+/** The goal weight, carried whole — LWW like the daily targets. `null` = none. */
+export interface WeightTargetPayload extends Record<string, unknown> {
+  kg: number | null;
+}
+
+/** The stored shape of one weigh-in (the payload minus its id, post-validation). */
+export interface WeightRecord {
+  date: string;
+  time: string;
+  kg: number;
+  note: string;
+}
+
 export interface NutritionState {
   /** By meal id; the fold keeps the FIRST write per id. */
   meals: Record<string, MealRecord>;
   /** Tombstones — union-monotone, never pruned. */
   deleted: Record<string, true>;
   targets: NutritionTargets;
+  /** ⚖️ weigh-ins by entry id; the fold keeps the FIRST write per id. */
+  weights: Record<string, WeightRecord>;
+  /** Weigh-in tombstones — union-monotone, never pruned. */
+  weightDeleted: Record<string, true>;
+  /** The goal weight in kg (LWW), or `null` when none was set. */
+  weightTarget: number | null;
 }
 
 /* ------------------------------------------------------------------ store */

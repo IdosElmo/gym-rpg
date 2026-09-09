@@ -123,15 +123,16 @@ export type BuiltInDayKey = 'A' | 'B' | 'C';
  * סטטיסטיקות, תזונה and the plan editor. They are reserved: a plan may not name
  * a day after one of them, or tapping the day would open the wrong screen.
  *
- * The list only ever GROWS. `NT` (🍽️ תזונה, the meal tracker and the first view
- * to bring a whole hub with it) is the newest entry — `LG` (🏆 הליגה) was the
- * one before it — and adding it takes nothing away: every key a build has ever
+ * The list only ever GROWS. `WT` (⚖️ משקל, the weight log — the nutrition
+ * hub's second inner tab) is the newest entry — `NT` (🍽️ תזונה, the meal
+ * tracker and the first view to bring a whole hub with it) was the one before
+ * it — and adding one takes nothing away: every key a build has ever
  * persisted is still exactly as valid as it was, and a plan that had already
  * minted a day called `NT` is impossible — `isDayKey` has refused reserved keys
  * since day one, and a key that arrives from another device is tolerated rather
  * than coerced (see below).
  */
-export const RESERVED_VIEW_KEYS: readonly string[] = ['CH', 'BT', 'H', 'PL', 'ST', 'SS', 'LG', 'NT'] as const;
+export const RESERVED_VIEW_KEYS: readonly string[] = ['CH', 'BT', 'H', 'PL', 'ST', 'SS', 'LG', 'NT', 'WT'] as const;
 
 /** Longest day key we accept — long enough for `d_` + a uuid slice. */
 export const MAX_DAY_KEY_LENGTH = 40;

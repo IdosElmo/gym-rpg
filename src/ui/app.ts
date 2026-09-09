@@ -72,6 +72,7 @@ import {
   type InnerTab,
 } from './nav.ts';
 import { renderNutrition } from './nutrition.ts';
+import { renderWeight, weightHeadline } from './weight.ts';
 import { renderPlanEditor, resetPlanDraft } from './planEditor.ts';
 import { renderSettings, type SettingsDeps } from './settings.ts';
 import { renderStats } from './stats.ts';
@@ -147,9 +148,11 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     if (isRememberableInner(v)) lastInner[hubOf(v)] = v;
   }
 
-  /** True for the eight screens that are not a workout day. */
+  /** True for the nine screens that are not a workout day. */
   function isScreen(v: ViewKey): boolean {
-    return v === 'CH' || v === 'BT' || v === 'H' || v === 'PL' || v === 'ST' || v === 'SS' || v === 'LG' || v === 'NT';
+    return (
+      v === 'CH' || v === 'BT' || v === 'H' || v === 'PL' || v === 'ST' || v === 'SS' || v === 'LG' || v === 'NT' || v === 'WT'
+    );
   }
 
   /**
@@ -321,6 +324,11 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       <p class="day-meta">היום: <b>${totals.calories}</b> קלוריות · <b>${totals.protein}</b> גרם חלבון</p>${energyPill()}`;
       return;
     }
+    if (view === 'WT') {
+      headerEl.innerHTML = `<h1 class="app-title">משקל <span class="en">Weight</span></h1>
+      <p class="day-meta">${esc(weightHeadline(state.nutrition))}</p>${energyPill()}`;
+      return;
+    }
     if (view === 'PL') {
       const custom = !isDefaultPlan(state.plan);
       headerEl.innerHTML = `<h1 class="app-title">עריכת תוכנית <span class="en">Plan</span></h1>
@@ -415,6 +423,13 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     renderNutrition(mainEl, { store, rerender: renderNutritionScreen, ...(hooks.nutrition ? { ai: hooks.nutrition.ai } : {}) });
   }
 
+  /** Repaint the ⚖️ screen in place after a weigh-in — header line included. */
+  function renderWeightScreen(): void {
+    if (store.getState().ui.view !== 'WT') return;
+    renderHeader();
+    renderWeight(mainEl, { store, rerender: renderWeightScreen });
+  }
+
   /** Re-render the editor in place (draft edits must not reset the scroll). */
   function renderPlanScreen(): void {
     if (store.getState().ui.view !== 'PL') return;
@@ -456,6 +471,8 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       renderStats(mainEl, { store });
     } else if (view === 'NT') {
       renderNutrition(mainEl, { store, rerender: renderNutritionScreen, ...(hooks.nutrition ? { ai: hooks.nutrition.ai } : {}) });
+    } else if (view === 'WT') {
+      renderWeight(mainEl, { store, rerender: renderWeightScreen });
     } else if (view === 'LG') {
       renderLeague(mainEl, { store, rerender: renderLeagueScreen, ...(hooks.league ? { cloud: hooks.league } : {}) });
     } else if (view === 'PL') {

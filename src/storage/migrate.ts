@@ -107,8 +107,13 @@ export const LEGACY_UI_KEY = 'hyp3_ui_v1';
  * second time: a v5 build could not create preset events locally, an empty cache
  * costs nothing, and presets that round-tripped through the cloud fold back into
  * it on the next rebuild — the log, not this blob, is the source of truth.
+ * v7 (the ⚖️ weight log): `nutrition` grew `weights` / `weightDeleted` /
+ * `weightTarget`. A pure addition inside an existing slot — a v6 blob has no
+ * weigh-ins, `normalizeNutrition` fills the three fields empty, and any
+ * `weight_*` events that round-tripped through the cloud fold back in on the
+ * next rebuild. The log, not this blob, is the source of truth.
  */
-export const CURRENT_STATE_VERSION = 6;
+export const CURRENT_STATE_VERSION = 7;
 /**
  * Bump when the shape of `EventLog` changes.
  * v2 (merge-safe core): events may carry an optional `device` stamp and the log
@@ -676,7 +681,11 @@ const STATE_MIGRATIONS: ReadonlyArray<(blob: Record<string, unknown>) => Record<
   // `normalizeUserPresets` anyway, so a blob that somehow carries one is
   // validated rather than trusted (same argument as nutrition above).
   (blob) => ({ ...blob, planPresets: normalizeUserPresets(blob['planPresets']), schemaVersion: 6 }),
-  // 6 -> 7: (future) add your step here and bump CURRENT_STATE_VERSION.
+  // 6 -> 7: the weight log. A v6 nutrition slot has no `weights`; routing it
+  // through `normalizeNutrition` adds the three empty fields, and a blob that
+  // somehow carries them is validated rather than trusted.
+  (blob) => ({ ...blob, nutrition: normalizeNutrition(blob['nutrition']), schemaVersion: 7 }),
+  // 7 -> 8: (future) add your step here and bump CURRENT_STATE_VERSION.
 ];
 
 function readVersion(blob: Record<string, unknown>): number {
@@ -1199,6 +1208,10 @@ export function rebuildFromEvents(events: readonly AppEvent[], now: number = Dat
       case 'meal_logged':
       case 'meal_deleted':
       case 'nutrition_targets_set':
+      // …and the ⚖️ weight log, which shares the slot and the fold.
+      case 'weight_logged':
+      case 'weight_deleted':
+      case 'weight_target_set':
         applyNutritionEvent(state.nutrition, ev.type, p);
         break;
       /**
