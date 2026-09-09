@@ -629,13 +629,14 @@ describe('the plan_updated fold', () => {
 
 /* ------------------------------------------------------------- persistence */
 
-describe('state schema v6', () => {
-  it('is at version 6 and carries a plan slot and an empty preset shelf', () => {
-    expect(CURRENT_STATE_VERSION).toBe(6);
+describe('state schema v7', () => {
+  it('is at version 7 and carries a plan slot and an empty preset shelf', () => {
+    // v7 added the ⚖️ weight log inside the nutrition slot (tests/weight.test.ts)
+    expect(CURRENT_STATE_VERSION).toBe(7);
     const store = new LocalStore(fakeStorage());
     expect(store.getState().plan).toBeNull();
     expect(store.getState().planPresets).toEqual({});
-    expect(store.getState().schemaVersion).toBe(6);
+    expect(store.getState().schemaVersion).toBe(7);
   });
 
   it('migrates an old v2 blob (no plan field) to the current version with plan: null', () => {

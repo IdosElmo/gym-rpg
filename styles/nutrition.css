@@ -78,3 +78,77 @@
 .nt-day:last-child{border-bottom:none}
 .nt-day.today{color:var(--text); font-weight:700}
 .nt-day-nums{flex:0 0 auto}
+
+/* ---------- ⚖️ משקל — the weight log (the hub's second inner tab) ---------- */
+
+/* The summary: one big number, four quiet deltas under it. Deltas are NOT
+   coloured by direction — down is a cut's goal and up a bulk's, and the
+   tracker does not presume which. */
+.wt-current{display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-top:2px}
+.wt-current b{font-size:34px; font-weight:900; letter-spacing:-.02em; line-height:1.1}
+.wt-unit{font-size:14px; color:var(--muted); font-weight:700}
+.wt-trend-val{font-size:12.5px; margin-inline-start:auto}
+.wt-stats{display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:12px}
+.wt-stat{
+  display:flex; flex-direction:column; align-items:center; gap:2px;
+  background:var(--card-2); border:1px solid var(--line); border-radius:11px; padding:8px 4px; min-width:0;
+}
+.wt-stat-val{font-size:15px; font-weight:800}
+.wt-stat-lab{font-size:10.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%}
+/* "+0.4" is one LTR run inside RTL text: the sign stays in front of the digits. */
+.wt-delta{display:inline-block; direction:ltr; unicode-bidi:isolate; font-variant-numeric:tabular-nums}
+.wt-goal-note{font-weight:700; color:var(--text)}
+/* Reaching the goal IS "good" — the one legitimate use of --ok here. */
+.wt-goal-note.ok{color:var(--ok)}
+
+/* The range picker above the chart: a segmented switch, one step quieter than
+   the nav's inner tabs (same pill, same tokens, smaller text). */
+.wt-range{display:flex; gap:6px; margin:0 0 8px}
+.wt-seg{
+  flex:1 1 0; min-width:0; min-height:44px;
+  border:1px solid var(--line); background:var(--card-2); color:var(--muted);
+  border-radius:99px; padding:6px 8px; font-size:12.5px; font-weight:700; transition:.15s;
+}
+.wt-seg.active{background:var(--card); border-color:var(--accent); color:var(--accent)}
+
+/* The chart. One hue for the data (`--accent`); the goal line is `--ok`, which
+   already means "good" everywhere else; the trend is the same hue, dashed and
+   quieter. Gridline labels are digits — the one SVG text bidi cannot mangle. */
+.wt-chart{margin-top:2px}
+.wt-grid{stroke:var(--line); stroke-width:1}
+.wt-ylab{fill:var(--dim); font-size:9px; font-family:inherit; font-variant-numeric:tabular-nums}
+.wt-area{fill:var(--accent); fill-opacity:.12; animation:sparkIn .5s ease both}
+.wt-line{fill:none; stroke:var(--accent); stroke-width:2; stroke-linejoin:round; stroke-linecap:round}
+.wt-trend{fill:none; stroke:var(--accent); stroke-opacity:.55; stroke-width:1.5; stroke-dasharray:4 3; stroke-linejoin:round}
+.wt-goal{stroke:var(--ok); stroke-width:1.5; stroke-dasharray:5 4}
+.wt-pt{fill:var(--accent)}
+/* The newest entry's marker: ringed in the card colour so it stays legible. */
+.wt-dot{fill:var(--accent); stroke:var(--card); stroke-width:2}
+/* Invisible per-entry targets that carry the <title> tooltip. */
+.wt-hit{fill:transparent}
+.chart-legend .dot.trend{background:none; border:1.5px dashed var(--accent); box-sizing:border-box}
+.chart-legend .dot.goal{background:var(--ok)}
+@media (prefers-reduced-motion: reduce){ .wt-area{animation:none} }
+
+/* The add form and the goal card reuse the meal form's field rules. */
+.wt-add .nt-field, .wt-target .nt-field{display:block; font-size:12.5px; color:var(--muted); margin-top:10px}
+.wt-add .action-btn, .wt-target .action-btn{width:100%; margin-top:12px; min-height:46px}
+.wt-note-inp{text-align:start; font-weight:500}
+
+/* The entry list — newest first, the delta against the entry before it. */
+.wt-list{list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:8px}
+.wt-row{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  background:var(--card-2); border:1px solid var(--line); border-radius:11px; padding:9px 12px;
+}
+.wt-row-main{display:flex; flex-direction:column; gap:2px; min-width:0}
+.wt-row-date{font-size:13.5px; font-weight:600}
+.wt-row-note{font-size:11.5px; overflow-wrap:anywhere}
+.wt-row-nums{display:flex; align-items:center; gap:10px; flex:0 0 auto; font-size:12.5px; color:var(--muted)}
+.wt-row-kg{font-size:15px; font-weight:800; color:var(--text); font-variant-numeric:tabular-nums}
+.wt-row-d{min-width:38px; text-align:center}
+
+@media (max-width:360px){ .wt-stats{grid-template-columns:repeat(2,1fr)} }
+/* A native date field needs more room than a number: "09/09/2026" clips in an
+   equal third of the row, so the date column takes a little from its neighbours. */
+.wt-add .nt-field-row .nt-field:nth-child(2){flex:1.5 1 0}

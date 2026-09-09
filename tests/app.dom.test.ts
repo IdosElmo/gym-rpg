@@ -465,7 +465,7 @@ describe('the four-hub navigation', () => {
 
   it('always shows exactly four main tabs, whatever screen is open', () => {
     const { store, render } = mount();
-    for (const view of ['A', 'B', 'C', 'CH', 'BT', 'H', 'ST', 'PL', 'NT']) {
+    for (const view of ['A', 'B', 'C', 'CH', 'BT', 'H', 'ST', 'PL', 'NT', 'WT']) {
       store.update((d) => {
         d.ui.view = view;
       });
@@ -485,6 +485,7 @@ describe('the four-hub navigation', () => {
     expect(hubOf('CH')).toBe('GM');
     expect(hubOf('LG')).toBe('GM');
     expect(hubOf('NT')).toBe('NU');
+    expect(hubOf('WT')).toBe('NU');
     expect(hubOf('ST')).toBe('SE');
     expect(hubOf('H')).toBe('SE');
     expect(hubOf('SS')).toBe('SE');
@@ -508,6 +509,7 @@ describe('the four-hub navigation', () => {
     expect(of('CH')).toBe('GM');
     expect(of('LG')).toBe('GM');
     expect(of('NT')).toBe('NU');
+    expect(of('WT')).toBe('NU');
     expect(of('ST')).toBe('SE');
     expect(of('H')).toBe('SE');
     expect(of('SS')).toBe('SE');
@@ -524,8 +526,9 @@ describe('the four-hub navigation', () => {
     expect(innerTabs()[2]?.textContent).toContain('ליגה');
 
     clickHub('NU');
-    expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['NT']);
+    expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['NT', 'WT']);
     expect(innerTabs()[0]?.textContent).toContain('תזונה');
+    expect(innerTabs()[1]?.textContent).toContain('משקל');
 
     clickHub('SE');
     expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['ST', 'H', 'SS']);

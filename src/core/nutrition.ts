@@ -24,6 +24,9 @@
  *                            wins — byte-for-byte the `plan_updated` rule.
  *   data_cleared          -> resets nutrition to empty (handled by the caller's
  *                            switch, like `sessions`/`plan`).
+ *   weight_*              -> the ⚖️ weight log shares this slot and this fold;
+ *                            its three laws are the three above, verbatim
+ *                            (see core/weight.ts, which the fold delegates to).
  */
 
 import type {
@@ -37,6 +40,7 @@ import type {
   NutritionState,
   NutritionTargets,
 } from '../storage/DataStore.ts';
+import { applyWeightEvent, normalizeWeights } from './weight.ts';
 
 /* -------------------------------------------------------------- constants */
 
@@ -55,7 +59,14 @@ const MEAL_SOURCES: readonly MealSource[] = ['manual', 'gemini_text', 'gemini_ph
 const CONFIDENCES = ['low', 'medium', 'high'] as const;
 
 export function emptyNutrition(): NutritionState {
-  return { meals: {}, deleted: {}, targets: { calories: null, protein: null } };
+  return {
+    meals: {},
+    deleted: {},
+    targets: { calories: null, protein: null },
+    weights: {},
+    weightDeleted: {},
+    weightTarget: null,
+  };
 }
 
 /* ---------------------------------------------------------------- readers */
@@ -142,6 +153,7 @@ export function normalizeNutrition(raw: unknown): NutritionState {
     }
   }
   n.targets = normalizeTargets(raw['targets']);
+  normalizeWeights(raw, n);
   return n;
 }
 
@@ -172,6 +184,11 @@ export function applyNutritionEvent(
     }
     case 'nutrition_targets_set':
       n.targets = normalizeTargets(payload);
+      break;
+    case 'weight_logged':
+    case 'weight_deleted':
+    case 'weight_target_set':
+      applyWeightEvent(n, type, payload);
       break;
     default:
       break;
