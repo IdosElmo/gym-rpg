@@ -643,9 +643,11 @@ function cableSvg(from: Vec, to: Vec): string {
 export type Hold =
   | { readonly k: 'none' }
   /** One dumbbell per hand. `axis` is the bar's direction: across the forearm
-   *  (a normal grip, seen from the side) or along it (a neutral/hammer grip
-   *  seen from the front). */
-  | { readonly k: 'db'; readonly axis?: 'cross' | 'along' }
+   *  (a normal grip, seen from the side), along it (a neutral/hammer grip
+   *  seen from the front), or along the SPINE — a neutral grip seen from off
+   *  the sagittal plane while lying down (the hex press at three quarters),
+   *  where the handles run head-to-toe whatever the forearms are doing. */
+  | { readonly k: 'db'; readonly axis?: 'cross' | 'along' | 'spine' }
   /** One dumbbell, near hand only (the one-arm row). */
   | { readonly k: 'dbNear' }
   /** One weight in BOTH hands — held at the midpoint of the two grips. */
@@ -758,11 +760,14 @@ export function holdSvg(hold: Hold, j: Joints): string {
     case 'none':
       return '';
     case 'db': {
-      const along = hold.axis === 'along';
-      return (
-        dumbbellSvg(j.far.grip, forearmAngle(j.far) + (along ? 0 : 90), 4.6) +
-        dumbbellSvg(j.near.grip, forearmAngle(j.near) + (along ? 0 : 90))
-      );
+      const axis = hold.axis ?? 'cross';
+      // the handle's direction per hand: turned with that forearm (across it
+      // or along it), or fixed along the spine — two bells squeezed together
+      // over a lying chest keep their handles parallel to the bench through
+      // the whole press, which is what says they are a PAIR and not one bell
+      const handle = (s: SideJoints): number =>
+        axis === 'spine' ? angleOf(j.pelvis, j.shoulders) : forearmAngle(s) + (axis === 'along' ? 0 : 90);
+      return dumbbellSvg(j.far.grip, handle(j.far), 4.6) + dumbbellSvg(j.near.grip, handle(j.near));
     }
     case 'dbNear':
       return dumbbellSvg(j.near.grip, forearmAngle(j.near) + 90);

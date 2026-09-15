@@ -109,15 +109,19 @@
   display:grid; place-items:center; pointer-events:none;
 }
 
-/* ---------- Cardio: a stage ladder ----------
+/* ---------- Cardio: a stage ladder · a hold: its own clock ----------
    A cardio card is the same log table with the columns renamed (שלב · שיפוע ·
    דקות) plus ONE button: the timer for the stage that has not been ✓'d yet.
    ✓ itself starts the NEXT stage's timer, so the button is mostly for stage 1
-   and for a timer that was closed by hand. */
-.stage-start{
+   and for a timer that was closed by hand.
+   A HOLD (a plank, a dead hang — anything logged in seconds) gets the same
+   button in the same place: ▶ counts the next un-✓'d set down for as many
+   seconds as its row shows, so a plank needs no stopwatch app. Both are a
+   full-width ≥44px target, and both leave with the card's done-all state. */
+.stage-start,.hold-start{
   display:block; width:100%; margin-top:8px; min-height:44px; border-radius:12px;
   border:1px solid #3B82F640; background:#3B82F614; color:#93C5FD;
   font-size:14px; font-weight:800;
 }
-.stage-start[hidden]{display:none}
-.ex-card.done-all .stage-start{display:none}
+.stage-start[hidden],.hold-start[hidden]{display:none}
+.ex-card.done-all .stage-start,.ex-card.done-all .hold-start{display:none}

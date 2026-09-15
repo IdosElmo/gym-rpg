@@ -164,7 +164,7 @@ const eachFrame = (d: DemoVariant, fn: (j: Joints, pose: Pose, i: number) => voi
 describe('coverage', () => {
   it('demonstrates every built-in exercise, exactly once, and nothing else', () => {
     const builtIn = builtInExercises().map((e) => e.id);
-    expect(builtIn).toHaveLength(52);
+    expect(builtIn).toHaveLength(53);
     expect(EXERCISE_DEMOS.map((d) => d.id).sort()).toEqual([...builtIn].sort());
     expect(new Set(EXERCISE_DEMOS.map((d) => d.id)).size).toBe(EXERCISE_DEMOS.length);
     for (const d of EXERCISE_DEMOS) expect(findExercise(d.id)).not.toBeNull();
@@ -191,7 +191,7 @@ describe('coverage', () => {
       if (d.variants.length === 1) expect(d.variants[0]?.caption, d.id).toBeUndefined();
       else for (const v of d.variants) expect(v.caption, d.id).toBeTruthy();
     }
-    expect(ALL).toHaveLength(58);
+    expect(ALL).toHaveLength(59);
     // two variants of one exercise are two DIFFERENT pictures, never a copy
     for (const d of EXERCISE_DEMOS) {
       if (d.variants.length < 2) continue;
@@ -336,7 +336,7 @@ function limbPoints(j: Joints): Vec[] {
 /* ------------------------------------------------------------------ families */
 
 describe('presses — hands at the chest at the bottom, extended at the top', () => {
-  for (const id of ['a1', 'b1', 'c1', 'c3', 'x12']) {
+  for (const id of ['a1', 'b1', 'c1', 'c3', 'x12', 'x35']) {
     it(id, () => {
       const last = endOf(id);
       const bottom = at(id, 0);
@@ -868,6 +868,75 @@ describe('the 4-day plan library additions', () => {
       // a fist's reach off the sternum, never pressed out or dropped
       expect(dist(plate, chest(j)), `frame ${i}`).toBeLessThan(12);
       expect(plate.x, `frame ${i}`).toBeGreaterThan(chest(j).x); // in FRONT of it
+    }
+  });
+
+  it('x35 is a HEX PRESS: two bells squeezed together, pressed straight up, elbows tucked', () => {
+    const d = demo('x35');
+    // the flye's reason and the flye's camera: from the side the two hands
+    // stack and the pair reads as x12 with a narrow grip; at three quarters
+    // there are two hands on the depth diagonal and two bells beside each other
+    expect(d.view).toBe('threeQuarter');
+    expect(d.hold).toEqual({ k: 'db', axis: 'spine' });
+    expect(d.frames).toHaveLength(3); // the middle one keeps a free press on its line
+    expect(d.props()).toContain('cd-slab');
+    expect(d.props()).not.toContain('cd-rail');
+    // the body is a4's: same bench, same diagonal, same frozen legs
+    for (let i = 0; i <= endOf('x35'); i++) {
+      const p = frameOf('x35', i);
+      const a4 = frameOf('a4', 0);
+      expect([p.x, p.y, p.torso, p.roll]).toEqual([a4.x, a4.y, a4.torso, a4.roll]);
+      expect(p.leg).toEqual(a4.leg);
+      expect(p.legF).toEqual(a4.legF);
+    }
+    const bottom = at('x35', 0);
+    const top = at('x35', endOf('x35'));
+    const lineX = bottom.near.grip.x;
+    for (let i = 0; i <= 40; i++) {
+      const j = tween(d, i / 40);
+      // WELDED: the two bells stay a fist apart the whole way — never
+      // separating on the way up (the mistake) and never swapping depth order:
+      // the near one is always the lower one in this projection
+      expect(dist(j.near.grip, j.far.grip), `gap at ${i}`).toBeGreaterThan(5);
+      expect(dist(j.near.grip, j.far.grip), `gap at ${i}`).toBeLessThan(7);
+      expect(j.near.grip.y - j.far.grip.y, `depth order at ${i}`).toBeGreaterThan(1.5);
+      // STRAIGHT UP: both hands on one vertical line over the chest, between
+      // the keyframes too
+      expect(Math.abs(j.near.grip.x - lineX), `near bow at ${i}`).toBeLessThan(2.5);
+      expect(Math.abs(j.far.grip.x - lineX), `far bow at ${i}`).toBeLessThan(2.5);
+      // nothing crosses the skull, front layer or back
+      for (const side of [j.near, j.far]) {
+        const bones: Array<[Vec, Vec]> = [
+          [side.shoulder, side.elbow],
+          [side.elbow, side.wrist],
+          [side.wrist, side.grip],
+        ];
+        for (const [a, b] of bones) expect(segDist(j.head, a, b), `head clearance ${i}`).toBeGreaterThan(8);
+      }
+    }
+    // over the CHEST, not the face or the belly
+    const chestPt = chest(bottom);
+    expect(Math.abs(lineX - chestPt.x)).toBeLessThan(3);
+    expect(bottom.near.grip.y).toBeLessThan(chestPt.y);
+    expect(top.near.grip.y).toBeLessThan(bottom.near.grip.y - 15);
+    // ELBOWS TUCKED — the cue, and what makes it not a flye: at the bottom the
+    // near elbow is down the bench on the foot side of its shoulder, beside the
+    // ribs, and the far elbow is up its own side of the body, away from the
+    // camera; neither swings out wide the way a4's do
+    expect(bottom.near.elbow.x).toBeLessThan(bottom.near.shoulder.x - 8);
+    expect(bottom.near.elbow.y).toBeGreaterThan(bottom.near.shoulder.y);
+    expect(bottom.far.elbow.y).toBeLessThan(bottom.far.shoulder.y - 6);
+    for (let i = 0; i <= endOf('x35'); i++) {
+      const j = at('x35', i);
+      expect(dist(j.near.elbow, j.shoulders), `near elbow in ${i}`).toBeLessThan(dist(at('a4', 0).near.elbow, at('a4', 0).shoulders));
+    }
+    // …and the two elbows bow OPPOSITE ways about their own chords, which is
+    // what a mirrored pair looks like from this camera (see the flye chapter)
+    for (let i = 0; i <= endOf('x35'); i++) {
+      const j = at('x35', i);
+      const cross = (s: SideJoints): number =>
+        (s.grip.x - s.shoulder.x) * (s.elbow.y - s.shoulder.y) - (s.grip.y - s.shoulder.y) * (s.elbow.x - s.shoulder.x);
+      expect(Math.sign(cross(j.near)) * Math.sign(cross(j.far)), `bow ${i}`).toBe(-1);
     }
   });
 
@@ -1564,8 +1633,10 @@ describe('a turned pose has two arms, and they agree with each other', () => {
 
   const turned = ALL.filter((e) => e.v.view === 'threeQuarter');
 
-  it('has exactly the two demos the turned view exists for', () => {
-    expect(turned.map((e) => e.tag)).toEqual(['a4', 'x7']);
+  it('has exactly the three demos the turned view exists for', () => {
+    // the flye, the face pull, and the hex press — the third for the flye's
+    // reason: two bells squeezed together are one bell from the side
+    expect(turned.map((e) => e.tag)).toEqual(['a4', 'x7', 'x35']);
   });
 
   for (const { tag, v: d } of turned) {
@@ -1623,9 +1694,10 @@ describe('the views are chosen per movement, not by habit', () => {
     // square-on either: a flye seen from straight above is a plank with a head,
     // and a face pull seen from the front has to hang its cable from the ceiling
     // and works straight at the lens. They are the turned view's whole reason
-    // for existing.
+    // for existing; x35, the hex press, joins them because its whole point —
+    // two bells pressed against each other — is one bell from the side.
     const quarter = ALL.filter((e) => e.v.view === 'threeQuarter').map((e) => e.tag).sort();
-    expect(quarter).toEqual(['a4', 'x7']);
+    expect(quarter).toEqual(['a4', 'x35', 'x7']);
     // …and every one of them is a movement whose plane is frontal
     for (const id of front) expect(findExercise(id)).not.toBeNull();
   });
