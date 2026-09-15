@@ -4,7 +4,7 @@
  * A demo is DATA, not media: a view (which plane the camera is on), two to
  * three keyframes of joint angles for `ui/coachFigure.ts`, the props the lift
  * happens on, what the hands are holding, and a rep tempo. Roughly 13 kB of
- * numbers for all 52 exercises — the whole feature ships without a single byte
+ * numbers for all 53 exercises — the whole feature ships without a single byte
  * of image, video or font, which is what keeps the single-file build honest.
  *
  * AN EXERCISE CAN HAVE TWO IMPLEMENTATIONS, AND THEN IT SHOWS BOTH. Half the
@@ -1369,6 +1369,51 @@ const X34: ExerciseDemo = one('x34', {
   hold: { k: 'none' },
 });
 
+/**
+ * x35 · HEX PRESS, AT THREE QUARTERS — for the same reason the flye is. The
+ * whole exercise is that the two bells are SQUEEZED TOGETHER: from the side the
+ * two hands stack into one and the picture is x12 with a narrower grip, which
+ * teaches nothing; the turned view shows two hands on the depth diagonal, and
+ * two dumbbells side by side with their plates touching.
+ *
+ * The body is a4's — the same bench on the same diagonal, the same frozen legs
+ * — and only the arms were solved: by inverse kinematics from the two grips,
+ * which sit on ONE vertical line (x = 84.5, over the chest) six units apart the
+ * whole way, the near one lower, as a pair of bells a fist apart lands in this
+ * projection. Three keyframes because two lerp'd arms bow a free press off its
+ * line; with the middle one solved on the same line the bow is under 1.2 units
+ * and the bells never drift more than half a unit apart.
+ *
+ * THE ELBOWS ARE TUCKED, which is the coaching cue and the difference from a
+ * flye or a normal press: the near elbow's branch of the IK is the one on the
+ * FOOT side of its shoulder→hand chord (down the bench, beside the ribs — at
+ * the bottom it sits on the bench's near edge), and the far elbow's is the one
+ * away from the camera, up its own side of the body. Both are authored
+ * explicitly for the same reason a4's far arm is: the rig's mirror reflects
+ * about the picture's vertical axis, which is the wrong axis for a lifter lying
+ * along a diagonal.
+ *
+ * The handles are drawn along the SPINE (`axis: 'spine'`): a neutral grip's
+ * bars run head-to-toe whatever the forearms do, and turned with the forearms
+ * the bottom position read as a jumble of iron rather than a pair.
+ */
+const HEX_BASE = A4_BASE;
+
+const X35: ExerciseDemo = one('x35', {
+  view: 'threeQuarter',
+  loopMs: 2600,
+  forwardShare: 0.42,
+  frames: [
+    { ...HEX_BASE, arm: [159.9, -69.4], armF: [253.9, 45.1] },
+    { ...HEX_BASE, arm: [197, -68.5], armF: [232.4, -4.8] },
+    { ...HEX_BASE, arm: [237.4, -89.9], armF: [248, -37.7] },
+  ],
+  props: () =>
+    benchDiagProp({ a: { x: 108, y: 63.5 }, b: { x: 48, y: 79 }, dep: { x: 0, y: 9.5 } }) +
+    floorProp(28, 132),
+  hold: { k: 'db', axis: 'spine' },
+});
+
 /** Every demonstration, in program order. */
 export const EXERCISE_DEMOS: readonly ExerciseDemo[] = [
   A1, A2, A3, A4, A5, A6,
@@ -1377,7 +1422,7 @@ export const EXERCISE_DEMOS: readonly ExerciseDemo[] = [
   X1, X2, X3, X4, X5, X6, X7, X8, X9, X10,
   X11, X12, X13, X14, X15, X16, X17, X18, X19, X20, X21,
   X22, X23, X24, X25, X26, X27, X28, X29,
-  X30, X31, X32, X33, X34,
+  X30, X31, X32, X33, X34, X35,
 ];
 
 const BY_ID: ReadonlyMap<string, ExerciseDemo> = new Map(EXERCISE_DEMOS.map((d) => [d.id, d]));

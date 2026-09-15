@@ -34,6 +34,16 @@
  * the rest timer into a stage timer: ✓ on stage N starts the countdown of stage
  * N+1 with its new incline in the label, and a ▶ button starts the first one.
  * Nothing below the DOM knows the difference.
+ *
+ * A HOLD — a plank, a dead hang, anything logged in SECONDS
+ * ---------------------------------------------------------
+ * The card of an exercise whose unit is seconds gets ONE more button under its
+ * rows: ▶ starts the floating timer for the next set that is not ✓'d yet, so
+ * nobody has to reach for a stopwatch app mid-plank. The seconds it counts are
+ * what the row visibly says — last time's number, or what was typed — falling
+ * back to the scheme's own target ("45–60 שנ׳" → 45); ✓ afterwards starts the
+ * ordinary rest, exactly as before. Nothing is logged by the timer itself: the
+ * set is done when the ✓ says so, and the number logged is the row's.
  */
 
 import {
@@ -54,6 +64,7 @@ import {
   prevPerf,
   todayISO,
 } from '../core/workout.ts';
+import { isTimed } from '../core/stats.ts';
 import { planDay, resolveProgram, supersetPairs, type SupersetPair } from '../core/plan.ts';
 import { closeDueWeeks, onSetCompleted, onWorkoutFinished, type GrantResult } from '../core/game.ts';
 import type { AppState, DataStore } from '../storage/DataStore.ts';
@@ -130,8 +141,12 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
   const card = (ex: Exercise, idx: number, partner: Exercise | null): string => {
     const prev = prevPerf(state, ex.id, today);
     const rows: string[] = [];
+    /** What each row visibly shows in its second column — the hold timer reads it. */
+    const shownR: string[] = [];
     let done = 0;
     const cardio = ex.cardio ?? null;
+    // a hold: logged in seconds, and not a cardio ladder (which has its own clock)
+    const hold = !cardio && isTimed(ex);
     // the load column: kilograms for a lift, the stage's own unit for cardio
     const loadUnit = cardio ? cardio.loadUnit : 'ק"ג';
     for (let i = 0; i < ex.sets; i++) {
@@ -164,6 +179,7 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
       const hint = ps ?? (cardio ? { w: fmtNum(stageLoad(ex, i)), r: fmtNum(stageMinutes(ex)) } : null);
       const fillW = untouched && hint ? hint.w : d.w;
       const fillR = untouched && hint ? hint.r : d.r;
+      shownR.push(fillR);
       rows.push(`
     <div class="log-row ${d.done ? 'checked' : ''}">
       <div class="set-num">${i + 1}</div>
@@ -224,6 +240,14 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
             ? `<div class="rest-hint">⏱ כל שלב ${fmtClock(ex.rest)} דק׳ · סימון ✓ בסוף שלב מפעיל את הטיימר של השלב הבא</div>
       <button class="stage-start" data-stage="${esc(ex.id)}" ${done >= ex.sets ? 'hidden' : ''}>${stageButtonText(ex, done)}</button>`
             : `<div class="rest-hint">⏱ מנוחה מומלצת: ${ex.rest} שניות (מתחיל אוטומטית בסימון סט)</div>`
+      }
+      ${
+        // A hold gets its own clock: the button times the next set not yet
+        // ✓'d, for as many seconds as that row shows. It stays inside a
+        // superset too — the pair shares the REST, not the plank.
+        hold
+          ? `<button class="hold-start" data-hold="${esc(ex.id)}" ${done >= ex.sets ? 'hidden' : ''}>${holdButtonText(ex, done, shownR[Math.min(done, ex.sets - 1)] ?? '')}</button>`
+          : ''
       }
     </div>
   </section>`;
@@ -329,6 +353,53 @@ function syncStageButton(main: HTMLElement, ex: Exercise, done: number): void {
   btn.textContent = stageButtonText(ex, done);
 }
 
+/**
+ * What a hold timer would count for one set when nothing else says: a scheme
+ * with no number in it at all (a custom "עד כישלון") gets a round half minute
+ * that +15/−15 on the bar can move either way.
+ */
+export const DEFAULT_HOLD_SECONDS = 30;
+
+/**
+ * The seconds a hold timer counts for a set: what the row visibly shows —
+ * last time's number, or what was typed — else the scheme's own target, the
+ * FIRST number of "45–60 שנ׳" (the floor of the range is the goal to hold to),
+ * else the default.
+ */
+export function holdSeconds(ex: Exercise, shown: string): number {
+  const own = Number(shown);
+  if (shown.trim() !== '' && Number.isFinite(own) && own > 0) return Math.round(own);
+  const m = /\d+(?:\.\d+)?/.exec(ex.reps);
+  const target = m ? Number(m[0]) : NaN;
+  return Number.isFinite(target) && target > 0 ? Math.round(target) : DEFAULT_HOLD_SECONDS;
+}
+
+/** The hold button's caption: the set it would time, and for how long. */
+function holdButtonText(ex: Exercise, done: number, shown: string): string {
+  const n = Math.min(done, ex.sets - 1) + 1;
+  return `▶ טיימר החזקה לסט ${n} מתוך ${ex.sets} · ${fmtClock(holdSeconds(ex, shown))}`;
+}
+
+/**
+ * Start the clock of set `n` (0-based) of a hold: the row's seconds on the
+ * clock, the set on the label, and — when it chimes — "mark the ✓" rather
+ * than "back to the bar": the rest is the ✓'s job, not this timer's.
+ */
+function startHold(timer: RestTimer, ex: Exercise, n: number, shown: string): void {
+  timer.start(holdSeconds(ex, shown), `⏱ ${ex.he} · סט ${n + 1}/${ex.sets}`, {
+    sub: 'טיימר החזקה',
+    doneLabel: `סט ${n + 1} הסתיים — סמנו ✓ 💪`,
+  });
+}
+
+/** Keep the ▶ hold button in step with the sets ✓'d and the seconds their rows show. */
+function syncHoldButton(main: HTMLElement, ex: Exercise, done: number, shown: string): void {
+  const btn = main.querySelector<HTMLButtonElement>(`.hold-start[data-hold="${cssId(ex.id)}"]`);
+  if (!btn) return;
+  btn.hidden = done >= ex.sets;
+  btn.textContent = holdButtonText(ex, done, shown);
+}
+
 function findEx(program: ResolvedProgram, view: DayKey, exId: string): Exercise | undefined {
   return dayOf(program, view)?.exercises.find((e) => e.id === exId);
 }
@@ -384,6 +455,13 @@ function bind(
         r = d.r;
       });
       store.append('set_logged', { date: today, day: view, exId, setIndex: i, w, r });
+      // a hold's button quotes the seconds of the set it would time, so a
+      // number typed into THAT row changes the caption at once
+      const ex = findEx(program, view, exId);
+      if (ex && field === 'r' && isTimed(ex) && !isCardio(ex)) {
+        const done = doneCount(store.getState(), ex.id, today);
+        if (Math.min(done, ex.sets - 1) === i) syncHoldButton(main, ex, done, inp.value);
+      }
       refreshHeader();
     });
   });
@@ -391,6 +469,18 @@ function bind(
   /** The input of one (exercise, set, field) cell — where the prefill lives. */
   const inputOf = (exId: string, i: number, f: 'w' | 'r'): HTMLInputElement | null =>
     main.querySelector<HTMLInputElement>(`.inp[data-ex="${cssId(exId)}"][data-set="${i}"][data-f="${f}"]`);
+
+  // ▶ on a hold's card: time the first set not yet ✓'d, for the seconds its
+  // row shows (prefilled or typed).
+  main.querySelectorAll<HTMLButtonElement>('.hold-start').forEach((b) => {
+    b.addEventListener('click', () => {
+      const exId = b.dataset['hold'];
+      const ex = exId ? findEx(program, view, exId) : undefined;
+      if (!ex || isCardio(ex) || !isTimed(ex)) return;
+      const n = Math.min(doneCount(store.getState(), ex.id, today), ex.sets - 1);
+      startHold(timer, ex, n, inputOf(ex.id, n, 'r')?.value ?? '');
+    });
+  });
 
   // ▶ on a cardio card: time the first stage not yet ✓'d, with the load its
   // row shows (prefilled or typed) on the label.
@@ -483,6 +573,11 @@ function bind(
         if (a && b) document.getElementById('ss-' + a.id)?.classList.toggle('done-all', bothDone(state, a, b, today));
       }
       if (isCardio(ex)) syncStageButton(main, ex, doneCount(state, ex.id, today));
+      for (const l of logged) {
+        if (isCardio(l.ex) || !isTimed(l.ex)) continue;
+        const n = doneCount(state, l.ex.id, today);
+        syncHoldButton(main, l.ex, n, inputOf(l.ex.id, Math.min(n, l.ex.sets - 1), 'r')?.value ?? '');
+      }
 
       if (nowDone) {
         // ONE timer for the pair: the whole point of a superset is that the
