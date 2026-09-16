@@ -48,7 +48,7 @@ import type { AppEvent } from '../src/storage/DataStore.ts';
 
 /* ------------------------------------------------------------------ helpers */
 
-function statsAt(level: number, gear: readonly [0 | 1 | 2 | 3, 0 | 1 | 2 | 3] = [0, 0]): CombatStats {
+function statsAt(level: number, gear: readonly [0 | 1 | 2 | 3 | 4 | 5 | 6, 0 | 1 | 2 | 3] = [0, 0]): CombatStats {
   const parts = emptyGame().parts;
   for (const p of BODY_PARTS) parts[p].level = level;
   const [tier, upgrade] = gear;
@@ -601,8 +601,9 @@ describe('the nine-world journey, in real workouts', () => {
   // in `tests/pacing.test.ts`, on both shipped plans.
 
   it('keeps the world purse growing without turning into a faucet', () => {
-    // A world's whole take, against the ≈47,250 🪙 the SIX-slot wardrobe costs
-    // at three tiers plus +3 on everything (pinned in `tests/shop.test.ts`).
+    // A world's whole take, against the 53,310 🪙 the LAUNCH wardrobe costs
+    // (seven slots, tiers 1–3, +3 on everything — pinned in `tests/shop.test.ts`;
+    // the late ladder, tiers 4–6, is sized against the whole campaign there).
     const take = (world: number): number => {
       let sum = 0;
       for (let wave = 1; wave <= wavesInWorld(world); wave += 1) sum += waveSpec(world, wave).coins;
@@ -614,9 +615,9 @@ describe('the nine-world journey, in real workouts', () => {
     }
     // world 1 alone must not buy the shop…
     expect(purses[0] as number).toBeLessThan(4000);
-    // …and nine worlds together must not pay a hundred wardrobes: the campaign
-    // buys the fully upgraded shop between three and six times over.
-    // (against the SEVEN-slot wardrobe's lifetime cost, pinned in tests/shop.test.ts)
+    // …and eleven worlds together must not pay a hundred wardrobes: the
+    // campaign buys the fully upgraded LAUNCH ladder between three and six
+    // times over (its lifetime cost is pinned in tests/shop.test.ts).
     const income = purses.reduce((a, b) => a + b, 0);
     expect(income).toBeLessThan(53_310 * 6);
     expect(income).toBeGreaterThan(53_310 * 3.5);

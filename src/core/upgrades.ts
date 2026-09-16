@@ -1,7 +1,7 @@
 /**
  * core/upgrades.ts — the equipment UPGRADE economy.
  *
- * The shop sells three TIERS per slot as separate items; an upgrade is the other
+ * The shop sells six TIERS per slot as separate items; an upgrade is the other
  * axis: +1/+2/+3 bought with coins on an item you already own, multiplying that
  * item's own bonus and adding flair to the drawing.
  *
@@ -11,15 +11,16 @@
  *   cost to REACH +N  = `item.cost × costCurve[N]`   (60% / 120% / 200%)
  *   bonus at +N       = `item.bonus × statCurve[N]`  (×1.25 / ×1.5 / ×1.8)
  *
- * One rule prices and powers all eighteen items, so adding a nineteenth needs
+ * One rule prices and powers all forty-two items, so adding a forty-third needs
  * no new numbers — and retuning the economy is one edit in `balance.ts`.
  *
  * WHY A RELATIVE CURVE. It keeps the two ways to spend a purse comparable per
  * coin (a tier jump is ≈2.5–3× the bonus for ≈4× the price; a full +3 is 1.8×
  * the bonus for 2× the price) while making them feel different: the tier ladder
  * is a big saved-up jump, the upgrade ladder is small affordable steps on gear
- * you already like. It also makes a +3 on a tier‑3 item an endgame coin sink
- * without a single bespoke number.
+ * you already like. It also makes a +3 on a tier‑6 item an endgame coin sink
+ * without a single bespoke number (on the late ladder, tiers 4–6, the next tier
+ * costs no more than the +3 below it — see `EQUIPMENT` in `data/gameContent.ts`).
  *
  * The LEVEL itself is not stored here — it lives in `GameState.equipment.upgrades`
  * and is folded from `item_upgraded` events like everything else.

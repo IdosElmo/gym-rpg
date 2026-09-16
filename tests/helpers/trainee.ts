@@ -178,13 +178,20 @@ export function shiftLevels(levels: PartLevels, delta: number): PartLevels {
   return out;
 }
 
-export type Gear = readonly [tier: 0 | 1 | 2 | 3, upgrade: 0 | 1 | 2 | 3];
+export type Gear = readonly [tier: 0 | 1 | 2 | 3 | 4 | 5 | 6, upgrade: 0 | 1 | 2 | 3];
 
 /**
  * THE ERA LADDER — which shop kit a player plausibly wears when they reach each
  * world's boss, as `[tier, upgradeLevel]`, every slot at that tier. Derived from
  * the coin economy: every world's purse comfortably funds the next rung, so this
  * is "spent your winnings", not "ground for gear".
+ *
+ * PHASE 13 — THE LATE LADDER. Tiers 4–6 exist for worlds 6–11: a player who
+ * took the launch wardrobe to +3 by world 5 (≈53k 🪙, exactly what worlds 1–5
+ * pay) buys tier 4 through world 6, tier 5 through world 8 and tier 6 through
+ * world 10, with one upgrade step on each in the world between (the
+ * cumulative purses are checked against this ladder in `tests/shop.test.ts`).
+ * The +3 on tier 6 is the endless finale's sink and no boss is tuned against it.
  */
 export const ERA_GEAR: Readonly<Record<number, Gear>> = {
   1: [0, 0],
@@ -192,12 +199,12 @@ export const ERA_GEAR: Readonly<Record<number, Gear>> = {
   3: [1, 1],
   4: [2, 0],
   5: [2, 2],
-  6: [3, 0],
-  7: [3, 1],
-  8: [3, 2],
-  9: [3, 3],
-  10: [3, 3],
-  11: [3, 3],
+  6: [4, 0],
+  7: [4, 1],
+  8: [5, 0],
+  9: [5, 1],
+  10: [6, 0],
+  11: [6, 1],
 };
 
 /** Combat stats of a character at these levels in this kit (no streak buff). */

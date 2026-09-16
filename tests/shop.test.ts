@@ -19,6 +19,7 @@ import {
 import {
   EQUIPMENT,
   EQUIPMENT_SLOTS,
+  type EquipmentSlot,
   SLOT_EMOJI,
   SLOT_HE,
   WORLDS,
@@ -30,7 +31,7 @@ import {
   zeroBonus,
 } from '../src/data/gameContent.ts';
 import { bossSpec, waveSpec } from '../src/core/combat.ts';
-import { MAX_UPGRADE_LEVEL, upgradeTotalCost } from '../src/core/upgrades.ts';
+import { MAX_UPGRADE_LEVEL, upgradeMultiplier, upgradeTotalCost } from '../src/core/upgrades.ts';
 import { findExercise, type Exercise } from '../src/data/program.ts';
 import { GAME_STATE_VERSION } from '../src/storage/DataStore.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
@@ -78,9 +79,9 @@ function richStore(coins: number): LocalStore {
 /* ------------------------------------------------------------- the roster */
 
 describe('the equipment roster', () => {
-  it('covers all six slots with several tiers and unique ids', () => {
+  it('covers all seven slots with six tiers and unique ids', () => {
     expect(EQUIPMENT_SLOTS).toEqual(['helmet', 'gloves', 'shirt', 'belt', 'leggings', 'shoes', 'cape']);
-    expect(EQUIPMENT.length).toBeGreaterThanOrEqual(EQUIPMENT_SLOTS.length * 3);
+    expect(EQUIPMENT.length).toBe(EQUIPMENT_SLOTS.length * 6);
     expect(new Set(EQUIPMENT.map((e) => e.id)).size).toBe(EQUIPMENT.length);
     for (const slot of EQUIPMENT_SLOTS) {
       const items = equipmentForSlot(slot);
@@ -118,7 +119,7 @@ describe('the equipment roster', () => {
     for (const slot of EQUIPMENT_SLOTS) {
       expect(SLOT_HE[slot], `${slot} has no Hebrew name`).toBeTruthy();
       expect(SLOT_EMOJI[slot], `${slot} has no emoji`).toBeTruthy();
-      for (const tier of [1, 2, 3]) {
+      for (const tier of [1, 2, 3, 4, 5, 6]) {
         const def = equipmentById(`${slot}_${tier}`);
         expect(def, `${slot}_${tier} is missing`).toBeDefined();
         expect(def?.slot).toBe(slot);
@@ -137,60 +138,164 @@ describe('the equipment roster', () => {
    * `balance.ts`).
    */
   it('keeps 👕 חולצה on DEF+HP and 🩳 טייץ on HP+speed, under the slot they echo', () => {
-    for (const [slot, sibling, keys] of [
-      ['shirt', 'belt', ['def', 'hp']],
-      ['leggings', 'shoes', ['hp', 'attackIntervalMs']],
+    for (const [slot, sibling, keys, lateKeys] of [
+      ['shirt', 'belt', ['def', 'hp'], ['def', 'hp']],
+      // From tier 4 the leg drive carries DEF as well: by world 8 the era kit
+      // already sits on the engine's attack-interval floor (500 ms), so a late
+      // pair of tights that only offered speed would be an empty purchase.
+      ['leggings', 'shoes', ['hp', 'attackIntervalMs'], ['hp', 'attackIntervalMs', 'def']],
     ] as const) {
       const items = equipmentForSlot(slot);
       const siblings = equipmentForSlot(sibling);
-      expect(items).toHaveLength(3);
+      expect(items).toHaveLength(6);
       for (const [i, item] of items.entries()) {
         // the stat identity: exactly the family the slot is about, no strays
-        expect(Object.keys(item.bonus).sort(), `${item.id} bonus`).toEqual([...keys].sort());
+        const family = item.tier <= 3 ? keys : lateKeys;
+        expect(Object.keys(item.bonus).sort(), `${item.id} bonus`).toEqual([...family].sort());
         // …and both the price and the headline sit under the older slot's
         const twin = siblings[i] as (typeof siblings)[number];
+        expect(twin.tier).toBe(item.tier);
         expect(item.cost, `${item.id} costs more than ${twin.id}`).toBeLessThan(twin.cost);
       }
-      // leg drive must not out-sprint the shoes it is worn with
-      const lifetime = items.reduce((sum, i) => sum + i.cost * 3, 0);
+      // leg drive must not out-sprint the shoes it is worn with (launch ladder)
+      const lifetime = items.filter((i) => i.tier <= 3).reduce((sum, i) => sum + i.cost * 3, 0);
       expect(lifetime, `${slot} lifetime cost`).toBeGreaterThan(5_500);
       expect(lifetime, `${slot} lifetime cost`).toBeLessThan(7_500);
     }
   });
 
   /**
-   * THE ECONOMY, both halves of it, measured rather than asserted by eye: what
-   * nine worlds pay against what a fully upgraded six-slot wardrobe costs. An
-   * item's LIFETIME cost is 3× its price (the item, plus `costCurve[3]` = 2× to
-   * take it to +3), so the whole shop is one sum over `EQUIPMENT`.
+   * THE LATE LADDER (PHASE 13): tiers 4–6, one per slot, for worlds 6–11 and
+   * the endless finale. Three promises, pinned per slot:
+   *   - every rung is a REAL step up: +0 on tier N+1 beats +3 on tier N in the
+   *     slot's family stat (speed excepted — it is floor-capped, see above);
+   *   - the jump never costs more than the +3 it replaces, so at the top of the
+   *     ladder the next tier is the better buy and the +3 is the sink for the
+   *     world after (the reverse of the launch ladder, where the upgrade path
+   *     is the cheaper one — `tests/upgrades.test.ts`);
+   *   - the two lighter slots stay lighter than their twins on every rung.
    */
-  it('keeps a fully upgraded six-slot wardrobe at ≈47k 🪙 — a quarter of the campaign', () => {
+  it('makes every late tier a real step past the +3 below it, for no more than that +3 costs', () => {
+    const maxMult = upgradeMultiplier(MAX_UPGRADE_LEVEL);
+    const family: Record<EquipmentSlot, keyof ReturnType<typeof zeroBonus>> = {
+      helmet: 'critMultiplier',
+      gloves: 'atk',
+      shirt: 'def',
+      belt: 'def',
+      leggings: 'hp',
+      shoes: 'hp',
+      cape: 'regen',
+    };
+    for (const slot of EQUIPMENT_SLOTS) {
+      const ladder = equipmentForSlot(slot);
+      expect(ladder.map((i) => i.tier)).toEqual([1, 2, 3, 4, 5, 6]);
+      for (let tier = 4; tier <= 6; tier += 1) {
+        const below = ladder[tier - 2] as (typeof ladder)[number];
+        const item = ladder[tier - 1] as (typeof ladder)[number];
+        const belowMax = sumEquipBonus([below.id], () => maxMult)[family[slot]];
+        const base = sumEquipBonus([item.id])[family[slot]];
+        expect(base, `${item.id} does not beat a +3 ${below.id}`).toBeGreaterThan(belowMax);
+        expect(base / belowMax, `${item.id} leaps too far past ${below.id}`).toBeLessThan(1.35);
+        expect(item.cost, `${item.id} costs more than a +3 ${below.id}`).toBeLessThanOrEqual(
+          upgradeTotalCost(below.cost, MAX_UPGRADE_LEVEL),
+        );
+        // every stat the rung below had, this rung has more of
+        for (const [key, v] of Object.entries(below.bonus)) {
+          const mine = item.bonus[key as keyof typeof item.bonus] ?? 0;
+          expect(Math.abs(mine), `${item.id} lost ${key}`).toBeGreaterThan(Math.abs(v as number));
+        }
+      }
+    }
+  });
+
+  /**
+   * THE ECONOMY, both halves of it, measured rather than asserted by eye: what
+   * eleven worlds pay against what the wardrobe costs. An item's LIFETIME cost
+   * is 3× its price (the item, plus `costCurve[3]` = 2× to take it to +3), so
+   * the whole shop is one sum over `EQUIPMENT`.
+   *
+   * Two ladders, two promises. The LAUNCH ladder (tiers 1–3, ≈53k 🪙 taken to
+   * +3 on every slot) is what worlds 1–5 pay for, several times over — a player
+   * can finish it before the deep sea and did. The LATE ladder (tiers 4–6,
+   * PHASE 13) is priced so that buying EVERY item once and taking the LAST tier
+   * to +3 costs the whole campaign's take, within a few percent: a player who
+   * spends their winnings on the next rung reaches world 11 in tier 6 with the
+   * +3 still to buy, and the endless finale's paid waves are what buy it. The
+   * +3 on tiers 4 and 5 is deliberately never needed — an optional sink.
+   */
+  it('prices the launch ladder at ≈53k 🪙 and the whole six-tier shop at ≈one campaign', () => {
     const lifetime = (cost: number): number => cost + upgradeTotalCost(cost, MAX_UPGRADE_LEVEL);
-    const sink = EQUIPMENT.reduce((sum, e) => sum + lifetime(e.cost), 0);
-    expect(sink).toBe(53_310);
+    const launch = EQUIPMENT.filter((e) => e.tier <= 3).reduce((sum, e) => sum + lifetime(e.cost), 0);
+    expect(launch).toBe(53_310);
+    const late = EQUIPMENT.filter((e) => e.tier >= 4).reduce((sum, e) => sum + lifetime(e.cost), 0);
+    expect(late).toBe(432_000);
+    const sink = launch + late;
     // the helmet (PHASE 12) is the ≈6k the wardrobe grew by, under the gloves it echoes
-    const helmet = EQUIPMENT.filter((e) => e.slot === 'helmet').reduce((sum, e) => sum + lifetime(e.cost), 0);
+    const helmet = EQUIPMENT.filter((e) => e.slot === 'helmet' && e.tier <= 3).reduce(
+      (sum, e) => sum + lifetime(e.cost),
+      0,
+    );
     expect(helmet).toBe(6_060);
     for (const [i, h] of equipmentForSlot('helmet').entries()) {
       expect(h.cost).toBeLessThan((equipmentForSlot('gloves')[i] as (typeof h)).cost);
       expect(Object.keys(h.bonus)).toContain('critChance');
     }
     // the two new slots are the ≈13k the wardrobe grew by
-    const added = EQUIPMENT.filter((e) => e.slot === 'shirt' || e.slot === 'leggings').reduce(
+    const added = EQUIPMENT.filter((e) => (e.slot === 'shirt' || e.slot === 'leggings') && e.tier <= 3).reduce(
       (sum, e) => sum + lifetime(e.cost),
       0,
     );
     expect(added).toBe(12_960);
 
-    // …against the whole campaign's take (waves + boss purses, nine worlds)
-    let income = 0;
-    for (const w of WORLDS) {
-      for (let wave = 1; wave <= wavesInWorld(w.id); wave += 1) income += waveSpec(w.id, wave).coins;
-      income += bossSpec(w.id)?.coins ?? 0;
+    // …against the whole campaign's take (waves + boss purses, eleven worlds)
+    const purses = WORLDS.map((w) => {
+      let take = bossSpec(w.id)?.coins ?? 0;
+      for (let wave = 1; wave <= wavesInWorld(w.id); wave += 1) take += waveSpec(w.id, wave).coins;
+      return take;
+    });
+    const income = purses.reduce((a, b) => a + b, 0);
+    expect(income).toBeGreaterThan(300_000);
+    expect(income / launch, 'the campaign must buy the launch ladder several times over').toBeGreaterThan(3.5);
+    expect(income / launch, 'but coins must never stop meaning anything').toBeLessThan(6);
+    // the campaign completes the shop ONCE — every item, the top tier to +3 —
+    // to within a few percent; the rest (+3 on tiers 4–5) is optional
+    const top = EQUIPMENT.filter((e) => e.tier === 6).reduce((sum, e) => sum + e.cost, 0);
+    const once = EQUIPMENT.reduce((sum, e) => sum + e.cost, 0) + upgradeTotalCost(top, MAX_UPGRADE_LEVEL);
+    expect(once / income).toBeGreaterThan(0.9);
+    expect(once / income).toBeLessThan(1.05);
+    expect(sink, 'the full +3 on every tier stays a sink past the campaign').toBeGreaterThan(income);
+
+    // …and the ERA ladder the pacing is measured against is actually AFFORDABLE:
+    // by the end of each world, the cumulative purse covers everything bought
+    // on the way to that world's kit (each rung bought in full, every slot,
+    // the previous tier's upgrades included) — `tests/helpers/trainee.ts`.
+    const rowCost = (tier: number): number =>
+      EQUIPMENT.filter((e) => e.tier === tier).reduce((sum, e) => sum + e.cost, 0);
+    const kitCost = (tier: number, upgrade: number): number =>
+      rowCost(tier) + upgradeTotalCost(rowCost(tier), upgrade);
+    // the late ladder: world → [tier, upgrade], as ERA_GEAR reads from world 6
+    const era: ReadonlyArray<readonly [world: number, tier: number, upgrade: number]> = [
+      [6, 4, 0],
+      [7, 4, 1],
+      [8, 5, 0],
+      [9, 5, 1],
+      [10, 6, 0],
+      [11, 6, 1],
+    ];
+    let spent = launch; // the launch ladder, fully upgraded, by world 5
+    let cumulative = purses.slice(0, 5).reduce((a, b) => a + b, 0);
+    expect(cumulative, 'worlds 1–5 pay for the launch ladder').toBeGreaterThan(spent);
+    let wornTier = 3;
+    let wornUpgrade = 3;
+    for (const [world, tier, upgrade] of era) {
+      cumulative += purses[world - 1] as number;
+      // moving up a tier pays the new row; moving up an upgrade pays the step
+      if (tier !== wornTier) spent += kitCost(tier, upgrade);
+      else spent += kitCost(tier, upgrade) - kitCost(tier, wornUpgrade);
+      wornTier = tier;
+      wornUpgrade = upgrade;
+      expect(cumulative, `world ${world}'s era kit (tier ${tier} +${upgrade}) is not affordable`).toBeGreaterThan(spent);
     }
-    expect(income).toBeGreaterThan(190_000);
-    expect(income / sink, 'the campaign must buy the shop several times over').toBeGreaterThan(3.5);
-    expect(income / sink, 'but coins must never stop meaning anything').toBeLessThan(6);
 
     // …and the tier-1 prices still gate a FRESH player naturally: nobody walks
     // into the shop off their first handful of waves…

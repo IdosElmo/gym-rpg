@@ -374,7 +374,14 @@ export function characterAnchors(geo: CharacterGeometry): CharacterAnchors {
  *
  *   tier 1 — a bandana: a band across the forehead, knotted behind the ear;
  *   tier 2 — a training helm: a half-dome over the crown with a padded brim;
- *   tier 3 — the champion's helm: a full dome, cheek guards and a crest.
+ *   tier 3 — the champion's helm: a full dome, cheek guards and a crest;
+ *   tier 4 — the storm helm: the champion's dome with two swept-back wings;
+ *   tier 5 — the titan crown: the same dome under a three-point crown;
+ *   tier 6 — the starlit halo: the dome, its crest, and a ring of light above.
+ *
+ * Tiers 4–6 (PHASE 13) are the champion's helm PLUS one signature — the rule
+ * every late layer follows: the tier-3 silhouette is kept whole, and one bold
+ * addition (wings, crown, halo) says which rung of the late ladder this is.
  */
 function helmetLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: EquipmentDef): string {
   const { x, y, r } = a.helmet;
@@ -397,11 +404,33 @@ function helmetLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: Equipme
   const cheek = (side: -1 | 1): string =>
     `<path d="M ${n(x + side * (r + 1.5))} ${n(brimY)} v ${n(r * 0.9)} q 0 ${n(r * 0.3)} ${n(-side * r * 0.3)} ${n(r * 0.3)}
       l ${n(-side * r * 0.12)} ${n(-r * 1.1)} Z" fill="${item.color}" stroke="${item.accent}" stroke-width="1.4"/>`;
-  return `${dome}${cheek(-1)}${cheek(1)}
+  const crest = `<path d="M ${n(x - r * 0.6)} ${n(y - r * 0.98)} q ${n(r * 0.6)} ${n(-r * 0.85)} ${n(r * 1.2)} 0
+      q ${n(-r * 0.6)} ${n(-r * 0.3)} ${n(-r * 1.2)} 0 Z" fill="${item.accent}"/>`;
+  const champion = `${dome}${cheek(-1)}${cheek(1)}
     <rect x="${n(x - 1.8)}" y="${n(brimY)}" width="3.6" height="${n(r * 0.7)}" rx="1.6" fill="${item.color}"/>
-    <path d="M ${n(x - r * 0.6)} ${n(y - r * 0.98)} q ${n(r * 0.6)} ${n(-r * 0.85)} ${n(r * 1.2)} 0
-      q ${n(-r * 0.6)} ${n(-r * 0.3)} ${n(-r * 1.2)} 0 Z" fill="${item.accent}"/>
     <path d="M ${n(x - r - 2)} ${n(brimY + 1)} h ${n(r * 2 + 4)}" stroke="${item.accent}" stroke-width="2.2" stroke-linecap="round"/>`;
+  if (item.tier === 3) return `${champion}${crest}`;
+  if (item.tier === 4) {
+    // Storm wings: swept back and up from the temples, rooted at the brim.
+    const wing = (side: -1 | 1): string =>
+      `<path class="ch-helm-wing" d="M ${n(x + side * (r + 1))} ${n(brimY - 1)}
+        Q ${n(x + side * (r + 9))} ${n(brimY - r * 0.6)} ${n(x + side * (r + 12))} ${n(brimY - r * 1.25)}
+        Q ${n(x + side * (r + 5))} ${n(brimY - r * 0.7)} ${n(x + side * (r + 1))} ${n(brimY - r * 0.5)} Z"
+        fill="${item.accent}" stroke="${item.color}" stroke-width="1.6" stroke-linejoin="round"/>`;
+    return `${champion}${wing(-1)}${wing(1)}`;
+  }
+  if (item.tier === 5) {
+    // The titan crown: three points standing on the crown of the dome.
+    const base = y - r * 0.8;
+    return `${champion}<path class="ch-helm-crown" d="M ${n(x - r * 0.72)} ${n(base)}
+      L ${n(x - r * 0.55)} ${n(base - r * 0.55)} L ${n(x - r * 0.28)} ${n(base - r * 0.1)}
+      L ${n(x)} ${n(base - r * 0.75)} L ${n(x + r * 0.28)} ${n(base - r * 0.1)}
+      L ${n(x + r * 0.55)} ${n(base - r * 0.55)} L ${n(x + r * 0.72)} ${n(base)} Z"
+      fill="${item.accent}" stroke="${item.color}" stroke-width="1.6" stroke-linejoin="round"/>`;
+  }
+  // Tier 6: the crest, and a halo floating a little above the crown.
+  return `${champion}${crest}<ellipse class="ch-helm-halo" cx="${n(x)}" cy="${n(y - r * 1.5)}" rx="${n(r * 0.85)}"
+    ry="${n(Math.max(2.5, r * 0.2))}" fill="none" stroke="${item.accent}" stroke-width="2.4"/>`;
 }
 
 function capeLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: EquipmentDef): string {
@@ -413,20 +442,66 @@ function capeLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: Equipment
     return `<path d="M ${n(sx - 13)} ${n(y - 4)} h 26 l -3 ${n(46)} l -7 -6 -6 6 -7 -6 Z"
       fill="${item.color}" stroke="${item.accent}" stroke-width="2.5" stroke-linejoin="round"/>`;
   }
-  const half = top + (item.tier === 3 ? 12 : 6);
-  const hem = KNEE_Y - (item.tier === 3 ? 6 : 24);
+  // Every tier past the towel is the same cloak, wider and longer up the ladder
+  // (the cape hangs BEHIND the body, so its width past the shoulders and its
+  // hem below the knees are the only two things it can say from the front).
+  const half = top + (CAPE_WIDEN[item.tier] ?? 12);
+  const hem = KNEE_Y + (CAPE_HEM_DY[item.tier] ?? -6);
   const collar = `<path d="M ${n(x - top - 2)} ${n(y)} Q ${n(x)} ${n(y - 13)} ${n(x + top + 2)} ${n(y)}
     Q ${n(x)} ${n(y + 8)} ${n(x - top - 2)} ${n(y)} Z" fill="${item.accent}"/>`;
-  return `<path d="M ${n(x - top)} ${n(y)}
+  // The hem: two swallow-tails on the launch tiers, a jagged storm hem from
+  // tier 4 on (three tails, cut deeper).
+  const tails = item.tier >= 4 ? 3 : 2;
+  const step = half / tails;
+  const cut = item.tier >= 4 ? 12 : 9;
+  const hemPath = Array.from({ length: tails }, () => `l ${n(step)} ${n(-cut)} l ${n(step)} ${n(cut)}`).join(' ');
+  const cloak = `<path d="M ${n(x - top)} ${n(y)}
       C ${n(x - half - 6)} ${n(y + 60)} ${n(x - half)} ${n(hem - 30)} ${n(x - half)} ${n(hem)}
-      l ${n(half * 0.5)} -9 l ${n(half * 0.5)} 9 l ${n(half * 0.5)} -9 l ${n(half * 0.5)} 9
+      ${hemPath}
       C ${n(x + half)} ${n(hem - 30)} ${n(x + half + 6)} ${n(y + 60)} ${n(x + top)} ${n(y)} Z"
-      fill="${item.color}" stroke="${item.accent}" stroke-width="2.5" stroke-linejoin="round"/>${collar}`;
+      fill="${item.color}" stroke="${item.accent}" stroke-width="2.5" stroke-linejoin="round"/>`;
+  if (item.tier <= 3) return `${cloak}${collar}`;
+  // The late signatures live on the FLANKS — the strip of cloak past the
+  // shoulders that the torso never covers — and on the collar.
+  const flankX = (side: -1 | 1): number => x + side * (top + (half - top) * 0.55);
+  if (item.tier === 4) {
+    // Storm: a lightning bolt down each flank.
+    const bolt = (side: -1 | 1): string => {
+      const bx = flankX(side);
+      const by = y + 52;
+      return `<path class="ch-cape-bolt" d="M ${n(bx + 2)} ${n(by)} L ${n(bx - 2.5)} ${n(by + 12)} L ${n(bx + 0.5)} ${n(by + 12)}
+        L ${n(bx - 3)} ${n(by + 26)} L ${n(bx + 3.5)} ${n(by + 9)} L ${n(bx + 0.5)} ${n(by + 9)} Z" fill="${item.accent}"/>`;
+    };
+    return `${cloak}${bolt(-1)}${bolt(1)}${collar}`;
+  }
+  if (item.tier === 5) {
+    // Dragon: spines standing up from the collar.
+    const spine = (dx: number, h: number): string =>
+      `<path class="ch-cape-spine" d="M ${n(x + dx - 3.5)} ${n(y - 2)} L ${n(x + dx)} ${n(y - 2 - h)} L ${n(x + dx + 3.5)} ${n(y - 2)} Z"
+        fill="${item.accent}" stroke="${item.color}" stroke-width="1.6" stroke-linejoin="round"/>`;
+    const spread = top * 0.55;
+    return `${cloak}${collar}${spine(-spread, 9)}${spine(0, 12)}${spine(spread, 9)}`;
+  }
+  // Tier 6: a night sky — four-point stars scattered down both flanks.
+  const star = (sx: number, sy: number, r: number): string =>
+    `<path class="ch-cape-star" d="M ${n(sx)} ${n(sy - r)} Q ${n(sx)} ${n(sy)} ${n(sx + r)} ${n(sy)}
+      Q ${n(sx)} ${n(sy)} ${n(sx)} ${n(sy + r)} Q ${n(sx)} ${n(sy)} ${n(sx - r)} ${n(sy)}
+      Q ${n(sx)} ${n(sy)} ${n(sx)} ${n(sy - r)} Z" fill="${item.accent}"/>`;
+  const stars = ([-1, 1] as const)
+    .map((side) => `${star(flankX(side), y + 46, 4)}${star(flankX(side) + side * 2, y + 78, 3)}${star(flankX(side) - side, y + 110, 3.5)}`)
+    .join('');
+  return `${cloak}${stars}${collar}`;
 }
+
+/** How far past the shoulder line each tier's cloak reaches, per side. */
+const CAPE_WIDEN: Readonly<Record<number, number>> = { 2: 6, 3: 12, 4: 15, 5: 18, 6: 21 };
+
+/** Where each tier's hem falls, relative to the knee line. */
+const CAPE_HEM_DY: Readonly<Record<number, number>> = { 2: -24, 3: -6, 4: 2, 5: 8, 6: 14 };
 
 function beltLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: EquipmentDef): string {
   const { x, y, halfWidth } = a.belt;
-  const h = 8 + item.tier * 2;
+  const h = 8 + Math.min(item.tier, 4) * 2;
   const strap = `<rect x="${n(x - halfWidth)}" y="${n(y - h / 2)}" width="${n(halfWidth * 2)}" height="${n(h)}"
     rx="${n(h / 2.6)}" fill="${item.color}" stroke="${item.accent}" stroke-width="2"/>`;
   if (item.tier === 1) {
@@ -437,25 +512,66 @@ function beltLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: Equipment
       fill="${item.accent}"/><circle cx="${n(x)}" cy="${n(y)}" r="3" fill="${item.color}"/>`;
   }
   // Tier 3: a title belt — the buckle is the whole point.
-  return `${strap}<path d="M ${n(x)} ${n(y - 13)} l 12 7 v 12 l -12 7 -12 -7 v -12 Z"
-    fill="${item.accent}" stroke="${item.color}" stroke-width="2"/>
-    <circle cx="${n(x)}" cy="${n(y)}" r="4.5" fill="${item.color}"/>`;
+  const plate = `<path d="M ${n(x)} ${n(y - 13)} l 12 7 v 12 l -12 7 -12 -7 v -12 Z"
+    fill="${item.accent}" stroke="${item.color}" stroke-width="2"/>`;
+  if (item.tier === 3) return `${strap}${plate}<circle cx="${n(x)}" cy="${n(y)}" r="4.5" fill="${item.color}"/>`;
+  // Tiers 4–6 keep the title plate and add studs along the strap; the mark on
+  // the plate is the tier's signature (anchor · flame · star).
+  const studs = [-0.62, 0.62]
+    .map((k) => `<circle class="ch-belt-stud" cx="${n(x + halfWidth * k)}" cy="${n(y)}" r="2.6" fill="${item.accent}"/>`)
+    .join('');
+  if (item.tier === 4) {
+    return `${strap}${plate}${studs}<path class="ch-belt-mark" d="M ${n(x)} ${n(y - 7)} L ${n(x)} ${n(y + 6)}
+      M ${n(x - 6)} ${n(y + 1)} Q ${n(x)} ${n(y + 9)} ${n(x + 6)} ${n(y + 1)}" fill="none" stroke="${item.color}"
+      stroke-width="2.4" stroke-linecap="round"/><circle cx="${n(x)}" cy="${n(y - 7)}" r="2.2" fill="none" stroke="${item.color}" stroke-width="1.8"/>`;
+  }
+  if (item.tier === 5) {
+    return `${strap}${plate}${studs}<path class="ch-belt-mark" d="M ${n(x)} ${n(y - 9)} Q ${n(x + 7)} ${n(y - 2)} ${n(x)} ${n(y + 8)}
+      Q ${n(x - 3.5)} ${n(y + 3)} ${n(x)} ${n(y - 1)} Q ${n(x - 7)} ${n(y + 4)} ${n(x)} ${n(y + 8)}
+      Q ${n(x + 8)} ${n(y)} ${n(x)} ${n(y - 9)} Z" fill="${item.color}"/>`;
+  }
+  // Tier 6: a five-point star cut into the plate.
+  const pts = Array.from({ length: 10 }, (_, i) => {
+    const rad = i % 2 === 0 ? 7.5 : 3.3;
+    const a = (Math.PI / 5) * i - Math.PI / 2;
+    return `${n(x + Math.cos(a) * rad)} ${n(y + Math.sin(a) * rad)}`;
+  }).join(' L ');
+  return `${strap}${plate}${studs}<path class="ch-belt-mark" d="M ${pts} Z" fill="${item.color}"/>`;
 }
 
 function glovesLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: EquipmentDef): string {
   return a.gloves
     .map((g) => {
-      const r = Math.max(6.5, g.r + 1.5 + item.tier * 0.7);
+      const r = Math.max(6.5, g.r + 1.5 + Math.min(item.tier, 4) * 0.7);
       const cuff = `<rect x="${n(g.x - r * 0.95)}" y="${n(g.y - r - 7)}" width="${n(r * 1.9)}" height="8" rx="3"
         fill="${item.accent}"/>`;
       const mitt = `<circle cx="${n(g.x)}" cy="${n(g.y)}" r="${n(r)}" fill="${item.color}"
         stroke="${item.accent}" stroke-width="2"/>`;
+      const side = g.x >= CX ? 1 : -1;
       const detail =
-        item.tier === 3
-          ? `<path d="M ${n(g.x)} ${n(g.y - 3.5)} l 2.6 5.4 -5.2 0 Z" fill="${item.accent}"/>`
-          : item.tier === 2
-            ? `<circle cx="${n(g.x)}" cy="${n(g.y)}" r="2.4" fill="${item.accent}"/>`
-            : '';
+        item.tier === 6
+          ? // Starforged: a ring around a gem.
+            `<circle cx="${n(g.x)}" cy="${n(g.y)}" r="${n(r * 0.62)}" fill="none" stroke="${item.accent}" stroke-width="1.8"/>
+             <path d="M ${n(g.x)} ${n(g.y - 3.2)} l 3.2 3.2 -3.2 3.2 -3.2 -3.2 Z" fill="${item.accent}"/>`
+          : item.tier === 5
+            ? // Dragon: two plate bands across the knuckles.
+              `<path d="M ${n(g.x - r * 0.8)} ${n(g.y - 2)} Q ${n(g.x)} ${n(g.y + 1)} ${n(g.x + r * 0.8)} ${n(g.y - 2)}
+                M ${n(g.x - r * 0.7)} ${n(g.y + 3.5)} Q ${n(g.x)} ${n(g.y + 6.5)} ${n(g.x + r * 0.7)} ${n(g.y + 3.5)}"
+                fill="none" stroke="${item.accent}" stroke-width="2" stroke-linecap="round"/>`
+            : item.tier === 4
+              ? // Iron: three spikes on the outer knuckles.
+                [0.15, 0.55, 0.85]
+                  .map((k) => {
+                    const sx = g.x + side * r * k;
+                    const sy = g.y - Math.sqrt(Math.max(0, r * r - (r * k) ** 2));
+                    return `<path d="M ${n(sx - 2.2)} ${n(sy + 1)} l 2.2 -5.5 2.2 5.5 Z" fill="${item.accent}"/>`;
+                  })
+                  .join('')
+              : item.tier === 3
+                ? `<path d="M ${n(g.x)} ${n(g.y - 3.5)} l 2.6 5.4 -5.2 0 Z" fill="${item.accent}"/>`
+                : item.tier === 2
+                  ? `<circle cx="${n(g.x)}" cy="${n(g.y)}" r="2.4" fill="${item.accent}"/>`
+                  : '';
       return `${cuff}${mitt}${detail}`;
     })
     .join('');
@@ -488,7 +604,8 @@ function glovesLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: Equipme
  *   3. the SOLE: a strip in a darkened shade of the item's own colour, drawn
  *      over the upper's bottom edge so the two never separate;
  *   4. one LACE hint (two parallel diagonals, the same read as the shop icon)
- *      and, on the winged tier, a small wing above the ankle.
+ *      and, from the winged tier up, the tier's signature above the ankle or
+ *      on the toe (see `signature` below).
  *
  * Absolute path commands only, no `h`/`v`/`a`: the sweeps in
  * `tests/characters.dom.test.ts` read the coordinates straight out of `d`.
@@ -497,24 +614,27 @@ function shoesLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: Equipmen
   const soleColor = darken(item.color, 0.42);
   return a.shoes
     .map((s) => {
-      const w = s.halfWidth + item.tier * 0.6;
+      // Widths, sole and collar grow with the tier up to the fourth rung; the
+      // last two rungs are told apart by their signature, not by more bulk.
+      const bulk = Math.min(item.tier, 4);
+      const w = s.halfWidth + bulk * 0.6;
       /** x of a point `t` units OUTWARD from this leg's ankle (mirrors itself). */
       const px = (t: number): number => s.x + s.dir * t;
       // The foot runs ~2.5·w heel to toe (`w` being HALF its width across the
       // ankle) and stands inside the leg's own stance: the heel may never reach
       // the centre line, or the two shoes would meet in the middle at a high
       // leg level, where the legs are thick but stand barely wider.
-      const toe = w * 1.6 + item.tier * 0.2;
+      const toe = w * 1.6 + bulk * 0.2;
       const y = s.y;
       const yTop = y - 7; // where the upper meets the collar, at the heel
       const yInstep = y - 5;
       const yToe = y - 1.5; // top of the toe box: lower than the heel counter
       const ySole = y + 6.5;
-      const soleH = 4.2 + item.tier * 0.4;
+      const soleH = 4.2 + bulk * 0.4;
 
       // The collar is a touch WIDER than the calf at every level (the width is
       // grown from `calfW`), which is what makes the leg end inside the shoe.
-      const collarH = 9 + item.tier;
+      const collarH = 9 + bulk;
       const collar = `<rect x="${n(s.x - w * 0.72)}" y="${n(y - 2 - collarH)}" width="${n(w * 1.44)}"
         height="${n(collarH)}" rx="4" fill="${item.accent}"/>`;
       const upper = `<path d="M ${n(px(-w * 0.75))} ${n(yTop)}
@@ -538,13 +658,28 @@ function shoesLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: Equipmen
         fill="none"/>`;
       // The winged tier's ankle wing: rooted IN the collar (its base starts
       // inside it) and sweeping outward-up, away from the other foot's.
-      const wing =
+      const wingAt = (lift: number, reach: number): string =>
+        `<path d="M ${n(px(w * 0.35))} ${n(y - 6 - lift)} Q ${n(px(w * 1.25))} ${n(y - 9 - lift)} ${n(px(w * reach))} ${n(y - 16 - lift)}
+           Q ${n(px(w * 0.95))} ${n(y - 11 - lift)} ${n(px(w * 0.3))} ${n(y - 10 - lift)} Z" fill="${item.accent}"
+           stroke="${item.color}" stroke-width="1.6" stroke-linejoin="round"/>`;
+      // The tier's signature, all in ABSOLUTE commands and in the item's own two
+      // colours (the sole is found as "the one other fill" by the sweeps):
+      //   3 — one ankle wing;  4 — a steel toe cap;  5 — a double wing;
+      //   6 — the wing, and two motes of light above the toe.
+      const mote = (mx: number, my: number, r: number): string =>
+        `<path d="M ${n(mx)} ${n(my - r)} L ${n(mx + r)} ${n(my)} L ${n(mx)} ${n(my + r)} L ${n(mx - r)} ${n(my)} Z" fill="${item.accent}"/>`;
+      const signature =
         item.tier === 3
-          ? `<path d="M ${n(px(w * 0.35))} ${n(y - 6)} Q ${n(px(w * 1.25))} ${n(y - 9)} ${n(px(w * 1.5))} ${n(y - 16)}
-             Q ${n(px(w * 0.95))} ${n(y - 11)} ${n(px(w * 0.3))} ${n(y - 10)} Z" fill="${item.accent}"
-             stroke="${item.color}" stroke-width="1.6" stroke-linejoin="round"/>`
-          : '';
-      return `<g class="ch-shoe">${collar}${upper}${sole}${lace}${wing}</g>`;
+          ? wingAt(0, 1.5)
+          : item.tier === 4
+            ? `<path d="M ${n(px(toe - w * 0.5))} ${n(yToe + 0.8)} Q ${n(px(toe - 0.2))} ${n(yToe + 0.6)} ${n(px(toe - 0.2))} ${n(ySole - 3.5)}
+               L ${n(px(toe - w * 0.5))} ${n(ySole - 1.2)} Z" fill="${item.accent}"/>`
+            : item.tier === 5
+              ? `${wingAt(0, 1.5)}${wingAt(7, 1.7)}`
+              : item.tier === 6
+                ? `${wingAt(0, 1.5)}${mote(px(toe - w * 0.35), y - 9, 2.6)}${mote(px(toe + 1), y - 15, 2)}`
+                : '';
+      return `<g class="ch-shoe">${collar}${upper}${sole}${lace}${signature}</g>`;
     })
     .join('');
 }
@@ -552,8 +687,20 @@ function shoesLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: Equipmen
 /** Pixels below the shoulder line the chest emblem (and its flair) sits at. */
 const SHIRT_EMBLEM_DY = 13;
 
-/** Where each tier's hem falls, relative to the waist line: cropped → long. */
-const SHIRT_HEM_DY: Readonly<Record<number, number>> = { 1: -4, 2: 2, 3: 8 };
+/**
+ * Where each tier's hem falls, relative to the waist line: cropped → long. The
+ * late tiers (4–6) are cut longer still — a tunic, then a coat — and every one
+ * ends its own distance short of the hip line (`tests/characters.dom.test.ts`
+ * pins the six hems apart).
+ */
+const SHIRT_HEM_DY: Readonly<Record<number, number>> = { 1: -4, 2: 2, 3: 8, 4: 11, 5: 13, 6: 15 };
+
+/**
+ * How deep the hem's centre dips below `SHIRT_HEM_DY` — the tier-3 plate's
+ * point, and the late tiers' shallower cuts (a scallop, a point, a point), so
+ * a coat cut at +15 still ends above the hip line.
+ */
+const SHIRT_HEM_DIP: Readonly<Record<number, number>> = { 3: 9, 4: 3, 5: 5, 6: 4 };
 
 /**
  * A TANK TOP — and the one layer in this file that is drawn INSIDE the body.
@@ -607,12 +754,13 @@ function shirtLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: Equipmen
       : wa + (a.waistband.halfWidth - 1 - wa) * ((hemY - WAIST_Y) / (HIP_Y - WAIST_Y)) * 0.6,
     ch * 0.84,
   );
+  const dip = SHIRT_HEM_DIP[item.tier] ?? 9;
   const hem =
     item.tier === 1
       ? `L ${n(CX + hemHalf)} ${n(hemY)}`
-      : item.tier === 2
-        ? `Q ${n(CX)} ${n(hemY + 6)} ${n(CX + hemHalf)} ${n(hemY)}`
-        : `L ${n(CX)} ${n(hemY + 9)} L ${n(CX + hemHalf)} ${n(hemY)}`;
+      : item.tier === 2 || item.tier === 4
+        ? `Q ${n(CX)} ${n(hemY + (item.tier === 2 ? 6 : dip))} ${n(CX + hemHalf)} ${n(hemY)}`
+        : `L ${n(CX)} ${n(hemY + dip)} L ${n(CX + hemHalf)} ${n(hemY)}`;
 
   const body = `<path class="ch-shirt-body" d="M ${n(CX - neck)} ${n(yTop)}
     L ${n(CX - strap)} ${n(yTop)}
@@ -627,6 +775,8 @@ function shirtLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: Equipmen
 
   const ey = s.y + SHIRT_EMBLEM_DY;
   const em = clamp(ch * 0.13, 3.4, 5.6);
+  // One chest emblem per tier — a bar, a diamond, a plate, then the late
+  // ladder's signatures: a storm shield, a dragon flame and an eight-point star.
   const emblem =
     item.tier === 1
       ? `<rect class="ch-shirt-mark" x="${n(CX - em * 1.7)}" y="${n(ey - 1.6)}" width="${n(em * 3.4)}" height="3.2" rx="1.6"
@@ -634,10 +784,27 @@ function shirtLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: Equipmen
       : item.tier === 2
         ? `<path class="ch-shirt-mark" d="M ${n(CX)} ${n(ey - em)} L ${n(CX + em * 0.8)} ${n(ey)} L ${n(CX)} ${n(ey + em)}
             L ${n(CX - em * 0.8)} ${n(ey)} Z" fill="${item.accent}"/>`
-        : `<path class="ch-shirt-mark" d="M ${n(CX - em * 0.9)} ${n(ey - em * 0.85)} L ${n(CX + em * 0.9)} ${n(ey - em * 0.85)}
-            L ${n(CX + em * 1.5)} ${n(ey)} L ${n(CX + em * 0.9)} ${n(ey + em * 0.85)}
-            L ${n(CX - em * 0.9)} ${n(ey + em * 0.85)} L ${n(CX - em * 1.5)} ${n(ey)} Z"
-            fill="${item.accent}" stroke="${item.color}" stroke-width="1.6" stroke-linejoin="round"/>`;
+        : item.tier === 3
+          ? `<path class="ch-shirt-mark" d="M ${n(CX - em * 0.9)} ${n(ey - em * 0.85)} L ${n(CX + em * 0.9)} ${n(ey - em * 0.85)}
+              L ${n(CX + em * 1.5)} ${n(ey)} L ${n(CX + em * 0.9)} ${n(ey + em * 0.85)}
+              L ${n(CX - em * 0.9)} ${n(ey + em * 0.85)} L ${n(CX - em * 1.5)} ${n(ey)} Z"
+              fill="${item.accent}" stroke="${item.color}" stroke-width="1.6" stroke-linejoin="round"/>`
+          : item.tier === 4
+            ? `<path class="ch-shirt-mark" d="M ${n(CX - em * 1.2)} ${n(ey - em * 1.1)} L ${n(CX + em * 1.2)} ${n(ey - em * 1.1)}
+                L ${n(CX + em * 1.2)} ${n(ey + em * 0.2)} Q ${n(CX)} ${n(ey + em * 1.6)} ${n(CX - em * 1.2)} ${n(ey + em * 0.2)} Z"
+                fill="${item.accent}" stroke="${item.color}" stroke-width="1.6" stroke-linejoin="round"/>
+               <path d="M ${n(CX + em * 0.3)} ${n(ey - em * 0.8)} L ${n(CX - em * 0.4)} ${n(ey + em * 0.1)} L ${n(CX + em * 0.1)} ${n(ey + em * 0.1)}
+                L ${n(CX - em * 0.3)} ${n(ey + em * 1.0)} L ${n(CX + em * 0.5)} ${n(ey - em * 0.1)} L ${n(CX)} ${n(ey - em * 0.1)} Z"
+                fill="${item.color}"/>`
+            : item.tier === 5
+              ? `<path class="ch-shirt-mark" d="M ${n(CX)} ${n(ey - em * 1.4)} Q ${n(CX + em * 1.3)} ${n(ey - em * 0.2)} ${n(CX)} ${n(ey + em * 1.3)}
+                  Q ${n(CX - em * 0.6)} ${n(ey + em * 0.4)} ${n(CX)} ${n(ey - em * 0.2)} Q ${n(CX - em * 1.3)} ${n(ey + em * 0.5)} ${n(CX)} ${n(ey + em * 1.3)}
+                  Q ${n(CX + em * 1.5)} ${n(ey - em * 0.1)} ${n(CX)} ${n(ey - em * 1.4)} Z"
+                  fill="${item.accent}" stroke="${item.color}" stroke-width="1.6" stroke-linejoin="round"/>`
+              : `<path class="ch-shirt-mark" d="M ${n(CX)} ${n(ey - em * 1.5)} L ${n(CX + em * 0.45)} ${n(ey - em * 0.45)} L ${n(CX + em * 1.5)} ${n(ey)}
+                  L ${n(CX + em * 0.45)} ${n(ey + em * 0.45)} L ${n(CX)} ${n(ey + em * 1.5)} L ${n(CX - em * 0.45)} ${n(ey + em * 0.45)}
+                  L ${n(CX - em * 1.5)} ${n(ey)} L ${n(CX - em * 0.45)} ${n(ey - em * 0.45)} Z"
+                  fill="${item.accent}" stroke="${item.color}" stroke-width="1.6" stroke-linejoin="round"/>`;
 
   return `<g class="ch-shirt">${body}${emblem}</g>`;
 }
@@ -664,24 +831,34 @@ function shirtLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: Equipmen
  * than disappearing under them) and BEFORE the shoes (so a shoe's ankle collar
  * closes over the hem) — and before the belt, which buckles over the band.
  *
- * The three tiers differ in LENGTH, which is the one thing a leg garment can say
- * from across a 62px card: three-quarter tights, full-length with a calf stripe,
- * and a full-length pair with a bright cuff and a bolt down each thigh. The
- * stripe lives on the CALF and the bolt on the THIGH, so the two never cross.
+ * The three launch tiers differ in LENGTH, which is the one thing a leg garment
+ * can say from across a 62px card: three-quarter tights, full-length with a calf
+ * stripe, and a full-length pair with a bright cuff and a bolt down each thigh.
+ * The stripe lives on the CALF and the bolt on the THIGH, so the two never
+ * cross. The late tiers (PHASE 13) are all full length and wear ARMOUR instead:
+ * a knee plate, scale chevrons down the thigh, a star on the knee.
  */
 const SLEEVE_TOP_Y = HIP_Y + 7;
 
-/** Where each tier's sleeve ends: three-quarter · ankle · over the shoe collar. */
+/**
+ * Where each tier's sleeve ends: three-quarter · ankle · over the shoe collar.
+ * The launch tiers are told apart by LENGTH; the late tiers (4–6) are all cut
+ * full length and are told apart by their armour instead (knee plates, thigh
+ * scales, knee stars — see `leggingsLayer`).
+ */
 const LEGGING_HEM_Y: Readonly<Record<number, number>> = {
   1: KNEE_Y + 16,
   2: ANKLE_Y - 12,
   3: ANKLE_Y - 2,
+  4: ANKLE_Y - 2,
+  5: ANKLE_Y - 2,
+  6: ANKLE_Y - 2,
 };
 
 function leggingsLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: EquipmentDef): string {
   const hemY = LEGGING_HEM_Y[item.tier] ?? ANKLE_Y - 2;
   const t = (hemY - KNEE_Y) / (ANKLE_Y - KNEE_Y);
-  const cuffH = 3 + item.tier;
+  const cuffH = 3 + Math.min(item.tier, 4);
 
   const legs = a.leggings
     .map((L) => {
@@ -701,7 +878,7 @@ function leggingsLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: Equip
              stroke="${item.accent}" stroke-width="2.2" stroke-linecap="round" fill="none"/>`
           : '';
       const bolt =
-        item.tier === 3
+        item.tier === 3 || item.tier === 6
           ? `<path class="ch-leg-bolt" d="M ${n(topX + L.dir * L.thighW * 0.12)} ${n(SLEEVE_TOP_Y + 6)}
              L ${n(topX - L.dir * L.thighW * 0.2)} ${n(SLEEVE_TOP_Y + 24)}
              L ${n(topX + L.dir * L.thighW * 0.04)} ${n(SLEEVE_TOP_Y + 24)}
@@ -710,13 +887,38 @@ function leggingsLayer(_geo: CharacterGeometry, a: CharacterAnchors, item: Equip
              L ${n(topX + L.dir * L.thighW * 0.04)} ${n(SLEEVE_TOP_Y + 20)} Z"
              fill="${item.accent}"/>`
           : '';
-      return `<g class="ch-legging">${thigh}${calf}${cuff}${stripe}${bolt}</g>`;
+      // The late ladder's armour, one signature per tier, sized from the leg
+      // it sits on: a knee plate (4), scale chevrons down the thigh (5), a
+      // four-point star on the knee (6, with the bolt back on the thigh).
+      const kw = L.calfW * 0.5;
+      const armour =
+        item.tier === 4
+          ? `<path class="ch-leg-plate" d="M ${n(L.kneeX)} ${n(KNEE_Y - kw * 1.3)} Q ${n(L.kneeX + kw)} ${n(KNEE_Y - kw * 1.3)} ${n(L.kneeX + kw)} ${n(KNEE_Y)}
+             Q ${n(L.kneeX + kw)} ${n(KNEE_Y + kw * 1.3)} ${n(L.kneeX)} ${n(KNEE_Y + kw * 1.3)}
+             Q ${n(L.kneeX - kw)} ${n(KNEE_Y + kw * 1.3)} ${n(L.kneeX - kw)} ${n(KNEE_Y)}
+             Q ${n(L.kneeX - kw)} ${n(KNEE_Y - kw * 1.3)} ${n(L.kneeX)} ${n(KNEE_Y - kw * 1.3)} Z"
+             fill="${item.accent}" stroke="${item.color}" stroke-width="1.6"/>`
+          : item.tier === 5
+            ? `<path class="ch-leg-scale" d="${[10, 22, 34]
+                .map((dy) => {
+                  const cy = SLEEVE_TOP_Y + dy;
+                  const cx = topX + (L.kneeX - topX) * ((cy - SLEEVE_TOP_Y) / (KNEE_Y - SLEEVE_TOP_Y));
+                  const hw = L.thighW * 0.32;
+                  return `M ${n(cx - hw)} ${n(cy)} L ${n(cx)} ${n(cy + 5)} L ${n(cx + hw)} ${n(cy)}`;
+                })
+                .join(' ')}" fill="none" stroke="${item.accent}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`
+            : item.tier === 6
+              ? `<path class="ch-leg-star" d="M ${n(L.kneeX)} ${n(KNEE_Y - kw * 1.4)} Q ${n(L.kneeX)} ${n(KNEE_Y)} ${n(L.kneeX + kw * 1.4)} ${n(KNEE_Y)}
+                 Q ${n(L.kneeX)} ${n(KNEE_Y)} ${n(L.kneeX)} ${n(KNEE_Y + kw * 1.4)} Q ${n(L.kneeX)} ${n(KNEE_Y)} ${n(L.kneeX - kw * 1.4)} ${n(KNEE_Y)}
+                 Q ${n(L.kneeX)} ${n(KNEE_Y)} ${n(L.kneeX)} ${n(KNEE_Y - kw * 1.4)} Z" fill="${item.accent}"/>`
+              : '';
+      return `<g class="ch-legging">${thigh}${calf}${cuff}${stripe}${bolt}${armour}</g>`;
     })
     .join('');
 
   const b = a.waistband;
   const bandTop = b.y - 7;
-  const bandH = 15 + item.tier;
+  const bandH = 15 + Math.min(item.tier, 4);
   const band = `<rect class="ch-leg-band" x="${n(b.x - b.halfWidth)}" y="${n(bandTop)}" width="${n(b.halfWidth * 2)}"
     height="${n(bandH)}" rx="6" fill="${item.color}" stroke="${item.accent}" stroke-width="2"/>`;
   const draw =

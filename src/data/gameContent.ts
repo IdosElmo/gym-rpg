@@ -2616,7 +2616,7 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     world: 6,
     kind: 'boss',
     requires: { chest: 6, back: 8, legs: 8, shoulders: 7, arms: 8, core: 7 },
-    hpMult: 3.9,
+    hpMult: 7.6,
     atkMult: 0.9,
     attackSlowMult: 1.2,
     svg: sprite(`
@@ -2640,7 +2640,7 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     world: 7,
     kind: 'boss',
     requires: { chest: 7, back: 9, legs: 8, shoulders: 8, arms: 9, core: 8 },
-    hpMult: 3.7,
+    hpMult: 8,
     atkMult: 0.9,
     dodgeChance: 0.15,
     svg: sprite(`
@@ -2664,7 +2664,7 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     world: 8,
     kind: 'boss',
     requires: { chest: 7, back: 9, legs: 9, shoulders: 8, arms: 9, core: 8 },
-    hpMult: 3.4,
+    hpMult: 9.5,
     atkMult: 0.9,
     regenPct: 0.004,
     svg: sprite(`
@@ -2690,7 +2690,7 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     world: 9,
     kind: 'boss',
     requires: { chest: 8, back: 10, legs: 9, shoulders: 9, arms: 10, core: 9 },
-    hpMult: 2.8,
+    hpMult: 6.7,
     atkMult: 0.85,
     critChance: 0.15,
     critMultiplier: 1.7,
@@ -2719,7 +2719,7 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     world: 10,
     kind: 'boss',
     requires: { chest: 9, back: 10, legs: 10, shoulders: 9, arms: 10, core: 9 },
-    hpMult: 2.6,
+    hpMult: 6.8,
     atkMult: 0.9,
     def: 22,
     critChance: 0.12,
@@ -2745,7 +2745,7 @@ export const WORLD_BOSSES: readonly BossDef[] = [
     world: 11,
     kind: 'boss',
     requires: { chest: 9, back: 11, legs: 10, shoulders: 10, arms: 11, core: 9 },
-    hpMult: 2.6,
+    hpMult: 15.5,
     atkMult: 0.85,
     dodgeChance: 0.12,
     regenPct: 0.003,
@@ -2885,8 +2885,12 @@ export interface EquipmentDef {
   readonly he: string;
   readonly en: string;
   readonly slot: EquipmentSlot;
-  /** 1..3 — drives both the price band and how ornate the SVG layer is. */
-  readonly tier: 1 | 2 | 3;
+  /**
+   * 1..6 — drives both the price band and how ornate the SVG layer is. Tiers
+   * 1–3 are the launch ladder (worlds 1–5); 4–6 are the late-campaign ladder
+   * (PHASE 13, worlds 6–11 and the endless finale). See `EQUIPMENT` below.
+   */
+  readonly tier: 1 | 2 | 3 | 4 | 5 | 6;
   /** Price in 🪙. */
   readonly cost: number;
   readonly bonus: EquipBonus;
@@ -2905,7 +2909,8 @@ function icon(inner: string): string {
 }
 
 /**
- * The shop roster: seven slots × three tiers.
+ * The shop roster: seven slots × six tiers — the LAUNCH ladder (1–3) and the
+ * LATE ladder (4–6, PHASE 13).
  *
  * PRICE TUNING — world 1's fifty waves pay ≈1 800 🪙 and each world multiplies
  * the payout by `BALANCE.combat.coins.worldMult`, on top of a large boss purse.
@@ -2923,6 +2928,28 @@ function icon(inner: string): string {
  * nine worlds' ≈195 000 🪙 comfortably covers. Together the two new slots cost
  * ≈12 960 🪙 fully upgraded (an item's full +3 costs 2× its price, so a slot's
  * lifetime cost is 3× the sum of its three tiers).
+ *
+ * PHASE 13 — THE LATE LADDER (tiers 4–6). The launch ladder is finished — every
+ * slot at tier 3, +3 — by a player in the deep sea, with six worlds of coins
+ * still to come and nothing to spend them on. Three more rungs per slot, in
+ * three themed sets (⚡ סערה · 🐉 דרקון · ✨ כוכבים), tuned by four rules:
+ *   - POWER: each rung is ≈1.9× the one below in the slot's family stat, so a
+ *     +0 on tier N+1 just beats a +3 on tier N (×1.8) — the launch relationship
+ *     kept — and the era kit for worlds 6–11 climbs t4 · t4+1 · t5 · t5+1 · t6
+ *     · t6+1 (`tests/helpers/trainee.ts`); the six late bosses were retuned to
+ *     stay a 45–65 s climax in those kits (`tests/pacing.test.ts`);
+ *   - SPEED SATURATES: the attack interval sits on the engine floor (500 ms)
+ *     from world 8 in era gear, so the late leggings carry DEF and the late
+ *     shoes carry REGEN — their speed numbers keep the ladder monotone, no more;
+ *   - CRIT CHANCE CAPS at 0.6, so the helmet's and gloves' late power is in
+ *     the crit MULTIPLIER (uncapped) and, for the gloves, raw ATK;
+ *   - PRICE: rows cost 25,600 · 47,400 · 71,000 🪙 — each rung costs no more
+ *     than the +3 below it (the tier jump is the better buy at the top), and
+ *     buying every item once plus the +3 on tier 6 is ≈ the whole campaign's
+ *     take (≈313k 🪙), so the shop completes at the endless finale, whose paid
+ *     waves buy the last +3. The +3 on tiers 4–5 is an optional sink; the
+ *     full six-tier ladder (≈485k 🪙) is deliberately more than the campaign.
+ *   `tests/shop.test.ts` pins all four, and the era ladder's affordability.
  */
 export const EQUIPMENT: readonly EquipmentDef[] = [
   /* --- helmet: focus — crit, the arms' family, worn on the head ---------
@@ -2970,6 +2997,45 @@ export const EQUIPMENT: readonly EquipmentDef[] = [
     note: 'זהב עם ציצית. מי שחובש אותה כבר ניצח פעם — ויודע איך.',
     icon: icon(`<path d="M9 28 a15 15 0 0 1 30 0 v5 h-30 Z" fill="#B08D57" stroke="#FDE68A" stroke-width="2" stroke-linejoin="round"/><rect x="22.5" y="24" width="3" height="10" rx="1.5" fill="#B08D57"/><path d="M15 12 q9 -10 18 0 q-9 -4 -18 0 Z" fill="#FDE68A"/><path d="M9 33 h30" stroke="#FDE68A" stroke-width="2.5" stroke-linecap="round"/>`),
   },
+  {
+    id: 'helmet_4',
+    he: 'קסדת הסערה',
+    en: 'Storm Helm',
+    slot: 'helmet',
+    tier: 4,
+    cost: 2900,
+    bonus: { critChance: 0.09, critMultiplier: 0.55, def: 16 },
+    color: '#0F172A',
+    accent: '#38BDF8',
+    note: 'הרוח שורקת דרך הכנפיים. הראש נשאר במקום — והמכה נוחתת פי שניים.',
+    icon: icon(`<path d="M9 28 a15 15 0 0 1 30 0 v5 h-30 Z" fill="#0F172A" stroke="#38BDF8" stroke-width="2" stroke-linejoin="round"/><path d="M9 24 l-6 -10 10 4 Z M39 24 l6 -10 -10 4 Z" fill="#38BDF8"/><path d="M9 33 h30" stroke="#38BDF8" stroke-width="2.5" stroke-linecap="round"/><circle cx="24" cy="21" r="2.5" fill="#38BDF8"/>`),
+  },
+  {
+    id: 'helmet_5',
+    he: 'כתר הטיטאנים',
+    en: 'Titan Crown',
+    slot: 'helmet',
+    tier: 5,
+    cost: 5400,
+    bonus: { critChance: 0.11, critMultiplier: 1, def: 30 },
+    color: '#7C2D12',
+    accent: '#FB923C',
+    note: 'כתר שנוצק באש. מי שנושא אותו לא מחפש ריב — הריב מוצא אותו.',
+    icon: icon(`<path d="M9 28 a15 15 0 0 1 30 0 v5 h-30 Z" fill="#7C2D12" stroke="#FB923C" stroke-width="2" stroke-linejoin="round"/><path d="M11 20 l4 -10 5 8 4 -12 4 12 5 -8 4 10 Z" fill="#FB923C" stroke="#7C2D12" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 33 h30" stroke="#FB923C" stroke-width="2.5" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'helmet_6',
+    he: 'הילת הכוכבים',
+    en: 'Starlit Halo',
+    slot: 'helmet',
+    tier: 6,
+    cost: 8100,
+    bonus: { critChance: 0.13, critMultiplier: 1.9, def: 56 },
+    color: '#1E1B4B',
+    accent: '#E0E7FF',
+    note: 'טבעת אור מעל הראש. אפילו הבוסים משפילים מבט.',
+    icon: icon(`<ellipse cx="24" cy="9" rx="13" ry="4" fill="none" stroke="#E0E7FF" stroke-width="2.5"/><path d="M9 30 a15 15 0 0 1 30 0 v5 h-30 Z" fill="#1E1B4B" stroke="#E0E7FF" stroke-width="2" stroke-linejoin="round"/><path d="M24 17 l2 4 4.5 .6 -3.3 3.1 .8 4.4 -4 -2.2 -4 2.2 .8 -4.4 -3.3 -3.1 4.5 -.6 Z" fill="#E0E7FF"/><path d="M9 35 h30" stroke="#E0E7FF" stroke-width="2.5" stroke-linecap="round"/>`),
+  },
 
   /* --- gloves: attack & crit ------------------------------------------- */
   {
@@ -3010,6 +3076,45 @@ export const EQUIPMENT: readonly EquipmentDef[] = [
     accent: '#FDE68A',
     note: 'זהב על העור. כל מכה היא הצהרה.',
     icon: icon(`<path d="M14 30 v-14 a4 4 0 0 1 8 0 v-4 a4 4 0 0 1 8 0 v4 a4 4 0 0 1 8 0 v16 a10 10 0 0 1 -10 10 h-8 a10 10 0 0 1 -10 -10 Z" fill="#B91C1C" stroke="#FDE68A" stroke-width="2"/><path d="M14 26 h24" stroke="#FDE68A" stroke-width="2.5"/><path d="M26 29 l3 6 -6 0 Z" fill="#FDE68A"/>`),
+  },
+  {
+    id: 'gloves_4',
+    he: 'אגרופי ברזל',
+    en: 'Iron Fists',
+    slot: 'gloves',
+    tier: 4,
+    cost: 3700,
+    bonus: { atk: 50, critChance: 0.09, critMultiplier: 0.4 },
+    color: '#374151',
+    accent: '#F87171',
+    note: 'ברזל על הפרקים. השק לא מתנדנד — הוא נקרע.',
+    icon: icon(`<path d="M14 30 v-14 a4 4 0 0 1 8 0 v-4 a4 4 0 0 1 8 0 v4 a4 4 0 0 1 8 0 v16 a10 10 0 0 1 -10 10 h-8 a10 10 0 0 1 -10 -10 Z" fill="#374151" stroke="#F87171" stroke-width="2"/><path d="M14 26 h24" stroke="#F87171" stroke-width="2.5"/><path d="M18 26 l2 -6 2 6 Z M24 26 l2 -7 2 7 Z M30 26 l2 -6 2 6 Z" fill="#F87171"/>`),
+  },
+  {
+    id: 'gloves_5',
+    he: 'כפפות הדרקון',
+    en: 'Dragon Gauntlets',
+    slot: 'gloves',
+    tier: 5,
+    cost: 6900,
+    bonus: { atk: 95, critChance: 0.11, critMultiplier: 0.75 },
+    color: '#7F1D1D',
+    accent: '#FB923C',
+    note: 'קשקשי דרקון על היד. כל אגרוף משאיר צלקת.',
+    icon: icon(`<path d="M14 30 v-14 a4 4 0 0 1 8 0 v-4 a4 4 0 0 1 8 0 v4 a4 4 0 0 1 8 0 v16 a10 10 0 0 1 -10 10 h-8 a10 10 0 0 1 -10 -10 Z" fill="#7F1D1D" stroke="#FB923C" stroke-width="2"/><path d="M14 26 h24 M16 32 h20 M19 37 h14" stroke="#FB923C" stroke-width="2.5" stroke-linecap="round"/><path d="M26 27 l4 5 -8 0 Z" fill="#FB923C"/>`),
+  },
+  {
+    id: 'gloves_6',
+    he: 'אגרופי הכוכבים',
+    en: 'Starforged Fists',
+    slot: 'gloves',
+    tier: 6,
+    cost: 10300,
+    bonus: { atk: 180, critChance: 0.13, critMultiplier: 1.4 },
+    color: '#312E81',
+    accent: '#C7D2FE',
+    note: 'נוצקו מאבן שנפלה מהשמיים. המכה מגיעה לפני הקול.',
+    icon: icon(`<path d="M14 30 v-14 a4 4 0 0 1 8 0 v-4 a4 4 0 0 1 8 0 v4 a4 4 0 0 1 8 0 v16 a10 10 0 0 1 -10 10 h-8 a10 10 0 0 1 -10 -10 Z" fill="#312E81" stroke="#C7D2FE" stroke-width="2"/><path d="M14 26 h24" stroke="#C7D2FE" stroke-width="2.5"/><circle cx="26" cy="33" r="5.5" fill="none" stroke="#C7D2FE" stroke-width="2"/><path d="M26 29 l1.3 2.7 3 .4 -2.2 2.1 .5 3 -2.6 -1.4 -2.6 1.4 .5 -3 -2.2 -2.1 3 -.4 Z" fill="#C7D2FE"/>`),
   },
 
   /* --- shirt: defence & HP (the chest plate) ---------------------------- */
@@ -3052,6 +3157,45 @@ export const EQUIPMENT: readonly EquipmentDef[] = [
     note: 'קל כמו נוצה, קשה כמו הר.',
     icon: icon(`<path d="M14 10 h6 a4 4 0 0 0 8 0 h6 l4 8 -5 3 v17 h-18 v-17 l-5 -3 Z" fill="#1E293B" stroke="#E2E8F0" stroke-width="2" stroke-linejoin="round"/><path d="M24 16 l3 6 6.6 .9 -4.8 4.6 1.2 6.5 -6 -3.2 -6 3.2 1.2 -6.5 -4.8 -4.6 6.6 -.9 Z" fill="#E2E8F0"/>`),
   },
+  {
+    id: 'shirt_4',
+    he: 'שריון הסערה',
+    en: 'Storm Mail',
+    slot: 'shirt',
+    tier: 4,
+    cost: 3100,
+    bonus: { def: 38, hp: 190 },
+    color: '#0C4A6E',
+    accent: '#7DD3FC',
+    note: 'לוחות פלדה שמחליקים ברקים. הגשם לא עוצר, גם אתם לא.',
+    icon: icon(`<path d="M14 10 h6 a4 4 0 0 0 8 0 h6 l4 8 -5 3 v17 h-18 v-17 l-5 -3 Z" fill="#0C4A6E" stroke="#7DD3FC" stroke-width="2" stroke-linejoin="round"/><path d="M18 18 q6 3 12 0 v9 q-6 7 -12 0 Z" fill="none" stroke="#7DD3FC" stroke-width="2" stroke-linejoin="round"/><path d="M25 19 l-3 5 h3 l-2 5 5 -7 h-3 Z" fill="#7DD3FC"/>`),
+  },
+  {
+    id: 'shirt_5',
+    he: 'שריון הדרקון',
+    en: 'Dragon Plate',
+    slot: 'shirt',
+    tier: 5,
+    cost: 5700,
+    bonus: { def: 72, hp: 360 },
+    color: '#7C2D12',
+    accent: '#FDBA74',
+    note: 'קשקשים ששרדו אש. הלב מוגן — ודופק חזק.',
+    icon: icon(`<path d="M14 10 h6 a4 4 0 0 0 8 0 h6 l4 8 -5 3 v17 h-18 v-17 l-5 -3 Z" fill="#7C2D12" stroke="#FDBA74" stroke-width="2" stroke-linejoin="round"/><path d="M18 20 q3 3 6 0 q3 3 6 0 M18 26 q3 3 6 0 q3 3 6 0 M18 32 q3 3 6 0 q3 3 6 0" fill="none" stroke="#FDBA74" stroke-width="2" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'shirt_6',
+    he: 'שריון הכוכבים',
+    en: 'Starforged Plate',
+    slot: 'shirt',
+    tier: 6,
+    cost: 8600,
+    bonus: { def: 137, hp: 680 },
+    color: '#312E81',
+    accent: '#E0E7FF',
+    note: 'נטווה מאור כוכבים. הפגיעות מתפזרות כמו אבק.',
+    icon: icon(`<path d="M14 10 h6 a4 4 0 0 0 8 0 h6 l4 8 -5 3 v17 h-18 v-17 l-5 -3 Z" fill="#312E81" stroke="#E0E7FF" stroke-width="2" stroke-linejoin="round"/><path d="M24 16 l2 5 5 0 -4 3 1.5 5 -4.5 -3 -4.5 3 1.5 -5 -4 -3 5 0 Z" fill="#E0E7FF"/><path d="M24 10 v6 M17 26 l2 0 M31 26 l-2 0 M24 34 v-4" stroke="#E0E7FF" stroke-width="2" stroke-linecap="round"/>`),
+  },
 
   /* --- belt: defence & HP ---------------------------------------------- */
   {
@@ -3092,6 +3236,45 @@ export const EQUIPMENT: readonly EquipmentDef[] = [
     accent: '#FBBF24',
     note: 'האבזם לבדו שוקל יותר מהמתחרים.',
     icon: icon(`<rect x="2" y="18" width="44" height="12" rx="3" fill="#78350F" stroke="#FBBF24" stroke-width="2"/><path d="M24 8 l14 8 v16 l-14 8 -14 -8 v-16 Z" fill="#FBBF24" stroke="#78350F" stroke-width="2"/><circle cx="24" cy="24" r="5" fill="#78350F"/>`),
+  },
+  {
+    id: 'belt_4',
+    he: 'חגורת הסערה',
+    en: 'Storm Belt',
+    slot: 'belt',
+    tier: 4,
+    cost: 3900,
+    bonus: { def: 51, hp: 230 },
+    color: '#134E4A',
+    accent: '#5EEAD4',
+    note: 'אבזם עוגן. הליבה נעולה, הסערה נשארת בחוץ.',
+    icon: icon(`<rect x="2" y="18" width="44" height="12" rx="3" fill="#134E4A" stroke="#5EEAD4" stroke-width="2"/><path d="M24 8 l14 8 v16 l-14 8 -14 -8 v-16 Z" fill="#5EEAD4" stroke="#134E4A" stroke-width="2"/><path d="M24 15 v14 M18 24 q6 6 12 0" fill="none" stroke="#134E4A" stroke-width="2.5" stroke-linecap="round"/><circle cx="24" cy="15" r="2.5" fill="none" stroke="#134E4A" stroke-width="2"/>`),
+  },
+  {
+    id: 'belt_5',
+    he: 'חגורת הטיטאנים',
+    en: 'Titan Belt',
+    slot: 'belt',
+    tier: 5,
+    cost: 7200,
+    bonus: { def: 97, hp: 440 },
+    color: '#7C2D12',
+    accent: '#FCD34D',
+    note: 'עור טיטאן, אבזם אש. שום סקוואט לא כבד מדי.',
+    icon: icon(`<rect x="2" y="18" width="44" height="12" rx="3" fill="#7C2D12" stroke="#FCD34D" stroke-width="2"/><circle cx="24" cy="24" r="12" fill="#FCD34D" stroke="#7C2D12" stroke-width="2"/><path d="M24 15 q6 6 0 12 q-3 -3 0 -6 q-6 6 0 12 q7 -7 0 -18 Z" fill="#7C2D12"/><circle cx="8" cy="24" r="2" fill="#FCD34D"/><circle cx="40" cy="24" r="2" fill="#FCD34D"/>`),
+  },
+  {
+    id: 'belt_6',
+    he: 'חגורת הכוכבים',
+    en: 'Starforged Belt',
+    slot: 'belt',
+    tier: 6,
+    cost: 10800,
+    bonus: { def: 184, hp: 840 },
+    color: '#1E1B4B',
+    accent: '#F5D0FE',
+    note: 'שבעה כוכבים על האבזם. הגב ישר, הכוח כולו במקום אחד.',
+    icon: icon(`<rect x="2" y="18" width="44" height="12" rx="3" fill="#1E1B4B" stroke="#F5D0FE" stroke-width="2"/><path d="M24 9 l4.2 8.5 9.4 1.4 -6.8 6.6 1.6 9.4 -8.4 -4.4 -8.4 4.4 1.6 -9.4 -6.8 -6.6 9.4 -1.4 Z" fill="#F5D0FE" stroke="#1E1B4B" stroke-width="2" stroke-linejoin="round"/><circle cx="24" cy="24" r="3" fill="#1E1B4B"/><circle cx="7" cy="24" r="2" fill="#F5D0FE"/><circle cx="41" cy="24" r="2" fill="#F5D0FE"/>`),
   },
 
   /* --- leggings: HP & attack speed (leg drive) -------------------------- */
@@ -3134,6 +3317,45 @@ export const EQUIPMENT: readonly EquipmentDef[] = [
     note: 'הברק מתחיל ברגליים. תמיד התחיל.',
     icon: icon(`<path d="M13 8 h22 v6 l-3 26 h-6 l-2 -18 -2 18 h-6 l-3 -26 Z" fill="#0C4A6E" stroke="#FACC15" stroke-width="2" stroke-linejoin="round"/><path d="M13 14 h22" stroke="#FACC15" stroke-width="2.5"/><path d="M25 18 l-6 10 h5 l-3 10 8 -12 h-5 Z" fill="#FACC15"/>`),
   },
+  {
+    id: 'leggings_4',
+    he: 'מכנסי הסערה',
+    en: 'Storm Greaves',
+    slot: 'leggings',
+    tier: 4,
+    cost: 3000,
+    bonus: { hp: 250, attackIntervalMs: -200, def: 14 },
+    color: '#0F766E',
+    accent: '#99F6E4',
+    note: 'מגני ברכיים שסופגים רעם. הרגליים דוחפות דרך הסערה.',
+    icon: icon(`<path d="M13 8 h22 v6 l-3 26 h-6 l-2 -18 -2 18 h-6 l-3 -26 Z" fill="#0F766E" stroke="#99F6E4" stroke-width="2" stroke-linejoin="round"/><path d="M13 14 h22" stroke="#99F6E4" stroke-width="2.5"/><ellipse cx="18.5" cy="28" rx="3" ry="4" fill="#99F6E4"/><ellipse cx="29.5" cy="28" rx="3" ry="4" fill="#99F6E4"/>`),
+  },
+  {
+    id: 'leggings_5',
+    he: 'רגלי הדרקון',
+    en: 'Dragon Greaves',
+    slot: 'leggings',
+    tier: 5,
+    cost: 5500,
+    bonus: { hp: 475, attackIntervalMs: -230, def: 30 },
+    color: '#9A3412',
+    accent: '#FDE68A',
+    note: 'קשקשים חמים על הירכיים. כל צעד — התפרצות.',
+    icon: icon(`<path d="M13 8 h22 v6 l-3 26 h-6 l-2 -18 -2 18 h-6 l-3 -26 Z" fill="#9A3412" stroke="#FDE68A" stroke-width="2" stroke-linejoin="round"/><path d="M13 14 h22" stroke="#FDE68A" stroke-width="2.5"/><path d="M16 19 l3 3 3 -3 M16 25 l3 3 3 -3 M26 19 l3 3 3 -3 M26 25 l3 3 3 -3" fill="none" stroke="#FDE68A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`),
+  },
+  {
+    id: 'leggings_6',
+    he: 'רגלי הכוכבים',
+    en: 'Starforged Greaves',
+    slot: 'leggings',
+    tier: 6,
+    cost: 8300,
+    bonus: { hp: 900, attackIntervalMs: -260, def: 60 },
+    color: '#3730A3',
+    accent: '#E0E7FF',
+    note: 'רגליים שדורכות על שמיים. הרצפה בקושי מרגישה.',
+    icon: icon(`<path d="M13 8 h22 v6 l-3 26 h-6 l-2 -18 -2 18 h-6 l-3 -26 Z" fill="#3730A3" stroke="#E0E7FF" stroke-width="2" stroke-linejoin="round"/><path d="M13 14 h22" stroke="#E0E7FF" stroke-width="2.5"/><path d="M18.5 20 l1.5 3 3.3 .4 -2.4 2.3 .6 3.3 -3 -1.6 -3 1.6 .6 -3.3 -2.4 -2.3 3.3 -.4 Z M29.5 20 l1.5 3 3.3 .4 -2.4 2.3 .6 3.3 -3 -1.6 -3 1.6 .6 -3.3 -2.4 -2.3 3.3 -.4 Z" fill="#E0E7FF"/>`),
+  },
 
   /* --- shoes: attack speed & HP ---------------------------------------- */
   {
@@ -3175,6 +3397,45 @@ export const EQUIPMENT: readonly EquipmentDef[] = [
     note: 'האולימפוס משאיל לכם קצת מהירות.',
     icon: icon(`<path d="M6 34 h22 l10 -12 q10 4 10 12 v4 h-42 Z" fill="#7C3AED" stroke="#FDE68A" stroke-width="2"/><path d="M8 22 q-6 -8 2 -10 q2 8 10 8 Z" fill="#FDE68A"/><path d="M40 22 q6 -8 -2 -10 q-2 8 -10 8 Z" fill="#FDE68A"/>`),
   },
+  {
+    id: 'shoes_4',
+    he: 'מגפי הסערה',
+    en: 'Storm Boots',
+    slot: 'shoes',
+    tier: 4,
+    cost: 4300,
+    bonus: { attackIntervalMs: -340, hp: 175, regen: 5 },
+    color: '#155E75',
+    accent: '#A5F3FC',
+    note: 'סוליית ברזל, קפיץ בעקב. הסערה רודפת — ולא משיגה.',
+    icon: icon(`<path d="M6 34 h22 l10 -12 q10 4 10 12 v4 h-42 Z" fill="#155E75" stroke="#A5F3FC" stroke-width="2"/><path d="M34 26 q8 2 10 8 h-12 Z" fill="#A5F3FC"/><rect x="6" y="34" width="42" height="5" rx="2" fill="#A5F3FC"/><path d="M12 28 l6 6 M20 24 l6 6" stroke="#A5F3FC" stroke-width="2" stroke-linecap="round"/>`),
+  },
+  {
+    id: 'shoes_5',
+    he: 'מגפי הדרקון',
+    en: 'Dragon Boots',
+    slot: 'shoes',
+    tier: 5,
+    cost: 7900,
+    bonus: { attackIntervalMs: -380, hp: 330, regen: 10 },
+    color: '#B91C1C',
+    accent: '#FDBA74',
+    note: 'כנפי דרקון על הקרסול. אתם לא רצים, אתם עפים.',
+    icon: icon(`<path d="M6 34 h22 l10 -12 q10 4 10 12 v4 h-42 Z" fill="#B91C1C" stroke="#FDBA74" stroke-width="2"/><path d="M8 22 q-6 -8 2 -10 q2 8 10 8 Z M12 26 q-8 -4 -4 -12 q4 6 12 8 Z" fill="#FDBA74"/><path d="M40 22 q6 -8 -2 -10 q-2 8 -10 8 Z M36 26 q8 -4 4 -12 q-4 6 -12 8 Z" fill="#FDBA74"/>`),
+  },
+  {
+    id: 'shoes_6',
+    he: 'מגפי הכוכבים',
+    en: 'Starforged Boots',
+    slot: 'shoes',
+    tier: 6,
+    cost: 11800,
+    bonus: { attackIntervalMs: -420, hp: 630, regen: 19 },
+    color: '#4C1D95',
+    accent: '#DDD6FE',
+    note: 'עקבות של אור. עד שהאויב מבין — כבר הייתם שם.',
+    icon: icon(`<path d="M6 34 h22 l10 -12 q10 4 10 12 v4 h-42 Z" fill="#4C1D95" stroke="#DDD6FE" stroke-width="2"/><path d="M8 22 q-6 -8 2 -10 q2 8 10 8 Z" fill="#DDD6FE"/><path d="M40 22 q6 -8 -2 -10 q-2 8 -10 8 Z" fill="#DDD6FE"/><circle cx="10" cy="41" r="2" fill="#DDD6FE"/><circle cx="18" cy="43" r="1.5" fill="#DDD6FE"/><circle cx="26" cy="41" r="2" fill="#DDD6FE"/>`),
+  },
 
   /* --- cape: regen & all-round ----------------------------------------- */
   {
@@ -3215,6 +3476,45 @@ export const EQUIPMENT: readonly EquipmentDef[] = [
     accent: '#FDE68A',
     note: 'נטווית מעננים. הבוסים מזהים אותה.',
     icon: icon(`<path d="M10 8 q14 8 28 0 v22 q-6 10 -14 10 -8 0 -14 -10 Z" fill="#4C1D95" stroke="#FDE68A" stroke-width="2"/><path d="M24 14 l3 7 7 1 -5 5 1 7 -6 -3 -6 3 1 -7 -5 -5 7 -1 Z" fill="#FDE68A"/>`),
+  },
+  {
+    id: 'cape_4',
+    he: 'גלימת הסערה',
+    en: 'Storm Cloak',
+    slot: 'cape',
+    tier: 4,
+    cost: 4700,
+    bonus: { regen: 19, atk: 28, def: 28, hp: 115 },
+    color: '#0E7490',
+    accent: '#CFFAFE',
+    note: 'עשויה מעננים שהתעייפו מהגשם. מתייבשת לפני שאתם.',
+    icon: icon(`<path d="M10 8 q14 8 28 0 v22 q-6 10 -14 10 -8 0 -14 -10 Z" fill="#0E7490" stroke="#CFFAFE" stroke-width="2"/><path d="M26 14 l-5 9 h5 l-3 9 8 -12 h-5 Z" fill="#CFFAFE"/>`),
+  },
+  {
+    id: 'cape_5',
+    he: 'גלימת הדרקון',
+    en: 'Dragon Cloak',
+    slot: 'cape',
+    tier: 5,
+    cost: 8800,
+    bonus: { regen: 36, atk: 54, def: 54, hp: 220 },
+    color: '#991B1B',
+    accent: '#FCD34D',
+    note: 'כנף דרקון על הכתפיים. חמה בחורף, לוהטת בקרב.',
+    icon: icon(`<path d="M10 8 q14 8 28 0 v22 q-6 10 -14 10 -8 0 -14 -10 Z" fill="#991B1B" stroke="#FCD34D" stroke-width="2"/><path d="M10 12 l4 -8 3 8 M31 12 l3 -8 4 8" fill="#FCD34D" stroke="#FCD34D" stroke-width="1.5" stroke-linejoin="round"/><path d="M24 14 q6 6 0 12 q-3 -3 0 -6 q-6 6 0 12 q7 -7 0 -18 Z" fill="#FCD34D"/>`),
+  },
+  {
+    id: 'cape_6',
+    he: 'גלימת הכוכבים',
+    en: 'Starforged Cloak',
+    slot: 'cape',
+    tier: 6,
+    cost: 13100,
+    bonus: { regen: 68, atk: 102, def: 102, hp: 420 },
+    color: '#1E1B4B',
+    accent: '#FDF4FF',
+    note: 'שמי לילה שלמים, מקופלים לגלימה. הבוסים כבר יודעים את השם.',
+    icon: icon(`<path d="M10 8 q14 8 28 0 v22 q-6 10 -14 10 -8 0 -14 -10 Z" fill="#1E1B4B" stroke="#FDF4FF" stroke-width="2"/><path d="M24 14 l2.4 5 5.6 .8 -4 3.9 1 5.5 -5 -2.6 -5 2.6 1 -5.5 -4 -3.9 5.6 -.8 Z" fill="#FDF4FF"/><circle cx="15" cy="16" r="1.6" fill="#FDF4FF"/><circle cx="33" cy="18" r="1.6" fill="#FDF4FF"/><circle cx="17" cy="30" r="1.3" fill="#FDF4FF"/><circle cx="31" cy="31" r="1.3" fill="#FDF4FF"/>`),
   },
 ] as const;
 
