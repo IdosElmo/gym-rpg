@@ -34,6 +34,7 @@ import type {
   DataStore,
   EventType,
   MealAiInfo,
+  MealAiItem,
   MealLoggedPayload,
   MealRecord,
   MealSource,
@@ -51,6 +52,12 @@ export const MEAL_MAX_PROTEIN = 500;
 export const MEAL_MAX_NAME_LEN = 300;
 const AI_MAX_ITEMS = 10;
 const AI_MAX_ITEM_LEN = 60;
+/** The breakdown mirrors the estimator's own caps (nutrition/aiPort.ts). */
+const AI_MAX_BREAKDOWN = 20;
+const AI_MAX_REASON_LEN = 200;
+const AI_MAX_ITEM_GRAMS = 2000;
+const AI_MAX_ITEM_KCAL = 2000;
+const AI_MAX_ITEM_PROTEIN = 500;
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const HHMM_RE = /^\d{2}:\d{2}$/;
@@ -81,6 +88,26 @@ function clampInt(v: unknown, max: number): number | null {
   return n < 0 ? 0 : n > max ? max : n;
 }
 
+/** A nullable clamped integer: `null` stays `null`, garbage becomes `null`. */
+function optClamp(v: unknown, max: number): number | null {
+  return v === null || v === undefined ? null : clampInt(v, max);
+}
+
+/** Read one stored breakdown line, or `null` when it has no name. */
+function aiItemOf(raw: unknown): MealAiItem | null {
+  if (!isRecord(raw)) return null;
+  const name = typeof raw['name'] === 'string' ? raw['name'].trim().slice(0, AI_MAX_ITEM_LEN) : '';
+  if (!name) return null;
+  return {
+    name,
+    quantity: typeof raw['quantity'] === 'string' ? raw['quantity'].trim().slice(0, AI_MAX_ITEM_LEN) : '',
+    grams: optClamp(raw['grams'], AI_MAX_ITEM_GRAMS),
+    kcal: optClamp(raw['kcal'], AI_MAX_ITEM_KCAL),
+    proteinG: optClamp(raw['proteinG'], AI_MAX_ITEM_PROTEIN),
+    assumed: raw['assumed'] === true,
+  };
+}
+
 function aiInfoOf(raw: unknown): MealAiInfo | null {
   if (!isRecord(raw)) return null;
   const model = raw['model'];
@@ -94,7 +121,22 @@ function aiInfoOf(raw: unknown): MealAiInfo | null {
       if (items.length >= AI_MAX_ITEMS) break;
     }
   }
-  return { model: model.slice(0, AI_MAX_ITEM_LEN), confidence: confidence as MealAiInfo['confidence'], items };
+  const breakdown: MealAiItem[] = [];
+  if (Array.isArray(raw['breakdown'])) {
+    for (const it of raw['breakdown']) {
+      const line = aiItemOf(it);
+      if (line) breakdown.push(line);
+      if (breakdown.length >= AI_MAX_BREAKDOWN) break;
+    }
+  }
+  const reason = typeof raw['reason'] === 'string' ? raw['reason'].trim().slice(0, AI_MAX_REASON_LEN) : '';
+  return {
+    model: model.slice(0, AI_MAX_ITEM_LEN),
+    confidence: confidence as MealAiInfo['confidence'],
+    items,
+    ...(breakdown.length > 0 ? { breakdown } : {}),
+    ...(reason ? { reason } : {}),
+  };
 }
 
 /**
@@ -303,4 +345,34 @@ export function recentDays(n: NutritionState, today: string, count = 7): DaySumm
     out.push({ date, ...dayTotals(n, date) });
   }
   return out;
+}
+
+export interface IntakeStats {
+  /** Days in the window with at least one meal logged. */
+  tracked: number;
+  /** Mean daily calories over the TRACKED days, or `null` when none. */
+  avgCalories: number | null;
+  /** Mean daily protein over the TRACKED days, or `null` when none. */
+  avgProtein: number | null;
+  /** The tracked day with the most calories, or `null` when none. */
+  peak: DaySummary | null;
+}
+
+/**
+ * The window's averages — over the days that were TRACKED, not the calendar:
+ * a day with no meal logged is far more often "forgot to log" than "ate
+ * nothing", and folding zeros into the mean would quietly flatter every diet.
+ */
+export function intakeStats(days: readonly DaySummary[]): IntakeStats {
+  const tracked = days.filter((d) => d.meals > 0);
+  if (tracked.length === 0) return { tracked: 0, avgCalories: null, avgProtein: null, peak: null };
+  const cal = tracked.reduce((s, d) => s + d.calories, 0);
+  const prot = tracked.reduce((s, d) => s + d.protein, 0);
+  const peak = tracked.reduce((best, d) => (d.calories > best.calories ? d : best), tracked[0] as DaySummary);
+  return {
+    tracked: tracked.length,
+    avgCalories: Math.round(cal / tracked.length),
+    avgProtein: Math.round(prot / tracked.length),
+    peak,
+  };
 }

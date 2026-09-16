@@ -7,35 +7,71 @@
 .nt-daynav .action-btn[disabled]{opacity:.4}
 .nt-date{font-size:14px; font-weight:700}
 
-/* Totals: one row per number, a quiet bar only when a target exists. */
-.nt-totals .nt-total-row{margin:10px 0 0}
-.nt-total{font-size:14px}
-.nt-total b{font-size:16px}
-.nt-bar{
-  height:8px; margin-top:6px; border-radius:99px; overflow:hidden;
-  background:var(--card-2); border:1px solid var(--line);
+/* The day's summary: two rings that fill toward the targets. One hue for the
+   fill (`--accent`); past the target the ring turns `--warn` — over target IS
+   "attention". The number sits inside as SVG digits (bidi-proof); the Hebrew
+   label is HTML beneath. */
+.nt-rings{display:flex; justify-content:space-around; gap:8px; margin-top:4px}
+.nt-ring{display:flex; flex-direction:column; align-items:center; gap:2px; flex:1 1 0; min-width:0}
+.nt-ring-svg{width:118px; height:118px; max-width:100%; display:block}
+.nt-ring-track{fill:none; stroke:var(--card-2); stroke-width:10}
+.nt-ring.no-target .nt-ring-track{stroke:var(--line); stroke-width:3; stroke-dasharray:3 5; stroke-linecap:round}
+.nt-ring-fill{
+  fill:none; stroke:var(--accent); stroke-width:10; stroke-linecap:round;
+  transform:rotate(-90deg); transform-origin:50% 50%;
+  animation:ringFill .7s cubic-bezier(.2,.7,.2,1) both;
 }
-.nt-bar-fill{height:100%; border-radius:99px; background:var(--accent); transition:width .25s}
-/* Over target IS "attention" — the one legitimate use of --warn here. */
-.nt-bar-fill.over{background:var(--warn)}
-@media (prefers-reduced-motion: reduce){ .nt-bar-fill{transition:none} }
+.nt-ring.over .nt-ring-fill{stroke:var(--warn)}
+.nt-ring-val{fill:var(--text); font-size:22px; font-weight:900; font-family:inherit; letter-spacing:-.02em; font-variant-numeric:tabular-nums}
+.nt-ring-pct{fill:var(--muted); font-size:10px; font-weight:700; font-family:inherit}
+.nt-ring.over .nt-ring-pct{fill:var(--warn)}
+.nt-ring-lab{font-size:12.5px; font-weight:700; text-align:center}
+.nt-ring-sub{font-size:11px; color:var(--muted); text-align:center}
+.nt-ring-sub.over{color:var(--warn); font-weight:700}
+.nt-status{text-align:center}
+@keyframes ringFill{from{stroke-dashoffset:var(--circ)}}
+@media (prefers-reduced-motion: reduce){ .nt-ring-fill{animation:none} }
 
-/* The meal list. */
+/* The meal list. Each meal is a card: the name row, a hairline showing its
+   share of the day's calories, and — for an estimated meal — the estimate
+   folded under a ▸. */
 .nt-meals{list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:8px}
 .nt-meal{
-  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  display:flex; flex-direction:column; gap:6px;
   background:var(--card-2); border:1px solid var(--line); border-radius:11px;
   padding:9px 12px;
 }
-.nt-meal-main{display:flex; align-items:baseline; gap:8px; min-width:0}
+.nt-meal-row{display:flex; align-items:center; justify-content:space-between; gap:10px}
+.nt-meal-main{display:flex; flex-direction:column; gap:2px; min-width:0}
 .nt-meal-name{font-size:14px; font-weight:600; overflow-wrap:anywhere}
-.nt-meal-time{font-size:11.5px}
-.nt-ai{font-size:12px}
-.nt-meal-nums{display:flex; align-items:center; gap:10px; flex:0 0 auto; font-size:12.5px; color:var(--muted)}
+.nt-meal-time{font-size:11.5px; font-variant-numeric:tabular-nums}
+.nt-ai{font-size:12px; margin-inline-start:6px}
+.nt-meal-nums{display:flex; align-items:center; gap:8px; flex:0 0 auto; font-size:12.5px; color:var(--muted)}
+.nt-num{white-space:nowrap; font-variant-numeric:tabular-nums}
 .nt-del{
   background:none; border:none; color:var(--danger); font-size:16px;
   min-width:44px; min-height:44px; margin:-8px -10px -8px 0;
 }
+.nt-share{height:3px; border-radius:99px; background:var(--card); overflow:hidden}
+.nt-share i{display:block; height:100%; background:var(--accent); opacity:.7; border-radius:99px}
+.nt-meal-more{margin-top:2px}
+.nt-meal-sum{
+  list-style:none; cursor:pointer; user-select:none;
+  display:flex; align-items:center; gap:6px; min-height:36px;
+  font-size:12px; font-weight:700; color:var(--muted);
+}
+.nt-meal-sum::-webkit-details-marker{display:none}
+.nt-caret{display:inline-block; transition:transform .15s; color:var(--accent)}
+.nt-meal-more[open] .nt-caret{transform:rotate(90deg)}
+.nt-meal-more[open] .nt-meal-sum{color:var(--text)}
+.nt-meal-more .nt-breakdown{margin:2px 0 4px; padding-inline-start:18px}
+.nt-items{margin:2px 0 4px; padding-inline-start:18px; display:flex; flex-wrap:wrap; gap:6px}
+.nt-chip{
+  display:inline-block; padding:3px 9px; border-radius:99px; font-size:11.5px;
+  background:var(--card); border:1px solid var(--line); color:var(--text);
+}
+.nt-reason{margin-top:4px; padding-inline-start:18px}
+@media (prefers-reduced-motion: reduce){ .nt-caret{transition:none} }
 
 /* The add form. */
 .nt-add .nt-field{display:block; font-size:12.5px; color:var(--muted); margin-top:10px}
@@ -68,16 +104,32 @@
 /* An assumed quantity IS "attention" — the one line the user should pin down. */
 .nt-assumed{color:var(--warn); font-size:11px; font-weight:700; margin-inline-start:6px; white-space:nowrap}
 
-/* The 7-day strip. */
-.nt-week{list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:6px}
-.nt-day{
-  display:flex; align-items:baseline; justify-content:space-between; gap:8px;
-  font-size:12.5px; color:var(--muted); padding:5px 2px;
-  border-bottom:1px solid var(--line);
+/* The intake chart: one hue (`--accent`) for the bars, today solid and the
+   rest a shade quieter; the mean is the same hue dashed; the target is `--ok`
+   dashed (it already means "good" elsewhere). An untracked day is a tick on
+   the baseline, not a zero-height bar. Labels are digits — bidi-proof SVG. */
+.nt-seg-row{display:flex; gap:6px; margin:0 0 8px}
+.nt-seg{
+  flex:1 1 0; min-width:0; min-height:44px;
+  border:1px solid var(--line); background:var(--card-2); color:var(--muted);
+  border-radius:99px; padding:6px 8px; font-size:12.5px; font-weight:700; transition:.15s;
 }
-.nt-day:last-child{border-bottom:none}
-.nt-day.today{color:var(--text); font-weight:700}
-.nt-day-nums{flex:0 0 auto}
+.nt-seg.active{background:var(--card); border-color:var(--accent); color:var(--accent)}
+.nt-chart{margin-top:2px}
+.nt-grid{stroke:var(--line); stroke-width:1; stroke-dasharray:2 3}
+.nt-grid.base{stroke-dasharray:none}
+.nt-ylab, .nt-xlab{fill:var(--dim); font-size:9px; font-family:inherit; font-variant-numeric:tabular-nums}
+.nt-xlab.today{fill:var(--text); font-weight:800}
+.nt-vlab{fill:var(--text); font-size:9.5px; font-weight:800; font-family:inherit}
+.nt-bar-day{fill:var(--accent); fill-opacity:.55; animation:sparkIn .5s ease both}
+.nt-bar-day.today{fill-opacity:1}
+.nt-tick{fill:var(--line)}
+.nt-avg{stroke:var(--accent); stroke-width:1.5; stroke-dasharray:4 3}
+.nt-goal{stroke:var(--ok); stroke-width:1.5; stroke-dasharray:5 4}
+/* Invisible per-day targets that carry the <title> tooltip. */
+.nt-hit{fill:transparent}
+.nt-chart-empty{padding:16px 10px 8px; font-size:12.5px}
+@media (prefers-reduced-motion: reduce){ .nt-bar-day{animation:none} }
 
 /* ---------- ⚖️ משקל — the weight log (the hub's second inner tab) ---------- */
 

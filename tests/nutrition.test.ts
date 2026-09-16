@@ -11,6 +11,7 @@ import {
   dayTotals,
   deleteMeal,
   emptyNutrition,
+  intakeStats,
   logMeal,
   mealRecordOf,
   mealsForDate,
@@ -214,5 +215,78 @@ describe('selectors', () => {
     ]);
     expect(days[5]?.calories).toBe(400);
     expect(shiftDate('2026-01-01', -1)).toBe('2025-12-31');
+  });
+});
+
+
+describe('the stored estimate breakdown', () => {
+  const today = '2026-08-27';
+  const ai = {
+    model: 'gemini',
+    confidence: 'medium' as const,
+    items: ['4 דפים דף אורז', 'קערה סלט ירקות'],
+    breakdown: [
+      { name: 'דף אורז', quantity: '4 דפים', grams: 36, kcal: 119, proteinG: 1, assumed: false },
+      { name: 'סלט ירקות', quantity: 'קערה', grams: 150, kcal: 33, proteinG: 2, assumed: true },
+    ],
+    reason: 'כמות לא צוינה: סלט ירקות',
+  };
+
+  it('survives the payload → record → blob → record round trip field for field', () => {
+    const read = mealRecordOf({ id: 'm1', date: today, name: 'דפי אורז', calories: 152, protein: 3, time: '', source: 'gemini_text', ai });
+    expect(read?.rec.ai).toEqual(ai);
+    const n = emptyNutrition();
+    n.meals['m1'] = read?.rec as NonNullable<typeof read>['rec'];
+    expect(normalizeNutrition(JSON.parse(JSON.stringify(n))).meals['m1']?.ai).toEqual(ai);
+  });
+
+  it('reads a meal WITHOUT a breakdown exactly as before (no empty arrays invented)', () => {
+    const read = mealRecordOf({
+      id: 'm2', date: today, name: 'אורז', calories: 100, protein: 2, time: '', source: 'gemini_text',
+      ai: { model: 'gemini', confidence: 'high', items: ['אורז'] },
+    });
+    expect(read?.rec.ai).toEqual({ model: 'gemini', confidence: 'high', items: ['אורז'] });
+    expect(read?.rec.ai).not.toHaveProperty('breakdown');
+    expect(read?.rec.ai).not.toHaveProperty('reason');
+  });
+
+  it('clamps a breakdown from another device: nameless lines dropped, numbers bounded, garbage nulled', () => {
+    const read = mealRecordOf({
+      id: 'm3', date: today, name: 'x', calories: 1, protein: 1, time: '', source: 'gemini_text',
+      ai: {
+        model: 'gemini', confidence: 'low', items: [],
+        breakdown: [
+          { name: '', kcal: 5 },
+          { name: 'שמן', quantity: 7, grams: 999999, kcal: -4, proteinG: 'x', assumed: 'yes' },
+          'not a line',
+        ],
+        reason: 42,
+      },
+    });
+    expect(read?.rec.ai?.breakdown).toEqual([{ name: 'שמן', quantity: '', grams: 2000, kcal: 0, proteinG: null, assumed: false }]);
+    expect(read?.rec.ai).not.toHaveProperty('reason');
+  });
+});
+
+describe('intakeStats', () => {
+  const day = (date: string, calories: number, protein: number, meals: number) => ({ date, calories, protein, meals });
+
+  it('averages over TRACKED days only — an unlogged day is not a zero', () => {
+    const s = intakeStats([day('2026-08-25', 2000, 100, 3), day('2026-08-26', 0, 0, 0), day('2026-08-27', 1000, 50, 1)]);
+    expect(s.tracked).toBe(2);
+    expect(s.avgCalories).toBe(1500);
+    expect(s.avgProtein).toBe(75);
+    expect(s.peak?.date).toBe('2026-08-25');
+  });
+
+  it('is empty, not NaN, over a window with nothing logged', () => {
+    expect(intakeStats([day('2026-08-27', 0, 0, 0)])).toEqual({ tracked: 0, avgCalories: null, avgProtein: null, peak: null });
+    expect(intakeStats([])).toEqual({ tracked: 0, avgCalories: null, avgProtein: null, peak: null });
+  });
+
+  it('rounds to whole units', () => {
+    const s = intakeStats([day('a', 1000, 10, 1), day('b', 1001, 11, 1), day('c', 1001, 11, 1)]);
+    expect(s.avgCalories).toBe(1001);
+    expect(s.avgProtein).toBe(11);
   });
 });

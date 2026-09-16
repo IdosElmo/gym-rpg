@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { logMeal } from '../src/core/nutrition.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
 import type { EstimateItem, EstimateResult, NutritionAiPort } from '../src/nutrition/aiPort.ts';
@@ -148,15 +149,78 @@ describe('the תזונה screen', () => {
     expect(document.querySelector('#header .day-meta')?.textContent).toContain('0');
   });
 
-  it('saves daily targets and draws the progress bars', () => {
+  it('saves daily targets and the rings start filling toward them', () => {
     const { store } = mount();
     openNutrition();
+    // no targets: two rings, neither can fill
+    expect(document.querySelectorAll('.nt-ring.no-target')).toHaveLength(2);
+    expect(document.querySelectorAll('.nt-ring-fill')).toHaveLength(0);
+
     type('#ntTgtCal', '2000');
     type('#ntTgtProt', '150');
     click('#ntTgtSave');
     expect(store.getState().nutrition.targets).toEqual({ calories: 2000, protein: 150 });
     expect(store.getEvents().filter((e) => e.type === 'nutrition_targets_set')).toHaveLength(1);
-    expect(document.querySelectorAll('.nt-bar')).toHaveLength(2);
+    expect(document.querySelectorAll('.nt-ring.has-target')).toHaveLength(2);
+    expect(document.querySelectorAll('.nt-ring-fill')).toHaveLength(2);
+
+    // half the calories: the ring is half way round, and says what is left
+    type('#ntName', 'צהריים');
+    type('#ntCal', '1000');
+    type('#ntProt', '160');
+    click('#ntAdd');
+    const rings = [...document.querySelectorAll('.nt-ring')];
+    expect(rings[0]?.querySelector('.nt-ring-pct')?.textContent).toBe('50%');
+    expect(rings[0]?.querySelector('.nt-ring-sub')?.textContent).toContain('נותרו 1000');
+    // protein over target: the ring is marked over and says by how much
+    expect(rings[1]?.classList.contains('over')).toBe(true);
+    expect(rings[1]?.querySelector('.nt-ring-sub')?.textContent).toContain('+10');
+  });
+
+  it('draws the intake chart with an average over TRACKED days and switches window and metric', () => {
+    const { store } = mount();
+    openNutrition();
+    // an empty log: the chart card exists, with no bars and the empty note
+    expect(document.querySelector('.nt-chart-card')).not.toBeNull();
+    expect(document.querySelectorAll('.nt-bar-day')).toHaveLength(0);
+    expect(document.querySelectorAll('.nt-tick')).toHaveLength(7);
+    expect(document.querySelector('.nt-chart-empty')).not.toBeNull();
+
+    type('#ntName', 'היום');
+    type('#ntCal', '1800');
+    type('#ntProt', '120');
+    click('#ntAdd');
+    click('#ntPrev');
+    type('#ntName', 'אתמול');
+    type('#ntCal', '2200');
+    type('#ntProt', '80');
+    click('#ntAdd');
+    click('#ntNext');
+
+    // two bars, five ticks; the mean is over the two logged days only
+    expect(document.querySelectorAll('.nt-bar-day')).toHaveLength(2);
+    expect(document.querySelectorAll('.nt-bar-day.today')).toHaveLength(1);
+    expect(document.querySelectorAll('.nt-tick')).toHaveLength(5);
+    expect(document.querySelector('.nt-avg')).not.toBeNull();
+    expect(document.querySelector('.chart-legend')?.textContent).toContain('ממוצע 2000 קלוריות');
+    expect(document.querySelector('.chart-legend')?.textContent).toContain('2 ימים עם רישום');
+    expect(store.getEvents().filter((e) => e.type === 'meal_logged')).toHaveLength(2);
+
+    // the target line appears once a target exists
+    expect(document.querySelector('.nt-goal')).toBeNull();
+    type('#ntTgtCal', '2100');
+    click('#ntTgtSave');
+    expect(document.querySelector('.nt-goal')).not.toBeNull();
+
+    // protein: same bars, the protein mean
+    click('[data-metric="protein"]');
+    expect(document.querySelector('.nt-seg[data-metric="protein"]')?.classList.contains('active')).toBe(true);
+    expect(document.querySelector('.chart-legend')?.textContent).toContain('ממוצע 100 ג׳');
+
+    // a month: thirty slots
+    click('[data-range="30"]');
+    expect(document.querySelectorAll('.nt-bar-day').length + document.querySelectorAll('.nt-tick').length).toBe(30);
+    expect(document.querySelector('.nt-chart-card .gc-sub')?.textContent).toContain('30');
   });
 
   it('walks a day back and still offers the add form — a forgotten dinner lands on yesterday', () => {
@@ -334,9 +398,56 @@ describe('the תזונה screen', () => {
 
     click('#ntAdd');
     const ev = store.getEvents().find((e) => e.type === 'meal_logged');
-    const ai = ev?.payload['ai'] as { items?: string[] } | undefined;
+    const ai = ev?.payload['ai'] as
+      | { items?: string[]; breakdown?: { name: string; kcal: number | null; assumed: boolean }[]; reason?: string }
+      | undefined;
     expect(ai?.items?.[0]).toBe('4 דפים דף אורז');
     expect(ai?.items?.[2]).toBe('קערה סלט ירקות');
+    // the priced breakdown and the reason ride along whole
+    expect(ai?.breakdown).toHaveLength(6);
+    expect(ai?.breakdown?.[0]).toMatchObject({ name: 'דף אורז', quantity: '4 דפים', grams: 36, kcal: 119, proteinG: 1 });
+    expect(ai?.breakdown?.[2]?.assumed).toBe(true);
+    expect(ai?.reason).toBe('כמות לא צוינה: סלט ירקות');
+
+    // …and the meal's row can reopen it: a fold with the same six lines
+    const more = document.querySelector<HTMLDetailsElement>('.nt-meal .nt-meal-more');
+    expect(more).not.toBeNull();
+    expect(more?.querySelector('summary')?.textContent).toContain('בינוני');
+    const stored = [...(more?.querySelectorAll('.nt-bd-row') ?? [])];
+    expect(stored).toHaveLength(6);
+    expect(stored[0]?.textContent).toContain('119');
+    expect(more?.querySelectorAll('.nt-assumed')).toHaveLength(1);
+    expect(more?.querySelector('.nt-reason')?.textContent).toContain('סלט ירקות');
+    // a manual meal has nothing to unfold
+    type('#ntName', 'תפוח');
+    type('#ntCal', '80');
+    click('#ntAdd');
+    expect(document.querySelectorAll('.nt-meal')).toHaveLength(2);
+    expect(document.querySelectorAll('.nt-meal-more')).toHaveLength(1);
+  });
+
+  it('an older estimated meal (labels only, no breakdown) unfolds to its ingredient chips', () => {
+    const { store, render } = mount();
+    logMeal(
+      store,
+      {
+        date: new Date().toISOString().slice(0, 10),
+        name: 'אורז עם עוף',
+        calories: 620,
+        protein: 42,
+        time: '13:00',
+        source: 'gemini_text',
+        ai: { model: 'gemini', confidence: 'medium', items: ['אורז', 'חזה עוף'] },
+      },
+      'old-1',
+    );
+    render();
+    openNutrition();
+    const more = document.querySelector('.nt-meal .nt-meal-more');
+    expect(more).not.toBeNull();
+    expect(more?.querySelectorAll('.nt-bd-row')).toHaveLength(0);
+    const chips = [...(more?.querySelectorAll('.nt-chip') ?? [])].map((c) => c.textContent);
+    expect(chips).toEqual(['אורז', 'חזה עוף']);
   });
 
   it('takes the description from a multi-line box and stores it as one line', () => {
