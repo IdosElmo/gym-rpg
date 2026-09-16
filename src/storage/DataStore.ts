@@ -1225,12 +1225,36 @@ export interface DataMergedPayload extends Record<string, unknown> {
 /** Where a meal's numbers came from. Display-only — nothing re-derives them. */
 export type MealSource = 'manual' | 'gemini_text' | 'gemini_photo';
 
+/**
+ * One priced line of an estimate's breakdown, as it was on screen when the
+ * meal was saved. Numbers are `null` for a line the estimator did not price
+ * (an answer from an older function build).
+ */
+export interface MealAiItem {
+  name: string;
+  /** The quantity as understood ("4 דפים"), '' when none was given. */
+  quantity: string;
+  grams: number | null;
+  kcal: number | null;
+  proteinG: number | null;
+  /** The description gave no usable quantity — a standard portion was assumed. */
+  assumed: boolean;
+}
+
 /** Bookkeeping of an AI estimation, kept on the meal for the 🤖 marker. */
 export interface MealAiInfo {
   model: string;
   confidence: 'low' | 'medium' | 'high';
-  /** What the model thought it saw ("אורז", "חזה עוף"…). */
+  /** What the model thought it saw ("אורז", "חזה עוף"…) — one label per line. */
   items: string[];
+  /**
+   * The itemized breakdown behind the numbers, so the meal list can show WHERE
+   * a total came from long after the estimate. Absent on meals logged before
+   * the breakdown was kept (their `items` still name the lines).
+   */
+  breakdown?: MealAiItem[];
+  /** Why the confidence was not high (Hebrew, one sentence). Absent when it was. */
+  reason?: string;
 }
 
 /**
