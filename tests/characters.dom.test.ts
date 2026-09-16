@@ -917,13 +917,26 @@ describe('the shirt and the leggings', () => {
   });
 
   it('gives each tier its own hem, and every stroke the 62px card can resolve', () => {
+    // The LAUNCH tiers are a length ladder: three-quarter, ankle, over the
+    // collar. The late tiers (4–6) are all full length and are told apart by
+    // their armour instead — one signature class per tier, on BOTH legs.
     const hems = new Set<number>();
-    for (const item of LEGGINGS) {
+    for (const item of LEGGINGS.filter((i) => i.tier <= 3)) {
       const doc = draw('hero_m', 8, { leggings: item.id });
       const calf = doc.querySelector('.ch-leg-calf');
       hems.add((pointsOf(calf as Element)[1] as [number, number])[1]);
     }
-    expect(hems.size, 'the three tiers end at the same place').toBe(LEGGINGS.length);
+    expect(hems.size, 'the three launch tiers end at the same place').toBe(3);
+    const armour: Record<number, string> = { 4: '.ch-leg-plate', 5: '.ch-leg-scale', 6: '.ch-leg-star' };
+    for (const item of LEGGINGS.filter((i) => i.tier >= 4)) {
+      const doc = draw('hero_m', 8, { leggings: item.id });
+      const calf = doc.querySelector('.ch-leg-calf');
+      expect((pointsOf(calf as Element)[1] as [number, number])[1], `${item.id} is not full length`).toBe(290);
+      expect(doc.querySelectorAll(`[data-slot="leggings"] ${armour[item.tier]}`), `${item.id} armour`).toHaveLength(2);
+      for (const other of Object.values(armour).filter((c) => c !== armour[item.tier])) {
+        expect(doc.querySelectorAll(`[data-slot="leggings"] ${other}`), `${item.id} wears ${other}`).toHaveLength(0);
+      }
+    }
 
     const shirtHems = new Set<number>();
     for (const item of SHIRTS) {
@@ -931,7 +944,8 @@ describe('the shirt and the leggings', () => {
       expect(body, item.id).not.toBeNull();
       shirtHems.add(Math.max(...pointsOf(body as Element).map((p) => p[1])));
     }
-    expect(shirtHems.size, 'the three shirts end at the same place').toBe(SHIRTS.length);
+    expect(shirtHems.size, 'two shirts end at the same place').toBe(SHIRTS.length);
+    expect(SHIRTS.length).toBe(6);
 
     for (const item of [...SHIRTS, ...LEGGINGS]) {
       const doc = draw('hero_f', 12, { [item.slot]: item.id });
@@ -943,7 +957,8 @@ describe('the shirt and the leggings', () => {
       // the three tiers are three genuinely different garments
       expect(item.color).not.toBe(item.accent);
     }
-    expect(new Set([...SHIRTS, ...LEGGINGS].map((i) => `${i.color}${i.accent}`)).size).toBe(6);
+    expect(new Set([...SHIRTS, ...LEGGINGS].map((i) => `${i.color}${i.accent}`)).size).toBe(SHIRTS.length + LEGGINGS.length);
+    expect(SHIRTS.length + LEGGINGS.length).toBe(12);
   });
 
   /* ---------------------------------------------------------- paint order */

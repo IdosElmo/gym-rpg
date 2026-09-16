@@ -121,13 +121,16 @@ describe('the ramp is the pacer', () => {
   it('makes the final wave a real test two levels lower — the ramp, not the gate, sends you to the gym', () => {
     // For a character two levels short on every part the final mini-boss is an
     // outright wall in the first five worlds (knocked out, or three defeats
-    // before it falls). In the tier-3 late game the kit deliberately carries
-    // more of the power curve than a couple of levels do (see the ERA ladder),
-    // so the test there is three levels short and TIME: at least a fifth
-    // longer, or a wall.
+    // before it falls). In the late game the kit deliberately carries more of
+    // the power curve than a couple of levels do (see the ERA ladder), so the
+    // test there is three levels short and TIME: at least a tenth longer, or a
+    // wall. (It was a fifth in the tier-3 era; the late ladder — tiers 4–6,
+    // PHASE 13 — carries more of the curve still, and the gym now shows up
+    // twice: as levels, measured here, and as the coins that bought the kit,
+    // measured in the next test.)
     // The LAST world is exempt: after its boss it turns endless, and its ramp
     // simply keeps climbing — that endless scaling, not its final wave, is
-    // where world 9 sends a fully kitted character back to the gym.
+    // where world 11 sends a fully kitted character back to the gym.
     for (const w of WORLDS.filter((x) => x.id < WORLD_COUNT)) {
       const levels = levelsAtBoss(runs.ab4, w.id);
       const gear = ERA_GEAR[w.id] as (typeof ERA_GEAR)[number];
@@ -136,7 +139,24 @@ describe('the ramp is the pacer', () => {
       const short = fightFinalWave(w.id, shiftLevels(levels, late ? -3 : -2), gear);
       const wall = !short.cleared || short.defeats >= 3;
       if (!late) expect(wall, `world ${w.id}: two levels short should be a wall`).toBe(true);
-      else expect(wall || short.ms >= at.ms * 1.2, `world ${w.id}: three levels short is no harder`).toBe(true);
+      else expect(wall || short.ms >= at.ms * 1.1, `world ${w.id}: three levels short is no harder`).toBe(true);
+    }
+  });
+
+  it('makes the final wave a real test one rung of gear lower — the shop is the gym too', () => {
+    // From world 6 the era kit is the LATE ladder, bought with the coins the
+    // previous world's waves paid — coins that cost ⚡, which cost training. So
+    // the rung is a real part of the ramp: in the PREVIOUS world's kit, the
+    // final wave takes at least a quarter longer, or is a wall outright.
+    for (const w of WORLDS.filter((x) => x.id >= 6 && x.id < WORLD_COUNT)) {
+      const levels = levelsAtBoss(runs.ab4, w.id);
+      const gear = ERA_GEAR[w.id] as (typeof ERA_GEAR)[number];
+      const previous = ERA_GEAR[w.id - 1] as (typeof ERA_GEAR)[number];
+      expect(previous, `world ${w.id} has no rung below`).not.toEqual(gear);
+      const at = fightFinalWave(w.id, levels, gear);
+      const short = fightFinalWave(w.id, levels, previous);
+      const wall = !short.cleared || short.defeats >= 3;
+      expect(wall || short.ms >= at.ms * 1.25, `world ${w.id}: last world's kit is no harder`).toBe(true);
     }
   });
 

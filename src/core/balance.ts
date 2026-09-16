@@ -11,6 +11,18 @@
  *   The FIRST world is 50 waves → ≈2.4 workouts of ENERGY; every later world is
  *   longer (see `WORLDS[].waves`), up to 200 waves ≈ 9.0 workouts for the last.
  *
+ * PHASE 13 — THE LATE GEAR LADDER (tiers 4–6). A player who takes the launch
+ *   wardrobe to +3 by world 5 has spent ≈53k 🪙 and has six worlds (≈244k 🪙)
+ *   of nothing to buy. Three more tiers per slot went in (`data/gameContent.ts`)
+ *   and the pacing's era ladder now climbs them from world 6 (`ERA_GEAR`,
+ *   t4 · t4+1 · t5 · t5+1 · t6 · t6+1). No engine curve moved: the six late
+ *   boss `hpMult`s went UP (3.9 → 7.6, 3.7 → 8, 3.4 → 9.5, 2.8 → 6.7,
+ *   2.6 → 6.8, 2.6 → 15.5) by exactly the share the new kits took off their
+ *   fights, which puts all six back at 51–77 s; worlds 1–5 are untouched. The
+ *   coin curve is untouched too: the late rows are priced against it, so the
+ *   whole campaign buys every item once and the top tier's +3, and the endless
+ *   finale pays the rest (`tests/shop.test.ts`).
+ *
  * PHASE 12 — THE HELMET AND TWO MORE WORLDS. A seventh equipment slot (🪖 קסדה,
  *   crit — priced and weighted under the gloves) is a flat power gain on every
  *   era kit, and its ≈6,060 🪙 lifetime cost needed paying for; so the campaign
@@ -123,10 +135,10 @@ export const BALANCE = {
   /* ------------------------------------------------------------- upgrades */
   /**
    * EQUIPMENT UPGRADES — per-item levels (+1/+2/+3) bought with coins, on top
-   * of the three TIERS the shop already sells as separate items.
+   * of the six TIERS the shop already sells as separate items.
    *
    * Two curves, both expressed relative to the item itself, so one rule prices
-   * and powers all eighteen pieces and a new item needs no new numbers:
+   * and powers all forty-two pieces and a new item needs no new numbers:
    *   cost  = `item.cost × costCurve[N]` spent in total to reach +N
    *   bonus = `item.bonus × statCurve[N]` once it is there
    *
@@ -324,13 +336,14 @@ export const BALANCE = {
        * keep 1.6×, later worlds step by `lateWorldMult`), because a purse that
        * kept compounding at 1.6× would pay ~2,300 🪙 for a single world-9 wave —
        * a quarter of the whole shop, per wave. As tapered, the nine worlds pay
-       * ≈313,000 🪙 across eleven worlds against ≈53,310 🪙 of sinks — three tiers
-       * × SEVEN slots, every one of them taken to +3, an item's lifetime cost
-       * being 3× its price. That is a little under six wardrobes' worth of
-       * income across the campaign, which is the ratio the shop is tuned for:
-       * the late worlds are meant to be fought in fully upgraded tier-3 gear,
-       * and no slot is ever out of reach of the world that is supposed to pay
-       * for it. PHASE 11 made the worlds 1.6× longer and eased the late step
+       * ≈313,000 🪙 across eleven worlds against ≈53,310 🪙 of LAUNCH sinks —
+       * three tiers × SEVEN slots, every one of them taken to +3, an item's
+       * lifetime cost being 3× its price. That is a little under six launch
+       * wardrobes' worth of income across the campaign, which is the ratio the
+       * launch ladder is tuned for; the LATE ladder (tiers 4–6, PHASE 13) is
+       * then priced so that every item once plus the top tier's +3 is ≈ that
+       * same income, so the late worlds are fought in tier 4–6 gear and no
+       * slot is ever out of reach of the world that is supposed to pay for it. PHASE 11 made the worlds 1.6× longer and eased the late step
        * from 1.2 to 1.12; PHASE 12 added two worlds and eased it again to 1.05
        * (bosses 1.35 → 1.25) for the same reason. `waveStep` here is the
        * CLASSIC 49-step ramp (`coinStretch`), never the world's `span`.

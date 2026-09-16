@@ -297,10 +297,10 @@ describe('boss specs', () => {
    * ERA ladder itself lives in `tests/helpers/trainee.ts`. Here only the
    * content the retune enumerated is pinned, so a stray edit shows up by name.
    */
-  it('wears every slot in an era kit, and pins the nine boss multipliers', () => {
+  it('wears every slot in an era kit, and pins the eleven boss multipliers', () => {
     // the kit really is the whole wardrobe — this is what makes the ladder
     // self-maintaining when a slot is added
-    for (const tier of [1, 2, 3]) {
+    for (const tier of [1, 2, 3, 4, 5, 6]) {
       const ids = EQUIPMENT_SLOTS.map((slot) => `${slot}_${tier}`);
       expect(ids.filter((id) => equipmentById(id))).toHaveLength(EQUIPMENT_SLOTS.length);
     }
@@ -308,9 +308,11 @@ describe('boss specs', () => {
     // late bosses came DOWN because their worlds' ramps went up (`span`).
     const hp = (world: number): number => worldBossOf(world)?.hpMult ?? 0;
     expect([1, 2, 3, 4].map(hp)).toEqual([5, 5.5, 6, 7]);
-    expect([5, 6, 7, 8, 9].map(hp)).toEqual([3.8, 3.9, 3.7, 3.4, 2.8]);
-    // PHASE 12: the two new worlds, tuned against the seven-slot era kit
-    expect([10, 11].map(hp)).toEqual([2.6, 2.6]);
+    expect([5].map(hp)).toEqual([3.8]);
+    // PHASE 13: worlds 6–11 are fought in the LATE ladder (tiers 4–6, see
+    // `ERA_GEAR`), so their bosses went UP by exactly the share the new kits
+    // took off their own fights — all six are back at a 45–65 s climax.
+    expect([6, 7, 8, 9, 10, 11].map(hp)).toEqual([7.6, 8, 9.5, 6.7, 6.8, 15.5]);
   });
 });
 
@@ -326,7 +328,10 @@ describe('boss_defeated', () => {
     return store;
   }
 
-  function killBoss(store: LocalStore, world: number, level = 30): BossResult {
+  // Level 30 flattens the launch bosses; the late ones (worlds 6–11) are tuned
+  // against the late gear ladder and want a stronger bare character to fall
+  // inside the fight budget — the reducer under test does not care which.
+  function killBoss(store: LocalStore, world: number, level = world >= 6 ? 70 : 30): BossResult {
     const stats = statsAt(level);
     const state = createBattle({
       seed: 31337,

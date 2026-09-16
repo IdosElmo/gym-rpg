@@ -19,6 +19,7 @@ import {
   WORLDS,
   WORLD_BOSSES,
   equipmentById,
+  equipmentForSlot,
 } from '../src/data/gameContent.ts';
 import { upgradeStepCost } from '../src/core/upgrades.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
@@ -298,10 +299,11 @@ describe('the coin shop on the דמות screen', () => {
         head?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       }
 
-      // the drawer is titled in Hebrew and lists the slot's three tiers
+      // the drawer is titled in Hebrew and lists the slot's whole ladder (six tiers)
       expect(document.querySelector(`[data-slot-toggle="${slot}"]`)?.textContent).toContain(SLOT_HE[slot]);
       expect(document.querySelector(`[data-slot-toggle="${slot}"]`)?.textContent).toContain(SLOT_EMOJI[slot]);
-      expect(document.querySelectorAll('.eq-item')).toHaveLength(3);
+      expect(document.querySelectorAll('.eq-item')).toHaveLength(equipmentForSlot(slot).length);
+      expect(document.querySelectorAll('.eq-item')).toHaveLength(6);
       expect(document.querySelector(`[data-slot="${slot}"]`)?.innerHTML).toBe('');
 
       document
