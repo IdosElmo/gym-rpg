@@ -322,3 +322,16 @@ export function weightSummary(n: NutritionState): WeightSummary {
       (n.weightTarget <= first.kg ? latest.kg <= n.weightTarget : latest.kg >= n.weightTarget),
   };
 }
+
+/**
+ * How far the journey from the FIRST weigh-in to the goal has come, 0..1:
+ * the share of the distance already covered, in whichever direction the goal
+ * lies. Past the goal it is 1; before the start (moved the wrong way) it is
+ * 0; a goal equal to the start is trivially 1. Display only — the ring.
+ */
+export function goalProgress(first: number, latest: number, target: number): number {
+  const span = first - target;
+  if (span === 0) return 1;
+  const done = (first - latest) / span;
+  return done < 0 ? 0 : done > 1 ? 1 : Math.round(done * 1000) / 1000;
+}

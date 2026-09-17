@@ -11,6 +11,7 @@ import { applyNutritionEvent, emptyNutrition, normalizeNutrition } from '../src/
 import {
   WEIGHT_TREND_WINDOW,
   deleteWeight,
+  goalProgress,
   kgOf,
   logWeight,
   movingAverage,
@@ -312,5 +313,19 @@ describe('selectors', () => {
     expect(weightSummary(bulk).targetReached).toBe(false);
     bulk.weightTarget = 71;
     expect(weightSummary(bulk).targetReached).toBe(true);
+  });
+});
+
+describe('goalProgress — the journey ring', () => {
+  it('is the share of the distance from the first weigh-in to the goal, either direction', () => {
+    expect(goalProgress(84, 82, 80)).toBe(0.5); // a cut, half way
+    expect(goalProgress(70, 73, 74)).toBe(0.75); // a bulk, three quarters
+    expect(goalProgress(84, 84, 80)).toBe(0); // not moved yet
+  });
+
+  it('clamps: past the goal is 1, moved the wrong way is 0, a goal at the start is 1', () => {
+    expect(goalProgress(84, 79, 80)).toBe(1);
+    expect(goalProgress(84, 85, 80)).toBe(0);
+    expect(goalProgress(80, 83, 80)).toBe(1);
   });
 });

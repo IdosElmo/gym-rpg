@@ -22,6 +22,9 @@
   animation:ringFill .7s cubic-bezier(.2,.7,.2,1) both;
 }
 .nt-ring.over .nt-ring-fill{stroke:var(--warn)}
+/* A reached GOAL WEIGHT is "good" — the ring's one legitimate use of --ok. */
+.nt-ring.done .nt-ring-fill{stroke:var(--ok)}
+.nt-ring-sub.done{color:var(--ok); font-weight:700}
 .nt-ring-val{fill:var(--text); font-size:22px; font-weight:900; font-family:inherit; letter-spacing:-.02em; font-variant-numeric:tabular-nums}
 .nt-ring-pct{fill:var(--muted); font-size:10px; font-weight:700; font-family:inherit}
 .nt-ring.over .nt-ring-pct{fill:var(--warn)}
@@ -136,10 +139,16 @@
 /* The summary: one big number, four quiet deltas under it. Deltas are NOT
    coloured by direction — down is a cut's goal and up a bulk's, and the
    tracker does not presume which. */
-.wt-current{display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-top:2px}
-.wt-current b{font-size:34px; font-weight:900; letter-spacing:-.02em; line-height:1.1}
+/* The hero row: the journey ring beside the big number. */
+.wt-hero{display:flex; align-items:center; gap:14px; margin-top:2px}
+.wt-hero .nt-ring{flex:0 0 auto}
+.wt-hero-text{display:flex; flex-direction:column; gap:4px; flex:1 1 0; min-width:0}
+.wt-current{display:flex; align-items:baseline; gap:8px; flex-wrap:wrap}
+.wt-current b{font-size:34px; font-weight:900; letter-spacing:-.02em; line-height:1.1; font-variant-numeric:tabular-nums}
 .wt-unit{font-size:14px; color:var(--muted); font-weight:700}
-.wt-trend-val{font-size:12.5px; margin-inline-start:auto}
+.wt-trend-val, .wt-range-val{font-size:12.5px; font-variant-numeric:tabular-nums}
+/* A signed delta in the ring's middle is one LTR run; a bit smaller than a count. */
+.nt-ring-val.wt-ring-delta{font-size:19px}
 .wt-stats{display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:12px}
 .wt-stat{
   display:flex; flex-direction:column; align-items:center; gap:2px;
@@ -167,7 +176,8 @@
    already means "good" everywhere else; the trend is the same hue, dashed and
    quieter. Gridline labels are digits — the one SVG text bidi cannot mangle. */
 .wt-chart{margin-top:2px}
-.wt-grid{stroke:var(--line); stroke-width:1}
+.wt-grid{stroke:var(--line); stroke-width:1; stroke-dasharray:2 3}
+.wt-vlab{fill:var(--text); font-size:9.5px; font-weight:800; font-family:inherit; font-variant-numeric:tabular-nums}
 .wt-ylab{fill:var(--dim); font-size:9px; font-family:inherit; font-variant-numeric:tabular-nums}
 .wt-area{fill:var(--accent); fill-opacity:.12; animation:sparkIn .5s ease both}
 .wt-line{fill:none; stroke:var(--accent); stroke-width:2; stroke-linejoin:round; stroke-linecap:round}
@@ -190,9 +200,13 @@
 /* The entry list — newest first, the delta against the entry before it. */
 .wt-list{list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:8px}
 .wt-row{
-  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  display:flex; flex-direction:column; gap:6px;
   background:var(--card-2); border:1px solid var(--line); border-radius:11px; padding:9px 12px;
 }
+.wt-row.latest{border-color:#3B82F666}
+.wt-row-top{display:flex; align-items:center; justify-content:space-between; gap:10px}
+.wt-pos{height:3px; border-radius:99px; background:var(--card); overflow:hidden}
+.wt-pos i{display:block; height:100%; background:var(--accent); opacity:.7; border-radius:99px}
 .wt-row-main{display:flex; flex-direction:column; gap:2px; min-width:0}
 .wt-row-date{font-size:13.5px; font-weight:600}
 .wt-row-note{font-size:11.5px; overflow-wrap:anywhere}
