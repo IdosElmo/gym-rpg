@@ -287,8 +287,8 @@ function compareCard(n: NutritionState): string {
     ).join('')}</div>
     ${comparePane(s, n)}
     <div class="chart-legend ph-cmp-legend">
-      <span class="cl-item">${esc(fmtDate(s.before.date))} ← ${esc(fmtDate(s.after.date))}</span>
-      ${s.kgBefore !== null && s.kgAfter !== null ? `<span class="cl-item">${fmtKg(s.kgBefore)} ← ${fmtKg(s.kgAfter)} ק״ג</span>` : ''}
+      <span class="cl-item">מ־${esc(fmtDate(s.before.date))} עד ${esc(fmtDate(s.after.date))}</span>
+      ${s.kgBefore !== null && s.kgAfter !== null ? `<span class="cl-item">מ־${fmtKg(s.kgBefore)} ל־${fmtKg(s.kgAfter)} ק״ג</span>` : ''}
       ${delta}
     </div>
     <button class="action-btn ghost ph-cmp-clear" id="phClearPick" type="button">ניקוי הבחירה</button>
