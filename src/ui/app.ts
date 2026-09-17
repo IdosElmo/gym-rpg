@@ -118,7 +118,7 @@ export interface AppHooks {
    * how a picked file becomes a stored image. Absent = an in-memory store,
    * so the screen still works and photos last until reload.
    */
-  photos?: Pick<PhotosDeps, 'blobs' | 'prepare'>;
+  photos?: Pick<PhotosDeps, 'blobs' | 'prepare' | 'camera'>;
   /** Fired at the end of every full render (lets main.ts clear a deferred repaint). */
   onRender?: () => void;
 }
@@ -453,7 +453,7 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
   }
 
   /** The 📸 screen's bytes: what main.ts supplied, or memory (bare tests). */
-  const photoDeps: Pick<PhotosDeps, 'blobs' | 'prepare'> = hooks.photos ?? { blobs: new MemoryBlobStore() };
+  const photoDeps: Pick<PhotosDeps, 'blobs' | 'prepare' | 'camera'> = hooks.photos ?? { blobs: new MemoryBlobStore() };
 
   /** Repaint the 📸 screen in place after a photo lands or goes — header included. */
   function renderPhotosScreen(): void {

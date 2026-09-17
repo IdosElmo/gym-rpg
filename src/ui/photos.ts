@@ -21,6 +21,13 @@
  * wipe slider, or the newer laid over the older at a chosen opacity. With
  * nothing picked, the card offers the pose's first-vs-newest as a start.
  *
+ * THE LIVE CAMERA (when `deps.camera` says it can) is a full-screen sheet:
+ * the viewfinder, the ghost over it at a chosen opacity, a 3-second timer,
+ * a flip button, the shutter — then the shot itself for a yes/no before it
+ * is stored. The session is screen-local and STOPPED on close, on a screen
+ * reset, and after a save: a camera left running is a battery and a privacy
+ * problem. The file picker stays beside it for the day the camera says no.
+ *
  * IMAGES ARRIVE AFTER THE HTML. The screen renders as a string like every
  * other, with an empty <img> per tile; `hydrate` then fetches each blob and
  * points the tile at an object URL. URLs are cached per photo id for the
@@ -47,6 +54,7 @@ import {
   type CompareSummary,
   type PhotoRow,
 } from '../core/photos.ts';
+import type { CameraError, CameraFacing, CameraPort, CameraSession } from '../nutrition/camera.ts';
 import { preparePhoto, type PreparedPhoto } from '../nutrition/photo.ts';
 import type { BlobStore, DataStore, NutritionState, PhotoPose } from '../storage/DataStore.ts';
 import { esc } from './dom.ts';
@@ -61,6 +69,8 @@ export interface PhotosDeps {
   rerender?: () => void;
   /** How a picked file becomes a stored image. Injectable: jsdom has no canvas. */
   prepare?: (file: File, maxDim: number) => Promise<PreparedPhoto>;
+  /** The live camera. Absent, or `available()` false = the 📷 live button does not exist. */
+  camera?: CameraPort;
   /** Injectable for tests. */
   today?: string;
 }
@@ -83,6 +93,51 @@ let compareMode: CompareMode = 'side';
 let wipePos = 50;
 /** The overlay's opacity for the newer photo, 0–100. */
 let overlayAlpha = 50;
+
+/** The camera sheet. `null` = closed. */
+interface CamState {
+  facing: CameraFacing;
+  /** The ghost's opacity over the viewfinder, 0–100. */
+  ghostAlpha: number;
+  /** Count down three seconds before the shutter fires. */
+  timer: boolean;
+  /** Seconds left in a running countdown, or 0. */
+  countdown: number;
+  /** The frame just captured, awaiting yes/no, with its preview URL. */
+  shot: { photo: PreparedPhoto; url: string } | null;
+  error: CameraError | null;
+  /** True while `open()` is in flight. */
+  opening: boolean;
+  /** The card's date + note as they were when the sheet opened (the card re-renders under it). */
+  fields: { date: string; note: string };
+}
+let cam: CamState | null = null;
+let camSession: CameraSession | null = null;
+let camTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Stop the stream and forget the sheet — the one exit for every path out. */
+function closeCamera(): void {
+  if (camTimer !== null) {
+    clearTimeout(camTimer);
+    camTimer = null;
+  }
+  camSession?.stop();
+  camSession = null;
+  if (cam?.shot) {
+    try {
+      URL.revokeObjectURL(cam.shot.url);
+    } catch {
+      /* not a real object URL (tests) */
+    }
+  }
+  cam = null;
+}
+
+export const CAMERA_ERROR_HE: Readonly<Record<CameraError, string>> = {
+  denied: 'הגישה למצלמה נדחתה — אפשרו אותה בהגדרות הדפדפן, או בחרו תמונה מהגלריה.',
+  none: 'לא נמצאה מצלמה במכשיר — אפשר לבחור תמונה מהגלריה.',
+  unavailable: 'המצלמה לא זמינה כאן — אפשר לבחור תמונה מהגלריה.',
+};
 /** Object URLs by photo id — created once, revoked on reset or delete. */
 const urls = new Map<string, string>();
 
@@ -107,6 +162,7 @@ export function resetPhotosScreen(): void {
   compareMode = 'side';
   wipePos = 50;
   overlayAlpha = 50;
+  closeCamera();
   for (const id of [...urls.keys()]) revoke(id);
 }
 
@@ -153,7 +209,7 @@ function caption(n: NutritionState, p: PhotoRow): string {
     ${kg !== null ? `<span class="ph-cap-kg">${fmtKg(kg)} ק״ג</span>` : ''}`;
 }
 
-function shootCard(n: NutritionState, today: string): string {
+function shootCard(n: NutritionState, today: string, live: boolean): string {
   const ghost = latestPhoto(n, shootPose);
   const ghostHtml = ghost
     ? `
@@ -177,7 +233,14 @@ function shootCard(n: NutritionState, today: string): string {
           placeholder="למשל: בוקר, אחרי חופשה">
       </label>
     </div>
-    <button class="action-btn" id="phPick" type="button">📷 צילום או בחירה מהגלריה</button>
+    ${
+      live
+        ? `<div class="ph-btn-row">
+      <button class="action-btn" id="phLive" type="button">📷 צילום חי${ghost ? ' עם הרוח' : ''}</button>
+      <button class="action-btn ghost" id="phPick" type="button">🖼️ מהגלריה</button>
+    </div>`
+        : `<button class="action-btn" id="phPick" type="button">📷 צילום או בחירה מהגלריה</button>`
+    }
     <input type="file" id="phFile" accept="image/*" hidden>
     <p class="gc-note" id="phMsg" role="status"></p>
     <p class="gc-note dim">🔒 התמונות נשמרות במכשיר הזה בלבד — לא נשלחות לחשבון ולא לשום שרת.</p>
@@ -346,14 +409,69 @@ function viewer(n: NutritionState): string {
   </div>`;
 }
 
-/** The whole screen as a string — pure, testable without a DOM. */
-export function photosHtml(n: NutritionState, today: string): string {
+/* --------------------------------------------------------- the camera sheet */
+
+function cameraSheet(n: NutritionState): string {
+  if (!cam) return '';
+  const ghost = latestPhoto(n, shootPose);
+  const mirrored = cam.facing === 'user';
+  if (cam.error) {
+    return `
+  <div class="ph-cam" role="dialog" aria-modal="true" aria-label="מצלמה">
+    <div class="ph-cam-bar"><button class="ph-vbtn" type="button" id="phCamClose" aria-label="סגירה">✕</button><span class="ph-viewer-title">מצלמה</span><span></span></div>
+    <div class="ph-cam-stage"><p class="ph-cam-msg" role="alert">${CAMERA_ERROR_HE[cam.error]}</p></div>
+    <div class="ph-cam-actions"><button class="action-btn" id="phCamPick" type="button">🖼️ בחירה מהגלריה</button></div>
+  </div>`;
+  }
+  if (cam.shot) {
+    return `
+  <div class="ph-cam" role="dialog" aria-modal="true" aria-label="התמונה שצולמה">
+    <div class="ph-cam-bar"><button class="ph-vbtn" type="button" id="phCamClose" aria-label="סגירה">✕</button><span class="ph-viewer-title">${esc(poseLabel(n, shootPose))}</span><span></span></div>
+    <div class="ph-cam-stage"><img class="ph-cam-shot" alt="התמונה שצולמה" data-shot></div>
+    <div class="ph-cam-actions">
+      <button class="action-btn ghost" id="phCamRetake" type="button">↺ צילום מחדש</button>
+      <button class="action-btn" id="phCamSave" type="button">✓ שמירה</button>
+    </div>
+  </div>`;
+  }
   return `
-  ${shootCard(n, today)}
+  <div class="ph-cam" role="dialog" aria-modal="true" aria-label="מצלמה">
+    <div class="ph-cam-bar">
+      <button class="ph-vbtn" type="button" id="phCamClose" aria-label="סגירה">✕</button>
+      <span class="ph-viewer-title">${esc(poseLabel(n, shootPose))}</span>
+      <button class="ph-vbtn" type="button" id="phCamFlip" aria-label="החלפת מצלמה">🔄</button>
+    </div>
+    <div class="ph-cam-stage ${mirrored ? 'mirrored' : ''}" style="--ghost:${cam.ghostAlpha / 100}">
+      <video class="ph-cam-video" id="phCamVideo" autoplay muted playsinline></video>
+      ${ghost ? `<img class="ph-cam-ghost" alt="" data-blob="${esc(ghost.id)}">` : ''}
+      ${cam.opening ? `<p class="ph-cam-msg">פותח את המצלמה…</p>` : ''}
+      ${cam.countdown > 0 ? `<span class="ph-cam-count" aria-live="assertive">${cam.countdown}</span>` : ''}
+      <span class="ph-cam-guide" aria-hidden="true"></span>
+    </div>
+    ${
+      ghost
+        ? `<label class="ph-cmp-range ph-cam-range">שקיפות הרוח <span class="dim" id="phGhostVal">${cam.ghostAlpha}%</span>
+      <input type="range" id="phGhostAlpha" min="0" max="100" value="${cam.ghostAlpha}" aria-label="שקיפות הרוח">
+    </label>`
+        : `<p class="gc-note ph-cam-note">אין עדיין תמונה בפוזה הזו — התמונה הזו תהיה הרוח לבאות אחריה.</p>`
+    }
+    <div class="ph-cam-actions">
+      <button class="ph-vbtn ${cam.timer ? 'on' : ''}" type="button" id="phCamTimer" aria-pressed="${cam.timer ? 'true' : 'false'}" aria-label="טיימר 3 שניות">⏱ 3</button>
+      <button class="ph-shutter" type="button" id="phCamShoot" aria-label="צילום" ${cam.opening || cam.countdown > 0 ? 'disabled' : ''}></button>
+      <span class="ph-cam-spacer"></span>
+    </div>
+  </div>`;
+}
+
+/** The whole screen as a string — pure, testable without a DOM. */
+export function photosHtml(n: NutritionState, today: string, live = false): string {
+  return `
+  ${shootCard(n, today, live)}
   ${compareCard(n)}
   ${galleryCard(n)}
   ${poseNameCard(n)}
-  ${viewer(n)}`;
+  ${viewer(n)}
+  ${cameraSheet(n)}`;
 }
 
 /* ----------------------------------------------------------------- render */
@@ -361,7 +479,7 @@ export function photosHtml(n: NutritionState, today: string): string {
 export function renderPhotos(main: HTMLElement, deps: PhotosDeps): void {
   const today = deps.today ?? todayISO();
   const n = deps.store.getState().nutrition;
-  main.innerHTML = photosHtml(n, today);
+  main.innerHTML = photosHtml(n, today, deps.camera?.available() === true);
   wire(main, deps, today);
   void hydrate(main, deps.blobs);
 }
@@ -428,36 +546,54 @@ function wire(main: HTMLElement, deps: PhotosDeps, today: string): void {
   const fileInp = main.querySelector<HTMLInputElement>('#phFile');
   const msg = main.querySelector<HTMLElement>('#phMsg');
   const pick = main.querySelector<HTMLButtonElement>('#phPick');
+
+  /** The card's date + note, validated; `null` (and the message set) when the date is bad. */
+  const formFields = (): { date: string; note: string } | null => {
+    const date = (main.querySelector<HTMLInputElement>('#phDate')?.value ?? '').trim() || today;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today) {
+      if (msg) msg.textContent = 'התאריך לא תקין — ותמונה לא יכולה להיות מהעתיד.';
+      return null;
+    }
+    return { date, note: (main.querySelector<HTMLInputElement>('#phNote')?.value ?? '').trim() };
+  };
+
+  /** Store a prepared image under the card's date/note and the chosen pose. */
+  const save = (p: PreparedPhoto, fields: { date: string; note: string }): Promise<boolean> =>
+    recordPhoto(
+      deps.store,
+      deps.blobs,
+      // No time typed anywhere: TODAY's photo is stamped "now"; a past day's stays blank.
+      {
+        date: fields.date,
+        time: fields.date === today ? nowHHMM() : '',
+        pose: shootPose,
+        width: p.width,
+        height: p.height,
+        note: fields.note,
+      },
+      p.blob,
+      crypto.randomUUID(),
+    ).then((ev) => ev !== null);
+
   pick?.addEventListener('click', () => fileInp?.click());
   fileInp?.addEventListener('change', () => {
     const file = fileInp.files?.[0];
     if (!file) return;
-    const date = (main.querySelector<HTMLInputElement>('#phDate')?.value ?? '').trim() || today;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today) {
-      if (msg) msg.textContent = 'התאריך לא תקין — ותמונה לא יכולה להיות מהעתיד.';
+    const fields = formFields();
+    if (!fields) {
       fileInp.value = '';
       return;
     }
-    const note = (main.querySelector<HTMLInputElement>('#phNote')?.value ?? '').trim();
-    const pose = shootPose;
+    const label = pick?.textContent ?? '';
     if (pick) {
       pick.disabled = true;
       pick.textContent = 'שומר…';
     }
     const prepare = deps.prepare ?? preparePhoto;
     void prepare(file, PHOTO_MAX_DIM)
-      .then((p) =>
-        recordPhoto(
-          deps.store,
-          deps.blobs,
-          // No time typed anywhere: TODAY's photo is stamped "now"; a past day's stays blank.
-          { date, time: date === today ? nowHHMM() : '', pose, width: p.width, height: p.height, note },
-          p.blob,
-          crypto.randomUUID(),
-        ),
-      )
-      .then((ev) => {
-        if (!ev) {
+      .then((p) => save(p, fields))
+      .then((ok) => {
+        if (!ok) {
           if (msg) msg.textContent = 'לא הצלחנו לשמור את התמונה — נסו תמונה אחרת.';
           return;
         }
@@ -470,10 +606,146 @@ function wire(main: HTMLElement, deps: PhotosDeps, today: string): void {
       .finally(() => {
         if (pick) {
           pick.disabled = false;
-          pick.textContent = '📷 צילום או בחירה מהגלריה';
+          pick.textContent = label;
         }
         fileInp.value = '';
       });
+  });
+
+  /* ---- the live camera ---- */
+  const camera = deps.camera;
+  const openCamera = (facing: CameraFacing, fields: { date: string; note: string }): void => {
+    if (!camera) return;
+    camSession?.stop();
+    camSession = null;
+    cam = {
+      facing,
+      ghostAlpha: cam?.ghostAlpha ?? 40,
+      timer: cam?.timer ?? false,
+      countdown: 0,
+      shot: null,
+      error: null,
+      opening: true,
+      fields,
+    };
+    again();
+    void camera.open(facing).then((res) => {
+      if (!cam || cam.shot) {
+        // Closed (or already captured) while opening: release what we were given.
+        if (res.ok) res.session.stop();
+        return;
+      }
+      if (!res.ok) {
+        cam = { ...cam, opening: false, error: res.error };
+        again();
+        return;
+      }
+      camSession = res.session;
+      cam = { ...cam, opening: false, facing: res.session.facing };
+      again();
+    });
+  };
+  main.querySelector<HTMLButtonElement>('#phLive')?.addEventListener('click', () => {
+    const fields = formFields();
+    if (fields) openCamera('user', fields);
+  });
+  main.querySelector<HTMLButtonElement>('#phCamClose')?.addEventListener('click', () => {
+    closeCamera();
+    again();
+  });
+  main.querySelector<HTMLButtonElement>('#phCamPick')?.addEventListener('click', () => {
+    closeCamera();
+    again();
+    main.querySelector<HTMLInputElement>('#phFile')?.click();
+  });
+  main.querySelector<HTMLButtonElement>('#phCamFlip')?.addEventListener('click', () => {
+    if (cam) openCamera(cam.facing === 'user' ? 'environment' : 'user', cam.fields);
+  });
+  main.querySelector<HTMLButtonElement>('#phCamTimer')?.addEventListener('click', () => {
+    if (!cam) return;
+    cam = { ...cam, timer: !cam.timer };
+    again();
+  });
+  const video = main.querySelector<HTMLVideoElement>('#phCamVideo');
+  if (video && camSession) camSession.attach(video);
+  // The captured frame's URL is set here, not in the template: the build's
+  // verify step reads any literal `<img src=` as a possible external fetch.
+  const shotImg = main.querySelector<HTMLImageElement>('img[data-shot]');
+  if (shotImg && cam?.shot) {
+    shotImg.src = cam.shot.url;
+    shotImg.classList.add('ready');
+  }
+  const ghostRange = main.querySelector<HTMLInputElement>('#phGhostAlpha');
+  ghostRange?.addEventListener('input', () => {
+    if (!cam) return;
+    cam = { ...cam, ghostAlpha: Number(ghostRange.value) };
+    main.querySelector<HTMLElement>('.ph-cam-stage')?.style.setProperty('--ghost', String(cam.ghostAlpha / 100));
+    const v = main.querySelector<HTMLElement>('#phGhostVal');
+    if (v) v.textContent = `${cam.ghostAlpha}%`;
+  });
+  const shoot = (): void => {
+    const session = camSession;
+    if (!cam || !session) return;
+    void session
+      .capture(PHOTO_MAX_DIM)
+      .then((photo) => {
+        if (!cam) return;
+        const url = typeof URL.createObjectURL === 'function' ? URL.createObjectURL(photo.blob) : '';
+        cam = { ...cam, countdown: 0, shot: { photo, url } };
+        // The frame is taken — the camera can rest while the user decides.
+        session.stop();
+        camSession = null;
+        again();
+      })
+      .catch(() => {
+        if (!cam) return;
+        cam = { ...cam, countdown: 0, error: 'unavailable' };
+        again();
+      });
+  };
+  main.querySelector<HTMLButtonElement>('#phCamShoot')?.addEventListener('click', () => {
+    if (!cam || cam.countdown > 0) return;
+    if (!cam.timer) {
+      shoot();
+      return;
+    }
+    const tick = (left: number): void => {
+      if (!cam) return;
+      if (left === 0) {
+        shoot();
+        return;
+      }
+      cam = { ...cam, countdown: left };
+      const count = main.querySelector<HTMLElement>('.ph-cam-count');
+      if (count) count.textContent = String(left);
+      else again();
+      camTimer = setTimeout(() => tick(left - 1), 1000);
+    };
+    tick(3);
+  });
+  main.querySelector<HTMLButtonElement>('#phCamRetake')?.addEventListener('click', () => {
+    if (!cam) return;
+    const facing = cam.facing;
+    if (cam.shot) {
+      try {
+        URL.revokeObjectURL(cam.shot.url);
+      } catch {
+        /* tests */
+      }
+    }
+    cam = { ...cam, shot: null };
+    openCamera(facing, cam.fields);
+  });
+  main.querySelector<HTMLButtonElement>('#phCamSave')?.addEventListener('click', () => {
+    const shot = cam?.shot;
+    const fields = cam?.fields;
+    if (!shot || !fields) return;
+    void save(shot.photo, fields).then((ok) => {
+      closeCamera();
+      if (ok) toast('התמונה נשמרה 📸');
+      else if (msg) msg.textContent = 'לא הצלחנו לשמור את התמונה — נסו שוב.';
+      again();
+    });
   });
 
   /* ---- picking for comparison ---- */

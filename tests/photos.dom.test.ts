@@ -18,7 +18,8 @@ import { LocalStore } from '../src/storage/LocalStore.ts';
 import { MemoryBlobStore } from '../src/storage/MemoryBlobStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
 import { createApp } from '../src/ui/app.ts';
-import { fmtBytes, photosHeadline, resetPhotosScreen } from '../src/ui/photos.ts';
+import { CAMERA_ERROR_HE, fmtBytes, photosHeadline, resetPhotosScreen } from '../src/ui/photos.ts';
+import type { CameraOpenResult, CameraPort, CameraSession } from '../src/nutrition/camera.ts';
 import { RestTimer } from '../src/ui/timer.ts';
 
 function fakeStorage(): StorageLike {
@@ -47,7 +48,28 @@ beforeEach(() => {
 /** A fake `prepare`: no canvas — the "downscaled" image is the file's bytes, 600×800. */
 const prepare = (file: File) => Promise.resolve({ blob: file, width: 600, height: 800 });
 
-function mount(): { store: LocalStore; blobs: MemoryBlobStore; render: () => void } {
+/** A fake camera: every session captures a fixed 5-byte frame and counts its stops. */
+function fakeCamera(result: 'ok' | 'denied' | 'none' = 'ok', available = true) {
+  const sessions: { stops: number; attached: number; facing: string }[] = [];
+  const port: CameraPort = {
+    available: () => available,
+    open: (facing): Promise<CameraOpenResult> => {
+      if (result !== 'ok') return Promise.resolve({ ok: false, error: result });
+      const rec = { stops: 0, attached: 0, facing };
+      sessions.push(rec);
+      const session: CameraSession = {
+        facing,
+        attach: () => void (rec.attached += 1),
+        capture: () => Promise.resolve({ blob: new Blob([new Uint8Array(5)], { type: 'image/jpeg' }), width: 720, height: 960 }),
+        stop: () => void (rec.stops += 1),
+      };
+      return Promise.resolve({ ok: true, session });
+    },
+  };
+  return { port, sessions };
+}
+
+function mount(camera?: CameraPort): { store: LocalStore; blobs: MemoryBlobStore; render: () => void } {
   const store = new LocalStore(fakeStorage());
   const blobs = new MemoryBlobStore();
   const el = (id: string) => document.getElementById(id) as HTMLElement;
@@ -62,7 +84,7 @@ function mount(): { store: LocalStore; blobs: MemoryBlobStore; render: () => voi
     reset: el('tReset'),
     close: el('tClose'),
   });
-  const app = createApp(store, timer, { photos: { blobs, prepare } });
+  const app = createApp(store, timer, { photos: { blobs, prepare, ...(camera ? { camera } : {}) } });
   app.render();
   return { store, blobs, render: app.render };
 }
@@ -342,6 +364,126 @@ describe('the תמונות screen', () => {
     await settle();
     expect(photoEntries(store.getState().nutrition)).toHaveLength(1);
     expect(document.querySelector('.ph-compare')).toBeNull();
+  });
+
+  it('offers the live camera only when a port says it can; the picker stays either way', () => {
+    mount();
+    openPhotos();
+    expect(document.querySelector('#phLive')).toBeNull();
+    expect(document.querySelector('#phPick')).not.toBeNull();
+    resetPhotosScreen();
+    mount(fakeCamera('ok', false).port);
+    openPhotos();
+    expect(document.querySelector('#phLive')).toBeNull();
+    resetPhotosScreen();
+    mount(fakeCamera().port);
+    openPhotos();
+    expect(document.querySelector('#phLive')).not.toBeNull();
+    expect(document.querySelector('#phPick')).not.toBeNull();
+  });
+
+  it('shoots live: the sheet, the ghost of the pose, the shutter, the yes/no, ONE photo_taken, the camera stopped', async () => {
+    const { port, sessions } = fakeCamera();
+    const { store, blobs } = mount(port);
+    openPhotos();
+    // a first front photo, so the next shot has a ghost
+    pickFile();
+    await settle();
+
+    type('#phNote', 'צילום חי');
+    click('#phLive');
+    await settle();
+    expect(document.querySelector('.ph-cam')).not.toBeNull();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.attached).toBe(1);
+    expect(sessions[0]?.facing).toBe('user');
+    // the front camera mirrors the stage — video and ghost together
+    expect(document.querySelector('.ph-cam-stage')?.classList.contains('mirrored')).toBe(true);
+    const ghost = document.querySelector<HTMLImageElement>('.ph-cam-ghost');
+    expect(ghost?.dataset['blob']).toBeDefined();
+    expect(ghost?.src).toMatch(/^blob:fake-/);
+    expect(document.querySelector<HTMLElement>('.ph-cam-stage')?.style.getPropertyValue('--ghost')).toBe('0.4');
+
+    // the ghost's opacity moves the live stage without a re-render
+    const range = document.querySelector<HTMLInputElement>('#phGhostAlpha');
+    if (!range) throw new Error('no ghost range');
+    range.value = '70';
+    range.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(document.querySelector<HTMLElement>('.ph-cam-stage')?.style.getPropertyValue('--ghost')).toBe('0.7');
+
+    // the shutter: the frame is shown for a yes/no, the camera already released
+    click('#phCamShoot');
+    await settle();
+    expect(document.querySelector('.ph-cam-shot')).not.toBeNull();
+    expect(sessions[0]?.stops).toBe(1);
+    expect(store.getEvents().filter((e) => e.type === 'photo_taken')).toHaveLength(1); // not yet
+
+    // retake reopens the camera; save stores the frame with the card's note
+    click('#phCamRetake');
+    await settle();
+    expect(sessions).toHaveLength(2);
+    expect(document.querySelector('.ph-cam-shot')).toBeNull();
+    click('#phCamShoot');
+    await settle();
+    click('#phCamSave');
+    await settle();
+    const events = store.getEvents().filter((e) => e.type === 'photo_taken');
+    expect(events).toHaveLength(2);
+    expect(events[1]?.payload['bytes']).toBe(5);
+    expect(events[1]?.payload['width']).toBe(720);
+    expect(events[1]?.payload['note']).toBe('צילום חי');
+    expect(blobs.size).toBe(2);
+    expect(document.querySelector('.ph-cam')).toBeNull();
+    expect(sessions.every((s) => s.stops === 1)).toBe(true);
+  });
+
+  it('flips the camera, counts down with the timer, and closing stops the stream', async () => {
+    vi.useFakeTimers();
+    try {
+      const { port, sessions } = fakeCamera();
+      mount(port);
+      openPhotos();
+      click('#phLive');
+      await vi.advanceTimersByTimeAsync(0);
+      click('#phCamFlip');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(sessions).toHaveLength(2);
+      expect(sessions[0]?.stops).toBe(1);
+      expect(sessions[1]?.facing).toBe('environment');
+      expect(document.querySelector('.ph-cam-stage')?.classList.contains('mirrored')).toBe(false);
+      // no ghost yet: the note says this shot becomes the ghost
+      expect(document.querySelector('.ph-cam-note')?.textContent).toContain('הרוח');
+
+      click('#phCamTimer');
+      expect(document.querySelector('#phCamTimer')?.getAttribute('aria-pressed')).toBe('true');
+      click('#phCamShoot');
+      expect(document.querySelector('.ph-cam-count')?.textContent).toBe('3');
+      expect(document.querySelector<HTMLButtonElement>('#phCamShoot')?.disabled).toBe(true);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(document.querySelector('.ph-cam-count')?.textContent).toBe('2');
+      await vi.advanceTimersByTimeAsync(2100);
+      expect(document.querySelector('.ph-cam-shot')).not.toBeNull();
+
+      // closing from the yes/no throws the frame away and leaves nothing running
+      click('#phCamClose');
+      expect(document.querySelector('.ph-cam')).toBeNull();
+      expect(sessions.every((s) => s.stops === 1)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('says why when the camera says no, and hands over to the picker', async () => {
+    const { port } = fakeCamera('denied');
+    mount(port);
+    openPhotos();
+    click('#phLive');
+    await settle();
+    expect(document.querySelector('.ph-cam-msg')?.textContent).toBe(CAMERA_ERROR_HE.denied);
+    expect(document.querySelector('#phCamShoot')).toBeNull();
+    click('#phCamPick');
+    expect(document.querySelector('.ph-cam')).toBeNull();
+    expect(document.querySelector('#phPick')).not.toBeNull();
   });
 
   it('formats byte counts and the headline', () => {
