@@ -42,6 +42,57 @@
   position:absolute; top:5px; inset-inline-start:5px; font-size:11px; line-height:1;
   padding:3px 5px; border-radius:99px; background:#121824CC;
 }
+/* The ◯ pick badge, in the tile's other top corner from the pose mark (which
+   sits at inline-start — the right, in RTL). Filled with the pick's number
+   once picked. */
+.ph-pick{
+  position:absolute; top:5px; inset-inline-end:5px; width:26px; height:26px; padding:0;
+  border-radius:50%; border:2px solid #E8EDF5CC; background:#121824AA; color:var(--text);
+  font-size:12px; font-weight:800; line-height:1;
+}
+.ph-pick.on{background:var(--accent); border-color:var(--accent)}
+.ph-item{position:relative}
+.ph-item.picked .ph-thumb{border-color:var(--accent); box-shadow:0 0 0 2px #3B82F655}
+/* The badge's hit target: 44px, larger than it looks. */
+.ph-pick::before{content:''; position:absolute; inset:-9px}
+
+/* The comparison card. */
+.ph-compare .action-btn{width:100%; margin-top:10px; min-height:46px}
+.ph-compare .action-btn.ghost{color:var(--muted); min-height:44px}
+.ph-cmp-side{display:flex; gap:8px; margin-top:2px}
+.ph-cmp-fig{flex:1 1 0; min-width:0; margin:0}
+.ph-cmp-cap{display:flex; flex-direction:column; gap:1px; margin-top:5px; font-size:11.5px; color:var(--muted)}
+.ph-cmp-when{font-weight:800; color:var(--text); font-variant-numeric:tabular-nums}
+.ph-cmp-cap.after .ph-cmp-when{color:var(--accent)}
+/* One box for the wipe and the overlay: portrait 3:4, LTR inside so the
+   percentages are geometry, not reading direction. */
+.ph-cmp-box{
+  position:relative; width:100%; aspect-ratio:3/4; overflow:hidden; direction:ltr;
+  border-radius:10px; background:var(--card-2); border:1px solid var(--line); margin-top:2px;
+}
+.ph-cmp-box img{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0}
+.ph-cmp-box img.ready{opacity:1}
+.ph-cmp-wipe .ph-cmp-over.ready{clip-path:inset(0 calc(100% - var(--pos)) 0 0)}
+.ph-cmp-handle{
+  position:absolute; top:0; bottom:0; left:var(--pos); width:2px; margin-left:-1px;
+  background:var(--text); box-shadow:0 0 0 1px #12182466; pointer-events:none;
+}
+.ph-cmp-handle::after{
+  content:'⇔'; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  width:30px; height:30px; border-radius:50%; background:var(--card); border:1px solid var(--line);
+  color:var(--text); font-size:15px; display:flex; align-items:center; justify-content:center;
+}
+.ph-cmp-tag{
+  position:absolute; top:6px; padding:2px 8px; border-radius:99px; font-size:11px; font-weight:800;
+  background:#121824CC; color:var(--text); direction:rtl;
+}
+.ph-cmp-tag.after{left:6px; color:var(--accent)}
+.ph-cmp-tag.before{right:6px}
+.ph-cmp-overlay .ph-cmp-over.ready{opacity:var(--alpha)}
+.ph-cmp-range{display:block; margin-top:10px; font-size:12.5px; color:var(--muted)}
+.ph-cmp-range input[type=range]{display:block; width:100%; margin-top:6px; min-height:44px; accent-color:var(--accent)}
+.ph-cmp-legend{margin-top:10px}
+
 .ph-cap{display:flex; flex-direction:column; gap:1px; margin-top:4px; font-size:11px; color:var(--muted); min-width:0}
 .ph-cap-date{font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 .ph-cap-kg{font-variant-numeric:tabular-nums}

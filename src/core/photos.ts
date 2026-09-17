@@ -271,3 +271,45 @@ export function weightForDate(n: NutritionState, date: string, maxDays = 3): num
   const gap = (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${found.date}T00:00:00Z`)) / 86_400_000;
   return gap <= maxDays ? found.kg : null;
 }
+
+export interface CompareSummary {
+  /** The older of the two and the newer, by (date, time, id). */
+  before: PhotoRow;
+  after: PhotoRow;
+  /** Calendar days between them (0 for the same day). */
+  days: number;
+  /** The captioning weigh-ins (see `weightForDate`), or `null`. */
+  kgBefore: number | null;
+  kgAfter: number | null;
+  /** after − before, one decimal, or `null` unless both weigh-ins exist. */
+  deltaKg: number | null;
+}
+
+/**
+ * Everything the comparison card says about two photos — in TIME order,
+ * whichever order they were picked in. `null` when either id is not a live
+ * photo (deleted under the selection).
+ */
+export function compareSummary(n: NutritionState, idA: string, idB: string): CompareSummary | null {
+  const rows = photoEntries(n);
+  const a = rows.find((r) => r.id === idA);
+  const b = rows.find((r) => r.id === idB);
+  if (!a || !b || a.id === b.id) return null;
+  const [before, after] = rows.indexOf(a) <= rows.indexOf(b) ? [a, b] : [b, a];
+  const days = Math.round((Date.parse(`${after.date}T00:00:00Z`) - Date.parse(`${before.date}T00:00:00Z`)) / 86_400_000);
+  const kgBefore = weightForDate(n, before.date);
+  const kgAfter = weightForDate(n, after.date);
+  const deltaKg = kgBefore !== null && kgAfter !== null ? Math.round((kgAfter - kgBefore) * 10) / 10 : null;
+  return { before, after, days, kgBefore, kgAfter, deltaKg };
+}
+
+/**
+ * The comparison to offer before the user picks one: the first and the
+ * newest photo of a pose — the whole journey — or `null` with fewer than two.
+ */
+export function suggestedPair(n: NutritionState, pose: PhotoPose): [string, string] | null {
+  const rows = photoEntries(n, pose);
+  const first = rows[0];
+  const last = rows[rows.length - 1];
+  return first && last && first.id !== last.id ? [first.id, last.id] : null;
+}

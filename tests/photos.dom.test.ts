@@ -246,6 +246,104 @@ describe('the תמונות screen', () => {
     expect(store.getEvents().filter((e) => e.type === 'photo_pose_named')).toHaveLength(1);
   });
 
+  it('compares any two: pick badges, time order, the three modes, a third pick replaces, clear', async () => {
+    const { store } = mount();
+    logWeight(store, { date: '2026-01-10', time: '', kg: 86, note: '' }, 'w1');
+    logWeight(store, { date: '2026-03-10', time: '', kg: 83.5, note: '' }, 'w2');
+    openPhotos();
+    const dateInp = () => document.querySelector<HTMLInputElement>('#phDate') as HTMLInputElement;
+    dateInp().value = '2026-01-10';
+    pickFile();
+    await settle();
+    // one photo: no comparison card at all
+    expect(document.querySelector('.ph-compare')).toBeNull();
+    dateInp().value = '2026-02-10';
+    pickFile();
+    await settle();
+    dateInp().value = '2026-03-10';
+    pickFile();
+    await settle();
+
+    // three photos, nothing picked: the card offers first-vs-newest
+    expect(document.querySelector('.ph-compare')).not.toBeNull();
+    expect(document.querySelector('.ph-compare .gc-note')?.textContent).toContain('סמנו שתי תמונות');
+    expect(document.querySelector('#phSuggest')).not.toBeNull();
+
+    // pick the newest (first tile) then the oldest (last tile): shown in TIME order regardless
+    const badges = () => [...document.querySelectorAll<HTMLButtonElement>('.ph-grid [data-pick]')];
+    badges()[0]?.click();
+    expect(document.querySelector('.ph-compare .gc-note')?.textContent).toContain('נבחרה תמונה אחת');
+    expect(document.querySelectorAll('.ph-item.picked')).toHaveLength(1);
+    badges()[2]?.click();
+    expect(document.querySelectorAll('.ph-item.picked')).toHaveLength(2);
+    expect(document.querySelector('.ph-compare .gc-sub')?.textContent).toContain('59 ימים');
+    const figs = [...document.querySelectorAll('.ph-cmp-fig')];
+    expect(figs).toHaveLength(2);
+    expect(figs[0]?.textContent).toContain('לפני · 10.01.2026');
+    expect(figs[1]?.textContent).toContain('אחרי · 10.03.2026');
+    expect(document.querySelector('.ph-cmp-legend')?.textContent).toContain('−2.5');
+    await settle();
+    expect(document.querySelectorAll('.ph-cmp-fig img.ready')).toHaveLength(2);
+
+    // the wipe: one box, the newer clipped by the handle, the range moves it live
+    click('[data-mode="wipe"]');
+    expect(document.querySelector('.ph-cmp-wipe')).not.toBeNull();
+    expect(document.querySelectorAll('.ph-cmp-fig')).toHaveLength(0);
+    const wipe = document.querySelector<HTMLInputElement>('#phWipe');
+    if (!wipe) throw new Error('no wipe range');
+    wipe.value = '80';
+    wipe.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(document.querySelector<HTMLElement>('.ph-cmp-wipe')?.style.getPropertyValue('--pos')).toBe('80%');
+    // …and the position survives a re-render
+    click('[data-mode="overlay"]');
+    click('[data-mode="wipe"]');
+    expect(document.querySelector<HTMLInputElement>('#phWipe')?.value).toBe('80');
+
+    // the overlay: opacity from the range
+    click('[data-mode="overlay"]');
+    const alpha = document.querySelector<HTMLInputElement>('#phAlpha');
+    if (!alpha) throw new Error('no alpha range');
+    alpha.value = '30';
+    alpha.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(document.querySelector<HTMLElement>('.ph-cmp-overlay')?.style.getPropertyValue('--alpha')).toBe('0.3');
+    expect(document.querySelector('#phAlphaVal')?.textContent).toBe('30%');
+
+    // a third pick replaces the OLDER pick (the newest photo), keeping the second
+    badges()[1]?.click();
+    expect(document.querySelectorAll('.ph-item.picked')).toHaveLength(2);
+    expect(document.querySelector('.ph-compare .gc-sub')?.textContent).toContain('31 ימים');
+
+    // un-picking one drops back to the hint; clearing empties it
+    badges()[1]?.click();
+    expect(document.querySelector('.ph-compare .gc-note')?.textContent).toContain('נבחרה תמונה אחת');
+    badges()[1]?.click();
+    click('#phClearPick');
+    expect(document.querySelectorAll('.ph-item.picked')).toHaveLength(0);
+
+    // the suggestion picks the pose's whole journey
+    click('#phSuggest');
+    expect(document.querySelector('.ph-compare .gc-sub')?.textContent).toContain('59 ימים');
+  });
+
+  it('deleting a picked photo drops it from the comparison', async () => {
+    const { store } = mount();
+    openPhotos();
+    const dateInp = () => document.querySelector<HTMLInputElement>('#phDate') as HTMLInputElement;
+    dateInp().value = '2026-01-10';
+    pickFile();
+    await settle();
+    dateInp().value = '2026-02-10';
+    pickFile();
+    await settle();
+    click('#phSuggest');
+    expect(document.querySelectorAll('.ph-cmp-fig')).toHaveLength(2);
+    click('.ph-tile');
+    click('.ph-viewer [data-del]');
+    await settle();
+    expect(photoEntries(store.getState().nutrition)).toHaveLength(1);
+    expect(document.querySelector('.ph-compare')).toBeNull();
+  });
+
   it('formats byte counts and the headline', () => {
     expect(fmtBytes(500)).toBe('1 KB');
     expect(fmtBytes(340 * 1024)).toBe('340 KB');

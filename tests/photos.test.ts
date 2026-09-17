@@ -20,6 +20,8 @@ import {
   photoEntries,
   photoRecordOf,
   poseLabel,
+  compareSummary,
+  suggestedPair,
   pruneOrphanBlobs,
   recordPhoto,
   weightForDate,
@@ -289,5 +291,49 @@ describe('photos stay on the device', () => {
     expect([...LOCAL_ONLY_EVENTS].sort()).toEqual(['photo_deleted', 'photo_pose_named', 'photo_taken']);
     expect(LOCAL_ONLY_EVENTS.has('meal_logged')).toBe(false);
     expect(LOCAL_ONLY_EVENTS.has('weight_logged')).toBe(false);
+  });
+});
+
+describe('comparison selectors', () => {
+  function withPhotos() {
+    const store = new LocalStore(fakeStorage());
+    const n = () => store.getState().nutrition;
+    store.update((d) => {
+      applyNutritionEvent(d.nutrition, 'photo_taken', taken('a', '2026-06-01'));
+      applyNutritionEvent(d.nutrition, 'photo_taken', taken('b', '2026-07-01'));
+      applyNutritionEvent(d.nutrition, 'photo_taken', taken('c', '2026-09-01', 'custom'));
+    });
+    logWeight(store, { date: '2026-06-01', time: '', kg: 86, note: '' }, 'w1');
+    logWeight(store, { date: '2026-08-31', time: '', kg: 82.5, note: '' }, 'w2');
+    return { store, n };
+  }
+
+  it('compareSummary puts the two in time order whichever way they were picked, with days and weight delta', () => {
+    const { n } = withPhotos();
+    const s = compareSummary(n(), 'c', 'a');
+    expect(s?.before.id).toBe('a');
+    expect(s?.after.id).toBe('c');
+    expect(s?.days).toBe(92);
+    expect(s?.kgBefore).toBe(86);
+    expect(s?.kgAfter).toBe(82.5);
+    expect(s?.deltaKg).toBe(-3.5);
+    expect(compareSummary(n(), 'a', 'c')?.before.id).toBe('a');
+  });
+
+  it('compareSummary has no delta without a weigh-in near one of them, and is null for a missing or same id', () => {
+    const { n } = withPhotos();
+    const s = compareSummary(n(), 'a', 'b'); // no weigh-in within 3 days of 2026-07-01
+    expect(s?.kgAfter).toBeNull();
+    expect(s?.deltaKg).toBeNull();
+    expect(s?.days).toBe(30);
+    expect(compareSummary(n(), 'a', 'zzz')).toBeNull();
+    expect(compareSummary(n(), 'a', 'a')).toBeNull();
+  });
+
+  it('suggestedPair is the first and newest of a pose, or null with fewer than two', () => {
+    const { n } = withPhotos();
+    expect(suggestedPair(n(), 'front')).toEqual(['a', 'b']);
+    expect(suggestedPair(n(), 'custom')).toBeNull();
+    expect(suggestedPair(emptyNutrition(), 'front')).toBeNull();
   });
 });
