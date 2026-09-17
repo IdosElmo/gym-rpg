@@ -25,6 +25,9 @@
 .ph-shoot .nt-field{display:block; font-size:12.5px; color:var(--muted); margin-top:10px}
 .ph-shoot .nt-field-row .ph-note-field{flex:1.6 1 0}
 .ph-shoot .action-btn{width:100%; margin-top:12px; min-height:48px}
+.ph-btn-row{display:flex; gap:10px}
+.ph-btn-row .action-btn{margin-top:10px; flex:1 1 0; width:auto}
+.ph-btn-row .action-btn.ghost{color:var(--muted)}
 .ph-shoot .action-btn[disabled]{opacity:.6}
 
 /* The gallery: a three-across grid of tiles, newest first. */
@@ -125,3 +128,53 @@
 @media (prefers-reduced-motion: reduce){ .ph-viewer-img img{transition:none} }
 
 @media (max-width:360px){ .ph-grid{grid-template-columns:repeat(2,1fr)} }
+
+/* ---------- the live camera sheet ---------- */
+/* Full screen, above the viewer. The stage is the viewfinder: the video fills
+   it, the ghost (last photo of the pose) sits over it at --ghost opacity, and
+   both are mirrored together on the front camera so they line up the way a
+   mirror would. The CAPTURE is never mirrored. */
+.ph-cam{
+  position:fixed; inset:0; z-index:95; background:#000; color:var(--text);
+  display:flex; flex-direction:column; padding:env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0);
+}
+.ph-cam-bar{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px}
+.ph-cam-stage{
+  position:relative; flex:1 1 0; min-height:0; overflow:hidden; background:#000;
+  display:flex; align-items:center; justify-content:center;
+}
+.ph-cam-video{width:100%; height:100%; object-fit:cover; display:block}
+.ph-cam-stage.mirrored .ph-cam-video, .ph-cam-stage.mirrored .ph-cam-ghost{transform:scaleX(-1)}
+.ph-cam-ghost{
+  position:absolute; inset:0; width:100%; height:100%; object-fit:cover; pointer-events:none;
+  opacity:0;
+}
+.ph-cam-ghost.ready{opacity:var(--ghost)}
+/* A thin centre line: the one landmark that survives every framing. */
+.ph-cam-guide{
+  position:absolute; top:0; bottom:0; left:50%; width:1px; margin-left:-.5px;
+  background:#E8EDF555; pointer-events:none;
+}
+.ph-cam-msg{
+  position:absolute; inset:auto 16px; text-align:center; font-size:14px; line-height:1.6;
+  color:var(--text); background:#121824CC; padding:12px 14px; border-radius:12px;
+}
+.ph-cam-count{
+  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  font-size:96px; font-weight:900; color:var(--text); text-shadow:0 2px 12px #000;
+  font-variant-numeric:tabular-nums;
+}
+.ph-cam-shot{max-width:100%; max-height:100%; object-fit:contain; display:block}
+.ph-cam-range{padding:6px 16px 0; color:var(--muted)}
+.ph-cam-note{margin:8px 16px 0; text-align:center}
+.ph-cam-actions{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px 16px}
+.ph-cam-actions .action-btn{flex:1; margin:0; min-height:48px}
+.ph-cam-actions .action-btn.ghost{color:var(--muted)}
+.ph-cam-actions .ph-vbtn.on{border-color:var(--accent); color:var(--accent)}
+.ph-cam-spacer{width:44px; flex:0 0 auto}
+.ph-shutter{
+  width:72px; height:72px; border-radius:50%; border:4px solid var(--text); background:var(--card);
+  box-shadow:inset 0 0 0 4px #000; padding:0; flex:0 0 auto;
+}
+.ph-shutter:active{background:var(--accent)}
+.ph-shutter[disabled]{opacity:.45}

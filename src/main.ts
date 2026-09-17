@@ -22,6 +22,7 @@ import { IdbBlobStore } from './storage/IdbBlobStore.ts';
 import { MemoryBlobStore } from './storage/MemoryBlobStore.ts';
 import type { BlobStore, DataStore } from './storage/DataStore.ts';
 import { pruneOrphanBlobs } from './core/photos.ts';
+import { browserCamera } from './nutrition/camera.ts';
 import { closeDueWeeks, gameOf, refreshStreak } from './core/game.ts';
 import { buildGhost, ghostHash } from './core/ghost.ts';
 import { defaultHandle } from './core/handle.ts';
@@ -68,7 +69,7 @@ function boot(): void {
   // exactly as it always did.
   if (sync.closesWeeksNow()) closeDueWeeks(store);
   else sync.closeWeeksWhenReady();
-  const app = createApp(store, timer, { ...sync.hooks, photos: { blobs } });
+  const app = createApp(store, timer, { ...sync.hooks, photos: { blobs, camera: browserCamera() } });
   sync.attach(app);
   initImportInput(store, () => app.render(), {
     isSignedIn: sync.isSignedIn,
