@@ -197,8 +197,14 @@
 .wt-add .action-btn, .wt-target .action-btn{width:100%; margin-top:12px; min-height:46px}
 .wt-note-inp{text-align:start; font-weight:500}
 
-/* The entry list — newest first, the delta against the entry before it. */
-.wt-list{list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:8px}
+/* The entry list — newest first, the delta against the entry before it. It
+   scrolls INSIDE its own box (about five rows tall) so a long log does not
+   push the goal card off the screen; the page itself never grows with it. */
+.wt-list{
+  list-style:none; margin:10px 0 0; padding:0 2px 2px 0; display:flex; flex-direction:column; gap:8px;
+  max-height:340px; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
+  scrollbar-width:thin;
+}
 .wt-row{
   display:flex; flex-direction:column; gap:6px;
   background:var(--card-2); border:1px solid var(--line); border-radius:11px; padding:9px 12px;

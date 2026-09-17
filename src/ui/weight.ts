@@ -385,7 +385,12 @@ function historyCard(all: readonly WeightRow[]): string {
     </li>`;
     })
     .join('');
-  const more = all.length > HISTORY_MAX ? `<p class="gc-note dim">מוצגות ${HISTORY_MAX} השקילות האחרונות מתוך ${all.length}.</p>` : '';
+  const more =
+    all.length > HISTORY_MAX
+      ? `<p class="gc-note dim">מוצגות ${HISTORY_MAX} השקילות האחרונות מתוך ${all.length} — גוללים בתוך הרשימה.</p>`
+      : all.length > 5
+        ? `<p class="gc-note dim">גוללים בתוך הרשימה לשקילות ישנות יותר.</p>`
+        : '';
   return `
   <section class="game-card">
     <div class="gc-title">השקילות שלי <span class="gc-sub">${all.length}</span></div>
