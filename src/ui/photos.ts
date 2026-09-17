@@ -28,6 +28,11 @@
  * reset, and after a save: a camera left running is a battery and a privacy
  * problem. The file picker stays beside it for the day the camera says no.
  *
+ * THE BACKUP is a ZIP (photos.json + one JPEG per photo) that the user keeps
+ * themselves — the JSON export cannot carry the bytes, and nothing syncs
+ * them. Import is ADDITIVE and id-stable: a photo the log knows is skipped
+ * (or gets its missing bytes back), a deleted one stays deleted.
+ *
  * IMAGES ARRIVE AFTER THE HTML. The screen renders as a string like every
  * other, with an empty <img> per tile; `hydrate` then fetches each blob and
  * points the tile at an object URL. URLs are cached per photo id for the
@@ -38,10 +43,14 @@
 
 import { fmtDate, todayISO } from '../core/workout.ts';
 import {
+  PHOTO_MANIFEST_NAME,
   PHOTO_MAX_DIM,
   PHOTO_MAX_NOTE_LEN,
   POSE_NAME_MAX_LEN,
+  buildPhotoManifest,
   compareSummary,
+  importPhotoBackup,
+  parsePhotoManifest,
   deletePhoto,
   latestPhoto,
   namePose,
@@ -56,6 +65,7 @@ import {
 } from '../core/photos.ts';
 import type { CameraError, CameraFacing, CameraPort, CameraSession } from '../nutrition/camera.ts';
 import { preparePhoto, type PreparedPhoto } from '../nutrition/photo.ts';
+import { buildZip, readZip } from '../storage/zip.ts';
 import type { BlobStore, DataStore, NutritionState, PhotoPose } from '../storage/DataStore.ts';
 import { esc } from './dom.ts';
 import { toast } from './toast.ts';
@@ -396,6 +406,21 @@ function poseNameCard(n: NutritionState): string {
   </section>`;
 }
 
+function backupCard(n: NutritionState): string {
+  const count = photoEntries(n).length;
+  return `
+  <section class="game-card ph-backup">
+    <div class="gc-title">גיבוי התמונות <span class="gc-sub">קובץ ZIP</span></div>
+    <p class="gc-note">התמונות נשמרות רק במכשיר הזה ולא נכללות בגיבוי ה־JSON. הורידו קובץ ZIP מדי פעם ושמרו אותו במקום בטוח — ייבוא מוסיף את מה שחסר ולא מוחק דבר.</p>
+    <div class="ph-btn-row">
+      <button class="action-btn" id="phExport" type="button" ${count === 0 ? 'disabled' : ''}>⬇ ייצוא ZIP${count > 0 ? ` (${count})` : ''}</button>
+      <button class="action-btn" id="phImport" type="button">⬆ ייבוא ZIP</button>
+    </div>
+    <input type="file" id="phZip" accept=".zip,application/zip" hidden>
+    <p class="gc-note" id="phBackupMsg" role="status"></p>
+  </section>`;
+}
+
 function viewer(n: NutritionState): string {
   if (viewerId === null) return '';
   const p = photoEntries(n).find((r) => r.id === viewerId);
@@ -480,6 +505,7 @@ export function photosHtml(n: NutritionState, today: string, live = false): stri
   ${compareCard(n)}
   ${galleryCard(n)}
   ${poseNameCard(n)}
+  ${backupCard(n)}
   ${viewer(n)}
   ${cameraSheet(n)}`;
 }
@@ -844,6 +870,73 @@ function wire(main: HTMLElement, deps: PhotosDeps, today: string): void {
         again();
       });
     });
+  });
+
+  /* ---- the ZIP backup ---- */
+  const backupMsg = main.querySelector<HTMLElement>('#phBackupMsg');
+  const exportBtn = main.querySelector<HTMLButtonElement>('#phExport');
+  exportBtn?.addEventListener('click', () => {
+    const state = deps.store.getState().nutrition;
+    const manifest = buildPhotoManifest(state, Date.now());
+    exportBtn.disabled = true;
+    const label = exportBtn.textContent ?? '';
+    exportBtn.textContent = 'אורז…';
+    void (async () => {
+      const entries = [{ name: PHOTO_MANIFEST_NAME, data: new TextEncoder().encode(JSON.stringify(manifest, null, 2)) }];
+      let missing = 0;
+      for (const p of manifest.photos) {
+        const blob = await deps.blobs.get(p.id);
+        if (!blob) {
+          missing += 1;
+          continue;
+        }
+        entries.push({ name: p.file, data: new Uint8Array(await blob.arrayBuffer()) });
+      }
+      const zip = new Blob([buildZip(entries)], { type: 'application/zip' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(zip);
+      a.download = `progress-photos-${today}.zip`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+      if (backupMsg) {
+        backupMsg.textContent =
+          missing > 0
+            ? `הקובץ ירד. ${missing} תמונות לא נמצאו במכשיר הזה ולכן לא נכללו.`
+            : `הקובץ ירד — ${manifest.photos.length} תמונות, ${fmtBytes(zip.size)}.`;
+      }
+    })()
+      .catch(() => {
+        if (backupMsg) backupMsg.textContent = 'הייצוא נכשל — נסו שוב.';
+      })
+      .finally(() => {
+        exportBtn.disabled = false;
+        exportBtn.textContent = label;
+      });
+  });
+  const zipInp = main.querySelector<HTMLInputElement>('#phZip');
+  main.querySelector<HTMLButtonElement>('#phImport')?.addEventListener('click', () => zipInp?.click());
+  zipInp?.addEventListener('change', () => {
+    const file = zipInp.files?.[0];
+    if (!file) return;
+    void (async () => {
+      const entries = readZip(new Uint8Array(await file.arrayBuffer()));
+      const manifestEntry = entries?.find((e) => e.name === PHOTO_MANIFEST_NAME);
+      const manifest = manifestEntry ? parsePhotoManifest(JSON.parse(new TextDecoder().decode(manifestEntry.data))) : null;
+      if (!entries || !manifest) {
+        if (backupMsg) backupMsg.textContent = 'זה לא קובץ גיבוי תמונות של האפליקציה — הייבוא בוטל.';
+        return;
+      }
+      const files = new Map<string, Blob>();
+      for (const e of entries) if (e.name !== PHOTO_MANIFEST_NAME) files.set(e.name, new Blob([e.data], { type: 'image/jpeg' }));
+      const res = await importPhotoBackup(deps.store, deps.blobs, manifest, files);
+      // Bytes may have come back for photos whose tiles were marked missing.
+      for (const p of manifest.photos) revoke(p.id);
+      toast(res.added + res.restored > 0 ? `נוספו ${res.added} תמונות, שוחזרו ${res.restored} ✓` : 'הכל כבר קיים במכשיר');
+      again();
+    })().catch(() => {
+      if (backupMsg) backupMsg.textContent = 'לא הצלחנו לקרוא את הקובץ — הייבוא בוטל.';
+    });
+    zipInp.value = '';
   });
 
   /* ---- the custom pose's name ---- */

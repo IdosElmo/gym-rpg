@@ -22,6 +22,10 @@ import {
   poseLabel,
   compareSummary,
   suggestedPair,
+  backupFileName,
+  buildPhotoManifest,
+  importPhotoBackup,
+  parsePhotoManifest,
   pruneOrphanBlobs,
   recordPhoto,
   weightForDate,
@@ -335,5 +339,87 @@ describe('comparison selectors', () => {
     expect(suggestedPair(n(), 'front')).toEqual(['a', 'b']);
     expect(suggestedPair(n(), 'custom')).toBeNull();
     expect(suggestedPair(emptyNutrition(), 'front')).toBeNull();
+  });
+});
+
+describe('the photo backup', () => {
+  async function seeded() {
+    const store = new LocalStore(fakeStorage());
+    const blobs = new MemoryBlobStore();
+    await recordPhoto(store, blobs, input('2026-09-01'), jpeg(11), 'p1');
+    await recordPhoto(store, blobs, input('2026-09-05', 'custom'), jpeg(22), 'p2');
+    namePose(store, 'צד');
+    return { store, blobs };
+  }
+
+  it('builds a manifest of every live photo with a readable, id-unique file name', async () => {
+    const { store } = await seeded();
+    const m = buildPhotoManifest(store.getState().nutrition, NOW);
+    expect(m.format).toBe('gym-rpg-photos');
+    expect(m.customPoseName).toBe('צד');
+    expect(m.photos.map((p) => p.file)).toEqual(['photos/2026-09-01_front_p1.jpg', 'photos/2026-09-05_custom_p2.jpg']);
+    expect(backupFileName({ id: 'a-b-c-d-e-f-g-h-i-j', date: '2026-01-01', pose: 'front', time: '', width: 1, height: 1, bytes: 1, note: '' })).toBe(
+      'photos/2026-01-01_front_abcdefgh.jpg',
+    );
+    // and the manifest reads back as itself
+    expect(parsePhotoManifest(JSON.parse(JSON.stringify(m)))).toEqual(m);
+  });
+
+  it('parsePhotoManifest refuses foreign JSON and drops bad entries', () => {
+    expect(parsePhotoManifest({ format: 'gym-rpg-export', photos: [] })).toBeNull();
+    expect(parsePhotoManifest('x')).toBeNull();
+    const m = parsePhotoManifest({
+      format: 'gym-rpg-photos',
+      photos: [{ ...taken('ok', '2026-09-01'), file: 'photos/ok.jpg' }, { ...taken('nofile', '2026-09-01') }, { ...taken('bad', 'nope'), file: 'x' }],
+      customPoseName: 42,
+    });
+    expect(m?.photos.map((p) => p.id)).toEqual(['ok']);
+    expect(m?.customPoseName).toBe('');
+  });
+
+  it('import after a wipe brings every photo back under its ORIGINAL id, and a second import is a no-op', async () => {
+    const { store, blobs } = await seeded();
+    const m = buildPhotoManifest(store.getState().nutrition, NOW);
+    const files = new Map<string, Blob>();
+    for (const p of m.photos) files.set(p.file, (await blobs.get(p.id)) as Blob);
+
+    const fresh = new LocalStore(fakeStorage());
+    const freshBlobs = new MemoryBlobStore();
+    const r1 = await importPhotoBackup(fresh, freshBlobs, m, files);
+    expect(r1).toEqual({ added: 2, restored: 0, skipped: 0 });
+    expect(photoEntries(fresh.getState().nutrition).map((p) => p.id)).toEqual(['p1', 'p2']);
+    expect((await freshBlobs.get('p2'))?.size).toBe(22);
+    expect(fresh.getState().nutrition.customPoseName).toBe('צד');
+    expect(fresh.getEvents().filter((e) => e.type === 'photo_taken')).toHaveLength(2);
+
+    const r2 = await importPhotoBackup(fresh, freshBlobs, m, files);
+    expect(r2).toEqual({ added: 0, restored: 0, skipped: 2 });
+    expect(fresh.getEvents().filter((e) => e.type === 'photo_taken')).toHaveLength(2);
+  });
+
+  it('restores missing bytes for a known photo, keeps a deleted one deleted, keeps a local pose name', async () => {
+    const { store, blobs } = await seeded();
+    const m = buildPhotoManifest(store.getState().nutrition, NOW);
+    const files = new Map<string, Blob>();
+    for (const p of m.photos) files.set(p.file, (await blobs.get(p.id)) as Blob);
+
+    await blobs.delete('p1'); // bytes lost, event kept
+    await deletePhoto(store, blobs, 'p2'); // the user's decision
+    namePose(store, 'גב');
+    const r = await importPhotoBackup(store, blobs, m, files);
+    expect(r).toEqual({ added: 0, restored: 1, skipped: 1 });
+    expect((await blobs.get('p1'))?.size).toBe(11);
+    expect(await blobs.get('p2')).toBeNull();
+    expect(photoEntries(store.getState().nutrition).map((p) => p.id)).toEqual(['p1']);
+    expect(store.getState().nutrition.customPoseName).toBe('גב');
+  });
+
+  it('skips an entry whose file is not in the archive', async () => {
+    const store = new LocalStore(fakeStorage());
+    const blobs = new MemoryBlobStore();
+    const m = parsePhotoManifest({ format: 'gym-rpg-photos', photos: [{ ...taken('p9', '2026-09-01'), file: 'photos/p9.jpg' }] });
+    const r = await importPhotoBackup(store, blobs, m as NonNullable<typeof m>, new Map());
+    expect(r).toEqual({ added: 0, restored: 0, skipped: 1 });
+    expect(blobs.size).toBe(0);
   });
 });

@@ -313,3 +313,103 @@ export function suggestedPair(n: NutritionState, pose: PhotoPose): [string, stri
   const last = rows[rows.length - 1];
   return first && last && first.id !== last.id ? [first.id, last.id] : null;
 }
+
+/* ---------------------------------------------------------------- backup */
+
+/** The manifest inside a photo backup ZIP — the metadata the events carry, plus each blob's path. */
+export interface PhotoBackupManifest {
+  format: 'gym-rpg-photos';
+  version: 1;
+  exportedAt: number;
+  customPoseName: string;
+  photos: (PhotoRow & { file: string })[];
+}
+
+export const PHOTO_BACKUP_FORMAT = 'gym-rpg-photos';
+export const PHOTO_MANIFEST_NAME = 'photos.json';
+
+/** "photos/2026-09-14_front_1a2b3c4d.jpg" — readable in any unzip tool, unique by the id. */
+export function backupFileName(p: PhotoRow): string {
+  return `photos/${p.date}_${p.pose}_${p.id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)}.jpg`;
+}
+
+/** The manifest for every live photo (the caller adds the bytes). */
+export function buildPhotoManifest(n: NutritionState, now: number): PhotoBackupManifest {
+  return {
+    format: PHOTO_BACKUP_FORMAT,
+    version: 1,
+    exportedAt: now,
+    customPoseName: n.customPoseName,
+    photos: photoEntries(n).map((p) => ({ ...p, file: backupFileName(p) })),
+  };
+}
+
+/** Read a manifest from untrusted JSON: `null` unless it is ours; bad entries are dropped. */
+export function parsePhotoManifest(raw: unknown): PhotoBackupManifest | null {
+  if (!isRecord(raw) || raw['format'] !== PHOTO_BACKUP_FORMAT || !Array.isArray(raw['photos'])) return null;
+  const photos: (PhotoRow & { file: string })[] = [];
+  for (const entry of raw['photos']) {
+    if (!isRecord(entry) || typeof entry['file'] !== 'string' || !entry['file']) continue;
+    const read = photoRecordOf(entry);
+    if (read) photos.push({ id: read.id, ...read.rec, file: entry['file'] });
+  }
+  return {
+    format: PHOTO_BACKUP_FORMAT,
+    version: 1,
+    exportedAt: typeof raw['exportedAt'] === 'number' ? raw['exportedAt'] : 0,
+    customPoseName: poseNameOf(raw['customPoseName']),
+    photos,
+  };
+}
+
+export interface PhotoImportResult {
+  /** Photos that did not exist here and were added (event + bytes). */
+  added: number;
+  /** Photos already in the log whose missing bytes were put back. */
+  restored: number;
+  /** Entries skipped: already complete here, deleted here, or without a file in the archive. */
+  skipped: number;
+}
+
+/**
+ * Fold a backup INTO this device, additively: a photo the log does not know
+ * is recorded under its ORIGINAL id (so importing the same backup twice is a
+ * no-op, and the ids stay stable across export → wipe → import); a photo the
+ * log knows but whose bytes are gone gets them back; a photo deleted here
+ * stays deleted — the tombstone is the user's decision. The custom pose's
+ * name is taken only when this device has none.
+ */
+export async function importPhotoBackup(
+  store: DataStore,
+  blobs: BlobStore,
+  manifest: PhotoBackupManifest,
+  files: ReadonlyMap<string, Blob>,
+): Promise<PhotoImportResult> {
+  const res: PhotoImportResult = { added: 0, restored: 0, skipped: 0 };
+  for (const p of manifest.photos) {
+    const n = store.getState().nutrition;
+    const blob = files.get(p.file);
+    if (!blob || n.photoDeleted[p.id]) {
+      res.skipped += 1;
+      continue;
+    }
+    if (n.photos[p.id]) {
+      if ((await blobs.get(p.id)) === null) {
+        await blobs.put(p.id, blob);
+        res.restored += 1;
+      } else res.skipped += 1;
+      continue;
+    }
+    const ev = await recordPhoto(
+      store,
+      blobs,
+      { date: p.date, time: p.time, pose: p.pose, width: p.width, height: p.height, note: p.note },
+      blob,
+      p.id,
+    );
+    if (ev) res.added += 1;
+    else res.skipped += 1;
+  }
+  if (manifest.customPoseName && !store.getState().nutrition.customPoseName) namePose(store, manifest.customPoseName);
+  return res;
+}
