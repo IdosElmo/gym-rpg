@@ -1,0 +1,127 @@
+/* ---------- 📸 תמונות — progress photos (the nutrition hub's third inner tab) ---------- */
+
+/* A thumbnail box: portrait 3:4 (a full-body shot), the surface one shade up
+   while the bytes load, the image covering it once they are there. */
+.ph-thumb{
+  display:block; position:relative; width:100%; aspect-ratio:3/4; overflow:hidden;
+  border-radius:10px; background:var(--card-2); border:1px solid var(--line);
+}
+.ph-thumb img{
+  display:block; width:100%; height:100%; object-fit:cover; opacity:0; transition:opacity .25s;
+}
+.ph-thumb img.ready{opacity:1}
+/* A photo whose bytes are not on this device (a wipe elsewhere, a JSON import). */
+.ph-thumb.missing::after, .ph-viewer-img.missing::after{
+  content:'התמונה לא נמצאת במכשיר הזה'; position:absolute; inset:0;
+  display:flex; align-items:center; justify-content:center; text-align:center;
+  padding:8px; font-size:11.5px; color:var(--dim);
+}
+@media (prefers-reduced-motion: reduce){ .ph-thumb img{transition:none} }
+
+/* The new-photo card: the ghost (last photo of the pose) beside its how-to. */
+.ph-ghost{display:flex; align-items:center; gap:12px; margin-top:10px}
+.ph-ghost-img{flex:0 0 72px; width:72px}
+.ph-ghost .gc-note{margin:0}
+.ph-shoot .nt-field{display:block; font-size:12.5px; color:var(--muted); margin-top:10px}
+.ph-shoot .nt-field-row .ph-note-field{flex:1.6 1 0}
+.ph-shoot .action-btn{width:100%; margin-top:12px; min-height:48px}
+.ph-shoot .action-btn[disabled]{opacity:.6}
+
+/* The gallery: a three-across grid of tiles, newest first. */
+.ph-grid{
+  list-style:none; margin:10px 0 0; padding:0;
+  display:grid; grid-template-columns:repeat(3,1fr); gap:8px;
+}
+.ph-item{min-width:0}
+.ph-tile{
+  display:block; width:100%; padding:0; border:none; background:none; position:relative;
+  border-radius:10px; text-align:inherit;
+}
+.ph-tile:active .ph-thumb{border-color:var(--accent)}
+.ph-pose{
+  position:absolute; top:5px; inset-inline-start:5px; font-size:11px; line-height:1;
+  padding:3px 5px; border-radius:99px; background:#121824CC;
+}
+/* The ◯ pick badge, in the tile's other top corner from the pose mark (which
+   sits at inline-start — the right, in RTL). Filled with the pick's number
+   once picked. */
+.ph-pick{
+  position:absolute; top:5px; inset-inline-end:5px; width:26px; height:26px; padding:0;
+  border-radius:50%; border:2px solid #E8EDF5CC; background:#121824AA; color:var(--text);
+  font-size:12px; font-weight:800; line-height:1;
+}
+.ph-pick.on{background:var(--accent); border-color:var(--accent)}
+.ph-item{position:relative}
+.ph-item.picked .ph-thumb{border-color:var(--accent); box-shadow:0 0 0 2px #3B82F655}
+/* The badge's hit target: 44px, larger than it looks. */
+.ph-pick::before{content:''; position:absolute; inset:-9px}
+
+/* The comparison card. */
+.ph-compare .action-btn{width:100%; margin-top:10px; min-height:46px}
+.ph-compare .action-btn.ghost{color:var(--muted); min-height:44px}
+.ph-cmp-side{display:flex; gap:8px; margin-top:2px}
+.ph-cmp-fig{flex:1 1 0; min-width:0; margin:0}
+.ph-cmp-cap{display:flex; flex-direction:column; gap:1px; margin-top:5px; font-size:11.5px; color:var(--muted)}
+.ph-cmp-when{font-weight:800; color:var(--text); font-variant-numeric:tabular-nums}
+.ph-cmp-cap.after .ph-cmp-when{color:var(--accent)}
+/* One box for the wipe and the overlay: portrait 3:4, LTR inside so the
+   percentages are geometry, not reading direction. */
+.ph-cmp-box{
+  position:relative; width:100%; aspect-ratio:3/4; overflow:hidden; direction:ltr;
+  border-radius:10px; background:var(--card-2); border:1px solid var(--line); margin-top:2px;
+}
+.ph-cmp-box img{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0}
+.ph-cmp-box img.ready{opacity:1}
+.ph-cmp-wipe .ph-cmp-over.ready{clip-path:inset(0 calc(100% - var(--pos)) 0 0)}
+.ph-cmp-handle{
+  position:absolute; top:0; bottom:0; left:var(--pos); width:2px; margin-left:-1px;
+  background:var(--text); box-shadow:0 0 0 1px #12182466; pointer-events:none;
+}
+.ph-cmp-handle::after{
+  content:'⇔'; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  width:30px; height:30px; border-radius:50%; background:var(--card); border:1px solid var(--line);
+  color:var(--text); font-size:15px; display:flex; align-items:center; justify-content:center;
+}
+.ph-cmp-tag{
+  position:absolute; top:6px; padding:2px 8px; border-radius:99px; font-size:11px; font-weight:800;
+  background:#121824CC; color:var(--text); direction:rtl;
+}
+.ph-cmp-tag.after{left:6px; color:var(--accent)}
+.ph-cmp-tag.before{right:6px}
+.ph-cmp-overlay .ph-cmp-over.ready{opacity:var(--alpha)}
+.ph-cmp-range{display:block; margin-top:10px; font-size:12.5px; color:var(--muted)}
+.ph-cmp-range input[type=range]{display:block; width:100%; margin-top:6px; min-height:44px; accent-color:var(--accent)}
+.ph-cmp-legend{margin-top:10px}
+
+.ph-cap{display:flex; flex-direction:column; gap:1px; margin-top:4px; font-size:11px; color:var(--muted); min-width:0}
+.ph-cap-date{font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.ph-cap-kg{font-variant-numeric:tabular-nums}
+.ph-cap-note{color:var(--text); overflow-wrap:anywhere}
+
+.ph-pose-card .nt-field{display:block; font-size:12.5px; color:var(--muted); margin-top:10px}
+.ph-pose-card .action-btn{width:100%; margin-top:12px; min-height:46px}
+
+/* The viewer: a full-screen dark sheet, the image fitted, a bar above and the
+   caption below. Above the timer bar and the toast. */
+.ph-viewer{
+  position:fixed; inset:0; z-index:90; background:#121824F2;
+  display:flex; flex-direction:column; padding:env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0);
+}
+.ph-viewer-bar{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px}
+.ph-viewer-title{font-size:14px; font-weight:800}
+.ph-vbtn{
+  background:var(--card); border:1px solid var(--line); color:var(--text);
+  min-width:44px; min-height:44px; border-radius:12px; font-size:17px;
+}
+.ph-vbtn.danger{color:var(--danger)}
+.ph-viewer-img{flex:1 1 0; min-height:0; position:relative; display:flex; align-items:center; justify-content:center; padding:0 10px}
+.ph-viewer-img img{max-width:100%; max-height:100%; object-fit:contain; border-radius:10px; opacity:0; transition:opacity .25s}
+.ph-viewer-img img.ready{opacity:1}
+.ph-viewer-cap{
+  display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px;
+  padding:10px 16px 14px; font-size:13px; color:var(--muted);
+}
+.ph-viewer-cap .ph-cap-date{font-size:14px}
+@media (prefers-reduced-motion: reduce){ .ph-viewer-img img{transition:none} }
+
+@media (max-width:360px){ .ph-grid{grid-template-columns:repeat(2,1fr)} }

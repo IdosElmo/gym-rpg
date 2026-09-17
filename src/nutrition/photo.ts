@@ -12,6 +12,8 @@
  */
 
 const JPEG_QUALITY = 0.8;
+/** Progress photos are compared side by side — a notch sharper than a meal shot. */
+const PROGRESS_JPEG_QUALITY = 0.85;
 
 export async function downscalePhoto(
   file: File,
@@ -45,4 +47,39 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     img.onerror = () => reject(new Error('image load failed'));
     img.src = url;
   });
+}
+
+/** A picked photo, downscaled and re-encoded, ready for the BlobStore. */
+export interface PreparedPhoto {
+  blob: Blob;
+  width: number;
+  height: number;
+}
+
+/**
+ * The 📸 progress-photo variant of the same move: ≤`maxDim` on the long side,
+ * JPEG, but as a Blob with its pixel dimensions — the BlobStore takes bytes,
+ * the event takes the size. DOM-only like `downscalePhoto`; the screen takes
+ * it as an injectable (`PhotosDeps.prepare`), so jsdom tests hand in a fake.
+ */
+export async function preparePhoto(file: File, maxDim: number): Promise<PreparedPhoto> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await loadImage(url);
+    const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+    const width = Math.max(1, Math.round(img.naturalWidth * scale));
+    const height = Math.max(1, Math.round(img.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('no 2d context');
+    ctx.drawImage(img, 0, 0, width, height);
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encode failed'))), 'image/jpeg', PROGRESS_JPEG_QUALITY);
+    });
+    return { blob, width, height };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }

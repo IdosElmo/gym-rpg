@@ -28,6 +28,7 @@ import {
 import { SYNC_CONFIG, syncConfigured } from '../src/sync/config.ts';
 import { SyncEngine, backoffDelay, type SyncStatus } from '../src/sync/engine.ts';
 import { SYNC_META_KEY, readSyncMeta } from '../src/sync/meta.ts';
+import { rebuildFromEvents } from '../src/storage/migrate.ts';
 
 /* -------------------------------------------------------------- fixtures */
 
@@ -745,3 +746,28 @@ describe('syncConfigured', () => {
     expect(syncConfigured({ ...real, url: 'ftp://demo.supabase.co' }, 'https:')).toBe(false);
   });
 });
+describe('local-only events (📸 photos)', () => {
+  it('are never queued or pushed — not on append, not on enqueueAll — while everything else still is', async () => {
+    const backend = new MemoryBackend();
+    const rig = makeRig(backend);
+    await signIn(rig);
+    rig.store.append('photo_taken', {
+      id: 'p1', date: '2026-09-01', time: '', pose: 'front', width: 10, height: 10, bytes: 5, note: '',
+    });
+    rig.store.append('photo_pose_named', { name: 'צד' });
+    rig.store.append('weight_logged', { id: 'w1', date: '2026-09-01', time: '', kg: 80, note: '' });
+    await tick(rig.engine, 5_000);
+    const remoteTypes = backend.eventsOf(USER).map((e) => e.type);
+    expect(remoteTypes).toContain('weight_logged');
+    expect(remoteTypes).not.toContain('photo_taken');
+    expect(remoteTypes).not.toContain('photo_pose_named');
+
+    rig.engine.enqueueAll();
+    await tick(rig.engine, 5_000);
+    expect(backend.eventsOf(USER).some((e) => e.type.startsWith('photo_'))).toBe(false);
+    // …and they are still in the local log, and a rebuild of it folds them like any other
+    expect(rig.store.getEvents().filter((e) => e.type.startsWith('photo_'))).toHaveLength(2);
+    expect(rebuildFromEvents(rig.store.getEvents(), Date.now()).nutrition.photos['p1']).toBeDefined();
+  });
+});
+

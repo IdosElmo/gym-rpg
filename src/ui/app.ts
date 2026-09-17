@@ -73,6 +73,8 @@ import {
 } from './nav.ts';
 import { renderNutrition } from './nutrition.ts';
 import { renderWeight, weightHeadline } from './weight.ts';
+import { photosHeadline, renderPhotos, type PhotosDeps } from './photos.ts';
+import { MemoryBlobStore } from '../storage/MemoryBlobStore.ts';
 import { renderPlanEditor, resetPlanDraft } from './planEditor.ts';
 import { renderSettings, type SettingsDeps } from './settings.ts';
 import { renderStats } from './stats.ts';
@@ -111,6 +113,12 @@ export interface AppHooks {
    * manual logging works identically either way.
    */
   nutrition?: { ai: NutritionAiPort };
+  /**
+   * The 📸 photos screen's plumbing: where the bytes live, and (tests only)
+   * how a picked file becomes a stored image. Absent = an in-memory store,
+   * so the screen still works and photos last until reload.
+   */
+  photos?: Pick<PhotosDeps, 'blobs' | 'prepare'>;
   /** Fired at the end of every full render (lets main.ts clear a deferred repaint). */
   onRender?: () => void;
 }
@@ -151,7 +159,16 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
   /** True for the nine screens that are not a workout day. */
   function isScreen(v: ViewKey): boolean {
     return (
-      v === 'CH' || v === 'BT' || v === 'H' || v === 'PL' || v === 'ST' || v === 'SS' || v === 'LG' || v === 'NT' || v === 'WT'
+      v === 'CH' ||
+      v === 'BT' ||
+      v === 'H' ||
+      v === 'PL' ||
+      v === 'ST' ||
+      v === 'SS' ||
+      v === 'LG' ||
+      v === 'NT' ||
+      v === 'WT' ||
+      v === 'PH'
     );
   }
 
@@ -329,6 +346,11 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       <p class="day-meta">${esc(weightHeadline(state.nutrition))}</p>${energyPill()}`;
       return;
     }
+    if (view === 'PH') {
+      headerEl.innerHTML = `<h1 class="app-title">תמונות <span class="en">Progress</span></h1>
+      <p class="day-meta">${esc(photosHeadline(state.nutrition))}</p>${energyPill()}`;
+      return;
+    }
     if (view === 'PL') {
       const custom = !isDefaultPlan(state.plan);
       headerEl.innerHTML = `<h1 class="app-title">עריכת תוכנית <span class="en">Plan</span></h1>
@@ -430,6 +452,16 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     renderWeight(mainEl, { store, rerender: renderWeightScreen });
   }
 
+  /** The 📸 screen's bytes: what main.ts supplied, or memory (bare tests). */
+  const photoDeps: Pick<PhotosDeps, 'blobs' | 'prepare'> = hooks.photos ?? { blobs: new MemoryBlobStore() };
+
+  /** Repaint the 📸 screen in place after a photo lands or goes — header included. */
+  function renderPhotosScreen(): void {
+    if (store.getState().ui.view !== 'PH') return;
+    renderHeader();
+    renderPhotos(mainEl, { store, rerender: renderPhotosScreen, ...photoDeps });
+  }
+
   /** Re-render the editor in place (draft edits must not reset the scroll). */
   function renderPlanScreen(): void {
     if (store.getState().ui.view !== 'PL') return;
@@ -473,6 +505,8 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       renderNutrition(mainEl, { store, rerender: renderNutritionScreen, ...(hooks.nutrition ? { ai: hooks.nutrition.ai } : {}) });
     } else if (view === 'WT') {
       renderWeight(mainEl, { store, rerender: renderWeightScreen });
+    } else if (view === 'PH') {
+      renderPhotos(mainEl, { store, rerender: renderPhotosScreen, ...photoDeps });
     } else if (view === 'LG') {
       renderLeague(mainEl, { store, rerender: renderLeagueScreen, ...(hooks.league ? { cloud: hooks.league } : {}) });
     } else if (view === 'PL') {

@@ -18,7 +18,10 @@
 import '../styles/index.css';
 
 import { LocalStore } from './storage/LocalStore.ts';
-import type { DataStore } from './storage/DataStore.ts';
+import { IdbBlobStore } from './storage/IdbBlobStore.ts';
+import { MemoryBlobStore } from './storage/MemoryBlobStore.ts';
+import type { BlobStore, DataStore } from './storage/DataStore.ts';
+import { pruneOrphanBlobs } from './core/photos.ts';
 import { closeDueWeeks, gameOf, refreshStreak } from './core/game.ts';
 import { buildGhost, ghostHash } from './core/ghost.ts';
 import { defaultHandle } from './core/handle.ts';
@@ -45,6 +48,7 @@ import { must } from './ui/dom.ts';
 
 function boot(): void {
   const store: DataStore = new LocalStore();
+  const blobs = wireBlobs(store);
 
   initToast(must('toast'));
   // Weeks close by the passing of time, not by a user action: re-evaluate the
@@ -64,7 +68,7 @@ function boot(): void {
   // exactly as it always did.
   if (sync.closesWeeksNow()) closeDueWeeks(store);
   else sync.closeWeeksWhenReady();
-  const app = createApp(store, timer, sync.hooks);
+  const app = createApp(store, timer, { ...sync.hooks, photos: { blobs } });
   sync.attach(app);
   initImportInput(store, () => app.render(), {
     isSignedIn: sync.isSignedIn,
@@ -73,6 +77,26 @@ function boot(): void {
   app.render();
 
   registerServiceWorker();
+}
+
+/* ------------------------------------------------------------ the blobs */
+
+/**
+ * The 📸 photo bytes' home: IndexedDB when the browser has it, memory when
+ * it does not (the app still runs; photos then last until reload). Two
+ * reconciliations keep it honest with the log, which is the source of truth
+ * for WHICH photos exist: a local wipe empties it (the `data_cleared` this
+ * device appends), and at boot every blob the log no longer claims — deleted
+ * or wiped while this device was not looking — is dropped. Nothing here is
+ * awaited by the boot: a slow or broken IndexedDB must never delay first paint.
+ */
+function wireBlobs(store: DataStore): BlobStore {
+  const blobs: BlobStore = IdbBlobStore.available() ? new IdbBlobStore() : new MemoryBlobStore();
+  store.subscribeEvents((ev) => {
+    if (ev.type === 'data_cleared') void blobs.clear().catch(() => undefined);
+  });
+  void pruneOrphanBlobs(store.getState().nutrition, blobs).catch(() => undefined);
+  return blobs;
 }
 
 /* ------------------------------------------------------------ cloud sync */
