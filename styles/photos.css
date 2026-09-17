@@ -103,6 +103,8 @@
 
 .ph-pose-card .nt-field{display:block; font-size:12.5px; color:var(--muted); margin-top:10px}
 .ph-pose-card .action-btn{width:100%; margin-top:12px; min-height:46px}
+.ph-backup .action-btn{min-height:46px}
+.ph-backup .action-btn[disabled]{opacity:.45}
 
 /* The viewer: a full-screen dark sheet, the image fitted, a bar above and the
    caption below. Above the timer bar and the toast. */

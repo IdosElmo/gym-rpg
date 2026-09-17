@@ -12,7 +12,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { photoEntries } from '../src/core/photos.ts';
+import { PHOTO_MANIFEST_NAME, photoEntries } from '../src/core/photos.ts';
+import { buildZip, readZip } from '../src/storage/zip.ts';
 import { logWeight } from '../src/core/weight.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import { MemoryBlobStore } from '../src/storage/MemoryBlobStore.ts';
@@ -35,12 +36,18 @@ const SHELL = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
 const BODY = /<body>([\s\S]*?)<\/body>/i.exec(SHELL)?.[1] ?? '';
 
 let urlCounter = 0;
+/** Every blob handed to createObjectURL, so a download can be inspected. */
+let objectUrls: Blob[] = [];
 beforeEach(() => {
+  objectUrls = [];
   document.body.innerHTML = BODY.replace(/<script[\s\S]*?<\/script>/gi, '');
   window.scrollTo = (() => undefined) as typeof window.scrollTo;
   vi.stubGlobal('confirm', () => true);
   urlCounter = 0;
-  (URL as unknown as { createObjectURL: (b: Blob) => string }).createObjectURL = () => `blob:fake-${(urlCounter += 1)}`;
+  (URL as unknown as { createObjectURL: (b: Blob) => string }).createObjectURL = (b) => {
+    objectUrls.push(b);
+    return `blob:fake-${(urlCounter += 1)}`;
+  };
   (URL as unknown as { revokeObjectURL: (u: string) => void }).revokeObjectURL = () => undefined;
   resetPhotosScreen();
 });
@@ -511,6 +518,61 @@ describe('the תמונות screen', () => {
     expect(document.querySelector('.ph-cam')).toBeNull();
     expect(document.querySelector('#phPick')).not.toBeNull();
     expect(document.querySelector('#phShoot')).not.toBeNull();
+  });
+
+  it('exports a ZIP with the manifest and every photo, and imports one additively', async () => {
+    const { store, blobs } = mount();
+    openPhotos();
+    // nothing to export yet
+    expect(document.querySelector<HTMLButtonElement>('#phExport')?.disabled).toBe(true);
+    pickFile(300);
+    await settle();
+    type('#phPoseName', 'צד');
+    click('#phPoseSave');
+    expect(document.querySelector<HTMLButtonElement>('#phExport')?.disabled).toBe(false);
+    expect(document.querySelector('#phExport')?.textContent).toContain('(1)');
+
+    // export: the download is a zip with photos.json + one jpeg
+    const before = objectUrls.length;
+    click('#phExport');
+    for (let i = 0; i < 20; i += 1) await Promise.resolve();
+    const zipBlob = objectUrls.slice(before).find((b) => b.type === 'application/zip');
+    expect(zipBlob).toBeDefined();
+    const entries = readZip(new Uint8Array(await (zipBlob as Blob).arrayBuffer()));
+    expect(entries?.map((e) => e.name)[0]).toBe(PHOTO_MANIFEST_NAME);
+    expect(entries).toHaveLength(2);
+    expect(entries?.[1]?.data.length).toBe(300);
+    const manifest = JSON.parse(new TextDecoder().decode(entries?.[0]?.data));
+    expect(manifest.customPoseName).toBe('צד');
+    expect(manifest.photos).toHaveLength(1);
+    expect(document.querySelector('#phBackupMsg')?.textContent).toContain('הקובץ ירד');
+
+    // wipe the device, import the zip: the photo is back under the same id, with its bytes
+    const id = photoEntries(store.getState().nutrition)[0]?.id;
+    store.clear();
+    await blobs.clear();
+    resetPhotosScreen();
+    openPhotos();
+    expect(document.querySelector('.ph-gallery .empty')).not.toBeNull();
+    const zipInp = document.querySelector<HTMLInputElement>('#phZip');
+    if (!zipInp) throw new Error('no zip input');
+    const file = new File([zipBlob as Blob], 'backup.zip', { type: 'application/zip' });
+    Object.defineProperty(zipInp, 'files', { value: [file], configurable: true });
+    zipInp.dispatchEvent(new Event('change', { bubbles: true }));
+    for (let i = 0; i < 30; i += 1) await Promise.resolve();
+    expect(photoEntries(store.getState().nutrition).map((p) => p.id)).toEqual([id]);
+    expect(blobs.size).toBe(1);
+    expect(store.getState().nutrition.customPoseName).toBe('צד');
+    expect(document.querySelectorAll('.ph-grid .ph-item')).toHaveLength(1);
+
+    // a foreign file is refused (the screen re-rendered after the import: a fresh input)
+    const zipInp2 = document.querySelector<HTMLInputElement>('#phZip');
+    if (!zipInp2) throw new Error('no zip input');
+    const junk = new File([buildZip([{ name: 'readme.txt', data: new Uint8Array([1]) }])], 'x.zip');
+    Object.defineProperty(zipInp2, 'files', { value: [junk], configurable: true });
+    zipInp2.dispatchEvent(new Event('change', { bubbles: true }));
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    expect(document.querySelector('#phBackupMsg')?.textContent).toContain('לא קובץ גיבוי');
   });
 
   it('formats byte counts and the headline', () => {
