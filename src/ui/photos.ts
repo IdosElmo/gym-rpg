@@ -219,7 +219,7 @@ function viewer(n: NutritionState): string {
     <div class="ph-viewer-cap">
       ${caption(n, p)}
       ${p.note ? `<span class="ph-cap-note">${esc(p.note)}</span>` : ''}
-      <span class="dim">${p.width}×${p.height} · ${fmtBytes(p.bytes)}</span>
+      <span class="dim wt-delta" dir="ltr">${p.width}×${p.height} · ${fmtBytes(p.bytes)}</span>
     </div>
   </div>`;
 }
