@@ -1212,6 +1212,9 @@ export function rebuildFromEvents(events: readonly AppEvent[], now: number = Dat
       case 'weight_logged':
       case 'weight_deleted':
       case 'weight_target_set':
+      case 'photo_taken':
+      case 'photo_deleted':
+      case 'photo_pose_named':
         applyNutritionEvent(state.nutrition, ev.type, p);
         break;
       /**

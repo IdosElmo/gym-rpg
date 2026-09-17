@@ -35,6 +35,11 @@ npm run verify          # zero external references (allowlist in scripts/verify-
   pinned (Android font boosting).
 - **All storage through `DataStore`** (`src/storage/`). UI never touches `localStorage`.
   Auth/sync bookkeeping lives in `src/sync/` (Supabase; ships dark unless configured).
+  Bytes too big for the log (📸 progress photos) go through `BlobStore` (`IdbBlobStore`
+  is the only module naming `indexedDB`; `MemoryBlobStore` for tests/fallback) via the
+  drivers in `src/core/photos.ts`: the event carries metadata only, the blob is keyed by
+  the event's id, `pruneOrphanBlobs` reconciles the two at boot. Photo events are
+  `LOCAL_ONLY_EVENTS` — folded and rebuilt like any other, never pushed by the sync engine.
 
 ## Adding a built-in exercise — the full checklist
 

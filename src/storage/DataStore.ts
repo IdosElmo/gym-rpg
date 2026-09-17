@@ -612,7 +612,28 @@ export type EventType =
   // `state.nutrition` beside the meals (see core/weight.ts).
   | 'weight_logged'
   | 'weight_deleted'
-  | 'weight_target_set';
+  | 'weight_target_set'
+  // Phase 15 — 📸 progress photos. The EVENT carries only the metadata (id,
+  // date, pose, dimensions, byte size); the pixels live in the `BlobStore`
+  // under the same id and never enter the log. Same three laws: one photo per
+  // event, idempotent per id; deletion is a tombstone; the custom pose's name
+  // is LWW. These are LOCAL-ONLY events (`LOCAL_ONLY_EVENTS`): the sync engine
+  // never uploads them, because a photo's bytes cannot follow them.
+  | 'photo_taken'
+  | 'photo_deleted'
+  | 'photo_pose_named';
+
+/**
+ * Event types that stay on the device that wrote them. The sync engine skips
+ * them on the way OUT (never queued, never pushed); on the way IN nothing is
+ * needed, since no other device ever has one to offer. A merge (`replaceAll`)
+ * is a union, so the local copies survive it.
+ */
+export const LOCAL_ONLY_EVENTS: ReadonlySet<EventType> = new Set<EventType>([
+  'photo_taken',
+  'photo_deleted',
+  'photo_pose_named',
+]);
 
 export interface AppEvent {
   readonly id: string;
@@ -1347,6 +1368,58 @@ export interface WeightRecord {
   note: string;
 }
 
+/* ----------------------------------------------- Phase 15 photo payloads */
+
+/**
+ * The two poses. `front` is the fixed one — relaxed stance facing the camera,
+ * arms at the sides, whole body in frame; `custom` is the user's own, with an
+ * optional name (`photo_pose_named`). The ghost overlay while shooting is
+ * always the previous photo of the SAME pose, so the two series never mix.
+ */
+export type PhotoPose = 'front' | 'custom';
+
+/**
+ * ONE progress photo's metadata. `id` — a uuid minted when the photo is
+ * taken — is THE idempotency key AND the blob's key in the `BlobStore`: the
+ * fold applies the FIRST `photo_taken` per id and ignores every duplicate.
+ */
+export interface PhotoTakenPayload extends Record<string, unknown> {
+  id: string;
+  /** 'YYYY-MM-DD' — the day the photo was taken. */
+  date: string;
+  /** 'HH:MM' for display and ordering within a day, or ''. */
+  time: string;
+  pose: PhotoPose;
+  /** Pixel dimensions of the STORED (downscaled) image. */
+  width: number;
+  height: number;
+  /** Byte size of the stored blob — for the storage tally, never re-derived. */
+  bytes: number;
+  /** A short free-text remark ("אחרי חופשה"), or ''. */
+  note: string;
+}
+
+/** Deletion is a TOMBSTONE — the `meal_deleted` rule, verbatim. */
+export interface PhotoDeletedPayload extends Record<string, unknown> {
+  id: string;
+}
+
+/** The custom pose's name, carried whole — LWW. '' = unnamed ("הפוזה שלי"). */
+export interface PhotoPoseNamedPayload extends Record<string, unknown> {
+  name: string;
+}
+
+/** The stored shape of one photo (the payload minus its id, post-validation). */
+export interface PhotoRecord {
+  date: string;
+  time: string;
+  pose: PhotoPose;
+  width: number;
+  height: number;
+  bytes: number;
+  note: string;
+}
+
 export interface NutritionState {
   /** By meal id; the fold keeps the FIRST write per id. */
   meals: Record<string, MealRecord>;
@@ -1359,6 +1432,37 @@ export interface NutritionState {
   weightDeleted: Record<string, true>;
   /** The goal weight in kg (LWW), or `null` when none was set. */
   weightTarget: number | null;
+  /** 📸 photo metadata by photo id; the fold keeps the FIRST write per id. */
+  photos: Record<string, PhotoRecord>;
+  /** Photo tombstones — union-monotone, never pruned. */
+  photoDeleted: Record<string, true>;
+  /** The custom pose's name (LWW); '' when unnamed. */
+  customPoseName: string;
+}
+
+/* -------------------------------------------------------------- blobs */
+
+/**
+ * Where the PIXELS live: a key → bytes store beside the event log, for data
+ * too big for it (a progress photo is ~200 kB; localStorage is ~5 MB in
+ * total). Two implementations: IndexedDB (`IdbBlobStore`, the only module
+ * allowed to name `indexedDB`) and memory (`MemoryBlobStore`, tests and the
+ * fallback when IndexedDB is unavailable). The UI reaches it only through
+ * the drivers in core/photos.ts — never directly.
+ *
+ * It is NOT event-sourced and NOT synced: the log holds the metadata that
+ * says a blob should exist, and `pruneOrphanBlobs` reconciles the two at boot
+ * (a blob whose photo was deleted or wiped on another device goes away).
+ */
+export interface BlobStore {
+  put(id: string, blob: Blob): Promise<void>;
+  /** `null` when there is no blob under `id`. */
+  get(id: string): Promise<Blob | null>;
+  delete(id: string): Promise<void>;
+  /** Every key currently held, in no particular order. */
+  keys(): Promise<string[]>;
+  /** Drop everything (the data wipe). */
+  clear(): Promise<void>;
 }
 
 /* ------------------------------------------------------------------ store */

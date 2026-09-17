@@ -27,6 +27,8 @@
  *   weight_*              -> the ⚖️ weight log shares this slot and this fold;
  *                            its three laws are the three above, verbatim
  *                            (see core/weight.ts, which the fold delegates to).
+ *   photo_*               -> the 📸 progress photos too — metadata only; the
+ *                            pixels live in the BlobStore (see core/photos.ts).
  */
 
 import type {
@@ -41,6 +43,7 @@ import type {
   NutritionState,
   NutritionTargets,
 } from '../storage/DataStore.ts';
+import { applyPhotoEvent, normalizePhotos } from './photos.ts';
 import { applyWeightEvent, normalizeWeights } from './weight.ts';
 
 /* -------------------------------------------------------------- constants */
@@ -73,6 +76,9 @@ export function emptyNutrition(): NutritionState {
     weights: {},
     weightDeleted: {},
     weightTarget: null,
+    photos: {},
+    photoDeleted: {},
+    customPoseName: '',
   };
 }
 
@@ -196,6 +202,7 @@ export function normalizeNutrition(raw: unknown): NutritionState {
   }
   n.targets = normalizeTargets(raw['targets']);
   normalizeWeights(raw, n);
+  normalizePhotos(raw, n);
   return n;
 }
 
@@ -231,6 +238,11 @@ export function applyNutritionEvent(
     case 'weight_deleted':
     case 'weight_target_set':
       applyWeightEvent(n, type, payload);
+      break;
+    case 'photo_taken':
+    case 'photo_deleted':
+    case 'photo_pose_named':
+      applyPhotoEvent(n, type, payload);
       break;
     default:
       break;

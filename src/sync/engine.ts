@@ -54,7 +54,7 @@ import {
   type LeagueWeekUpload,
   type OpponentMonth,
 } from '../core/leagueSync.ts';
-import type { AppEvent, DataStore, Unsubscribe } from '../storage/DataStore.ts';
+import { LOCAL_ONLY_EVENTS, type AppEvent, type DataStore, type Unsubscribe } from '../storage/DataStore.ts';
 import { mergeIntoStore } from '../storage/merge.ts';
 import { ensureDeviceId, type StorageLike } from '../storage/migrate.ts';
 import { isAuthError, type SyncBackend } from './backend.ts';
@@ -465,6 +465,8 @@ export class SyncEngine {
     const ids: string[] = [];
     for (const ev of this.store.getEvents()) {
       this.knownIds.add(ev.id);
+      // A local-only event (a photo's metadata) never leaves the device.
+      if (LOCAL_ONLY_EVENTS.has(ev.type)) continue;
       if (ev.type === 'set_logged') {
         const key = coalesceKey(ev.payload);
         if (key) {
@@ -485,6 +487,9 @@ export class SyncEngine {
 
   private onLocalEvent(ev: AppEvent): void {
     this.knownIds.add(ev.id);
+    // A local-only event (a photo's metadata) is folded and rebuilt like any
+    // other, but never queued: its bytes could not follow it to the account.
+    if (LOCAL_ONLY_EVENTS.has(ev.type)) return;
     if (!this.canSync()) return;
 
     if (ev.type === 'set_logged') {
