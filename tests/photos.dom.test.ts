@@ -107,9 +107,9 @@ function openPhotos(): void {
   click('#tabs .tab[data-view="PH"]');
 }
 
-/** Drop a file into the hidden picker and fire `change`. */
-function pickFile(bytes = 1000, name = 'shot.jpg'): void {
-  const inp = document.querySelector<HTMLInputElement>('#phFile');
+/** Drop a file into a hidden picker (the gallery one by default) and fire `change`. */
+function pickFile(bytes = 1000, name = 'shot.jpg', sel = '#phFile'): void {
+  const inp = document.querySelector<HTMLInputElement>(sel);
   if (!inp) throw new Error('no file input');
   const file = new File([new Uint8Array(bytes)], name, { type: 'image/jpeg' });
   Object.defineProperty(inp, 'files', { value: [file], configurable: true });
@@ -163,6 +163,30 @@ describe('the תמונות screen', () => {
     expect(document.querySelector('.ph-ghost .gc-note')?.textContent).toContain('התמונה האחרונה');
     // the form was reset for the next one
     expect(document.querySelector<HTMLInputElement>('#phNote')?.value).toBe('');
+  });
+
+  it('has a separate device-camera picker (capture) beside the gallery one, and both store a photo', async () => {
+    const { store } = mount();
+    openPhotos();
+    // two pickers: the camera one carries `capture` so Android opens the camera, not the gallery
+    const shot = document.querySelector<HTMLInputElement>('#phShot');
+    const gallery = document.querySelector<HTMLInputElement>('#phFile');
+    expect(shot?.hasAttribute('capture')).toBe(true);
+    expect(gallery?.hasAttribute('capture')).toBe(false);
+    // each button opens ITS picker
+    let shotClicks = 0;
+    let galleryClicks = 0;
+    shot?.addEventListener('click', () => void (shotClicks += 1));
+    gallery?.addEventListener('click', () => void (galleryClicks += 1));
+    click('#phShoot');
+    click('#phPick');
+    expect(shotClicks).toBe(1);
+    expect(galleryClicks).toBe(1);
+    // a file from the camera picker is stored like any other
+    pickFile(777, 'cam.jpg', '#phShot');
+    await settle();
+    const ev = store.getEvents().find((e) => e.type === 'photo_taken');
+    expect(ev?.payload['bytes']).toBe(777);
   });
 
   it('refuses a future date and stores nothing', async () => {
@@ -481,9 +505,12 @@ describe('the תמונות screen', () => {
     await settle();
     expect(document.querySelector('.ph-cam-msg')?.textContent).toBe(CAMERA_ERROR_HE.denied);
     expect(document.querySelector('#phCamShoot')).toBeNull();
+    // …with both the device camera and the gallery as the way out
+    expect(document.querySelector('#phCamShot')).not.toBeNull();
     click('#phCamPick');
     expect(document.querySelector('.ph-cam')).toBeNull();
     expect(document.querySelector('#phPick')).not.toBeNull();
+    expect(document.querySelector('#phShoot')).not.toBeNull();
   });
 
   it('formats byte counts and the headline', () => {

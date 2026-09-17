@@ -26,8 +26,8 @@
 .ph-shoot .nt-field-row .ph-note-field{flex:1.6 1 0}
 .ph-shoot .action-btn{width:100%; margin-top:12px; min-height:48px}
 .ph-btn-row{display:flex; gap:10px}
-.ph-btn-row .action-btn{margin-top:12px}
-.ph-btn-row .action-btn.ghost{flex:0 0 auto; width:auto; min-width:118px; color:var(--muted)}
+.ph-btn-row .action-btn{margin-top:10px; flex:1 1 0; width:auto}
+.ph-btn-row .action-btn.ghost{color:var(--muted)}
 .ph-shoot .action-btn[disabled]{opacity:.6}
 
 /* The gallery: a three-across grid of tiles, newest first. */

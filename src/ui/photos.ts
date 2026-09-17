@@ -235,13 +235,20 @@ function shootCard(n: NutritionState, today: string, live: boolean): string {
     </div>
     ${
       live
-        ? `<div class="ph-btn-row">
-      <button class="action-btn" id="phLive" type="button">📷 צילום חי${ghost ? ' עם הרוח' : ''}</button>
+        ? `<button class="action-btn" id="phLive" type="button">📷 צילום חי${ghost ? ' עם הרוח' : ''}</button>
+    <div class="ph-btn-row">
+      <button class="action-btn ghost" id="phShoot" type="button">📸 מצלמת המכשיר</button>
       <button class="action-btn ghost" id="phPick" type="button">🖼️ מהגלריה</button>
     </div>`
-        : `<button class="action-btn" id="phPick" type="button">📷 צילום או בחירה מהגלריה</button>`
+        : `<div class="ph-btn-row">
+      <button class="action-btn" id="phShoot" type="button">📸 צילום</button>
+      <button class="action-btn" id="phPick" type="button">🖼️ מהגלריה</button>
+    </div>`
     }
+    <!-- Two pickers, not one: without \`capture\` Android opens ONLY the gallery,
+         and with it iOS opens ONLY the camera — so each button gets its own. -->
     <input type="file" id="phFile" accept="image/*" hidden>
+    <input type="file" id="phShot" accept="image/*" capture hidden>
     <p class="gc-note" id="phMsg" role="status"></p>
     <p class="gc-note dim">🔒 התמונות נשמרות במכשיר הזה בלבד — לא נשלחות לחשבון ולא לשום שרת.</p>
   </section>`;
@@ -420,7 +427,10 @@ function cameraSheet(n: NutritionState): string {
   <div class="ph-cam" role="dialog" aria-modal="true" aria-label="מצלמה">
     <div class="ph-cam-bar"><button class="ph-vbtn" type="button" id="phCamClose" aria-label="סגירה">✕</button><span class="ph-viewer-title">מצלמה</span><span></span></div>
     <div class="ph-cam-stage"><p class="ph-cam-msg" role="alert">${CAMERA_ERROR_HE[cam.error]}</p></div>
-    <div class="ph-cam-actions"><button class="action-btn" id="phCamPick" type="button">🖼️ בחירה מהגלריה</button></div>
+    <div class="ph-cam-actions">
+      <button class="action-btn" id="phCamShot" type="button">📸 מצלמת המכשיר</button>
+      <button class="action-btn ghost" id="phCamPick" type="button">🖼️ מהגלריה</button>
+    </div>
   </div>`;
   }
   if (cam.shot) {
@@ -575,19 +585,23 @@ function wire(main: HTMLElement, deps: PhotosDeps, today: string): void {
       crypto.randomUUID(),
     ).then((ev) => ev !== null);
 
+  const shotInp = main.querySelector<HTMLInputElement>('#phShot');
+  const shootBtn = main.querySelector<HTMLButtonElement>('#phShoot');
   pick?.addEventListener('click', () => fileInp?.click());
-  fileInp?.addEventListener('change', () => {
-    const file = fileInp.files?.[0];
+  shootBtn?.addEventListener('click', () => shotInp?.click());
+  /** Both pickers land here: the device camera's shot and a gallery pick are the same file. */
+  const onPicked = (inp: HTMLInputElement, btn: HTMLButtonElement | null): void => {
+    const file = inp.files?.[0];
     if (!file) return;
     const fields = formFields();
     if (!fields) {
-      fileInp.value = '';
+      inp.value = '';
       return;
     }
-    const label = pick?.textContent ?? '';
-    if (pick) {
-      pick.disabled = true;
-      pick.textContent = 'שומר…';
+    const label = btn?.textContent ?? '';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'שומר…';
     }
     const prepare = deps.prepare ?? preparePhoto;
     void prepare(file, PHOTO_MAX_DIM)
@@ -604,13 +618,15 @@ function wire(main: HTMLElement, deps: PhotosDeps, today: string): void {
         if (msg) msg.textContent = 'לא הצלחנו לקרוא את התמונה — נסו תמונה אחרת.';
       })
       .finally(() => {
-        if (pick) {
-          pick.disabled = false;
-          pick.textContent = label;
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = label;
         }
-        fileInp.value = '';
+        inp.value = '';
       });
-  });
+  };
+  fileInp?.addEventListener('change', () => onPicked(fileInp, pick));
+  shotInp?.addEventListener('change', () => onPicked(shotInp, shootBtn));
 
   /* ---- the live camera ---- */
   const camera = deps.camera;
@@ -657,6 +673,11 @@ function wire(main: HTMLElement, deps: PhotosDeps, today: string): void {
     closeCamera();
     again();
     main.querySelector<HTMLInputElement>('#phFile')?.click();
+  });
+  main.querySelector<HTMLButtonElement>('#phCamShot')?.addEventListener('click', () => {
+    closeCamera();
+    again();
+    main.querySelector<HTMLInputElement>('#phShot')?.click();
   });
   main.querySelector<HTMLButtonElement>('#phCamFlip')?.addEventListener('click', () => {
     if (cam) openCamera(cam.facing === 'user' ? 'environment' : 'user', cam.fields);
