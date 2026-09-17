@@ -465,7 +465,7 @@ describe('the four-hub navigation', () => {
 
   it('always shows exactly four main tabs, whatever screen is open', () => {
     const { store, render } = mount();
-    for (const view of ['A', 'B', 'C', 'CH', 'BT', 'H', 'ST', 'PL', 'NT', 'WT']) {
+    for (const view of ['A', 'B', 'C', 'CH', 'BT', 'H', 'ST', 'PL', 'NT', 'WT', 'PH']) {
       store.update((d) => {
         d.ui.view = view;
       });
@@ -526,7 +526,8 @@ describe('the four-hub navigation', () => {
     expect(innerTabs()[2]?.textContent).toContain('ליגה');
 
     clickHub('NU');
-    expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['NT', 'WT']);
+    expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['NT', 'WT', 'PH']);
+    expect(innerTabs()[2]?.textContent).toContain('תמונות');
     expect(innerTabs()[0]?.textContent).toContain('תזונה');
     expect(innerTabs()[1]?.textContent).toContain('משקל');
 

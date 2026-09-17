@@ -132,7 +132,7 @@ export type BuiltInDayKey = 'A' | 'B' | 'C';
  * since day one, and a key that arrives from another device is tolerated rather
  * than coerced (see below).
  */
-export const RESERVED_VIEW_KEYS: readonly string[] = ['CH', 'BT', 'H', 'PL', 'ST', 'SS', 'LG', 'NT', 'WT'] as const;
+export const RESERVED_VIEW_KEYS: readonly string[] = ['CH', 'BT', 'H', 'PL', 'ST', 'SS', 'LG', 'NT', 'WT', 'PH'] as const;
 
 /** Longest day key we accept — long enough for `d_` + a uuid slice. */
 export const MAX_DAY_KEY_LENGTH = 40;

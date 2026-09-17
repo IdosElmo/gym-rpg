@@ -65,7 +65,7 @@ export interface Session {
  * ADDED, never renamed or reused, which is what makes an install left on any
  * older screen open on exactly that screen after the update.
  */
-export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL' | 'ST' | 'SS' | 'LG' | 'NT' | 'WT';
+export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL' | 'ST' | 'SS' | 'LG' | 'NT' | 'WT' | 'PH';
 
 export interface UiState {
   view: ViewKey;

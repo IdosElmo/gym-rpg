@@ -49,7 +49,6 @@ import { must } from './ui/dom.ts';
 function boot(): void {
   const store: DataStore = new LocalStore();
   const blobs = wireBlobs(store);
-  void blobs;
 
   initToast(must('toast'));
   // Weeks close by the passing of time, not by a user action: re-evaluate the
@@ -69,7 +68,7 @@ function boot(): void {
   // exactly as it always did.
   if (sync.closesWeeksNow()) closeDueWeeks(store);
   else sync.closeWeeksWhenReady();
-  const app = createApp(store, timer, sync.hooks);
+  const app = createApp(store, timer, { ...sync.hooks, photos: { blobs } });
   sync.attach(app);
   initImportInput(store, () => app.render(), {
     isSignedIn: sync.isSignedIn,

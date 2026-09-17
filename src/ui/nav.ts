@@ -99,13 +99,15 @@ export const SETTINGS_TABS: readonly InnerTab[] = [
 
 /**
  * The nutrition hub's inner row — the meals first (the daily act the hub is
- * named for), then ⚖️ משקל, the number those meals add up to over weeks. Day
+ * named for), then ⚖️ משקל, the number those meals add up to over weeks, then
+ * 📸 תמונות, what the mirror says about both. Day
  * navigation (אתמול/מחר) lives INSIDE the meal screen, because "which day am I
  * looking at" is reading state, not navigation between kinds of destination.
  */
 export const NUTRITION_TABS: readonly InnerTab[] = [
   { viewId: 'NT', title: '🍽️ תזונה', subtitle: '' },
   { viewId: 'WT', title: '⚖️ משקל', subtitle: '' },
+  { viewId: 'PH', title: '📸 תמונות', subtitle: '' },
 ] as const;
 
 /**
@@ -116,7 +118,7 @@ export const NUTRITION_TABS: readonly InnerTab[] = [
  */
 export function hubOf(view: string): HubId {
   if (view === 'BT' || view === 'CH' || view === 'LG') return 'GM';
-  if (view === 'NT' || view === 'WT') return 'NU';
+  if (view === 'NT' || view === 'WT' || view === 'PH') return 'NU';
   if (view === 'ST' || view === 'H' || view === 'SS') return 'SE';
   return 'TR'; // every day view, and the plan editor
 }
