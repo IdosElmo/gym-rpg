@@ -123,8 +123,8 @@ export function resetNutritionScreen(): void {
 /* ------------------------------------------------------------ the rings */
 
 /** The ring's geometry: r=40 in a 100-unit box, a 10-unit stroke. */
-const RING_R = 40;
-const RING_CIRC = Math.round(2 * Math.PI * RING_R * 10) / 10;
+export const RING_R = 40;
+export const RING_CIRC = Math.round(2 * Math.PI * RING_R * 10) / 10;
 
 /**
  * One donut that fills toward a daily target. The share is capped at a full

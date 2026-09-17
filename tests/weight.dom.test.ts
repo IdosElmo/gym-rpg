@@ -188,6 +188,38 @@ describe('the ⚖️ משקל screen', () => {
     expect(document.querySelector('#wtTgtMsg')?.textContent).toContain('בין 20 ל־400');
   });
 
+  it('draws the journey ring: dashed without a goal, filling toward it, --ok once reached', () => {
+    const { store } = mount();
+    weigh(store, '2026-01-01', 84);
+    weigh(store, '2026-01-10', 82);
+    openWeight();
+    // no goal: a dashed ring with the change since the first weigh-in inside
+    const ring = () => document.querySelector('.wt-summary .nt-ring');
+    expect(ring()?.classList.contains('no-target')).toBe(true);
+    expect(ring()?.querySelector('.nt-ring-fill')).toBeNull();
+    expect(ring()?.querySelector('.nt-ring-val')?.textContent).toBe('−2.0');
+    expect(ring()?.querySelector('.nt-ring-sub')?.textContent).toBe('ללא יעד');
+
+    type('#wtTgt', '80');
+    click('#wtTgtSave');
+    // half way from 84 to 80: the ring is at 50% and says what is left
+    expect(ring()?.classList.contains('has-target')).toBe(true);
+    expect(ring()?.querySelector('.nt-ring-fill')).not.toBeNull();
+    expect(ring()?.querySelector('.nt-ring-val')?.textContent).toBe('50%');
+    expect(ring()?.querySelector('.nt-ring-sub')?.textContent).toContain('נותרו 2.0');
+    expect(ring()?.classList.contains('done')).toBe(false);
+
+    weigh(store, '2026-01-20', 79.8);
+    openWeight();
+    expect(ring()?.querySelector('.nt-ring-val')?.textContent).toBe('100%');
+    expect(ring()?.classList.contains('done')).toBe(true);
+    expect(ring()?.querySelector('.nt-ring-sub')?.textContent).toContain('היעד הושג');
+    // the newest weigh-in is labelled on the chart, and every row carries its hairline
+    expect(document.querySelector('.wt-chart .wt-vlab')?.textContent).toBe('79.8');
+    expect(document.querySelectorAll('.wt-list .wt-pos')).toHaveLength(3);
+    expect(document.querySelectorAll('.wt-list .wt-row.latest')).toHaveLength(1);
+  });
+
   it('celebrates a reached goal', () => {
     const { store } = mount();
     weigh(store, '2026-01-01', 84);

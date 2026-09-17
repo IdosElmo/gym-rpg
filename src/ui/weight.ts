@@ -30,6 +30,7 @@ import {
   WEIGHT_MIN_KG,
   WEIGHT_TREND_WINDOW,
   deleteWeight,
+  goalProgress,
   isCalendarDate,
   logWeight,
   movingAverage,
@@ -39,6 +40,7 @@ import {
   type WeightRow,
   type WeightSummary,
 } from '../core/weight.ts';
+import { RING_CIRC, RING_R } from './nutrition.ts';
 import type { DataStore, NutritionState } from '../storage/DataStore.ts';
 import { esc } from './dom.ts';
 import { toast } from './toast.ts';
@@ -192,7 +194,11 @@ export function weightChartSvg(rows: readonly WeightRow[], trend: readonly numbe
     })
     .join('');
   const last = rows[n - 1];
-  const lastDot = last ? `<circle class="wt-dot" cx="${x(n - 1)}" cy="${y(last.kg)}" r="4.5"/>` : '';
+  const lastDot = last
+    ? `<circle class="wt-dot" cx="${x(n - 1)}" cy="${y(last.kg)}" r="4.5"/>` +
+      // The newest value, spelled out beside its marker — the one direct label.
+      `<text class="wt-vlab" x="${x(n - 1) + 8}" y="${y(last.kg) + 3.5}" text-anchor="start" direction="ltr">${fmtKg(last.kg)}</text>`
+    : '';
 
   return `<svg class="chart wt-chart" viewBox="0 0 ${CHART_W} ${CHART_H}" role="img"
     aria-label="משקל ב־${n} השקילות האחרונות, מ־${fmtKg(lo)} עד ${fmtKg(hi)} ${KG}">
@@ -208,7 +214,50 @@ export function weightChartSvg(rows: readonly WeightRow[], trend: readonly numbe
 
 /* ------------------------------------------------------------------- html */
 
-function summaryCard(s: WeightSummary): string {
+/**
+ * The journey ring: how much of the way from the FIRST weigh-in to the goal
+ * is behind you. Same geometry and classes as the nutrition rings (one hue,
+ * digits in SVG, the Hebrew in HTML), but reaching THIS target is "good", so
+ * a finished ring is `--ok`, never `--warn`. Without a goal the track is
+ * dashed and the change since the first weigh-in sits in the middle instead.
+ */
+export function journeyRingHtml(s: WeightSummary, target: number | null, first: number | null): string {
+  const latest = s.latest;
+  if (!latest || first === null) return '';
+  const has = target !== null;
+  const pct = has ? goalProgress(first, latest.kg, target) : 0;
+  const done = has && s.targetReached;
+  const offset = Math.round(RING_CIRC * (1 - pct) * 10) / 10;
+  const pctText = `${Math.round(pct * 100)}%`;
+  const sinceFirst = s.sinceFirst;
+  const big = has ? pctText : sinceFirst === null ? '—' : `${sinceFirst > 0 ? '+' : sinceFirst < 0 ? '−' : '±'}${Math.abs(sinceFirst).toFixed(1)}`;
+  const small = has ? 'מהדרך' : 'מההתחלה';
+  const label = has ? `🎯 יעד ${fmtKg(target)} ${KG}` : `⚖️ ${s.count} שקילות`;
+  const sub = !has
+    ? `<span class="nt-ring-sub dim">ללא יעד</span>`
+    : done
+      ? `<span class="nt-ring-sub done">היעד הושג ✓</span>`
+      : `<span class="nt-ring-sub">נותרו ${fmtKg(Math.abs(s.toTarget ?? 0))} ${KG}</span>`;
+  const aria = has ? `${pctText} מהדרך ליעד ${fmtKg(target)} ${KG}` : `${s.count} שקילות, ללא יעד`;
+  return `
+    <div class="nt-ring wt-ring ${has ? 'has-target' : 'no-target'} ${done ? 'done' : ''}" role="img" aria-label="${esc(aria)}">
+      <svg viewBox="0 0 100 100" class="nt-ring-svg" aria-hidden="true">
+        <circle class="nt-ring-track" cx="50" cy="50" r="${RING_R}"/>
+        ${
+          has
+            ? `<circle class="nt-ring-fill" cx="50" cy="50" r="${RING_R}"
+          style="--circ:${RING_CIRC};stroke-dasharray:${RING_CIRC};stroke-dashoffset:${offset}"/>`
+            : ''
+        }
+        <text class="nt-ring-val ${has ? '' : 'wt-ring-delta'}" x="50" y="49" text-anchor="middle" direction="ltr">${big}</text>
+        <text class="nt-ring-pct" x="50" y="64" text-anchor="middle">${small}</text>
+      </svg>
+      <span class="nt-ring-lab">${label}</span>
+      ${sub}
+    </div>`;
+}
+
+function summaryCard(s: WeightSummary, target: number | null, first: number | null): string {
   if (!s.latest) {
     return `
   <section class="game-card wt-summary">
@@ -220,15 +269,20 @@ function summaryCard(s: WeightSummary): string {
     `<div class="wt-stat"><span class="wt-stat-val">${d === null ? '<span class="dim">—</span>' : fmtDelta(d)}</span><span class="wt-stat-lab">${label}</span></div>`;
   const goal =
     s.toTarget === null
-      ? ''
+      ? `<p class="gc-note dim wt-hint">הגדירו משקל יעד למטה — והעיגול יראה כמה מהדרך כבר מאחוריכם.</p>`
       : s.targetReached
         ? `<p class="gc-note wt-goal-note ok">🎯 היעד הושג — ${fmtKg(s.latest.kg)} ${KG}!</p>`
         : `<p class="gc-note wt-goal-note">🎯 עוד ${fmtKg(Math.abs(s.toTarget))} ${KG} ליעד</p>`;
   return `
   <section class="game-card wt-summary">
     <div class="gc-title">המשקל שלי <span class="gc-sub">${esc(fmtDate(s.latest.date))}${s.latest.time ? ` · ${esc(s.latest.time)}` : ''}</span></div>
-    <div class="wt-current"><b>${fmtKg(s.latest.kg)}</b> <span class="wt-unit">${KG}</span>
-      ${s.trend !== null && s.count >= 3 ? `<span class="wt-trend-val dim">מגמה ${fmtKg(s.trend)}</span>` : ''}
+    <div class="wt-hero">
+      ${journeyRingHtml(s, target, first)}
+      <div class="wt-hero-text">
+        <div class="wt-current"><b>${fmtKg(s.latest.kg)}</b> <span class="wt-unit">${KG}</span></div>
+        ${s.trend !== null && s.count >= 3 ? `<span class="wt-trend-val dim">מגמה ${fmtKg(s.trend)} ${KG}</span>` : ''}
+        ${s.min !== null && s.max !== null && s.count >= 2 ? `<span class="wt-range-val dim">טווח <span class="wt-delta" dir="ltr">${fmtKg(s.min)}–${fmtKg(s.max)}</span> ${KG}</span>` : ''}
+      </div>
     </div>
     <div class="wt-stats">
       ${stat('מהקודמת', s.sincePrevious)}
@@ -304,26 +358,39 @@ const HISTORY_MAX = 60;
 function historyCard(all: readonly WeightRow[]): string {
   if (all.length === 0) return '';
   const newestFirst = [...all].reverse().slice(0, HISTORY_MAX);
+  const min = all.reduce((m, r) => Math.min(m, r.kg), Number.POSITIVE_INFINITY);
+  const max = all.reduce((m, r) => Math.max(m, r.kg), Number.NEGATIVE_INFINITY);
   const rows = newestFirst
     .map((r) => {
       const idx = all.indexOf(r);
       const prev = idx > 0 ? all[idx - 1] : undefined;
       const d = prev ? round1(r.kg - prev.kg) : null;
+      // Where this weigh-in sits between the lightest and heaviest ever — a
+      // hairline, so the list reads as a shape and not only as digits.
+      const pos = max > min ? Math.round(((r.kg - min) / (max - min)) * 100) : 100;
       return `
-    <li class="wt-row">
-      <div class="wt-row-main">
-        <span class="wt-row-date">${esc(fmtDate(r.date))}${r.time ? ` <span class="dim">${esc(r.time)}</span>` : ''}</span>
-        ${r.note ? `<span class="wt-row-note dim">${esc(r.note)}</span>` : ''}
+    <li class="wt-row ${idx === all.length - 1 ? 'latest' : ''}">
+      <div class="wt-row-top">
+        <div class="wt-row-main">
+          <span class="wt-row-date">${esc(fmtDate(r.date))}${r.time ? ` <span class="dim">${esc(r.time)}</span>` : ''}</span>
+          ${r.note ? `<span class="wt-row-note dim">${esc(r.note)}</span>` : ''}
+        </div>
+        <div class="wt-row-nums">
+          <span class="wt-row-kg">${fmtKg(r.kg)}</span>
+          <span class="wt-row-d">${d === null ? '' : fmtDelta(d)}</span>
+          <button class="nt-del" type="button" data-del="${esc(r.id)}" aria-label="מחיקת השקילה מ־${esc(fmtDate(r.date))}">🗑</button>
+        </div>
       </div>
-      <div class="wt-row-nums">
-        <span class="wt-row-kg">${fmtKg(r.kg)}</span>
-        <span class="wt-row-d">${d === null ? '' : fmtDelta(d)}</span>
-        <button class="nt-del" type="button" data-del="${esc(r.id)}" aria-label="מחיקת השקילה מ־${esc(fmtDate(r.date))}">🗑</button>
-      </div>
+      <div class="wt-pos" aria-hidden="true" title="בין הקל ביותר לכבד ביותר"><i style="width:${pos}%"></i></div>
     </li>`;
     })
     .join('');
-  const more = all.length > HISTORY_MAX ? `<p class="gc-note dim">מוצגות ${HISTORY_MAX} השקילות האחרונות מתוך ${all.length}.</p>` : '';
+  const more =
+    all.length > HISTORY_MAX
+      ? `<p class="gc-note dim">מוצגות ${HISTORY_MAX} השקילות האחרונות מתוך ${all.length} — גוללים בתוך הרשימה.</p>`
+      : all.length > 5
+        ? `<p class="gc-note dim">גוללים בתוך הרשימה לשקילות ישנות יותר.</p>`
+        : '';
   return `
   <section class="game-card">
     <div class="gc-title">השקילות שלי <span class="gc-sub">${all.length}</span></div>
@@ -350,7 +417,7 @@ function targetCard(target: number | null): string {
 export function weightHtml(n: NutritionState, today: string): string {
   const all = weightEntries(n);
   return `
-  ${summaryCard(weightSummary(n))}
+  ${summaryCard(weightSummary(n), n.weightTarget, all[0]?.kg ?? null)}
   ${chartCard(all, n.weightTarget)}
   ${addCard(today)}
   ${historyCard(all)}
