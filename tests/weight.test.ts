@@ -229,8 +229,8 @@ describe('normalizeNutrition, weight half', () => {
       meta: { legacyImported: false, createdAt: NOW, updatedAt: NOW },
     };
     const s = migrateState(v6, NOW);
-    expect(CURRENT_STATE_VERSION).toBe(7);
-    expect(s.schemaVersion).toBe(7);
+    expect(CURRENT_STATE_VERSION).toBeGreaterThanOrEqual(7);
+    expect(s.schemaVersion).toBe(CURRENT_STATE_VERSION);
     expect(s.nutrition.targets).toEqual({ calories: 2000, protein: null });
     expect(s.nutrition.weights).toEqual({});
     expect(s.nutrition.weightDeleted).toEqual({});

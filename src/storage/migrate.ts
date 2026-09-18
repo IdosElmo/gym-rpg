@@ -32,6 +32,7 @@ import {
 } from '../core/plan.ts';
 import type { PlanDoc } from '../data/planTypes.ts';
 import { applyNutritionEvent, emptyNutrition, normalizeNutrition } from '../core/nutrition.ts';
+import { applyExerciseNoteEvent, normalizeExerciseNotes } from '../core/notes.ts';
 import { todayISO } from '../core/workout.ts';
 import {
   buildRetroactiveGrants,
@@ -112,8 +113,12 @@ export const LEGACY_UI_KEY = 'hyp3_ui_v1';
  * weigh-ins, `normalizeNutrition` fills the three fields empty, and any
  * `weight_*` events that round-tripped through the cloud fold back in on the
  * next rebuild. The log, not this blob, is the source of truth.
+ * v8 (📝 exercise notes): `exerciseNotes` joined the state. The same argument
+ * as presets: a v7 build could not create note events locally, an empty cache
+ * costs nothing, and notes that round-tripped through the cloud fold back into
+ * it on the next rebuild — the log, not this blob, is the source of truth.
  */
-export const CURRENT_STATE_VERSION = 7;
+export const CURRENT_STATE_VERSION = 8;
 /**
  * Bump when the shape of `EventLog` changes.
  * v2 (merge-safe core): events may carry an optional `device` stamp and the log
@@ -171,6 +176,7 @@ export function emptyState(now: number = Date.now()): AppState {
     plan: null,
     planPresets: {},
     nutrition: emptyNutrition(),
+    exerciseNotes: {},
     meta: { legacyImported: false, createdAt: now, updatedAt: now },
   };
 }
@@ -685,7 +691,11 @@ const STATE_MIGRATIONS: ReadonlyArray<(blob: Record<string, unknown>) => Record<
   // through `normalizeNutrition` adds the three empty fields, and a blob that
   // somehow carries them is validated rather than trusted.
   (blob) => ({ ...blob, nutrition: normalizeNutrition(blob['nutrition']), schemaVersion: 7 }),
-  // 7 -> 8: (future) add your step here and bump CURRENT_STATE_VERSION.
+  // 7 -> 8: exercise notes. A v7 blob has none; the slot is routed through
+  // `normalizeExerciseNotes` anyway, so a blob that somehow carries one is
+  // validated rather than trusted (same argument as presets above).
+  (blob) => ({ ...blob, exerciseNotes: normalizeExerciseNotes(blob['exerciseNotes']), schemaVersion: 8 }),
+  // 8 -> 9: (future) add your step here and bump CURRENT_STATE_VERSION.
 ];
 
 function readVersion(blob: Record<string, unknown>): number {
@@ -733,6 +743,7 @@ export function migrateState(raw: unknown, now: number = Date.now()): AppState {
     plan,
     planPresets: normalizeUserPresets(blob['planPresets']),
     nutrition: normalizeNutrition(blob['nutrition']),
+    exerciseNotes: normalizeExerciseNotes(blob['exerciseNotes']),
     meta: {
       legacyImported: metaRaw['legacyImported'] === true,
       createdAt,
@@ -1185,6 +1196,7 @@ export function rebuildFromEvents(events: readonly AppEvent[], now: number = Dat
         state.plan = null;
         state.planPresets = {};
         state.nutrition = emptyNutrition();
+        state.exerciseNotes = {};
         break;
       /**
        * The training plan is LAST-WRITER-WINS: the whole document travels in
@@ -1216,6 +1228,11 @@ export function rebuildFromEvents(events: readonly AppEvent[], now: number = Dat
       case 'photo_deleted':
       case 'photo_pose_named':
         applyNutritionEvent(state.nutrition, ev.type, p);
+        break;
+      // 📝 exercise notes — one shared fold for live path and replay (see
+      // core/notes.ts): LWW per exercise id, an empty note deletes the key.
+      case 'exercise_note_set':
+        applyExerciseNoteEvent(state.exerciseNotes, ev.type, p);
         break;
       /**
        * A JSON import carries a snapshot of the sessions it brought in. Folding
