@@ -125,3 +125,31 @@
 }
 .stage-start[hidden],.hold-start[hidden]{display:none}
 .ex-card.done-all .stage-start,.ex-card.done-all .hold-start{display:none}
+
+/* ---------- 📝 Notes: a memo that follows the exercise ----------
+   The last drawer of every card: a free-text note on the EXERCISE ("seat
+   height 4", "wide grip") that the same card shows again next workout. A card
+   with a note renders with the drawer open (amber toggle, the memo readable
+   before the first set); an empty one is a collapsed ≥44px toggle. The box
+   grows with its text (JS sets the height), so a phone never scrolls inside
+   it, and it never scrolls the card either: two rows minimum, a paragraph max. */
+.ex-notes{border-top:1px dashed var(--line)}
+.notes-toggle{
+  width:100%; text-align:right; background:none; border:none; color:var(--muted);
+  font-size:13px; font-weight:700; padding:10px 14px; min-height:44px;
+  display:flex; justify-content:space-between; align-items:center;
+}
+.ex-notes.has-note .notes-toggle{color:var(--warn)}
+.notes-toggle .chev{transition:.2s; color:var(--dim)}
+.ex-notes.open .notes-toggle .chev{transform:rotate(180deg)}
+.notes-body{display:none; padding:0 14px 14px}
+.ex-notes.open .notes-body{display:block}
+.notes-inp{
+  display:block; width:100%; min-height:44px; overflow:hidden; resize:none;
+  background:var(--bg); border:1px solid var(--line); color:var(--text); border-radius:10px;
+  padding:9px 10px; font-size:15px; font-weight:500; line-height:1.45; font-family:inherit;
+  text-align:start; appearance:none; -moz-appearance:none;
+}
+.notes-inp::placeholder{color:var(--dim)}
+.notes-inp:focus{outline:none; border-color:var(--accent)}
+.notes-hint{font-size:11px; color:var(--dim); margin-top:5px}

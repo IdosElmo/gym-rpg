@@ -44,6 +44,19 @@
  * back to the scheme's own target ("45–60 שנ׳" → 45); ✓ afterwards starts the
  * ordinary rest, exactly as before. Nothing is logged by the timer itself: the
  * set is done when the ✓ says so, and the number logged is the row's.
+ *
+ * NOTES — a memo that follows the exercise
+ * ----------------------------------------
+ * Every card ends with a 📝 drawer: a free-text note on the EXERCISE ("seat
+ * height 4", "wide grip", "start lighter than it feels") that the same card
+ * shows again next workout, edited in place. A card with a note opens its
+ * drawer on render, so the memo is read before the first set; an empty one
+ * stays collapsed behind a ≥44px toggle. Typing is saved automatically: one
+ * `exercise_note_set` event per pause in typing (`NOTE_COMMIT_DELAY_MS`), and
+ * at once on blur, on a re-render and when the page is hidden — so the log is
+ * never more than a moment behind the box, and never one event per keystroke.
+ * The write itself is `core/notes.ts` (`setExerciseNote`): LWW per exercise,
+ * an empty note clears it, an unchanged one appends nothing.
  */
 
 import {
@@ -64,6 +77,7 @@ import {
   prevPerf,
   todayISO,
 } from '../core/workout.ts';
+import { MAX_EXERCISE_NOTE_LENGTH, exerciseNote, setExerciseNote } from '../core/notes.ts';
 import { isTimed } from '../core/stats.ts';
 import { planDay, resolveProgram, supersetPairs, type SupersetPair } from '../core/plan.ts';
 import { closeDueWeeks, onSetCompleted, onWorkoutFinished, type GrantResult } from '../core/game.ts';
@@ -109,6 +123,42 @@ function closeDemo(exId: string): void {
   demos.delete(exId);
 }
 
+/**
+ * How long typing may pause before a note is written to the log. Long enough
+ * that a sentence is one event, short enough that a phone put down mid-word
+ * has already saved it.
+ */
+export const NOTE_COMMIT_DELAY_MS = 700;
+
+/**
+ * THE PENDING NOTE EDITS, by exercise id: what the box says that the log does
+ * not yet. A commit is DOM-free (it carries the text it was scheduled with), so
+ * a re-render or a navigation between the keystroke and the timer cannot lose
+ * an edit — `flushNoteEdits` simply runs them early.
+ */
+const pendingNotes = new Map<string, { timer: ReturnType<typeof setTimeout>; commit: () => void }>();
+
+/** Write every pending note edit now (a re-render, a hidden page, a blur). */
+export function flushNoteEdits(): void {
+  for (const [id, p] of [...pendingNotes]) {
+    clearTimeout(p.timer);
+    pendingNotes.delete(id);
+    p.commit();
+  }
+}
+
+let noteFlushHooked = false;
+
+/** Once per page: a hidden or unloading page flushes what was typed. */
+function hookNoteFlush(): void {
+  if (noteFlushHooked) return;
+  noteFlushHooked = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushNoteEdits();
+  });
+  window.addEventListener('pagehide', flushNoteEdits);
+}
+
 export interface WorkoutDeps {
   store: DataStore;
   timer: RestTimer;
@@ -119,6 +169,9 @@ export interface WorkoutDeps {
 export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps): void {
   const { store } = deps;
   disposeDemos();
+  // A note still on its timer is written BEFORE the state is read, so the
+  // fresh card shows what was typed rather than what was last saved.
+  flushNoteEdits();
   const state = store.getState();
   // The user's plan when there is one, the built-in PROGRAM object itself when
   // there isn't — so an un-edited install renders exactly the same objects.
@@ -211,6 +264,18 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
       ${ex.mistake ? `<div class="mistake">⚠️ ${ex.mistake}</div>` : ''}
     </div>`
       : '';
+    // 📝 The note drawer: open when there is something to read, else a toggle.
+    const note = exerciseNote(state, ex.id);
+    const notes = `<div class="ex-notes ${note ? 'has-note open' : ''}" data-notes-of="${esc(ex.id)}">
+      <button class="notes-toggle" data-notes="${esc(ex.id)}" aria-expanded="${note ? 'true' : 'false'}">
+        <span>📝 הערות לתרגיל</span><span class="chev">▾</span>
+      </button>
+      <div class="notes-body">
+        <textarea class="notes-inp" rows="2" maxlength="${MAX_EXERCISE_NOTE_LENGTH}" data-note="${esc(ex.id)}"
+          placeholder="למשל: גובה מושב 4, אחיזה רחבה, להתחיל קל יותר…" aria-label="הערות לתרגיל ${esc(ex.he)}">${esc(note)}</textarea>
+        <div class="notes-hint">נשמר אוטומטית · ההערה נשארת עם התרגיל בכל אימון</div>
+      </div>
+    </div>`;
     return `
   <section class="ex-card ${open} ${allDone}" id="card-${esc(ex.id)}">
     <div class="ex-head">
@@ -250,6 +315,7 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
           : ''
       }
     </div>
+    ${notes}
   </section>`;
   };
 
@@ -413,6 +479,7 @@ function bind(
   pairs: readonly SupersetPair[],
 ): void {
   const { store, timer, refreshHeader } = deps;
+  hookNoteFlush();
 
   // Panels that are already open when the screen renders get their demo now;
   // the rest get one the moment they are opened.
@@ -434,6 +501,55 @@ function bind(
       const ex = findEx(program, view, id);
       if (ex && card?.classList.contains('open')) openDemo(card, ex);
       else closeDemo(id);
+    });
+  });
+
+  // 📝 The note drawer's toggle: DOM-only state (a card with a note opens on
+  // its own at the next render anyway), and opening it puts the cursor in the box.
+  main.querySelectorAll<HTMLButtonElement>('.notes-toggle').forEach((b) => {
+    b.addEventListener('click', () => {
+      const drawer = b.closest<HTMLElement>('.ex-notes');
+      if (!drawer) return;
+      const open = drawer.classList.toggle('open');
+      b.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) {
+        const box = drawer.querySelector<HTMLTextAreaElement>('.notes-inp');
+        box?.focus();
+        if (box) growNote(box);
+      }
+    });
+  });
+
+  main.querySelectorAll<HTMLTextAreaElement>('.notes-inp').forEach((box) => {
+    const exId = box.dataset['note'];
+    if (!exId) return;
+    growNote(box);
+    /** Write what the box says, and paint the toggle amber when there is a note. */
+    const commit = (text: string): void => {
+      setExerciseNote(store, exId, text);
+      const has = exerciseNote(store.getState(), exId) !== '';
+      main.querySelector(`.ex-notes[data-notes-of="${cssId(exId)}"]`)?.classList.toggle('has-note', has);
+    };
+    box.addEventListener('input', () => {
+      growNote(box);
+      const text = box.value;
+      const prev = pendingNotes.get(exId);
+      if (prev) clearTimeout(prev.timer);
+      const timer = setTimeout(() => {
+        pendingNotes.delete(exId);
+        commit(text);
+      }, NOTE_COMMIT_DELAY_MS);
+      pendingNotes.set(exId, { timer, commit: () => commit(text) });
+    });
+    // Leaving the box writes at once — and drops the timer, which would only
+    // have written the same text again (a no-op, but a wasted tick).
+    box.addEventListener('blur', () => {
+      const prev = pendingNotes.get(exId);
+      if (prev) {
+        clearTimeout(prev.timer);
+        pendingNotes.delete(exId);
+      }
+      commit(box.value);
     });
   });
 
@@ -614,6 +730,12 @@ function bind(
 /** Escape an exercise id for use inside a CSS attribute selector. */
 function cssId(id: string): string {
   return id.replace(/["\\]/g, '\\$&');
+}
+
+/** Grow the note box to its text (no inner scrollbar on a phone), never below two rows. */
+function growNote(box: HTMLTextAreaElement): void {
+  box.style.height = 'auto';
+  box.style.height = `${Math.max(box.scrollHeight, 0)}px`;
 }
 
 /** Add / remove the little 🔗 badge that marks a box its twin ticked. */

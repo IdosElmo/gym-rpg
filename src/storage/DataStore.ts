@@ -539,6 +539,17 @@ export interface AppState {
    * so the game's version and reducers never move for it.
    */
   nutrition: NutritionState;
+  /**
+   * 📝 The user's notes on exercises, by exercise id — "seat height 4", "wide
+   * grip". A note belongs to the EXERCISE and follows it from workout to
+   * workout; the card shows it next week too. Like `plan`, a CACHE of the log:
+   * folded from `exercise_note_set` (last writer wins per id, an empty note
+   * deletes the key) by `rebuildFromEvents` via the one shared fold in
+   * core/notes.ts, and reset by `data_cleared`. Deliberately NOT part of
+   * `GameState` — a note grants nothing, so the game's version and reducers
+   * never move for it.
+   */
+  exerciseNotes: Record<string, string>;
   meta: AppMeta;
 }
 
@@ -621,7 +632,11 @@ export type EventType =
   // never uploads them, because a photo's bytes cannot follow them.
   | 'photo_taken'
   | 'photo_deleted'
-  | 'photo_pose_named';
+  | 'photo_pose_named'
+  // Phase 16 — 📝 per-exercise notes. The whole note travels in the payload,
+  // last writer wins per exercise id, an empty note clears it. Folds into
+  // `state.exerciseNotes` beside sessions/plan (see core/notes.ts).
+  | 'exercise_note_set';
 
 /**
  * Event types that stay on the device that wrote them. The sync engine skips
