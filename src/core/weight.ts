@@ -66,10 +66,13 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-/** One decimal, or `null` when the value is not a weight a human can have. */
+/**
+ * Two decimals (a scale reads 79.45, and rounding it to 79.5 is a lie), or
+ * `null` when the value is not a weight a human can have.
+ */
 export function kgOf(v: unknown): number | null {
   if (typeof v !== 'number' || !Number.isFinite(v)) return null;
-  const kg = Math.round(v * 10) / 10;
+  const kg = Math.round(v * 100) / 100;
   if (kg < WEIGHT_MIN_KG || kg > WEIGHT_MAX_KG) return null;
   return kg;
 }
@@ -278,8 +281,9 @@ export interface WeightSummary {
   targetReached: boolean;
 }
 
+/** a − b to the scale's own precision (two decimals), free of float dust. */
 function delta(a: number, b: number): number {
-  return Math.round((a - b) * 10) / 10;
+  return Math.round((a - b) * 100) / 100;
 }
 
 /** Everything the summary card and the header say, from the live entries. */

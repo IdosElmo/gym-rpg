@@ -1359,7 +1359,7 @@ export interface WeightLoggedPayload extends Record<string, unknown> {
   date: string;
   /** 'HH:MM' for display and ordering within a day, or ''. */
   time: string;
-  /** Kilograms, one decimal. */
+  /** Kilograms, up to two decimals (what a scale shows). */
   kg: number;
   /** A short free-text remark ("אחרי אימון"), or ''. */
   note: string;
