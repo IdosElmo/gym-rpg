@@ -75,9 +75,13 @@ export function resetWeightScreen(): void {
 
 const KG = 'ק״ג';
 
-/** "82.4" — always one decimal, so a column of weights lines up. */
+/**
+ * "82.4" / "79.45" — the scale's own precision: at least one decimal so a
+ * column of weights lines up, a second only when it carries information.
+ * Never "79.5" for 79.45: a weigh-in is shown as it was entered.
+ */
 export function fmtKg(kg: number): string {
-  return kg.toFixed(1);
+  return kg.toFixed(2).replace(/0$/, '');
 }
 
 /**
@@ -87,7 +91,7 @@ export function fmtKg(kg: number): string {
  */
 export function fmtDelta(d: number): string {
   const sign = d > 0 ? '+' : d < 0 ? '−' : '±';
-  return `<span class="wt-delta" dir="ltr">${sign}${Math.abs(d).toFixed(1)}</span>`;
+  return `<span class="wt-delta" dir="ltr">${sign}${fmtKg(Math.abs(d))}</span>`;
 }
 
 /** The header's one line under the title. */
@@ -101,7 +105,7 @@ export function weightHeadline(n: NutritionState): string {
 /** `fmtDelta` without markup, for `textContent` slots (the header line). */
 function plainDelta(d: number): string {
   const sign = d > 0 ? '+' : d < 0 ? '−' : '±';
-  return `⁦${sign}${Math.abs(d).toFixed(1)}⁩`;
+  return `⁦${sign}${fmtKg(Math.abs(d))}⁩`;
 }
 
 /* ------------------------------------------------------------------ chart */
@@ -230,7 +234,7 @@ export function journeyRingHtml(s: WeightSummary, target: number | null, first: 
   const offset = Math.round(RING_CIRC * (1 - pct) * 10) / 10;
   const pctText = `${Math.round(pct * 100)}%`;
   const sinceFirst = s.sinceFirst;
-  const big = has ? pctText : sinceFirst === null ? '—' : `${sinceFirst > 0 ? '+' : sinceFirst < 0 ? '−' : '±'}${Math.abs(sinceFirst).toFixed(1)}`;
+  const big = has ? pctText : sinceFirst === null ? '—' : `${sinceFirst > 0 ? '+' : sinceFirst < 0 ? '−' : '±'}${fmtKg(Math.abs(sinceFirst))}`;
   const small = has ? 'מהדרך' : 'מההתחלה';
   const label = has ? `🎯 יעד ${fmtKg(target)} ${KG}` : `⚖️ ${s.count} שקילות`;
   const sub = !has
@@ -364,7 +368,7 @@ function historyCard(all: readonly WeightRow[]): string {
     .map((r) => {
       const idx = all.indexOf(r);
       const prev = idx > 0 ? all[idx - 1] : undefined;
-      const d = prev ? round1(r.kg - prev.kg) : null;
+      const d = prev ? Math.round((r.kg - prev.kg) * 100) / 100 : null;
       // Where this weigh-in sits between the lightest and heaviest ever — a
       // hairline, so the list reads as a shape and not only as digits.
       const pos = max > min ? Math.round(((r.kg - min) / (max - min)) * 100) : 100;
@@ -446,12 +450,13 @@ function nowHHMM(): string {
 }
 
 /** "82,4" and "82.4" both read as 82.4; anything else is `null`. */
+/** "82,4" and "82.4" both read as 82.4, "79.45" keeps its second decimal; anything else is `null`. */
 function kgInput(raw: string): number | null {
   const s = raw.trim().replace(',', '.');
   if (s === '') return null;
   const n = Number(s);
   if (!Number.isFinite(n) || n < WEIGHT_MIN_KG || n > WEIGHT_MAX_KG) return null;
-  return Math.round(n * 10) / 10;
+  return Math.round(n * 100) / 100;
 }
 
 function wire(main: HTMLElement, deps: WeightDeps, today: string): void {

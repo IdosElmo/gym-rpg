@@ -14,7 +14,7 @@ import { logWeight, movingAverage, weightEntries } from '../src/core/weight.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
 import { createApp } from '../src/ui/app.ts';
-import { chartRange, fmtDelta, renderWeight, resetWeightScreen, weightChartSvg, weightHeadline } from '../src/ui/weight.ts';
+import { chartRange, fmtDelta, fmtKg, renderWeight, resetWeightScreen, weightChartSvg, weightHeadline } from '../src/ui/weight.ts';
 import { RestTimer } from '../src/ui/timer.ts';
 
 function fakeStorage(): StorageLike {
@@ -322,6 +322,26 @@ describe('the chart, as pure HTML', () => {
     expect(one).not.toContain('wt-line');
     expect(one).not.toContain('wt-area');
     expect(weightChartSvg([], [], null)).toBe('');
+  });
+
+  it('keeps two decimals end to end: 79.45 is logged, shown and subtracted as 79.45', () => {
+    const { store } = mount();
+    weigh(store, '2026-01-01', 80);
+    openWeight();
+    type('#wtKg', '79.45');
+    click('#wtAdd');
+    const ev = store.getEvents().filter((e) => e.type === 'weight_logged').pop();
+    expect(ev?.payload['kg']).toBe(79.45);
+    expect(document.querySelector('.wt-current b')?.textContent).toBe('79.45');
+    expect(document.querySelector('#header .day-meta')?.textContent).toContain('79.45');
+    expect(document.querySelector('#header .day-meta')?.textContent).toContain('−0.55');
+    expect(document.querySelector('.wt-list .wt-row-kg')?.textContent).toBe('79.45');
+    expect(document.querySelector('.wt-list .wt-row-d')?.textContent).toBe('−0.55');
+    // a one-decimal weight still shows as one decimal, a whole one as ".0"
+    expect(fmtKg(82.4)).toBe('82.4');
+    expect(fmtKg(80)).toBe('80.0');
+    expect(fmtKg(79.45)).toBe('79.45');
+    expect(fmtKg(79.5)).toBe('79.5');
   });
 
   it('formats deltas as one LTR run with a real minus sign', () => {

@@ -64,7 +64,10 @@ describe('the weight fold', () => {
 
   it('rounds to one decimal and trims the note', () => {
     const read = weightRecordOf(weigh('w1', { kg: 82.4499, note: `  בבוקר\n  אחרי  קפה  ${'x'.repeat(100)}` }));
-    expect(read?.rec.kg).toBe(82.4);
+    expect(read?.rec.kg).toBe(82.45);
+    // a scale reads two decimals — 79.45 is 79.45, never 79.5
+    expect(weightRecordOf(weigh('w2', { kg: 79.45 }))?.rec.kg).toBe(79.45);
+    expect(weightRecordOf(weigh('w3', { kg: 79.454 }))?.rec.kg).toBe(79.45);
     expect(read?.rec.note.startsWith('בבוקר אחרי קפה')).toBe(true);
     expect(read?.rec.note).toHaveLength(80);
   });
@@ -159,10 +162,10 @@ describe('the live drivers', () => {
     const store = new LocalStore(fakeStorage());
     const ev1 = logWeight(store, input, 'w1');
     expect(ev1?.type).toBe('weight_logged');
-    // the event carries what the reader accepted — rounded, trimmed
-    logWeight(store, { ...input, date: '2026-09-02', kg: 82.04, note: '  אחרי  אימון ' }, 'w2');
+    // the event carries what the reader accepted — rounded to two decimals, trimmed
+    logWeight(store, { ...input, date: '2026-09-02', kg: 82.004, note: '  אחרי  אימון ' }, 'w2');
     deleteWeight(store, 'w1');
-    setWeightTarget(store, 78.26);
+    setWeightTarget(store, 78.256);
 
     const live = store.getState().nutrition;
     const replayed = rebuildFromEvents(store.getEvents(), NOW).nutrition;
@@ -170,7 +173,7 @@ describe('the live drivers', () => {
     expect(weightEntries(live).map((r) => r.id)).toEqual(['w2']);
     expect(live.weights['w2']).toEqual({ date: '2026-09-02', time: '07:30', kg: 82, note: 'אחרי אימון' });
     expect(store.getEvents().find((e) => e.type === 'weight_logged' && e.payload['id'] === 'w2')?.payload['kg']).toBe(82);
-    expect(live.weightTarget).toBe(78.3);
+    expect(live.weightTarget).toBe(78.26);
   });
 
   it('refuses an invalid weigh-in without appending anything', () => {
@@ -210,7 +213,7 @@ describe('normalizeNutrition, weight half', () => {
       weightTarget: '78',
     });
     expect(Object.keys(n.weights)).toEqual(['ok']);
-    expect(n.weights['ok']?.kg).toBe(81.2);
+    expect(n.weights['ok']?.kg).toBe(81.15);
     expect(n.weightDeleted).toEqual({ a: true });
     expect(n.weightTarget).toBeNull();
     // a v6-shaped slot (no weight fields at all) is simply empty
