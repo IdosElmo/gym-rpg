@@ -9,7 +9,7 @@
  *
  * Bump CACHE_VERSION when you ship a build you want clients to pick up eagerly.
  */
-const CACHE_VERSION = 'gymrpg-v1';
+const CACHE_VERSION = 'gymrpg-v2';
 const PRECACHE = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -82,6 +82,49 @@ self.addEventListener('fetch', (event) => {
       } catch {
         return new Response('', { status: 504, statusText: 'Offline' });
       }
+    })(),
+  );
+});
+
+/**
+ * 🔔 Meal reminders. The `meal-reminders` Edge Function pushes
+ * `{ title, body, tag }`; the tag is per meal, so a reminder replaces an older
+ * one for the same meal instead of stacking. A push with an unreadable body
+ * still shows something — a push that shows nothing gets the site's push
+ * permission revoked by the browser.
+ */
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = {};
+  }
+  const title = typeof data.title === 'string' && data.title ? data.title : '🍽️ תזכורת לארוחה';
+  const body = typeof data.body === 'string' ? data.body : '';
+  const tag = typeof data.tag === 'string' && data.tag ? data.tag : 'meal';
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      tag,
+      lang: 'he',
+      dir: 'rtl',
+      icon: './icon.svg',
+      badge: './icon.svg',
+    }),
+  );
+});
+
+/** Tapping a reminder brings the app forward — the open window, or a new one. */
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    (async () => {
+      const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const w of wins) {
+        if ('focus' in w) return w.focus();
+      }
+      return self.clients.openWindow('./');
     })(),
   );
 });

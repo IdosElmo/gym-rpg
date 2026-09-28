@@ -41,6 +41,7 @@ import { dayOf } from '../data/program.ts';
 import { fmtDate, lastLoggedDate, todayISO } from '../core/workout.ts';
 import { dayTotals } from '../core/nutrition.ts';
 import type { NutritionAiPort } from '../nutrition/aiPort.ts';
+import type { PushPort } from '../nutrition/push.ts';
 import {
   defaultTabView,
   isDefaultPlan,
@@ -112,7 +113,7 @@ export interface AppHooks {
    * ✨ estimate button is not rendered at all — the offline app's normal state;
    * manual logging works identically either way.
    */
-  nutrition?: { ai: NutritionAiPort };
+  nutrition?: { ai: NutritionAiPort; push?: PushPort };
   /**
    * The 📸 photos screen's plumbing: where the bytes live, and (tests only)
    * how a picked file becomes a stored image. Absent = an in-memory store,
@@ -439,10 +440,17 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
    * totals in the header and the cards below both change, and re-rendering the
    * whole shell would reset the scroll and the half-typed form state.
    */
+  /** The 🍽️ screen's cloud ports — each present only when main.ts wired it. */
+  function nutritionPorts(): { ai?: NutritionAiPort; push?: PushPort } {
+    const nu = hooks.nutrition;
+    if (!nu) return {};
+    return { ai: nu.ai, ...(nu.push ? { push: nu.push } : {}) };
+  }
+
   function renderNutritionScreen(): void {
     if (store.getState().ui.view !== 'NT') return;
     renderHeader();
-    renderNutrition(mainEl, { store, rerender: renderNutritionScreen, ...(hooks.nutrition ? { ai: hooks.nutrition.ai } : {}) });
+    renderNutrition(mainEl, { store, rerender: renderNutritionScreen, ...nutritionPorts() });
   }
 
   /** Repaint the ⚖️ screen in place after a weigh-in — header line included. */
@@ -502,7 +510,7 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     } else if (view === 'SS') {
       renderStats(mainEl, { store });
     } else if (view === 'NT') {
-      renderNutrition(mainEl, { store, rerender: renderNutritionScreen, ...(hooks.nutrition ? { ai: hooks.nutrition.ai } : {}) });
+      renderNutrition(mainEl, { store, rerender: renderNutritionScreen, ...nutritionPorts() });
     } else if (view === 'WT') {
       renderWeight(mainEl, { store, rerender: renderWeightScreen });
     } else if (view === 'PH') {

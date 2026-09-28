@@ -66,6 +66,9 @@ const LEAGUE_TABLE = 'league_weeks';
 /** The Edge Function that proxies Gemini for the 🍽️ nutrition tracker. */
 const ESTIMATE_FUNCTION = 'estimate-meal';
 
+/** 🔔 One row per device with meal reminders on (see `supabase/reminders.sql`). */
+const PUSH_TABLE = 'push_subscriptions';
+
 /**
  * Columns a league lookup reads. Without `user_id`, exactly like `GHOST_COLUMNS`:
  * a month lookup hands back scores and a name, never an account identifier.
@@ -98,6 +101,19 @@ export interface SupabaseSync {
    * its own; no key and no third-party origin ever exist in this bundle.
    */
   invokeEstimate(body: Record<string, unknown>): Promise<EstimateInvokeResult>;
+  /** 🔔 Upsert THIS device's push subscription (keyed by endpoint). Resolves false on failure. */
+  savePushSubscription(row: PushSubscriptionRow): Promise<boolean>;
+  /** 🔔 Forget THIS device's subscription. Resolves false on failure. */
+  deletePushSubscription(endpoint: string): Promise<boolean>;
+}
+
+/** The `push_subscriptions` row the app writes; `user_id` defaults to `auth.uid()`. */
+export interface PushSubscriptionRow {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  tz: string;
+  schedule: unknown;
 }
 
 /* --------------------------------------------------------------- helpers */
@@ -373,5 +389,25 @@ export function createSupabaseSync(opts: SupabaseSyncOptions): SupabaseSync | nu
     }
   }
 
-  return { backend, auth, invokeEstimate };
+  async function savePushSubscription(row: PushSubscriptionRow): Promise<boolean> {
+    try {
+      const { error } = await db()
+        .from(PUSH_TABLE)
+        .upsert({ ...row, updated_at: new Date().toISOString() }, { onConflict: 'endpoint' });
+      return !error;
+    } catch {
+      return false;
+    }
+  }
+
+  async function deletePushSubscription(endpoint: string): Promise<boolean> {
+    try {
+      const { error } = await db().from(PUSH_TABLE).delete().eq('endpoint', endpoint);
+      return !error;
+    } catch {
+      return false;
+    }
+  }
+
+  return { backend, auth, invokeEstimate, savePushSubscription, deletePushSubscription };
 }

@@ -44,6 +44,9 @@
   font-size:11.5px; font-weight:800; color:var(--ok); border:1px solid var(--ok); vertical-align:middle}
 .nt-close-btn{min-height:44px; margin-top:6px}
 .nt-closed .gc-title{color:var(--ok)}
+/* 🔔 reminders: the state line and one full-width button. */
+.nt-remind-state{font-weight:700; color:var(--text)}
+.nt-remind .action-btn{width:100%; margin-top:10px; min-height:46px}
 @keyframes ringFill{from{stroke-dashoffset:var(--circ)}}
 @media (prefers-reduced-motion: reduce){ .nt-ring-fill{animation:none} }
 

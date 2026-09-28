@@ -14,7 +14,8 @@ import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
 import type { EstimateItem, EstimateResult, NutritionAiPort } from '../src/nutrition/aiPort.ts';
 import { createApp, type AppHooks } from '../src/ui/app.ts';
-import { ESTIMATE_ERROR_HE, resetNutritionScreen } from '../src/ui/nutrition.ts';
+import type { PushPort, PushStatus } from '../src/nutrition/push.ts';
+import { ESTIMATE_ERROR_HE, PUSH_STATE_HE, resetNutritionScreen } from '../src/ui/nutrition.ts';
 import { RestTimer } from '../src/ui/timer.ts';
 
 function fakeStorage(): StorageLike {
@@ -730,5 +731,65 @@ describe('the meals of the day and the catalog', () => {
     const req = reqs[0] as { text: string; catalog: string[] };
     expect(req.text).toBe('שיבולת שועל עם בננה');
     expect(req.catalog.some((l) => l.startsWith('ארוחה קבועה "שיבולת שועל"'))).toBe(true);
+  });
+});
+
+describe('the 🔔 reminders card', () => {
+  function fakePush(start: PushStatus): { port: PushPort; calls: string[] } {
+    let state: PushStatus = start;
+    const calls: string[] = [];
+    return {
+      calls,
+      port: {
+        status: () => Promise.resolve(state),
+        enable: () => {
+          calls.push('enable');
+          state = 'on';
+          return Promise.resolve(state);
+        },
+        disable: () => {
+          calls.push('disable');
+          state = 'off';
+          return Promise.resolve(state);
+        },
+        refresh: () => Promise.resolve(),
+      },
+    };
+  }
+
+  it('does not exist without a push port — absent, not disabled', () => {
+    mount();
+    openNutrition();
+    expect(document.querySelector('.nt-remind')).toBeNull();
+  });
+
+  it('shows the state, then turns reminders on and off on this device', async () => {
+    const { port, calls } = fakePush('off');
+    mount({ nutrition: { ai: fakePort({ ok: false, error: 'http' }, false).port, push: port } });
+    openNutrition();
+    expect(document.querySelector('#ntRemindState')?.textContent).toBe('בודק…');
+    await flush();
+    expect(document.querySelector('#ntRemindState')?.textContent).toBe(PUSH_STATE_HE.off);
+    expect(document.querySelector('.nt-remind')?.textContent).toContain('8:00, 10:00, 12:00, 16:00, 18:00');
+    click('#ntRemindBtn');
+    await flush();
+    expect(calls).toEqual(['enable']);
+    expect(document.querySelector('#ntRemindState')?.textContent).toBe(PUSH_STATE_HE.on);
+    expect(document.querySelector('#ntRemindBtn')?.textContent).toBe('כיבוי תזכורות');
+    click('#ntRemindBtn');
+    await flush();
+    expect(calls).toEqual(['enable', 'disable']);
+    expect(document.querySelector('#ntRemindState')?.textContent).toBe(PUSH_STATE_HE.off);
+  });
+
+  it('explains what blocks it, with no button to press', async () => {
+    for (const st of ['signed_out', 'denied', 'unsupported'] as const) {
+      document.body.innerHTML = BODY.replace(/<script[\s\S]*?<\/script>/gi, '');
+      mount({ nutrition: { ai: fakePort({ ok: false, error: 'http' }, false).port, push: fakePush(st).port } });
+      openNutrition();
+      await flush();
+      expect(document.querySelector('#ntRemindState')?.textContent).toBe(PUSH_STATE_HE[st]);
+      expect(document.querySelector<HTMLButtonElement>('#ntRemindBtn')?.hidden).toBe(true);
+    }
   });
 });

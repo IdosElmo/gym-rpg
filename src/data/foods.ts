@@ -40,6 +40,12 @@ export interface CatalogFood {
   kcal100: number;
   protein100: number;
   units: readonly FoodUnit[];
+  /**
+   * An ingredient or add-on (oil, spray, tahini, chia, milk for the oats) —
+   * logged like any food, but never offered on its own as a meal reminder's
+   * suggestion.
+   */
+  addOn?: true;
 }
 
 export interface MealComponent {
@@ -75,11 +81,13 @@ export const FOODS: readonly CatalogFood[] = [
   {
     kind: 'food', id: 'soy_milk', name: 'חלב סויה ללא סוכר', slots: ['breakfast', 'snack_am', 'snack_pm', 'dinner'],
     kcal100: 33, protein100: 3,
+    addOn: true,
     units: [{ id: 'cup', label: 'כוס', grams: 240 }, ML100],
   },
   {
     kind: 'food', id: 'chia', name: 'זרעי צ׳יה', slots: ['breakfast', 'dinner', 'snack_am', 'snack_pm'],
     kcal100: 486, protein100: 16.5,
+    addOn: true,
     units: [{ id: 'tbsp', label: 'כף', grams: 12 }, { id: 'tsp', label: 'כפית', grams: 4 }],
   },
   {
@@ -101,6 +109,7 @@ export const FOODS: readonly CatalogFood[] = [
   {
     kind: 'food', id: 'olive_oil', name: 'שמן זית', slots: ALL_DAY,
     kcal100: 884, protein100: 0,
+    addOn: true,
     units: [{ id: 'tsp', label: 'כפית', grams: 4.5 }, { id: 'tbsp', label: 'כף', grams: 13.5 }],
   },
   {
@@ -108,11 +117,13 @@ export const FOODS: readonly CatalogFood[] = [
     // ⅓-second serving; what actually coats a pan is several of those.
     kind: 'food', id: 'oil_spray', name: 'ספריי שמן', slots: ALL_DAY,
     kcal100: 884, protein100: 0,
+    addOn: true,
     units: [{ id: 'spray', label: 'ריסוס למחבת', grams: 1 }],
   },
   {
     kind: 'food', id: 'tahini', name: 'טחינה גולמית', slots: ['lunch', 'dinner'],
     kcal100: 600, protein100: 17,
+    addOn: true,
     units: [{ id: 'tbsp', label: 'כף', grams: 15 }, { id: 'tsp', label: 'כפית', grams: 5 }],
   },
   // — breakfast / dinner —

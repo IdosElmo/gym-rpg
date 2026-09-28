@@ -68,6 +68,7 @@ import { fmtDate, todayISO } from '../core/workout.ts';
 import { FIXED_MEALS, FOODS, type CatalogEntry } from '../data/foods.ts';
 import type { EstimateError, EstimateItem, MealEstimate, NutritionAiPort } from '../nutrition/aiPort.ts';
 import { downscalePhoto } from '../nutrition/photo.ts';
+import type { PushPort, PushResult } from '../nutrition/push.ts';
 import type {
   DataStore,
   MealAiInfo,
@@ -86,6 +87,8 @@ export interface NutritionDeps {
   rerender?: () => void;
   /** The estimation port. Absent = the ✨ button does not exist. */
   ai?: NutritionAiPort;
+  /** The 🔔 reminders port. Absent = the reminders card does not exist. */
+  push?: PushPort;
   /** Injectable for tests. */
   today?: string;
   /** The wall clock as 'HH:MM' — picks today's default meal. Injectable for tests. */
@@ -763,6 +766,36 @@ function targetsCard(targets: NutritionTargets): string {
   </section>`;
 }
 
+/* ---------------------------------------------------------- the reminders */
+
+/** One Hebrew line per state of the 🔔 subscription on this device. */
+export const PUSH_STATE_HE: Readonly<Record<PushResult, string>> = {
+  unsupported: 'הדפדפן הזה לא תומך בהתראות. באנדרואיד: פותחים ב־Chrome ומוסיפים את האפליקציה למסך הבית.',
+  signed_out: 'כדי לקבל תזכורות צריך להתחבר לחשבון (במסך ההגדרות).',
+  denied: 'ההתראות חסומות לאפליקציה הזו. מאפשרים אותן בהגדרות האתר בדפדפן, וחוזרים לכאן.',
+  off: 'כבויות במכשיר הזה.',
+  on: 'פעילות במכשיר הזה ✅',
+  failed: 'לא הצלחנו לשמור את ההרשמה בשרת — נסו שוב.',
+};
+
+/**
+ * The 🔔 card: what the reminders do, and one button that turns them on or
+ * off on THIS device. The state is asked of the port after render (it is
+ * async), so the card first says "בודק…".
+ */
+function remindersCard(): string {
+  const starts = MEAL_SLOTS.filter((s) => s.from !== null)
+    .map((s) => `<bdi dir="ltr">${hourOf(s.from ?? '')}</bdi>`)
+    .join(', ');
+  return `
+  <section class="game-card nt-remind">
+    <div class="gc-title">🔔 תזכורות לארוחות</div>
+    <p class="gc-note">התראה בתחילת כל חלון ארוחה (${starts}), עם הצעה מהתפריט. אם כבר רשמתם משהו באותה ארוחה, התזכורת מדלגת.</p>
+    <p class="gc-note nt-remind-state" id="ntRemindState" role="status">בודק…</p>
+    <button class="action-btn" id="ntRemindBtn" type="button" hidden></button>
+  </section>`;
+}
+
 function dayNav(date: string, today: string): string {
   return `
   <div class="nt-daynav">
@@ -779,6 +812,7 @@ export function nutritionHtml(
   today: string,
   showAi: boolean,
   slot: MealSlot | null = null,
+  withPush = false,
 ): string {
   return `
   ${dayNav(date, today)}
@@ -786,7 +820,8 @@ export function nutritionHtml(
   ${mealsCard(n, date)}
   ${isDayClosed(n, date) ? closedCard(date, today) : addCard(showAi, date, today, slot)}
   ${chartCard(n, today)}
-  ${targetsCard(n.targets)}`;
+  ${targetsCard(n.targets)}
+  ${withPush ? remindersCard() : ''}`;
 }
 
 /* ----------------------------------------------------------------- render */
@@ -799,7 +834,7 @@ export function renderNutrition(main: HTMLElement, deps: NutritionDeps): void {
   // Today the form opens on the meal whose window we are in; on a past day
   // the clock says nothing about the meal, so the user picks.
   const slot = addSlot ?? (date === today ? slotAt((deps.now ?? nowHHMM)()) : null);
-  main.innerHTML = nutritionHtml(deps.store.getState().nutrition, date, today, showAi, slot);
+  main.innerHTML = nutritionHtml(deps.store.getState().nutrition, date, today, showAi, slot, deps.push !== undefined);
   wire(main, deps, date, today, slot);
 }
 
@@ -1045,6 +1080,29 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
     toast('הארוחה נרשמה 🍽️');
     again();
   });
+
+  /* ---- 🔔 reminders ---- */
+  const push = deps.push;
+  const remindState = main.querySelector<HTMLElement>('#ntRemindState');
+  const remindBtn = main.querySelector<HTMLButtonElement>('#ntRemindBtn');
+  if (push && remindState && remindBtn) {
+    let on = false;
+    const show = (st: PushResult): void => {
+      remindState.textContent = PUSH_STATE_HE[st];
+      on = st === 'on';
+      const actionable = st === 'on' || st === 'off' || st === 'failed';
+      remindBtn.hidden = !actionable;
+      remindBtn.disabled = false;
+      remindBtn.textContent = on ? 'כיבוי תזכורות' : 'הפעלת תזכורות';
+      remindBtn.classList.toggle('ghost', on);
+    };
+    void push.status().then(show, () => show('failed'));
+    remindBtn.addEventListener('click', () => {
+      remindBtn.disabled = true;
+      remindState.textContent = on ? 'מכבה…' : 'מפעיל…';
+      void (on ? push.disable() : push.enable()).then(show, () => show('failed'));
+    });
+  }
 
   /* ---- targets ---- */
   const tgtMsg = main.querySelector<HTMLElement>('#ntTgtMsg');
