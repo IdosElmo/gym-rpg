@@ -76,6 +76,8 @@ describe('pricing, in code', () => {
 
   it('prices the eggs with salad, and scales a meal by portions', () => {
     expect(priceCatalog('eggs_salad', 'portion', 1)).toMatchObject({ calories: 207, protein: 16 });
+    // the omelette: the same eggs and salad plus one pan of spray (~1 g, 9 kcal)
+    expect(priceCatalog('omelette_salad', 'portion', 1)).toMatchObject({ calories: 216, protein: 16 });
     expect(priceCatalog('oatmeal', 'portion', 0.5)).toMatchObject({ calories: 192, protein: 18 });
     expect(priceCatalog('oatmeal', 'portion', 2)).toMatchObject({ calories: 767, protein: 70 });
   });
@@ -159,7 +161,7 @@ describe('the meals of the day', () => {
 
   it('lists fixed meals first, then foods; "all" appends the rest of the catalog', () => {
     const { fits, rest } = entriesForSlot('breakfast', false);
-    expect(fits.slice(0, 2).map((e) => e.id)).toEqual(['oatmeal', 'eggs_salad']);
+    expect(fits.slice(0, 3).map((e) => e.id)).toEqual(['oatmeal', 'eggs_salad', 'omelette_salad']);
     expect(fits.every((e) => e.slots.includes('breakfast'))).toBe(true);
     expect(rest).toEqual([]);
     const all = entriesForSlot('breakfast', true);

@@ -104,6 +104,13 @@ export const FOODS: readonly CatalogFood[] = [
     units: [{ id: 'tsp', label: 'כפית', grams: 4.5 }, { id: 'tbsp', label: 'כף', grams: 13.5 }],
   },
   {
+    // A pan's worth of spray — about a second, ~1 g. The label's "0 kcal" is a
+    // ⅓-second serving; what actually coats a pan is several of those.
+    kind: 'food', id: 'oil_spray', name: 'ספריי שמן', slots: ALL_DAY,
+    kcal100: 884, protein100: 0,
+    units: [{ id: 'spray', label: 'ריסוס למחבת', grams: 1 }],
+  },
+  {
     kind: 'food', id: 'tahini', name: 'טחינה גולמית', slots: ['lunch', 'dinner'],
     kcal100: 600, protein100: 17,
     units: [{ id: 'tbsp', label: 'כף', grams: 15 }, { id: 'tsp', label: 'כפית', grams: 5 }],
@@ -178,7 +185,10 @@ export const FOODS: readonly CatalogFood[] = [
   },
 ];
 
-/** The owner's fixed meals, ONE portion each. */
+/**
+ * The owner's fixed meals, ONE portion each. The eggs in "ביצים עם סלט" are
+ * hard-boiled, no oil; the omelette is made with spray.
+ */
 export const FIXED_MEALS: readonly CatalogMeal[] = [
   {
     kind: 'meal', id: 'oatmeal', name: 'שיבולת שועל', slots: ['breakfast', 'dinner'],
@@ -193,6 +203,14 @@ export const FIXED_MEALS: readonly CatalogMeal[] = [
     kind: 'meal', id: 'eggs_salad', name: 'ביצים עם סלט', slots: ['dinner', 'breakfast'],
     components: [
       { food: 'egg', unit: 'unit', qty: 2 },
+      { food: 'salad', unit: 'bowl', qty: 1 },
+    ],
+  },
+  {
+    kind: 'meal', id: 'omelette_salad', name: 'חביתה עם סלט', slots: ['dinner', 'breakfast'],
+    components: [
+      { food: 'egg', unit: 'unit', qty: 2 },
+      { food: 'oil_spray', unit: 'spray', qty: 1 },
       { food: 'salad', unit: 'bowl', qty: 1 },
     ],
   },
