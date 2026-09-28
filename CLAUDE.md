@@ -92,6 +92,12 @@ way (a spec, a demo, a `tests/cardio.dom.test.ts`-style check of the ladder).
   (`BALANCE.combat.boss.handicap`), and the wait at a standing boss runs paid overtime
   waves (`BALANCE.combat.overtime`, `battle.overtime` in state). Coins never follow
   `span` (`coinStretch`); `tests/shop.test.ts` bounds the campaign's income.
+- **Food catalog** (🍽️ תזונה): `src/data/foods.ts` — foods priced per 100 g as eaten, each
+  unit a weight in grams, plus fixed meals as component lists (one portion). Stable ids
+  (they are stored on logged meals); `catalogProblems()` must stay `[]` and
+  `tests/catalog.test.ts` pins the fixed meals' prices — re-pin deliberately. A pick is
+  priced in code (`core/catalog.ts`) and frozen into its `meal_logged` payload, so editing
+  the catalog never rewrites history. The same catalog rides to the ✨ estimator as hints.
 - **Equipment** (seven slots, helmet to cape): `EQUIPMENT` in `gameContent.ts`; a new slot needs a
   layer + anchor + flair spot in `ui/characterSvg.ts` (the artwork sweeps cover it); stats flow through `equippedBonus`/
   `deriveStats` (the single stat seam). Art anchors to `characterAnchors`; upgrade flair

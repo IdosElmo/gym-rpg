@@ -28,7 +28,11 @@ export function createEdgeAiPort(deps: EdgeAiDeps): NutritionAiPort {
     async estimate(req: MealEstimateRequest): Promise<EstimateResult> {
       // Signed out is knowable locally — never spend a request to find out.
       if (!deps.isSignedIn()) return { ok: false, error: 'signed_out' };
-      const res = await deps.invoke({ text: req.text, ...(req.photo ? { photo: req.photo } : {}) });
+      const res = await deps.invoke({
+        text: req.text,
+        ...(req.photo ? { photo: req.photo } : {}),
+        ...(req.catalog && req.catalog.length > 0 ? { catalog: req.catalog } : {}),
+      });
       if (!res.ok) return { ok: false, error: res.status === 0 ? 'offline' : mapInvokeError(res.status) };
       const estimate = parseEstimate(res.data);
       return estimate ? { ok: true, estimate } : { ok: false, error: 'unparseable' };

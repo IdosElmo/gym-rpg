@@ -31,11 +31,13 @@ import { todayISO } from './core/workout.ts';
 import { defaultDay } from './core/plan.ts';
 import { createDevApi } from './dev/actions.ts';
 import { createEdgeAiPort } from './nutrition/edgePort.ts';
+import { browserPushSeams, createWebPushPort, type PushPort } from './nutrition/push.ts';
+import { reminderSchedule } from './core/reminders.ts';
 import { devGateOpen } from './dev/gate.ts';
 import { attachDevApi, detachDevApi } from './dev/window.ts';
 import { devResetCooldowns } from './ui/battle.ts';
 import { isSignedIn, refreshAccountCard, type AccountDeps } from './sync/account.ts';
-import { syncConfigured } from './sync/config.ts';
+import { PUSH_VAPID_PUBLIC_KEY, syncConfigured } from './sync/config.ts';
 import { SyncEngine, type SyncStatus } from './sync/engine.ts';
 import { createSupabaseSync } from './sync/supabaseBackend.ts';
 import { createApp, type App, type AppHooks } from './ui/app.ts';
@@ -314,6 +316,25 @@ function wireSync(store: DataStore): SyncWiring {
    * `dev`, and whether `window.gymDev` exists. Both are re-evaluated on every
    * auth change, which is what makes signing out take the panel away.
    */
+  /**
+   * 🔔 MEAL REMINDERS — only when the push server's public key is configured.
+   * Signing in re-uploads this device's schedule (a no-op unless reminders are
+   * on here), which is how a new catalog reaches the server.
+   */
+  const push: PushPort | null = PUSH_VAPID_PUBLIC_KEY
+    ? createWebPushPort({
+        ...browserPushSeams(),
+        vapidPublicKey: PUSH_VAPID_PUBLIC_KEY,
+        isSignedIn: () => isSignedIn(status),
+        schedule: () => reminderSchedule(),
+        save: (row) => supabase.savePushSubscription(row),
+        remove: (endpoint) => supabase.deletePushSubscription(endpoint),
+      })
+    : null;
+  const refreshPush = (): void => {
+    if (push) void push.refresh().catch(() => undefined);
+  };
+
   const devApi = createDevApi({
     store,
     day: () => defaultDay(store.getState().plan),
@@ -349,6 +370,7 @@ function wireSync(store: DataStore): SyncWiring {
           invoke: (body) => supabase.invokeEstimate(body),
           isSignedIn: () => isSignedIn(status),
         }),
+        ...(push ? { push } : {}),
       },
       onRender: () => {
         deferred = false;
@@ -360,7 +382,8 @@ function wireSync(store: DataStore): SyncWiring {
       supabase.auth.onChange((user) => {
         email = user?.email ?? null;
         userId = user?.id ?? null;
-        if (user) void engine.onSignedIn(user.id);
+        // After the engine has signed in — the push port asks the sync status.
+        if (user) void engine.onSignedIn(user.id).then(refreshPush, refreshPush);
         else engine.stop();
         void refreshDevMode();
         if (!refreshAccountCard(account)) app?.render();
@@ -371,7 +394,7 @@ function wireSync(store: DataStore): SyncWiring {
         email = user.email;
         userId = user.id;
         void refreshDevMode();
-        void engine.onSignedIn(user.id);
+        void engine.onSignedIn(user.id).then(refreshPush, refreshPush);
       });
     },
     isSignedIn: () => isSignedIn(status),

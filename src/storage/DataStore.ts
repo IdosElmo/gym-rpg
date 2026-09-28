@@ -617,6 +617,10 @@ export type EventType =
   | 'meal_logged'
   | 'meal_deleted'
   | 'nutrition_targets_set'
+  // Phase 17 — "סגרתי את היום": the user's word that a day's log is COMPLETE,
+  // so the intake chart can average over whole days only. LWW per date (close,
+  // reopen, close again); folds into `state.nutrition.closedDays`.
+  | 'nutrition_day_closed'
   // Phase 14 — the ⚖️ weight log, the nutrition hub's second inner tab. The
   // same three laws as meals: one weigh-in per event, idempotent per entry ID;
   // deletion is a tombstone; the goal weight is LWW. Folded into
@@ -1258,8 +1262,35 @@ export interface DataMergedPayload extends Record<string, unknown> {
 
 /* ------------------------------------------- Phase 12 nutrition payloads */
 
-/** Where a meal's numbers came from. Display-only — nothing re-derives them. */
-export type MealSource = 'manual' | 'gemini_text' | 'gemini_photo';
+/**
+ * Where a meal's numbers came from. Display-only — nothing re-derives them.
+ * `catalog` = picked from the built-in food catalog (src/data/foods.ts) and
+ * computed in code at log time; an older build reads it as `manual`.
+ */
+export type MealSource = 'manual' | 'gemini_text' | 'gemini_photo' | 'catalog';
+
+/**
+ * Which meal of the day a logged item belongs to. Optional on the payload:
+ * meals logged before the split have none and show under "ללא שיוך".
+ * `other` = נשנושים / אחר.
+ */
+export type MealSlot = 'breakfast' | 'snack_am' | 'lunch' | 'snack_pm' | 'dinner' | 'other';
+
+/**
+ * What a catalog pick was, frozen at log time: the catalog entry, the unit and
+ * the quantity, and the priced lines the total was summed from (one line for a
+ * single food, one per component for a fixed meal). Editing the catalog later
+ * never rewrites a logged meal — the payload's numbers are authoritative.
+ */
+export interface MealCatalogInfo {
+  /** The catalog entry id (a food or a fixed meal). */
+  id: string;
+  /** The unit id within the entry (`portion` for a fixed meal). */
+  unit: string;
+  /** How many units (fractions allowed: 0.5, 0.75…). */
+  qty: number;
+  lines: MealAiItem[];
+}
 
 /**
  * One priced line of an estimate's breakdown, as it was on screen when the
@@ -1310,6 +1341,10 @@ export interface MealLoggedPayload extends Record<string, unknown> {
   time: string;
   source: MealSource;
   ai?: MealAiInfo;
+  /** The meal of the day; absent on meals logged before the split. */
+  slot?: MealSlot;
+  /** Present when `source` is `catalog`. */
+  catalog?: MealCatalogInfo;
 }
 
 /**
@@ -1330,6 +1365,17 @@ export interface NutritionTargetsPayload extends Record<string, unknown> {
   protein: number | null;
 }
 
+/**
+ * "סגרתי את היום" — the day's log is complete (`closed: true`) or reopened for
+ * more meals (`closed: false`). LWW PER DATE: the last event for a date in the
+ * `(ts, id)` order decides, so close → reopen → close converges on every device.
+ */
+export interface NutritionDayClosedPayload extends Record<string, unknown> {
+  /** 'YYYY-MM-DD' */
+  date: string;
+  closed: boolean;
+}
+
 export interface NutritionTargets {
   calories: number | null;
   protein: number | null;
@@ -1344,6 +1390,8 @@ export interface MealRecord {
   time: string;
   source: MealSource;
   ai?: MealAiInfo;
+  slot?: MealSlot;
+  catalog?: MealCatalogInfo;
 }
 
 /* ---------------------------------------------- Phase 14 weight payloads */
@@ -1441,6 +1489,8 @@ export interface NutritionState {
   /** Tombstones — union-monotone, never pruned. */
   deleted: Record<string, true>;
   targets: NutritionTargets;
+  /** Dates whose log the user closed ("סגרתי את היום"); a reopen removes the key. */
+  closedDays: Record<string, true>;
   /** ⚖️ weigh-ins by entry id; the fold keeps the FIRST write per id. */
   weights: Record<string, WeightRecord>;
   /** Weigh-in tombstones — union-monotone, never pruned. */

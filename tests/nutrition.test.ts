@@ -17,8 +17,11 @@ import {
   mealsForDate,
   normalizeNutrition,
   recentDays,
+  isDayClosed,
+  setDayClosed,
   setTargets,
   shiftDate,
+  withMargin,
   type MealInput,
 } from '../src/core/nutrition.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
@@ -269,7 +272,13 @@ describe('the stored estimate breakdown', () => {
 });
 
 describe('intakeStats', () => {
-  const day = (date: string, calories: number, protein: number, meals: number) => ({ date, calories, protein, meals });
+  const day = (date: string, calories: number, protein: number, meals: number, closed = false) => ({
+    date,
+    calories,
+    protein,
+    meals,
+    closed,
+  });
 
   it('averages over TRACKED days only — an unlogged day is not a zero', () => {
     const s = intakeStats([day('2026-08-25', 2000, 100, 3), day('2026-08-26', 0, 0, 0), day('2026-08-27', 1000, 50, 1)]);
@@ -284,9 +293,108 @@ describe('intakeStats', () => {
     expect(intakeStats([])).toEqual({ tracked: 0, avgCalories: null, avgProtein: null, peak: null });
   });
 
+  it('closedOnly averages over CLOSED days only — a half-logged day is not a whole one', () => {
+    const days = [day('2026-08-25', 2000, 100, 3, true), day('2026-08-26', 600, 20, 1), day('2026-08-27', 1800, 80, 2, true)];
+    expect(intakeStats(days).avgCalories).toBe(1467);
+    const s = intakeStats(days, true);
+    expect(s.tracked).toBe(2);
+    expect(s.avgCalories).toBe(1900);
+    expect(s.avgProtein).toBe(90);
+    expect(intakeStats([day('2026-08-26', 600, 20, 1)], true).avgCalories).toBeNull();
+  });
+
   it('rounds to whole units', () => {
     const s = intakeStats([day('a', 1000, 10, 1), day('b', 1001, 11, 1), day('c', 1001, 11, 1)]);
     expect(s.avgCalories).toBe(1001);
     expect(s.avgProtein).toBe(11);
+  });
+});
+
+describe('"סגרתי את היום" — nutrition_day_closed', () => {
+  const closeEv = (id: string, ts: number, date: string, closed: boolean) =>
+    ev(id, ts, 'nutrition_day_closed', { date, closed });
+
+  it('is LWW per date: close → reopen → close, and the last one decides', () => {
+    const n = emptyNutrition();
+    applyNutritionEvent(n, 'meal_logged', meal('m1'));
+    applyNutritionEvent(n, 'nutrition_day_closed', { date: '2026-08-27', closed: true });
+    expect(isDayClosed(n, '2026-08-27')).toBe(true);
+    applyNutritionEvent(n, 'nutrition_day_closed', { date: '2026-08-27', closed: false });
+    expect(isDayClosed(n, '2026-08-27')).toBe(false);
+    expect(n.closedDays).toEqual({});
+    applyNutritionEvent(n, 'nutrition_day_closed', { date: '2026-08-27', closed: true });
+    expect(isDayClosed(n, '2026-08-27')).toBe(true);
+  });
+
+  it('ignores a garbage payload', () => {
+    const n = emptyNutrition();
+    applyNutritionEvent(n, 'nutrition_day_closed', { date: 'junk', closed: true });
+    applyNutritionEvent(n, 'nutrition_day_closed', { date: '2026-08-27', closed: 'yes' });
+    expect(n.closedDays).toEqual({});
+  });
+
+  it('folds identically in both merge orders, per date, ties broken by event id', () => {
+    const A = [ev('e1', 1000, 'meal_logged', meal('m1')), closeEv('c1', 2000, '2026-08-27', true), closeEv('c3', 5000, '2026-08-26', true)];
+    const B = [
+      ev('e2', 1500, 'meal_logged', meal('m2', { date: '2026-08-26' })),
+      closeEv('c2', 3000, '2026-08-27', false),
+      closeEv('c4', 5000, '2026-08-26', false),
+    ];
+    const ab = rebuildFromEvents([...A, ...B], NOW).nutrition;
+    const ba = rebuildFromEvents([...B, ...A], NOW).nutrition;
+    expect(ab).toEqual(ba);
+    // 08-27: the reopen at 3000 is last; 08-26: a ts tie, 'c4' > 'c3' wins
+    expect(ab.closedDays).toEqual({});
+    const later = rebuildFromEvents([...B, ...A, closeEv('c5', 6000, '2026-08-27', true)], NOW).nutrition;
+    expect(later.closedDays).toEqual({ '2026-08-27': true });
+  });
+
+  it('a closed day whose meals are all gone does not read as closed', () => {
+    const n = emptyNutrition();
+    applyNutritionEvent(n, 'meal_logged', meal('m1'));
+    applyNutritionEvent(n, 'nutrition_day_closed', { date: '2026-08-27', closed: true });
+    applyNutritionEvent(n, 'meal_deleted', { id: 'm1' });
+    expect(isDayClosed(n, '2026-08-27')).toBe(false);
+    expect(recentDays(n, '2026-08-27', 1)[0]?.closed).toBe(false);
+  });
+
+  it('the driver refuses to close an empty day, and mirrors the replayed state', () => {
+    const store = new LocalStore(fakeStorage());
+    expect(setDayClosed(store, '2026-08-27', true)).toBeNull();
+    expect(setDayClosed(store, 'junk', false)).toBeNull();
+    expect(store.getEvents().filter((e) => e.type === 'nutrition_day_closed')).toHaveLength(0);
+
+    logMeal(store, input, 'm1');
+    expect(setDayClosed(store, '2026-08-27', true)?.type).toBe('nutrition_day_closed');
+    expect(recentDays(store.getState().nutrition, '2026-08-27', 2).map((d) => d.closed)).toEqual([false, true]);
+    setDayClosed(store, '2026-08-27', false);
+    setDayClosed(store, '2026-08-27', true);
+    const live = store.getState().nutrition;
+    expect(live).toEqual(rebuildFromEvents(store.getEvents(), NOW).nutrition);
+    expect(live.closedDays).toEqual({ '2026-08-27': true });
+  });
+
+  it('survives the stored blob (normalizeNutrition) and drops garbage keys', () => {
+    const n = normalizeNutrition({ closedDays: { '2026-08-27': true, junk: true, '2026-08-28': 'yes' } });
+    expect(n.closedDays).toEqual({ '2026-08-27': true });
+    expect(normalizeNutrition({}).closedDays).toEqual({});
+  });
+
+  it('data_cleared forgets the closed days too', () => {
+    const n = rebuildFromEvents(
+      [ev('e1', 1000, 'meal_logged', meal('m1')), closeEv('c1', 2000, '2026-08-27', true), ev('e9', 9000, 'data_cleared', {})],
+      NOW,
+    ).nutrition;
+    expect(n.closedDays).toEqual({});
+  });
+});
+
+describe('withMargin — the under-estimation lens', () => {
+  it('inflates by the percentage and rounds to a whole unit', () => {
+    expect(withMargin(1800, 10)).toBe(1980);
+    expect(withMargin(1800, 20)).toBe(2160);
+    expect(withMargin(1234, 10)).toBe(1357);
+    expect(withMargin(0, 20)).toBe(0);
+    expect(withMargin(1500, 0)).toBe(1500);
   });
 });

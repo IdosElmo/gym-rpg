@@ -28,6 +28,12 @@ export interface MealEstimateRequest {
   /** Hebrew free-text description; may be '' when a photo carries the meal. */
   text: string;
   photo?: { mimeType: string; base64: string };
+  /**
+   * The built-in catalog as prompt lines (`catalogHints`), sent as HINTS: the
+   * function uses a line's values only when an ingredient clearly is that
+   * food. An older function build ignores the field.
+   */
+  catalog?: string[];
 }
 
 export type Confidence = 'low' | 'medium' | 'high';

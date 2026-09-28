@@ -18,7 +18,15 @@
  * they price identically every time, the arithmetic is done in code, and the
  * confidence is CAPPED by how many quantities had to be assumed.
  *
- * Request  (POST, JSON): { text: string, photo?: { mimeType: string, base64: string } }
+ * Request  (POST, JSON): { text: string, photo?: { mimeType: string, base64: string },
+ *                          catalog?: string[] }
+ *
+ * THE PERSONAL CATALOG. The app sends its built-in food catalog (one line per
+ * food, one per fixed meal) with every request, so this function never needs
+ * a redeploy when the catalog changes. It is a HINT, stronger than ANCHORS:
+ * a clear match uses the catalog's weights and values (a named fixed meal
+ * expands to its components); anything that is not clearly a catalog food is
+ * priced exactly as before. Capped and sanitized — it is client input.
  * Response (200,  JSON): { calories, protein_g, confidence: 'low'|'medium'|'high', reason,
  *                          items: [{ name, quantity, grams, kcal, protein_g, assumed }] }
  * Errors: 400 bad input · 413 photo too large · 429 rate limited (Gemini said
@@ -36,6 +44,9 @@ const MAX_TEXT_LEN = 1000;
 /** ~1MB of base64 ≈ 750KB of JPEG — far above what a 1024px meal photo needs. */
 const MAX_PHOTO_B64 = 1_400_000;
 const MAX_ITEMS = 20;
+/** The personal catalog's caps — client input, bounded like the text. */
+const MAX_CATALOG_LINES = 120;
+const MAX_CATALOG_LINE_LEN = 300;
 
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -156,6 +167,23 @@ const RESPONSE_SCHEMA = {
   required: ['items', 'confidence', 'reason'],
 };
 
+/**
+ * The user's own catalog, appended after the anchors. It outranks them — it
+ * describes what THIS user actually eats — but only on a clear match.
+ */
+function catalogSection(lines: string[]): string {
+  if (lines.length === 0) return '';
+  return (
+    '\n\nהקטלוג האישי של המשתמש (עדיף על טבלת העוגן כשיש התאמה):\n' +
+    '- כשרכיב בארוחה הוא בבירור אחד המאכלים בקטלוג — השתמש במשקלי היחידות ובערכים שלו בדיוק.\n' +
+    '- כשהארוחה או חלק ממנה היא אחת הארוחות הקבועות בשמה — פרק אותה לרכיבים שלה, שורה לכל רכיב, ' +
+    'והכפל בכמות המנות שצוינה. תוספות או שינויים שצוינו בטקסט גוברים על ההרכב הקבוע.\n' +
+    '- אל תכפה התאמה: כשרכיב רק דומה למאכל בקטלוג (סוג אחר, אופן הכנה אחר, מותג אחר) — ' +
+    'אל תשתמש בערכי הקטלוג והערך אותו כרגיל.\n' +
+    lines.map((l) => `- ${l}`).join('\n')
+  );
+}
+
 /* ---------------------------------------------------------------- helpers */
 
 function json(status: number, body: Record<string, unknown>): Response {
@@ -233,8 +261,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (!text && !base64) return json(400, { error: 'text or photo required' });
   if (base64 && !mimeType.startsWith('image/')) return json(400, { error: 'photo must be an image' });
   if (base64.length > MAX_PHOTO_B64) return json(413, { error: 'photo too large' });
+  const catalog: string[] = [];
+  if (Array.isArray(b.catalog)) {
+    for (const line of b.catalog) {
+      if (typeof line !== 'string') continue;
+      const clean = line.replace(/\s+/g, ' ').trim().slice(0, MAX_CATALOG_LINE_LEN);
+      if (clean) catalog.push(clean);
+      if (catalog.length >= MAX_CATALOG_LINES) break;
+    }
+  }
 
-  const parts: Record<string, unknown>[] = [{ text: `${PROMPT}\n\nתיאור הארוחה:\n${text || '(רק תמונה)'}` }];
+  const parts: Record<string, unknown>[] = [
+    { text: `${PROMPT}${catalogSection(catalog)}\n\nתיאור הארוחה:\n${text || '(רק תמונה)'}` },
+  ];
   if (base64) parts.push({ inline_data: { mime_type: mimeType, data: base64 } });
 
   const geminiReq = {
