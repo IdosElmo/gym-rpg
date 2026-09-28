@@ -38,7 +38,7 @@ export const SYNC_CONFIG: SyncConfig = {
  * design — a browser needs it to subscribe; the private half lives only in the
  * function's secrets. Empty = the reminders card does not exist.
  */
-export const PUSH_VAPID_PUBLIC_KEY = '';
+export const PUSH_VAPID_PUBLIC_KEY = 'BJl4aTDJvWJ05HyB3Gn2YBQZgNe3lHQlsIzVr7Pqed1T0lMTrSuxvYTb5TBWrXoaXUt0l-ZMAaaCyY4KVBAWuoU';
 
 /** Protocols a Supabase client can actually work over. */
 function isHttpUrl(raw: string): boolean {
