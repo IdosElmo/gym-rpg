@@ -1220,6 +1220,7 @@ export function rebuildFromEvents(events: readonly AppEvent[], now: number = Dat
       case 'meal_logged':
       case 'meal_deleted':
       case 'nutrition_targets_set':
+      case 'nutrition_day_closed':
       // …and the ⚖️ weight log, which shares the slot and the fold.
       case 'weight_logged':
       case 'weight_deleted':

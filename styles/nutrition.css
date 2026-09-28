@@ -32,6 +32,18 @@
 .nt-ring-sub{font-size:11px; color:var(--muted); text-align:center}
 .nt-ring-sub.over{color:var(--warn); font-weight:700}
 .nt-status{text-align:center}
+/* The under-estimation lens: the day's calories at +10% / +20%, as two smaller
+   rings under the main pair — same hue, same --warn past the target. */
+.nt-margins{margin-top:10px; padding-top:8px; border-top:1px dashed var(--line)}
+.nt-margins-title{margin:0 0 2px; font-size:12px; font-weight:700; color:var(--muted); text-align:center}
+.nt-ring.margin .nt-ring-svg{width:92px; height:92px}
+.nt-ring.margin .nt-ring-val{font-size:20px}
+/* "סגרתי את היום": the chip beside the title, the button under the status, and
+   the locked day's card in place of the add form. */
+.nt-closed-chip{display:inline-block; margin-inline-start:6px; padding:1px 8px; border-radius:99px;
+  font-size:11.5px; font-weight:800; color:var(--ok); border:1px solid var(--ok); vertical-align:middle}
+.nt-close-btn{min-height:44px; margin-top:6px}
+.nt-closed .gc-title{color:var(--ok)}
 @keyframes ringFill{from{stroke-dashoffset:var(--circ)}}
 @media (prefers-reduced-motion: reduce){ .nt-ring-fill{animation:none} }
 
@@ -126,7 +138,11 @@
 .nt-vlab{fill:var(--text); font-size:9.5px; font-weight:800; font-family:inherit}
 .nt-bar-day{fill:var(--accent); fill-opacity:.55; animation:sparkIn .5s ease both}
 .nt-bar-day.today{fill-opacity:1}
+/* A day not yet closed: hollow and pale — its number may still grow. */
+.nt-bar-day.open{fill-opacity:.18; stroke:var(--accent); stroke-width:1; stroke-dasharray:3 2}
 .nt-tick{fill:var(--line)}
+.nt-gap{color:var(--muted); font-weight:700}
+.nt-gap.over{color:var(--warn)}
 .nt-avg{stroke:var(--accent); stroke-width:1.5; stroke-dasharray:4 3}
 .nt-goal{stroke:var(--ok); stroke-width:1.5; stroke-dasharray:5 4}
 /* Invisible per-day targets that carry the <title> tooltip. */
@@ -190,6 +206,7 @@
 .wt-hit{fill:transparent}
 .chart-legend .dot.trend{background:none; border:1.5px dashed var(--accent); box-sizing:border-box}
 .chart-legend .dot.goal{background:var(--ok)}
+.chart-legend .dot.open{background:none; border:1.5px dashed var(--accent); opacity:.7; box-sizing:border-box}
 @media (prefers-reduced-motion: reduce){ .wt-area{animation:none} }
 
 /* The add form and the goal card reuse the meal form's field rules. */

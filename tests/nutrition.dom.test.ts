@@ -152,8 +152,9 @@ describe('the תזונה screen', () => {
   it('saves daily targets and the rings start filling toward them', () => {
     const { store } = mount();
     openNutrition();
-    // no targets: two rings, neither can fill
-    expect(document.querySelectorAll('.nt-ring.no-target')).toHaveLength(2);
+    // no targets: the two main rings and the two margin rings, none can fill
+    expect(document.querySelectorAll('.nt-ring.no-target')).toHaveLength(4);
+    expect(document.querySelectorAll('.nt-ring.margin')).toHaveLength(2);
     expect(document.querySelectorAll('.nt-ring-fill')).toHaveLength(0);
 
     type('#ntTgtCal', '2000');
@@ -161,8 +162,8 @@ describe('the תזונה screen', () => {
     click('#ntTgtSave');
     expect(store.getState().nutrition.targets).toEqual({ calories: 2000, protein: 150 });
     expect(store.getEvents().filter((e) => e.type === 'nutrition_targets_set')).toHaveLength(1);
-    expect(document.querySelectorAll('.nt-ring.has-target')).toHaveLength(2);
-    expect(document.querySelectorAll('.nt-ring-fill')).toHaveLength(2);
+    expect(document.querySelectorAll('.nt-ring.has-target')).toHaveLength(4);
+    expect(document.querySelectorAll('.nt-ring-fill')).toHaveLength(4);
 
     // half the calories: the ring is half way round, and says what is left
     type('#ntName', 'צהריים');
@@ -175,6 +176,111 @@ describe('the תזונה screen', () => {
     // protein over target: the ring is marked over and says by how much
     expect(rings[1]?.classList.contains('over')).toBe(true);
     expect(rings[1]?.querySelector('.nt-ring-sub')?.textContent).toContain('+10');
+  });
+
+  it('draws the day\'s calories at +10% and +20% as two more rings toward the same target', () => {
+    const { store } = mount();
+    openNutrition();
+    type('#ntTgtCal', '2000');
+    click('#ntTgtSave');
+    type('#ntName', 'צהריים');
+    type('#ntCal', '1750');
+    click('#ntAdd');
+    const margins = [...document.querySelectorAll('.nt-ring.margin')];
+    expect(margins).toHaveLength(2);
+    // +10%: 1925 — still under, 75 left; +20%: 2100 — over by 100
+    expect(margins[0]?.querySelector('.nt-ring-val')?.textContent).toBe('1925');
+    expect(margins[0]?.querySelector('.nt-ring-sub')?.textContent).toContain('נותרו 75');
+    expect(margins[0]?.classList.contains('over')).toBe(false);
+    expect(margins[1]?.querySelector('.nt-ring-val')?.textContent).toBe('2100');
+    expect(margins[1]?.classList.contains('over')).toBe(true);
+    expect(margins[1]?.querySelector('.nt-ring-sub')?.textContent).toContain('+100');
+    // a lens, not data: nothing was appended for it
+    expect(store.getEvents().filter((e) => e.type === 'meal_logged')[0]?.payload['calories']).toBe(1750);
+  });
+
+  it('closes the day: the add form is replaced and deletes are locked until it is reopened', () => {
+    const { store } = mount();
+    openNutrition();
+    // an empty day cannot be closed — there is no button to press
+    expect(document.querySelector('#ntClose')).toBeNull();
+    type('#ntName', 'בוקר');
+    type('#ntCal', '400');
+    click('#ntAdd');
+
+    click('#ntClose');
+    const closes = store.getEvents().filter((e) => e.type === 'nutrition_day_closed');
+    expect(closes).toHaveLength(1);
+    expect(closes[0]?.payload).toEqual({ date: store.getEvents()[0]?.payload['date'], closed: true });
+    expect(document.querySelector('.nt-closed-chip')).not.toBeNull();
+    expect(document.querySelector('#ntClose')).toBeNull();
+    expect(document.querySelector('#ntAdd')).toBeNull();
+    expect(document.querySelector('.nt-closed')?.textContent).toContain('סגור');
+    expect(document.querySelector('.nt-del')).toBeNull();
+
+    // reopen → the form and the 🗑 are back; close again works
+    click('#ntReopen');
+    expect(store.getEvents().filter((e) => e.type === 'nutrition_day_closed').map((e) => e.payload['closed'])).toEqual([true, false]);
+    expect(document.querySelector('#ntAdd')).not.toBeNull();
+    expect(document.querySelector('.nt-del')).not.toBeNull();
+    expect(document.querySelector('.nt-closed-chip')).toBeNull();
+    click('#ntClose');
+    expect(document.querySelector('#ntAdd')).toBeNull();
+  });
+
+  it('averages over CLOSED days only when asked, hiding the open ones; the margin lens scales calories', () => {
+    const { store } = mount();
+    openNutrition();
+    type('#ntName', 'היום — חלקי');
+    type('#ntCal', '600');
+    click('#ntAdd');
+    click('#ntPrev');
+    type('#ntName', 'אתמול — מלא');
+    type('#ntCal', '2000');
+    type('#ntProt', '100');
+    click('#ntAdd');
+    click('#ntClose');
+    click('#ntNext');
+
+    // all days (the default): both bars, today's hollow as not closed; mean 1300
+    expect(document.querySelector('.nt-seg[data-days="all"]')?.classList.contains('active')).toBe(true);
+    expect(document.querySelectorAll('.nt-bar-day')).toHaveLength(2);
+    expect(document.querySelectorAll('.nt-bar-day.open')).toHaveLength(1);
+    expect(document.querySelector('.nt-bar-day.today')?.classList.contains('open')).toBe(true);
+    expect(document.querySelector('.chart-legend')?.textContent).toContain('ממוצע 1300 קלוריות');
+
+    // closed only: the partial day is hidden and the mean is the whole day's
+    click('[data-days="closed"]');
+    expect(document.querySelectorAll('.nt-bar-day')).toHaveLength(1);
+    expect(document.querySelectorAll('.nt-tick.open')).toHaveLength(1);
+    expect(document.querySelector('.chart-legend')?.textContent).toContain('ממוצע 2000 קלוריות');
+    expect(document.querySelector('.chart-legend')?.textContent).toContain('1 ימים סגורים');
+
+    // +20%: 2400, and with a target the legend says the gap
+    type('#ntTgtCal', '2200');
+    click('#ntTgtSave');
+    click('[data-margin="20"]');
+    expect(document.querySelector('.chart-legend')?.textContent).toContain('2400 קלוריות');
+    expect(document.querySelector('.chart-legend')?.textContent).toContain('200 מעל היעד');
+    click('[data-margin="10"]');
+    expect(document.querySelector('.chart-legend')?.textContent).toContain('2200 קלוריות');
+
+    // protein: no margin lens at all (oil hides calories, not protein)
+    click('[data-metric="protein"]');
+    expect(document.querySelector('[data-margin]')).toBeNull();
+    expect(document.querySelector('.chart-legend')?.textContent).toContain('ממוצע 100 ג׳');
+    expect(store.getEvents().filter((e) => e.type === 'meal_logged')).toHaveLength(2);
+  });
+
+  it('closed-only with no closed day says how to close one', () => {
+    mount();
+    openNutrition();
+    type('#ntName', 'חלקי');
+    type('#ntCal', '600');
+    click('#ntAdd');
+    click('[data-days="closed"]');
+    expect(document.querySelectorAll('.nt-bar-day')).toHaveLength(0);
+    expect(document.querySelector('.nt-chart-empty')?.textContent).toContain('ימים סגורים');
   });
 
   it('draws the intake chart with an average over TRACKED days and switches window and metric', () => {

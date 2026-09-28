@@ -617,6 +617,10 @@ export type EventType =
   | 'meal_logged'
   | 'meal_deleted'
   | 'nutrition_targets_set'
+  // Phase 17 — "סגרתי את היום": the user's word that a day's log is COMPLETE,
+  // so the intake chart can average over whole days only. LWW per date (close,
+  // reopen, close again); folds into `state.nutrition.closedDays`.
+  | 'nutrition_day_closed'
   // Phase 14 — the ⚖️ weight log, the nutrition hub's second inner tab. The
   // same three laws as meals: one weigh-in per event, idempotent per entry ID;
   // deletion is a tombstone; the goal weight is LWW. Folded into
@@ -1330,6 +1334,17 @@ export interface NutritionTargetsPayload extends Record<string, unknown> {
   protein: number | null;
 }
 
+/**
+ * "סגרתי את היום" — the day's log is complete (`closed: true`) or reopened for
+ * more meals (`closed: false`). LWW PER DATE: the last event for a date in the
+ * `(ts, id)` order decides, so close → reopen → close converges on every device.
+ */
+export interface NutritionDayClosedPayload extends Record<string, unknown> {
+  /** 'YYYY-MM-DD' */
+  date: string;
+  closed: boolean;
+}
+
 export interface NutritionTargets {
   calories: number | null;
   protein: number | null;
@@ -1441,6 +1456,8 @@ export interface NutritionState {
   /** Tombstones — union-monotone, never pruned. */
   deleted: Record<string, true>;
   targets: NutritionTargets;
+  /** Dates whose log the user closed ("סגרתי את היום"); a reopen removes the key. */
+  closedDays: Record<string, true>;
   /** ⚖️ weigh-ins by entry id; the fold keeps the FIRST write per id. */
   weights: Record<string, WeightRecord>;
   /** Weigh-in tombstones — union-monotone, never pruned. */

@@ -23,6 +23,14 @@
  * (`ringHtml`), and the history is a bar chart of daily intake with the mean
  * over tracked days (`intakeChartSvg`) — inline SVG strings in the
  * ui/weight.ts conventions: one hue, digits-only SVG text, time right → left.
+ *
+ * WHOLE DAYS ONLY, AND AN HONEST MARGIN. "סגרתי את היום" marks a day's log as
+ * complete (`nutrition_day_closed`); a closed day is LOCKED — no add, no
+ * delete — until "פתיחה להוספה" reopens it, so a closed day's number never
+ * moves by accident. The chart can average over closed days only, hiding the
+ * half-logged ones. And because estimates run low (oil, sauces, portions), the
+ * day's calories are also drawn at +10% and +20% (`SAFETY_MARGINS`) — two more
+ * rings, and a chart lens — display-only, nothing stored changes.
  */
 
 import { fmtDate, todayISO } from '../core/workout.ts';
@@ -30,14 +38,19 @@ import {
   MEAL_MAX_CALORIES,
   MEAL_MAX_PROTEIN,
   dayTotals,
+  SAFETY_MARGINS,
   deleteMeal,
   intakeStats,
+  isDayClosed,
   logMeal,
   mealsForDate,
   recentDays,
+  setDayClosed,
   setTargets,
   shiftDate,
+  withMargin,
   type DaySummary,
+  type SafetyMargin,
   type MealInput,
   type MealRow,
 } from '../core/nutrition.ts';
@@ -110,6 +123,9 @@ let lastEstimate: { estimate: MealEstimate; source: MealSource } | null = null;
 /** The intake chart's window and number. In memory only, like a hub's last tab. */
 let chartRange: IntakeRange = 7;
 let chartMetric: IntakeMetric = 'calories';
+/** Which days the chart shows and averages, and the under-estimation lens. */
+let chartDays: IntakeDays = 'all';
+let chartMargin: SafetyMargin = 0;
 
 /** Forget everything screen-local (tests, and a data wipe). */
 export function resetNutritionScreen(): void {
@@ -118,6 +134,8 @@ export function resetNutritionScreen(): void {
   lastEstimate = null;
   chartRange = 7;
   chartMetric = 'calories';
+  chartDays = 'all';
+  chartMargin = 0;
 }
 
 /* ------------------------------------------------------------ the rings */
@@ -133,12 +151,15 @@ export const RING_CIRC = Math.round(2 * Math.PI * RING_R * 10) / 10;
  * is dashed and the number simply sits in the middle — the ring cannot fill
  * toward nothing, and the card says where to set one.
  */
-export function ringHtml(kind: 'cal' | 'prot', value: number, target: number | null): string {
+export function ringHtml(kind: 'cal' | 'prot', value: number, target: number | null, margin: SafetyMargin = 0): string {
   const has = target !== null && target > 0;
   const pct = has ? Math.min(1, value / target) : 0;
   const over = has && value > target;
   const offset = Math.round(RING_CIRC * (1 - pct) * 10) / 10;
-  const label = kind === 'cal' ? 'קלוריות' : 'גרם חלבון';
+  // A margin ring names its lens; the "+" stays on the left of the digits in RTL.
+  const label =
+    margin > 0 ? `<bdi dir="ltr">+${margin}%</bdi>` : kind === 'cal' ? 'קלוריות' : 'גרם חלבון';
+  const ariaLabel = margin > 0 ? `קלוריות בתוספת ${margin}%` : kind === 'cal' ? 'קלוריות' : 'גרם חלבון';
   const emoji = kind === 'cal' ? '🔥' : '💪';
   const sub = !has
     ? `<span class="nt-ring-sub dim">ללא יעד</span>`
@@ -146,9 +167,9 @@ export function ringHtml(kind: 'cal' | 'prot', value: number, target: number | n
       ? `<span class="nt-ring-sub over">+${value - target} מעל היעד</span>`
       : `<span class="nt-ring-sub">נותרו ${target - value}</span>`;
   const pctText = has ? `${Math.round((value / target) * 100)}%` : '';
-  const aria = has ? `${label}: ${value} מתוך ${target}` : `${label}: ${value}`;
+  const aria = has ? `${ariaLabel}: ${value} מתוך ${target}` : `${ariaLabel}: ${value}`;
   return `
-    <div class="nt-ring ${has ? 'has-target' : 'no-target'} ${over ? 'over' : ''}" role="img" aria-label="${esc(aria)}">
+    <div class="nt-ring ${has ? 'has-target' : 'no-target'} ${over ? 'over' : ''} ${margin > 0 ? 'margin' : ''}" role="img" aria-label="${esc(aria)}">
       <svg viewBox="0 0 100 100" class="nt-ring-svg" aria-hidden="true">
         <circle class="nt-ring-track" cx="50" cy="50" r="${RING_R}"/>
         ${
@@ -167,13 +188,16 @@ export function ringHtml(kind: 'cal' | 'prot', value: number, target: number | n
 
 function totalsCard(n: NutritionState, date: string, today: string): string {
   const t = dayTotals(n, date);
+  const closed = isDayClosed(n, date);
   const g = n.targets;
   const noTargets = g.calories === null && g.protein === null;
   const protPct = g.protein !== null && g.protein > 0 ? Math.round((t.protein / g.protein) * 100) : null;
   const status =
     t.meals === 0
       ? 'עוד לא תועדו ארוחות ביום הזה'
-      : noTargets
+      : closed
+        ? 'היום נסגר — הוא נספר בממוצע של ימים מלאים בגרף'
+        : noTargets
         ? 'הגדירו יעדים יומיים למטה — והעיגולים יתמלאו לפי ההתקדמות'
         : g.calories !== null && t.calories > g.calories
           ? 'עברתם את יעד הקלוריות — שווה לבדוק מה אפשר להוריד מחר'
@@ -184,12 +208,26 @@ function totalsCard(n: NutritionState, date: string, today: string): string {
               : 'ממשיכים לתעד — כל ארוחה נכנסת לעיגולים';
   return `
   <section class="game-card nt-totals">
-    <div class="gc-title">סיכום ${date === today ? 'היום' : 'היום הזה'} <span class="gc-sub">${t.meals === 0 ? 'אין ארוחות' : `${t.meals} ארוחות`}</span></div>
+    <div class="gc-title">סיכום ${date === today ? 'היום' : 'היום הזה'} <span class="gc-sub">${t.meals === 0 ? 'אין ארוחות' : `${t.meals} ארוחות`}</span>${
+      closed ? ` <span class="nt-closed-chip">✅ יום סגור</span>` : ''
+    }</div>
     <div class="nt-rings">
       ${ringHtml('cal', t.calories, g.calories)}
       ${ringHtml('prot', t.protein, g.protein)}
     </div>
+    <div class="nt-margins">
+      <p class="nt-margins-title">ואם ההערכות נמוכות מהמציאות? 🔥 הקלוריות בתוספת</p>
+      <div class="nt-rings">
+        ${SAFETY_MARGINS.map((m) => ringHtml('cal', withMargin(t.calories, m), g.calories, m)).join('')}
+      </div>
+    </div>
     <p class="gc-note nt-status">${status}</p>
+    ${
+      t.meals > 0 && !closed
+        ? `<button class="action-btn ghost nt-close-btn" id="ntClose" type="button">✅ סגרתי את היום</button>
+    <p class="gc-note dim">סיימתם לרשום את כל מה שנאכל ביום הזה? סגירה מכניסה אותו לממוצע של ימים מלאים בגרף.</p>`
+        : ''
+    }
   </section>`;
 }
 
@@ -223,7 +261,7 @@ function mealDetailsHtml(row: MealRow): string {
     </details>`;
 }
 
-function mealRowHtml(row: MealRow, dayCalories: number): string {
+function mealRowHtml(row: MealRow, dayCalories: number, locked: boolean): string {
   const conf = row.ai ? ` conf-${row.ai.confidence}` : '';
   const aiMark = row.ai
     ? `<span class="nt-ai${conf}" title="הוערך על ידי ${esc(row.ai.model)} · דיוק ${CONFIDENCE_HE[row.ai.confidence]}">🤖</span>`
@@ -239,7 +277,7 @@ function mealRowHtml(row: MealRow, dayCalories: number): string {
       <div class="nt-meal-nums">
         <span class="nt-num">🔥 ${row.calories}</span>
         <span class="nt-num">💪 ${row.protein} ג׳</span>
-        <button class="nt-del" type="button" data-del="${esc(row.id)}" aria-label="מחיקת ${esc(row.name)}">🗑</button>
+        ${locked ? '' : `<button class="nt-del" type="button" data-del="${esc(row.id)}" aria-label="מחיקת ${esc(row.name)}">🗑</button>`}
       </div>
     </div>
     <div class="nt-share" title="${share}% מהקלוריות של היום" aria-hidden="true"><i style="width:${share}%"></i></div>
@@ -250,10 +288,11 @@ function mealRowHtml(row: MealRow, dayCalories: number): string {
 function mealsCard(n: NutritionState, date: string): string {
   const rows = mealsForDate(n, date);
   const total = rows.reduce((s, r) => s + r.calories, 0);
+  const locked = isDayClosed(n, date);
   const body =
     rows.length === 0
       ? `<p class="empty">לא תועדו ארוחות ביום הזה — הארוחה הראשונה נרשמת למטה 👇</p>`
-      : `<ul class="nt-meals">${rows.map((r) => mealRowHtml(r, total)).join('')}</ul>`;
+      : `<ul class="nt-meals">${rows.map((r) => mealRowHtml(r, total, locked)).join('')}</ul>`;
   const hasAi = rows.some((r) => r.ai);
   return `
   <section class="game-card">
@@ -303,6 +342,19 @@ function addCard(showAi: boolean, date: string, today: string): string {
   </section>`;
 }
 
+/**
+ * A closed day in place of the add form: the day is complete, so nothing is
+ * added or deleted until it is reopened — then it can be closed again.
+ */
+function closedCard(date: string, today: string): string {
+  return `
+  <section class="game-card nt-closed">
+    <div class="gc-title">✅ ${date === today ? 'היום' : 'היום הזה'} סגור</div>
+    <p class="gc-note">סימנתם שהרישום של היום הזה מלא, אז הוספה ומחיקה של ארוחות נעולות. צריך לשנות משהו? פותחים את היום, מעדכנים וסוגרים שוב.</p>
+    <button class="action-btn" id="ntReopen" type="button">🔓 פתיחה להוספה</button>
+  </section>`;
+}
+
 /* -------------------------------------------------------------- the chart */
 
 /** How many days the intake chart shows, and which number. */
@@ -317,6 +369,16 @@ export const INTAKE_METRICS: readonly { key: IntakeMetric; label: string }[] = [
   { key: 'calories', label: '🔥 קלוריות' },
   { key: 'protein', label: '💪 חלבון' },
 ] as const;
+/** Every logged day, or only the days the user closed as complete. */
+export type IntakeDays = 'all' | 'closed';
+export const INTAKE_DAYS: readonly { key: IntakeDays; label: string }[] = [
+  { key: 'all', label: 'כל הימים' },
+  { key: 'closed', label: '✅ רק ימים סגורים' },
+] as const;
+export const INTAKE_MARGINS: readonly { key: SafetyMargin; label: string }[] = [
+  { key: 0, label: 'כפי שנרשם' },
+  ...SAFETY_MARGINS.map((m) => ({ key: m, label: `<bdi dir="ltr">+${m}%</bdi>` })),
+];
 
 const CHART_W = 320;
 const CHART_H = 150;
@@ -341,7 +403,9 @@ export function niceCeiling(max: number): number {
  * does. An untracked day gets no bar — only a tick at the baseline — because
  * "nothing logged" is not "zero eaten". The dashed accent line is the mean
  * over tracked days; the dashed `--ok` line is the daily target when one is
- * set and fits. Today's bar is the solid one; the rest are one shade quieter.
+ * set and fits. A day not (yet) closed is drawn hollow and pale — its number
+ * may still grow; with `closedOnly` it is hidden altogether (a tick, like an
+ * untracked day). Today's bar carries its value.
  */
 export function intakeChartSvg(
   days: readonly DaySummary[],
@@ -349,6 +413,7 @@ export function intakeChartSvg(
   average: number | null,
   target: number | null,
   today: string,
+  closedOnly = false,
 ): string {
   const n = days.length;
   if (n === 0) return '';
@@ -389,11 +454,12 @@ export function intakeChartSvg(
       const xlab = showLabel
         ? `<text class="nt-xlab ${d.date === today ? 'today' : ''}" x="${cx(i)}" y="${CHART_H - 4}" text-anchor="middle">${dom}</text>`
         : '';
-      if (d.meals === 0) {
+      if (d.meals === 0 || (closedOnly && !d.closed)) {
+        const why = d.meals === 0 ? 'לא תועד' : 'לא נסגר';
         return (
-          `<rect class="nt-tick" x="${left}" y="${baseline - 1.5}" width="${barW}" height="3" rx="1.5"/>` +
+          `<rect class="nt-tick${d.meals === 0 ? '' : ' open'}" x="${left}" y="${baseline - 1.5}" width="${barW}" height="3" rx="1.5"/>` +
           `<rect class="nt-hit" x="${round1(left - gap)}" y="${PAD_TOP}" width="${round1(slot)}" height="${plotH + PAD_BOTTOM}">` +
-          `<title>${esc(fmtDate(d.date))} · לא תועד</title></rect>${xlab}`
+          `<title>${esc(fmtDate(d.date))} · ${why}</title></rect>${xlab}`
         );
       }
       const h = Math.max(2, round1(baseline - y(v)));
@@ -402,12 +468,12 @@ export function intakeChartSvg(
       const path =
         `M${left},${baseline} V${round1(topY + r)} Q${left},${topY} ${round1(left + r)},${topY} ` +
         `H${round1(left + barW - r)} Q${round1(left + barW)},${topY} ${round1(left + barW)},${round1(topY + r)} V${baseline} Z`;
-      const cls = d.date === today ? 'nt-bar-day today' : 'nt-bar-day';
+      const cls = `nt-bar-day${d.date === today ? ' today' : ''}${d.closed ? '' : ' open'}`;
       const direct = d.date === today ? `<text class="nt-vlab" x="${cx(i)}" y="${round1(topY - 4)}" text-anchor="middle">${v}</text>` : '';
       return (
         `<path class="${cls}" d="${path}"/>${direct}` +
         `<rect class="nt-hit" x="${round1(left - gap)}" y="${PAD_TOP}" width="${round1(slot)}" height="${plotH + PAD_BOTTOM}">` +
-        `<title>${esc(fmtDate(d.date))} · ${v} ${unit} · ${d.meals} ארוחות</title></rect>${xlab}`
+        `<title>${esc(fmtDate(d.date))} · ${v} ${unit} · ${d.meals} ארוחות${d.closed ? ' · סגור' : ''}</title></rect>${xlab}`
       );
     })
     .join('');
@@ -446,17 +512,33 @@ function seg<K extends string | number>(
 }
 
 function chartCard(n: NutritionState, today: string): string {
-  const days = recentDays(n, today, chartRange);
-  const stats = intakeStats(days);
+  const closedOnly = chartDays === 'closed';
+  // The margin is a CALORIE lens: oil and sauces hide calories, not protein.
+  const margin: SafetyMargin = chartMetric === 'calories' ? chartMargin : 0;
+  const days = recentDays(n, today, chartRange).map((d) =>
+    margin > 0 ? { ...d, calories: withMargin(d.calories, margin) } : d,
+  );
+  const stats = intakeStats(days, closedOnly);
   const average = chartMetric === 'calories' ? stats.avgCalories : stats.avgProtein;
   const target = chartMetric === 'calories' ? n.targets.calories : n.targets.protein;
   const unit = chartMetric === 'calories' ? 'קלוריות' : 'ג׳';
+  const lens = margin > 0 ? ` <bdi dir="ltr">+${margin}%</bdi>` : '';
+  const anyOpen = !closedOnly && days.some((d) => d.meals > 0 && !d.closed);
+  const gap =
+    average !== null && target !== null && target > 0
+      ? average > target
+        ? ` <span class="nt-gap over">(${average - target} מעל היעד)</span>`
+        : ` <span class="nt-gap">(${target - average} מתחת ליעד)</span>`
+      : '';
   const legend =
     stats.tracked === 0
-      ? `<p class="empty nt-chart-empty">עוד אין ימים עם רישום בטווח הזה — הגרף מתחיל מהארוחה הראשונה</p>`
+      ? closedOnly
+        ? `<p class="empty nt-chart-empty">עוד אין ימים סגורים בטווח הזה — סוגרים יום בכפתור ✅ שבסיכום היומי</p>`
+        : `<p class="empty nt-chart-empty">עוד אין ימים עם רישום בטווח הזה — הגרף מתחיל מהארוחה הראשונה</p>`
       : `<div class="chart-legend">
-      <span class="cl-item"><i class="dot"></i>צריכה יומית</span>
-      <span class="cl-item"><i class="dot trend"></i>ממוצע <b>${average ?? 0} ${unit}</b> <span class="dim">(${stats.tracked} ימים עם רישום)</span></span>
+      <span class="cl-item"><i class="dot"></i>צריכה יומית${lens}</span>
+      ${anyOpen ? `<span class="cl-item"><i class="dot open"></i>יום שלא נסגר</span>` : ''}
+      <span class="cl-item"><i class="dot trend"></i>ממוצע${lens} <b>${average ?? 0} ${unit}</b>${gap} <span class="dim">(${stats.tracked} ${closedOnly ? 'ימים סגורים' : 'ימים עם רישום'})</span></span>
       ${target !== null ? `<span class="cl-item"><i class="dot goal"></i>יעד <b>${target} ${unit}</b></span>` : ''}
     </div>`;
   return `
@@ -464,9 +546,13 @@ function chartCard(n: NutritionState, today: string): string {
     <div class="gc-title">📊 הצריכה לאורך זמן <span class="gc-sub">${chartRange} ימים אחרונים</span></div>
     ${seg(INTAKE_METRICS, chartMetric, 'metric', 'מה להציג')}
     ${seg(INTAKE_RANGES, chartRange, 'range', 'טווח הגרף')}
-    ${intakeChartSvg(days, chartMetric, average, target, today)}
+    ${seg(INTAKE_DAYS, chartDays, 'days', 'אילו ימים')}
+    ${chartMetric === 'calories' ? seg(INTAKE_MARGINS, chartMargin, 'margin', 'תוספת להערכת חסר') : ''}
+    ${intakeChartSvg(days, chartMetric, average, target, today, closedOnly)}
     ${legend}
-    <p class="gc-note dim">הזמן זורם מימין לשמאל — היום בקצה השמאלי. יום בלי רישום נשאר ריק ולא נספר בממוצע.</p>
+    <p class="gc-note dim">הזמן זורם מימין לשמאל — היום בקצה השמאלי. יום בלי רישום נשאר ריק ולא נספר בממוצע.${
+      closedOnly ? ' ימים שלא נסגרו מוסתרים ולא נספרים.' : ' עמודה חלולה = יום שעוד לא נסגר.'
+    }</p>
   </section>`;
 }
 
@@ -506,7 +592,7 @@ export function nutritionHtml(n: NutritionState, date: string, today: string, sh
   ${dayNav(date, today)}
   ${totalsCard(n, date, today)}
   ${mealsCard(n, date)}
-  ${addCard(showAi, date, today)}
+  ${isDayClosed(n, date) ? closedCard(date, today) : addCard(showAi, date, today)}
   ${chartCard(n, today)}
   ${targetsCard(n.targets)}`;
 }
@@ -570,6 +656,32 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
       chartMetric = btn.dataset['metric'] === 'protein' ? 'protein' : 'calories';
       again();
     });
+  });
+
+  main.querySelectorAll<HTMLButtonElement>('[data-days]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      chartDays = btn.dataset['days'] === 'closed' ? 'closed' : 'all';
+      again();
+    });
+  });
+  main.querySelectorAll<HTMLButtonElement>('[data-margin]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const m = Number(btn.dataset['margin']);
+      chartMargin = m === 10 ? 10 : m === 20 ? 20 : 0;
+      again();
+    });
+  });
+
+  /* ---- close / reopen the day ---- */
+  main.querySelector<HTMLButtonElement>('#ntClose')?.addEventListener('click', () => {
+    if (!setDayClosed(deps.store, date, true)) return;
+    toast('היום נסגר ✅');
+    again();
+  });
+  main.querySelector<HTMLButtonElement>('#ntReopen')?.addEventListener('click', () => {
+    setDayClosed(deps.store, date, false);
+    toast('היום נפתח להוספה');
+    again();
   });
 
   /* ---- delete a meal ---- */

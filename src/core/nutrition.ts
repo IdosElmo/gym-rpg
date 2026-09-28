@@ -22,6 +22,10 @@
  *                            tombstone never resurrects anything.
  *   nutrition_targets_set -> whole targets object in the payload, last writer
  *                            wins — byte-for-byte the `plan_updated` rule.
+ *   nutrition_day_closed  -> "סגרתי את היום": last writer wins PER DATE (the
+ *                            same rule, keyed by day), so close → reopen →
+ *                            close converges. The fold accepts any date; the
+ *                            driver refuses to close a day with no meals.
  *   data_cleared          -> resets nutrition to empty (handled by the caller's
  *                            switch, like `sessions`/`plan`).
  *   weight_*              -> the ⚖️ weight log shares this slot and this fold;
@@ -40,6 +44,7 @@ import type {
   MealLoggedPayload,
   MealRecord,
   MealSource,
+  NutritionDayClosedPayload,
   NutritionState,
   NutritionTargets,
 } from '../storage/DataStore.ts';
@@ -73,6 +78,7 @@ export function emptyNutrition(): NutritionState {
     meals: {},
     deleted: {},
     targets: { calories: null, protein: null },
+    closedDays: {},
     weights: {},
     weightDeleted: {},
     weightTarget: null,
@@ -201,6 +207,12 @@ export function normalizeNutrition(raw: unknown): NutritionState {
     }
   }
   n.targets = normalizeTargets(raw['targets']);
+  const closed = raw['closedDays'];
+  if (isRecord(closed)) {
+    for (const key of Object.keys(closed)) {
+      if (ISO_DATE_RE.test(key) && closed[key] === true) n.closedDays[key] = true;
+    }
+  }
   normalizeWeights(raw, n);
   normalizePhotos(raw, n);
   return n;
@@ -234,6 +246,13 @@ export function applyNutritionEvent(
     case 'nutrition_targets_set':
       n.targets = normalizeTargets(payload);
       break;
+    case 'nutrition_day_closed': {
+      const date = payload['date'];
+      if (typeof date !== 'string' || !ISO_DATE_RE.test(date)) break;
+      if (payload['closed'] === true) n.closedDays[date] = true;
+      else if (payload['closed'] === false) delete n.closedDays[date];
+      break;
+    }
     case 'weight_logged':
     case 'weight_deleted':
     case 'weight_target_set':
@@ -304,7 +323,41 @@ export function setTargets(store: DataStore, targets: { calories: number | null;
   return ev;
 }
 
+/**
+ * "סגרתי את היום" (`closed: true`) or "פתיחה להוספה" (`closed: false`): append
+ * ONE `nutrition_day_closed` and mirror it. Returns `null` (appending nothing)
+ * for a bad date, or when closing a day that has no live meal — an empty day is
+ * not a complete one, and would count as a 0 in the closed-days mean.
+ */
+export function setDayClosed(store: DataStore, date: string, closed: boolean): AppEvent | null {
+  if (!ISO_DATE_RE.test(date)) return null;
+  const n = store.getState().nutrition;
+  if (closed && mealsForDate(n, date).length === 0) return null;
+  const payload: NutritionDayClosedPayload = { date, closed };
+  const ev = store.append('nutrition_day_closed', payload);
+  store.update((draft) => applyNutritionEvent(draft.nutrition, 'nutrition_day_closed', payload));
+  return ev;
+}
+
 /* -------------------------------------------------------------- selectors */
+
+/** True when the user closed this date AND it still has a live meal. */
+export function isDayClosed(n: NutritionState, date: string): boolean {
+  return n.closedDays[date] === true && mealsForDate(n, date).length > 0;
+}
+
+/**
+ * The under-estimation lenses: what the day's calories come to if every
+ * estimate ran this many percent low (oil, sauces, portions). Display-only —
+ * nothing stored changes.
+ */
+export const SAFETY_MARGINS = [10, 20] as const;
+export type SafetyMargin = 0 | (typeof SAFETY_MARGINS)[number];
+
+/** `value` inflated by `pct` percent, rounded to a whole unit. */
+export function withMargin(value: number, pct: number): number {
+  return Math.round(value * (1 + pct / 100));
+}
 
 export interface MealRow extends MealRecord {
   id: string;
@@ -347,6 +400,8 @@ export function shiftDate(date: string, days: number): string {
 
 export interface DaySummary extends DayTotals {
   date: string;
+  /** The user closed the day ("סגרתי את היום") and it has meals. */
+  closed: boolean;
 }
 
 /** The last `count` days ENDING at `today`, oldest first. */
@@ -354,13 +409,13 @@ export function recentDays(n: NutritionState, today: string, count = 7): DaySumm
   const out: DaySummary[] = [];
   for (let i = count - 1; i >= 0; i -= 1) {
     const date = shiftDate(today, -i);
-    out.push({ date, ...dayTotals(n, date) });
+    out.push({ date, ...dayTotals(n, date), closed: isDayClosed(n, date) });
   }
   return out;
 }
 
 export interface IntakeStats {
-  /** Days in the window with at least one meal logged. */
+  /** Days in the window that were averaged (logged, and closed when asked). */
   tracked: number;
   /** Mean daily calories over the TRACKED days, or `null` when none. */
   avgCalories: number | null;
@@ -374,9 +429,11 @@ export interface IntakeStats {
  * The window's averages — over the days that were TRACKED, not the calendar:
  * a day with no meal logged is far more often "forgot to log" than "ate
  * nothing", and folding zeros into the mean would quietly flatter every diet.
+ * With `closedOnly`, a day must also be CLOSED: a half-logged day flatters the
+ * mean exactly the way an unlogged one would.
  */
-export function intakeStats(days: readonly DaySummary[]): IntakeStats {
-  const tracked = days.filter((d) => d.meals > 0);
+export function intakeStats(days: readonly DaySummary[], closedOnly = false): IntakeStats {
+  const tracked = days.filter((d) => d.meals > 0 && (!closedOnly || d.closed));
   if (tracked.length === 0) return { tracked: 0, avgCalories: null, avgProtein: null, peak: null };
   const cal = tracked.reduce((s, d) => s + d.calories, 0);
   const prot = tracked.reduce((s, d) => s + d.protein, 0);
