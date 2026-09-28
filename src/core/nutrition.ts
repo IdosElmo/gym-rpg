@@ -41,8 +41,10 @@ import type {
   EventType,
   MealAiInfo,
   MealAiItem,
+  MealCatalogInfo,
   MealLoggedPayload,
   MealRecord,
+  MealSlot,
   MealSource,
   NutritionDayClosedPayload,
   NutritionState,
@@ -70,7 +72,49 @@ const AI_MAX_ITEM_PROTEIN = 500;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const HHMM_RE = /^\d{2}:\d{2}$/;
 
-const MEAL_SOURCES: readonly MealSource[] = ['manual', 'gemini_text', 'gemini_photo'];
+const MEAL_SOURCES: readonly MealSource[] = ['manual', 'gemini_text', 'gemini_photo', 'catalog'];
+const CATALOG_MAX_ID_LEN = 60;
+/** A quantity is a count of units — 100 of anything is already a typo. */
+export const CATALOG_MAX_QTY = 100;
+
+/**
+ * The meals of the day, in the order the screen lists them. `from`/`to` are
+ * the eating windows ('HH:MM', `to` exclusive); `other` (נשנושים / אחר) has
+ * none. The windows pick the form's default meal on today, and are the
+ * schedule the reminders will follow.
+ */
+export interface MealSlotDef {
+  key: MealSlot;
+  /** The heading over the meal's list. */
+  label: string;
+  /** The chip in the add form — short enough for three to a row. */
+  short: string;
+  from: string | null;
+  to: string | null;
+}
+
+export const MEAL_SLOTS: readonly MealSlotDef[] = [
+  { key: 'breakfast', label: 'ארוחת בוקר', short: 'בוקר', from: '08:00', to: '10:00' },
+  { key: 'snack_am', label: 'ביניים (בוקר–צהריים)', short: 'ביניים א׳', from: '10:00', to: '12:00' },
+  { key: 'lunch', label: 'ארוחת צהריים', short: 'צהריים', from: '12:00', to: '16:00' },
+  { key: 'snack_pm', label: 'ביניים (צהריים–ערב)', short: 'ביניים ב׳', from: '16:00', to: '18:00' },
+  { key: 'dinner', label: 'ארוחת ערב', short: 'ערב', from: '18:00', to: '21:00' },
+  { key: 'other', label: 'נשנושים / אחר', short: 'נשנושים', from: null, to: null },
+];
+
+const SLOT_KEYS: readonly MealSlot[] = MEAL_SLOTS.map((s) => s.key);
+
+export function isMealSlot(v: unknown): v is MealSlot {
+  return typeof v === 'string' && (SLOT_KEYS as readonly string[]).includes(v);
+}
+
+/** The meal whose window holds 'HH:MM'; outside every window, `other`. */
+export function slotAt(hhmm: string): MealSlot {
+  for (const s of MEAL_SLOTS) {
+    if (s.from !== null && s.to !== null && hhmm >= s.from && hhmm < s.to) return s.key;
+  }
+  return 'other';
+}
 const CONFIDENCES = ['low', 'medium', 'high'] as const;
 
 export function emptyNutrition(): NutritionState {
@@ -151,6 +195,23 @@ function aiInfoOf(raw: unknown): MealAiInfo | null {
   };
 }
 
+function catalogInfoOf(raw: unknown): MealCatalogInfo | null {
+  if (!isRecord(raw)) return null;
+  const id = typeof raw['id'] === 'string' ? raw['id'].trim().slice(0, CATALOG_MAX_ID_LEN) : '';
+  const unit = typeof raw['unit'] === 'string' ? raw['unit'].trim().slice(0, CATALOG_MAX_ID_LEN) : '';
+  const qty = raw['qty'];
+  if (!id || !unit || typeof qty !== 'number' || !Number.isFinite(qty) || qty <= 0) return null;
+  const lines: MealAiItem[] = [];
+  if (Array.isArray(raw['lines'])) {
+    for (const it of raw['lines']) {
+      const line = aiItemOf(it);
+      if (line) lines.push(line);
+      if (lines.length >= AI_MAX_BREAKDOWN) break;
+    }
+  }
+  return { id, unit, qty: Math.min(CATALOG_MAX_QTY, Math.round(qty * 100) / 100), lines };
+}
+
 /**
  * Read a `meal_logged` payload into a valid `MealRecord`, or `null` when the
  * payload is not a meal (bad date, empty name, non-numeric values). Used by the
@@ -174,7 +235,19 @@ export function mealRecordOf(payload: Record<string, unknown>): { id: string; re
     ? (payload['source'] as MealSource)
     : 'manual';
   const ai = aiInfoOf(payload['ai']);
-  const rec: MealRecord = { date, name, calories, protein, time, source, ...(ai ? { ai } : {}) };
+  const slot = isMealSlot(payload['slot']) ? payload['slot'] : null;
+  const catalog = catalogInfoOf(payload['catalog']);
+  const rec: MealRecord = {
+    date,
+    name,
+    calories,
+    protein,
+    time,
+    source,
+    ...(ai ? { ai } : {}),
+    ...(slot ? { slot } : {}),
+    ...(catalog ? { catalog } : {}),
+  };
   return { id, rec };
 }
 
@@ -280,6 +353,8 @@ export interface MealInput {
   time: string;
   source: MealSource;
   ai?: MealAiInfo;
+  slot?: MealSlot;
+  catalog?: MealCatalogInfo;
 }
 
 /**
@@ -298,6 +373,8 @@ export function logMeal(store: DataStore, input: MealInput, id: string): AppEven
     time: input.time,
     source: input.source,
     ...(input.ai ? { ai: input.ai } : {}),
+    ...(input.slot ? { slot: input.slot } : {}),
+    ...(input.catalog ? { catalog: input.catalog } : {}),
   };
   if (!mealRecordOf(payload)) return null;
   const ev = store.append('meal_logged', payload);

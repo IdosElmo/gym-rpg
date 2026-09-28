@@ -1262,8 +1262,35 @@ export interface DataMergedPayload extends Record<string, unknown> {
 
 /* ------------------------------------------- Phase 12 nutrition payloads */
 
-/** Where a meal's numbers came from. Display-only — nothing re-derives them. */
-export type MealSource = 'manual' | 'gemini_text' | 'gemini_photo';
+/**
+ * Where a meal's numbers came from. Display-only — nothing re-derives them.
+ * `catalog` = picked from the built-in food catalog (src/data/foods.ts) and
+ * computed in code at log time; an older build reads it as `manual`.
+ */
+export type MealSource = 'manual' | 'gemini_text' | 'gemini_photo' | 'catalog';
+
+/**
+ * Which meal of the day a logged item belongs to. Optional on the payload:
+ * meals logged before the split have none and show under "ללא שיוך".
+ * `other` = נשנושים / אחר.
+ */
+export type MealSlot = 'breakfast' | 'snack_am' | 'lunch' | 'snack_pm' | 'dinner' | 'other';
+
+/**
+ * What a catalog pick was, frozen at log time: the catalog entry, the unit and
+ * the quantity, and the priced lines the total was summed from (one line for a
+ * single food, one per component for a fixed meal). Editing the catalog later
+ * never rewrites a logged meal — the payload's numbers are authoritative.
+ */
+export interface MealCatalogInfo {
+  /** The catalog entry id (a food or a fixed meal). */
+  id: string;
+  /** The unit id within the entry (`portion` for a fixed meal). */
+  unit: string;
+  /** How many units (fractions allowed: 0.5, 0.75…). */
+  qty: number;
+  lines: MealAiItem[];
+}
 
 /**
  * One priced line of an estimate's breakdown, as it was on screen when the
@@ -1314,6 +1341,10 @@ export interface MealLoggedPayload extends Record<string, unknown> {
   time: string;
   source: MealSource;
   ai?: MealAiInfo;
+  /** The meal of the day; absent on meals logged before the split. */
+  slot?: MealSlot;
+  /** Present when `source` is `catalog`. */
+  catalog?: MealCatalogInfo;
 }
 
 /**
@@ -1359,6 +1390,8 @@ export interface MealRecord {
   time: string;
   source: MealSource;
   ai?: MealAiInfo;
+  slot?: MealSlot;
+  catalog?: MealCatalogInfo;
 }
 
 /* ---------------------------------------------- Phase 14 weight payloads */

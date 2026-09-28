@@ -45,13 +45,19 @@ Deploy with JWT verification **on** (the default — do not pass
 
 ### Contract
 
-`POST` body `{ text: string, photo?: { mimeType: string, base64: string } }` →
+`POST` body `{ text: string, photo?: { mimeType: string, base64: string }, catalog?: string[] }` →
 `200` with:
 
 ```
 { calories, protein_g, confidence: 'low'|'medium'|'high', reason,
   items: [{ name, quantity, grams, kcal, protein_g, assumed }] }
 ```
+
+`catalog` is the app's built-in food catalog (`src/data/foods.ts`) as prompt
+lines — one per food, one per fixed meal. The function treats it as a hint
+stronger than its own anchors, used only on a clear match (a fixed meal named
+in the text expands to its components). Because the app sends it, a catalog
+change needs no redeploy; an older function build simply ignores the field.
 
 The answer is **itemized**: the model returns one line per ingredient (grams,
 kcal/100 g, protein/100 g), the function does the arithmetic, and `calories` /

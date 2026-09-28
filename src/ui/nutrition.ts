@@ -33,12 +33,21 @@
  * rings, and a chart lens — display-only, nothing stored changes.
  */
 
-import { fmtDate, todayISO } from '../core/workout.ts';
+import {
+  catalogEntry,
+  catalogHints,
+  catalogMealInput,
+  entriesForSlot,
+  parseQty,
+  priceCatalog,
+  unitsOf,
+} from '../core/catalog.ts';
 import {
   MEAL_MAX_CALORIES,
   MEAL_MAX_PROTEIN,
-  dayTotals,
+  MEAL_SLOTS,
   SAFETY_MARGINS,
+  dayTotals,
   deleteMeal,
   intakeStats,
   isDayClosed,
@@ -48,15 +57,26 @@ import {
   setDayClosed,
   setTargets,
   shiftDate,
+  slotAt,
   withMargin,
   type DaySummary,
-  type SafetyMargin,
   type MealInput,
   type MealRow,
+  type SafetyMargin,
 } from '../core/nutrition.ts';
+import { fmtDate, todayISO } from '../core/workout.ts';
+import { FIXED_MEALS, FOODS, type CatalogEntry } from '../data/foods.ts';
 import type { EstimateError, EstimateItem, MealEstimate, NutritionAiPort } from '../nutrition/aiPort.ts';
 import { downscalePhoto } from '../nutrition/photo.ts';
-import type { DataStore, MealAiInfo, MealAiItem, MealSource, NutritionState, NutritionTargets } from '../storage/DataStore.ts';
+import type {
+  DataStore,
+  MealAiInfo,
+  MealAiItem,
+  MealSlot,
+  MealSource,
+  NutritionState,
+  NutritionTargets,
+} from '../storage/DataStore.ts';
 import { esc } from './dom.ts';
 import { toast } from './toast.ts';
 
@@ -68,6 +88,8 @@ export interface NutritionDeps {
   ai?: NutritionAiPort;
   /** Injectable for tests. */
   today?: string;
+  /** The wall clock as 'HH:MM' — picks today's default meal. Injectable for tests. */
+  now?: () => string;
 }
 
 /** One Hebrew line per way an estimate can fail. */
@@ -126,6 +148,17 @@ let chartMetric: IntakeMetric = 'calories';
 /** Which days the chart shows and averages, and the under-estimation lens. */
 let chartDays: IntakeDays = 'all';
 let chartMargin: SafetyMargin = 0;
+/** The meal the form adds to; `null` = the default (today: by the clock; a past day: none). */
+let addSlot: MealSlot | null = null;
+/** Catalog pick or free text. The catalog is the measured way, so it opens first. */
+let addMode: AddMode = 'catalog';
+/** The catalog pick in progress: entry, unit, the quantity as typed, and "show all". */
+let catPick = '';
+let catUnit = '';
+let catQty = '1';
+let catAll = false;
+/** What is typed in the form, kept across re-renders (a chip tap re-renders). */
+let draft = { name: '', cal: '', prot: '', time: '' };
 
 /** Forget everything screen-local (tests, and a data wipe). */
 export function resetNutritionScreen(): void {
@@ -136,6 +169,17 @@ export function resetNutritionScreen(): void {
   chartMetric = 'calories';
   chartDays = 'all';
   chartMargin = 0;
+  addSlot = null;
+  addMode = 'catalog';
+  resetPick();
+  draft = { name: '', cal: '', prot: '', time: '' };
+}
+
+function resetPick(): void {
+  catPick = '';
+  catUnit = '';
+  catQty = '1';
+  catAll = false;
 }
 
 /* ------------------------------------------------------------ the rings */
@@ -239,11 +283,20 @@ function aiByline(ai: MealAiInfo): string {
 }
 
 /**
- * What the estimator saw, kept on the meal: the priced breakdown when it was
- * stored, otherwise the bare ingredient labels of an older meal. Folded under a
- * ▸ so the list stays a list.
+ * What stands behind a meal's numbers, folded under a ▸ so the list stays a
+ * list: for a catalog pick, the priced lines it was summed from; for an
+ * estimate, the priced breakdown when it was stored, otherwise the bare
+ * ingredient labels of an older meal.
  */
 function mealDetailsHtml(row: MealRow): string {
+  const cat = row.catalog;
+  if (row.source === 'catalog' && cat && cat.lines.length > 1) {
+    return `
+    <details class="nt-meal-more">
+      <summary class="nt-meal-sum"><span class="nt-caret" aria-hidden="true">▸</span>📋 מהקטלוג · ${cat.lines.length} רכיבים</summary>
+      <ul class="nt-breakdown">${breakdownHtml(cat.lines)}</ul>
+    </details>`;
+  }
   const ai = row.ai;
   if (!ai) return '';
   const body =
@@ -263,15 +316,17 @@ function mealDetailsHtml(row: MealRow): string {
 
 function mealRowHtml(row: MealRow, dayCalories: number, locked: boolean): string {
   const conf = row.ai ? ` conf-${row.ai.confidence}` : '';
-  const aiMark = row.ai
+  const mark = row.ai
     ? `<span class="nt-ai${conf}" title="הוערך על ידי ${esc(row.ai.model)} · דיוק ${CONFIDENCE_HE[row.ai.confidence]}">🤖</span>`
-    : '';
+    : row.source === 'catalog'
+      ? `<span class="nt-ai" title="מהקטלוג — חושב לפי ערכים קבועים">📋</span>`
+      : '';
   const share = dayCalories > 0 ? Math.round((row.calories / dayCalories) * 100) : 0;
   return `
   <li class="nt-meal">
     <div class="nt-meal-row">
       <div class="nt-meal-main">
-        <span class="nt-meal-name">${esc(row.name)}${aiMark}</span>
+        <span class="nt-meal-name">${esc(row.name)}${mark}</span>
         ${row.time ? `<span class="nt-meal-time dim">🕒 ${esc(row.time)}</span>` : ''}
       </div>
       <div class="nt-meal-nums">
@@ -285,25 +340,148 @@ function mealRowHtml(row: MealRow, dayCalories: number, locked: boolean): string
   </li>`;
 }
 
+/** "08:00" → "8:00" — the window as a heading reads it. */
+function hourOf(hhmm: string): string {
+  return hhmm.startsWith('0') ? hhmm.slice(1) : hhmm;
+}
+
+/** One meal of the day: its heading, subtotal, ＋ and its items. */
+function slotSectionHtml(
+  key: string,
+  label: string,
+  window: string,
+  rows: readonly MealRow[],
+  dayCalories: number,
+  locked: boolean,
+): string {
+  const cal = rows.reduce((s, r) => s + r.calories, 0);
+  const prot = rows.reduce((s, r) => s + r.protein, 0);
+  const add =
+    locked || key === 'none'
+      ? ''
+      : `<button class="nt-slot-add" type="button" data-slot-add="${key}" aria-label="הוספה ל${esc(label)}">＋</button>`;
+  return `
+  <div class="nt-slot ${rows.length === 0 ? 'empty' : ''}" data-slot-sec="${key}">
+    <div class="nt-slot-head">
+      <span class="nt-slot-name">${esc(label)}${window ? ` <span class="nt-slot-win dim">${window}</span>` : ''}</span>
+      ${rows.length > 0 ? `<span class="nt-slot-sum">🔥 ${cal} · 💪 ${prot} ג׳</span>` : ''}
+      ${add}
+    </div>
+    ${rows.length > 0 ? `<ul class="nt-meals">${rows.map((r) => mealRowHtml(r, dayCalories, locked)).join('')}</ul>` : ''}
+  </div>`;
+}
+
+/**
+ * The day's meals, split into the meals of the day (`MEAL_SLOTS`) — each with
+ * its subtotal and a ＋ that opens the form on it. Meals logged before the
+ * split have no slot and gather under "ללא שיוך". A closed day lists only the
+ * meals that have items.
+ */
 function mealsCard(n: NutritionState, date: string): string {
   const rows = mealsForDate(n, date);
   const total = rows.reduce((s, r) => s + r.calories, 0);
   const locked = isDayClosed(n, date);
-  const body =
-    rows.length === 0
-      ? `<p class="empty">לא תועדו ארוחות ביום הזה — הארוחה הראשונה נרשמת למטה 👇</p>`
-      : `<ul class="nt-meals">${rows.map((r) => mealRowHtml(r, total, locked)).join('')}</ul>`;
+  const sections = MEAL_SLOTS.map((def) => {
+    const mine = rows.filter((r) => r.slot === def.key);
+    if (locked && mine.length === 0) return '';
+    const window = def.from && def.to ? `<bdi dir="ltr">${hourOf(def.from)}–${hourOf(def.to)}</bdi>` : '';
+    return slotSectionHtml(def.key, def.label, window, mine, total, locked);
+  }).join('');
+  const loose = rows.filter((r) => !r.slot);
+  const legacy = loose.length > 0 ? slotSectionHtml('none', 'ללא שיוך', '', loose, total, locked) : '';
+  const empty =
+    rows.length === 0 ? `<p class="empty">לא תועדו ארוחות ביום הזה — לוחצים ＋ ליד ארוחה, או בוחרים למטה 👇</p>` : '';
   const hasAi = rows.some((r) => r.ai);
+  const hasCat = rows.some((r) => r.source === 'catalog');
+  const legend = [hasAi ? '🤖 = הערכת Gemini' : '', hasCat ? '📋 = מהקטלוג' : ''].filter(Boolean).join(' · ');
   return `
-  <section class="game-card">
-    <div class="gc-title">הארוחות של היום${hasAi ? ` <span class="gc-sub">🤖 = הערכת Gemini</span>` : ''}</div>
-    ${body}
+  <section class="game-card nt-day-meals">
+    <div class="gc-title">הארוחות של היום${legend ? ` <span class="gc-sub">${legend}</span>` : ''}</div>
+    ${empty}
+    ${sections}
+    ${legacy}
   </section>`;
 }
 
 /* ------------------------------------------------------------ the add form */
 
-function addCard(showAi: boolean, date: string, today: string): string {
+export type AddMode = 'catalog' | 'text';
+export const ADD_MODES: readonly { key: AddMode; label: string }[] = [
+  { key: 'catalog', label: '📋 מהקטלוג' },
+  { key: 'text', label: '✍️ תיאור / תמונה' },
+] as const;
+
+function slotChipsHtml(slot: MealSlot | null): string {
+  return `<div class="nt-slot-pick" role="group" aria-label="לאיזו ארוחה">${MEAL_SLOTS.map(
+    (s) =>
+      `<button class="nt-slot-chip ${s.key === slot ? 'active' : ''}" type="button" data-slot="${s.key}"
+        aria-pressed="${s.key === slot ? 'true' : 'false'}">${esc(s.short)}</button>`,
+  ).join('')}</div>`;
+}
+
+function optionsHtml(entries: readonly CatalogEntry[], picked: string): string {
+  return entries
+    .map((e) => `<option value="${esc(e.id)}" ${e.id === picked ? 'selected' : ''}>${esc(e.name)}</option>`)
+    .join('');
+}
+
+/** The pick's price, or why there is none — shown live under the quantity. */
+export function catalogPreviewHtml(id: string, unit: string, qtyRaw: string): string {
+  const qty = parseQty(qtyRaw);
+  if (qty === null) return `<p class="gc-note nt-cat-bad">כמות לא תקינה — למשל 1, 0.5 או 1/2.</p>`;
+  const price = priceCatalog(id, unit, qty);
+  if (!price) return '';
+  const lines = price.lines.length > 1 ? `<ul class="nt-breakdown">${breakdownHtml(price.lines)}</ul>` : '';
+  return `<p class="nt-cat-total">🔥 <b>${price.calories}</b> קלוריות · 💪 <b>${price.protein}</b> ג׳ חלבון</p>${lines}`;
+}
+
+/** The catalog pick: what, how much, when — priced live, in code. */
+function catalogFormHtml(slot: MealSlot | null): string {
+  // No meal chosen yet (a past day): the whole catalog, nothing presumed.
+  const { fits, rest } = slot ? entriesForSlot(slot, catAll) : { fits: [...FIXED_MEALS, ...FOODS], rest: [] };
+  const listed = [...fits, ...rest];
+  if (!listed.some((e) => e.id === catPick)) catPick = '';
+  const entry = catPick ? catalogEntry(catPick) : null;
+  const units = entry ? unitsOf(entry) : [];
+  if (!units.some((u) => u.id === catUnit)) catUnit = units[0]?.id ?? '';
+  const group = (label: string, list: readonly CatalogEntry[]): string =>
+    list.length > 0 ? `<optgroup label="${esc(label)}">${optionsHtml(list, catPick)}</optgroup>` : '';
+  const select = `
+    <label class="nt-field">מה אכלתם
+      <select class="inp" id="ntCatItem">
+        <option value="">— בחרו מהרשימה —</option>
+        ${group('ארוחות קבועות', fits.filter((e) => e.kind === 'meal'))}
+        ${group('מאכלים', fits.filter((e) => e.kind === 'food'))}
+        ${group('שאר הקטלוג', rest)}
+      </select>
+    </label>
+    ${slot ? `<label class="nt-check"><input type="checkbox" id="ntCatAll" ${catAll ? 'checked' : ''}> הצגת כל הקטלוג, לא רק מה שמתאים לארוחה הזו</label>` : ''}`;
+  if (!entry) {
+    return `${select}
+    <p class="gc-note dim">לא מוצאים ברשימה? עוברים ל״תיאור / תמונה״ — ההערכה מכירה את הקטלוג.</p>`;
+  }
+  const unitField =
+    units.length > 1
+      ? `<select class="inp" id="ntCatUnit">${units
+          .map((u) => `<option value="${esc(u.id)}" ${u.id === catUnit ? 'selected' : ''}>${esc(u.label)}</option>`)
+          .join('')}</select>`
+      : `<span class="inp nt-unit-fixed">${esc(units[0]?.label ?? '')}</span>`;
+  return `${select}
+    <div class="nt-field-row">
+      <label class="nt-field">כמות
+        <input class="inp" id="ntCatQty" type="text" inputmode="decimal" autocomplete="off" value="${esc(catQty)}">
+      </label>
+      <label class="nt-field">יחידה ${unitField}</label>
+      <label class="nt-field">שעה
+        <input class="inp" id="ntTime" type="time" value="${esc(draft.time)}">
+      </label>
+    </div>
+    <div class="nt-cat-preview" id="ntCatPreview" role="status">${catalogPreviewHtml(catPick, catUnit, catQty)}</div>
+    <button class="action-btn" id="ntCatAdd" type="button">הוספה</button>`;
+}
+
+/** Free text (and ✨ / 📷 when signed in) — for anything not in the catalog. */
+function textFormHtml(showAi: boolean): string {
   const aiRow = showAi
     ? `
     <div class="nt-est-row">
@@ -315,29 +493,37 @@ function addCard(showAi: boolean, date: string, today: string): string {
     <p class="gc-note" id="ntEstMsg" role="status"></p>
     <ul class="nt-breakdown" id="ntEstBreakdown" hidden></ul>`
     : '';
-  // On a past day the card says WHERE the meal will land — a forgotten dinner
-  // is logged onto yesterday, not silently onto today.
-  const dayNote = date === today ? '' : ` <span class="gc-sub">ליום ${esc(fmtDate(date))}</span>`;
   return `
-  <section class="game-card nt-add">
-    <div class="gc-title">הוספת ארוחה${dayNote}</div>
     <label class="nt-field">תיאור הארוחה
       <textarea class="inp nt-textarea" id="ntName" rows="3" maxlength="300" autocomplete="off"
-        placeholder="למשל: טוסט עם 2 פרוסות גבינה צהובה וקופסת טונה אחת — ככל שהתיאור מפורט יותר (כמויות, אופן הכנה), ההערכה מדויקת יותר"></textarea>
+        placeholder="למשל: טוסט עם 2 פרוסות גבינה צהובה וקופסת טונה אחת — ככל שהתיאור מפורט יותר (כמויות, אופן הכנה), ההערכה מדויקת יותר">${esc(draft.name)}</textarea>
     </label>
     ${aiRow}
     <div class="nt-field-row">
       <label class="nt-field">קלוריות
-        <input class="inp" id="ntCal" type="text" inputmode="numeric" autocomplete="off" placeholder="0">
+        <input class="inp" id="ntCal" type="text" inputmode="numeric" autocomplete="off" placeholder="0" value="${esc(draft.cal)}">
       </label>
       <label class="nt-field">חלבון (גרם)
-        <input class="inp" id="ntProt" type="text" inputmode="numeric" autocomplete="off" placeholder="0">
+        <input class="inp" id="ntProt" type="text" inputmode="numeric" autocomplete="off" placeholder="0" value="${esc(draft.prot)}">
       </label>
       <label class="nt-field">שעה
-        <input class="inp" id="ntTime" type="time">
+        <input class="inp" id="ntTime" type="time" value="${esc(draft.time)}">
       </label>
     </div>
-    <button class="action-btn" id="ntAdd" type="button">הוספה</button>
+    <button class="action-btn" id="ntAdd" type="button">הוספה</button>`;
+}
+
+function addCard(showAi: boolean, date: string, today: string, slot: MealSlot | null): string {
+  // On a past day the card says WHERE the meal will land — a forgotten dinner
+  // is logged onto yesterday, not silently onto today.
+  const dayNote = date === today ? '' : ` <span class="gc-sub">ליום ${esc(fmtDate(date))}</span>`;
+  return `
+  <section class="game-card nt-add" id="ntAddCard">
+    <div class="gc-title">הוספה${dayNote}</div>
+    ${slotChipsHtml(slot)}
+    ${slot ? '' : `<p class="gc-note nt-slot-need">לאיזו ארוחה להוסיף? בוחרים למעלה.</p>`}
+    ${seg(ADD_MODES, addMode, 'mode', 'איך לרשום')}
+    ${addMode === 'catalog' ? catalogFormHtml(slot) : textFormHtml(showAi)}
     <p class="gc-note" id="ntAddMsg" role="status"></p>
   </section>`;
 }
@@ -587,12 +773,18 @@ function dayNav(date: string, today: string): string {
 }
 
 /** The whole screen as a string — pure, testable without a DOM. */
-export function nutritionHtml(n: NutritionState, date: string, today: string, showAi: boolean): string {
+export function nutritionHtml(
+  n: NutritionState,
+  date: string,
+  today: string,
+  showAi: boolean,
+  slot: MealSlot | null = null,
+): string {
   return `
   ${dayNav(date, today)}
   ${totalsCard(n, date, today)}
   ${mealsCard(n, date)}
-  ${isDayClosed(n, date) ? closedCard(date, today) : addCard(showAi, date, today)}
+  ${isDayClosed(n, date) ? closedCard(date, today) : addCard(showAi, date, today, slot)}
   ${chartCard(n, today)}
   ${targetsCard(n.targets)}`;
 }
@@ -604,8 +796,11 @@ export function renderNutrition(main: HTMLElement, deps: NutritionDeps): void {
   if (viewDate !== null && viewDate > today) viewDate = null;
   const date = viewDate ?? today;
   const showAi = deps.ai?.configured() === true;
-  main.innerHTML = nutritionHtml(deps.store.getState().nutrition, date, today, showAi);
-  wire(main, deps, date, today);
+  // Today the form opens on the meal whose window we are in; on a past day
+  // the clock says nothing about the meal, so the user picks.
+  const slot = addSlot ?? (date === today ? slotAt((deps.now ?? nowHHMM)()) : null);
+  main.innerHTML = nutritionHtml(deps.store.getState().nutrition, date, today, showAi, slot);
+  wire(main, deps, date, today, slot);
 }
 
 function refresh(main: HTMLElement, deps: NutritionDeps): void {
@@ -629,17 +824,30 @@ function intOf(input: HTMLInputElement | null, max: number): number | null {
   return Math.min(Math.floor(n), max);
 }
 
-function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: string): void {
-  const again = (): void => refresh(main, deps);
+/**
+ * The time stamped on a new meal. No time typed: on TODAY the meal is stamped
+ * "now" — logging right after eating is the common case. On a past day "now"
+ * would be a lie, so the time stays empty unless the user says otherwise.
+ */
+function stampTime(typed: string, date: string, today: string, now: () => string): string {
+  if (/^\d{2}:\d{2}$/.test(typed)) return typed;
+  return date === today ? now() : '';
+}
 
-  /* ---- day navigation ---- */
+function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: string, slot: MealSlot | null): void {
+  const again = (): void => refresh(main, deps);
+  const now = deps.now ?? nowHHMM;
+
+  /* ---- day navigation (a new day asks for its meal afresh) ---- */
   main.querySelector<HTMLButtonElement>('#ntPrev')?.addEventListener('click', () => {
     viewDate = shiftDate(date, -1);
+    addSlot = null;
     again();
   });
   main.querySelector<HTMLButtonElement>('#ntNext')?.addEventListener('click', () => {
     const next = shiftDate(date, 1);
     viewDate = next >= today ? null : next;
+    addSlot = null;
     again();
   });
 
@@ -695,17 +903,105 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
     });
   });
 
-  /* ---- add a meal ---- */
+  /* ---- the form: which meal, which way, and what is typed ---- */
   const nameInp = main.querySelector<HTMLTextAreaElement>('#ntName');
   const calInp = main.querySelector<HTMLInputElement>('#ntCal');
   const protInp = main.querySelector<HTMLInputElement>('#ntProt');
   const timeInp = main.querySelector<HTMLInputElement>('#ntTime');
   const addMsg = main.querySelector<HTMLElement>('#ntAddMsg');
+  nameInp?.addEventListener('input', () => (draft.name = nameInp.value));
+  calInp?.addEventListener('input', () => (draft.cal = calInp.value));
+  protInp?.addEventListener('input', () => (draft.prot = protInp.value));
+  timeInp?.addEventListener('input', () => (draft.time = timeInp.value));
+  timeInp?.addEventListener('change', () => (draft.time = timeInp.value));
+  const clearDraft = (): void => {
+    draft = { name: '', cal: '', prot: '', time: '' };
+  };
+  const needSlot = (): boolean => {
+    if (slot) return false;
+    if (addMsg) addMsg.textContent = 'בחרו קודם לאיזו ארוחה להוסיף.';
+    return true;
+  };
 
+  main.querySelectorAll<HTMLButtonElement>('[data-slot]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset['slot'];
+      addSlot = MEAL_SLOTS.find((s) => s.key === key)?.key ?? addSlot;
+      again();
+    });
+  });
+  main.querySelectorAll<HTMLButtonElement>('[data-slot-add]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset['slotAdd'];
+      addSlot = MEAL_SLOTS.find((s) => s.key === key)?.key ?? addSlot;
+      again();
+      document.getElementById('ntAddCard')?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+    });
+  });
+  main.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      addMode = btn.dataset['mode'] === 'text' ? 'text' : 'catalog';
+      again();
+    });
+  });
+
+  /* ---- a catalog pick, priced in code ---- */
+  const itemSel = main.querySelector<HTMLSelectElement>('#ntCatItem');
+  itemSel?.addEventListener('change', () => {
+    catPick = itemSel.value;
+    catUnit = '';
+    catQty = '1';
+    again();
+  });
+  const allBox = main.querySelector<HTMLInputElement>('#ntCatAll');
+  allBox?.addEventListener('change', () => {
+    catAll = allBox.checked;
+    again();
+  });
+  const unitSel = main.querySelector<HTMLSelectElement>('#ntCatUnit');
+  unitSel?.addEventListener('change', () => {
+    catUnit = unitSel.value;
+    again();
+  });
+  const qtyInp = main.querySelector<HTMLInputElement>('#ntCatQty');
+  const preview = main.querySelector<HTMLElement>('#ntCatPreview');
+  // Typing re-prices in place — no re-render, the caret stays put.
+  qtyInp?.addEventListener('input', () => {
+    catQty = qtyInp.value;
+    if (preview) preview.innerHTML = catalogPreviewHtml(catPick, catUnit, catQty);
+  });
+  main.querySelector<HTMLButtonElement>('#ntCatAdd')?.addEventListener('click', () => {
+    if (needSlot() || !slot) return;
+    const qty = parseQty(catQty);
+    if (qty === null) {
+      if (addMsg) addMsg.textContent = 'כמות לא תקינה — למשל 1, 0.5 או 1/2.';
+      return;
+    }
+    const input = catalogMealInput({
+      id: catPick,
+      unit: catUnit,
+      qty,
+      date,
+      slot,
+      time: stampTime(timeInp?.value ?? '', date, today, now),
+    });
+    const ev = input ? logMeal(deps.store, input, crypto.randomUUID()) : null;
+    if (!ev) {
+      if (addMsg) addMsg.textContent = 'לא הצלחנו לרשום — בדקו את הבחירה.';
+      return;
+    }
+    resetPick();
+    clearDraft();
+    toast('נרשם 📋');
+    again();
+  });
+
+  /* ---- free text (and ✨) ---- */
   main.querySelector<HTMLButtonElement>('#ntAdd')?.addEventListener('click', () => {
     const name = (nameInp?.value ?? '').trim();
     const calories = intOf(calInp, MEAL_MAX_CALORIES);
     const protein = intOf(protInp, MEAL_MAX_PROTEIN);
+    if (needSlot() || !slot) return;
     if (!name) {
       if (addMsg) addMsg.textContent = 'לארוחה צריך תיאור — גם מילה אחת מספיקה.';
       return;
@@ -717,16 +1013,13 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
     // The estimate's byline survives only while its numbers do.
     const est = lastEstimate;
     const fromAi = est !== null && est.estimate.calories === calories && est.estimate.proteinG === protein;
-    const typedTime = timeInp?.value && /^\d{2}:\d{2}$/.test(timeInp.value) ? timeInp.value : '';
     const input: MealInput = {
       date,
       name,
       calories,
       protein,
-      // No time typed: on TODAY the meal is stamped "now" — logging right after
-      // eating is the common case. On a past day "now" would be a lie, so the
-      // time stays empty unless the user says otherwise.
-      time: typedTime !== '' ? typedTime : date === today ? nowHHMM() : '',
+      time: stampTime(timeInp?.value ?? '', date, today, now),
+      slot,
       source: fromAi ? est.source : 'manual',
       // The breakdown rides along WHOLE, so the meal list can reopen it later.
       ...(fromAi
@@ -748,6 +1041,7 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
     }
     lastEstimate = null;
     photo = null;
+    clearDraft();
     toast('הארוחה נרשמה 🍽️');
     again();
   });
@@ -819,7 +1113,7 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
         breakdown.innerHTML = '';
       }
       void ai
-        .estimate({ text, ...(photo ? { photo } : {}) })
+        .estimate({ text, ...(photo ? { photo } : {}), catalog: catalogHints() })
         .then((result) => {
           if (!result.ok) {
             if (estMsg) estMsg.textContent = ESTIMATE_ERROR_HE[result.error];
@@ -830,6 +1124,8 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
           // Prefill by poking the LIVE inputs — no re-render, nothing typed is lost.
           if (calInp) calInp.value = String(est.calories);
           if (protInp) protInp.value = String(est.proteinG);
+          draft.cal = String(est.calories);
+          draft.prot = String(est.proteinG);
           if (estMsg) {
             const names = est.items.map(itemLabel);
             const found = names.length > 0 ? `נמצא: ${names.join(', ')} · ` : '';

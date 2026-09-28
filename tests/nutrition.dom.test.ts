@@ -68,8 +68,10 @@ function type(sel: string, value: string): void {
   inp.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+/** Open the screen on the FREE-TEXT form — the catalog has its own tests. */
 function openNutrition(): void {
   click('#tabs .hub[data-hub="NU"]');
+  click('[data-mode="text"]');
 }
 
 function fakePort(result: EstimateResult, configured = true): { port: NutritionAiPort; calls: number[] } {
@@ -235,6 +237,7 @@ describe('the תזונה screen', () => {
     type('#ntCal', '600');
     click('#ntAdd');
     click('#ntPrev');
+    click('[data-slot="dinner"]');
     type('#ntName', 'אתמול — מלא');
     type('#ntCal', '2000');
     type('#ntProt', '100');
@@ -297,6 +300,7 @@ describe('the תזונה screen', () => {
     type('#ntProt', '120');
     click('#ntAdd');
     click('#ntPrev');
+    click('[data-slot="dinner"]');
     type('#ntName', 'אתמול');
     type('#ntCal', '2200');
     type('#ntProt', '80');
@@ -339,8 +343,17 @@ describe('the תזונה screen', () => {
 
     type('#ntName', 'ארוחת ערב של אתמול');
     type('#ntCal', '700');
+    // the clock says nothing about a past day's meal: no default, the user picks
+    expect(document.querySelector('.nt-slot-chip.active')).toBeNull();
+    click('#ntAdd');
+    expect(store.getEvents().filter((e) => e.type === 'meal_logged')).toHaveLength(0);
+    expect(document.querySelector('#ntAddMsg')?.textContent).toContain('לאיזו ארוחה');
+    // picking the meal keeps what was typed
+    click('[data-slot="dinner"]');
+    expect(document.querySelector<HTMLTextAreaElement>('#ntName')?.value).toBe('ארוחת ערב של אתמול');
     click('#ntAdd');
     const ev = store.getEvents().find((e) => e.type === 'meal_logged');
+    expect(ev?.payload['slot']).toBe('dinner');
     const today = new Date().toISOString().slice(0, 10);
     expect(ev?.payload['date']).not.toBe(today);
     expect(String(ev?.payload['date']) < today).toBe(true);
@@ -580,5 +593,142 @@ describe('the תזונה screen', () => {
       await flush();
       expect(document.querySelector('#ntEstMsg')?.textContent).toBe(ESTIMATE_ERROR_HE[error]);
     }
+  });
+});
+
+function choose(sel: string, value: string): void {
+  const el = document.querySelector<HTMLSelectElement | HTMLInputElement>(sel);
+  if (!el) throw new Error(`no field ${sel}`);
+  if (el instanceof HTMLInputElement && el.type === 'checkbox') el.checked = value === 'on';
+  else el.value = value;
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+describe('the meals of the day and the catalog', () => {
+  const openCatalog = (): void => click('#tabs .hub[data-hub="NU"]');
+
+  it('opens on the catalog form, and lists the day as six meals', () => {
+    mount();
+    openCatalog();
+    expect(document.querySelector('.nt-seg[data-mode="catalog"]')?.classList.contains('active')).toBe(true);
+    expect(document.querySelector('#ntCatItem')).not.toBeNull();
+    expect([...document.querySelectorAll('[data-slot-sec]')].map((e) => e.getAttribute('data-slot-sec'))).toEqual([
+      'breakfast',
+      'snack_am',
+      'lunch',
+      'snack_pm',
+      'dinner',
+      'other',
+    ]);
+    // today the form is already on a meal (the one the clock is in)
+    expect(document.querySelectorAll('.nt-slot-chip.active')).toHaveLength(1);
+  });
+
+  it('logs a fixed meal priced in code: preview, fraction, slot, frozen lines', () => {
+    const { store } = mount();
+    openCatalog();
+    click('[data-slot="breakfast"]');
+    choose('#ntCatItem', 'oatmeal');
+    expect(document.querySelector('#ntCatPreview')?.textContent).toContain('383');
+    expect(document.querySelectorAll('#ntCatPreview .nt-bd-row')).toHaveLength(4);
+    // a fixed meal has one unit — shown, not offered
+    expect(document.querySelector('#ntCatUnit')).toBeNull();
+    type('#ntCatQty', '1/2');
+    expect(document.querySelector('#ntCatPreview')?.textContent).toContain('192');
+    click('#ntCatAdd');
+
+    const evs = store.getEvents().filter((e) => e.type === 'meal_logged');
+    expect(evs).toHaveLength(1);
+    expect(evs[0]?.payload).toMatchObject({
+      name: '½ מנה · שיבולת שועל',
+      calories: 192,
+      protein: 18,
+      source: 'catalog',
+      slot: 'breakfast',
+      catalog: { id: 'oatmeal', unit: 'portion', qty: 0.5 },
+    });
+    const sec = document.querySelector('[data-slot-sec="breakfast"]');
+    expect(sec?.querySelector('.nt-meal-name')?.textContent).toContain('שיבולת שועל');
+    expect(sec?.querySelector('.nt-meal-name')?.textContent).toContain('📋');
+    expect(sec?.querySelector('.nt-slot-sum')?.textContent).toContain('192');
+    expect(sec?.querySelectorAll('.nt-breakdown .nt-bd-row')).toHaveLength(4);
+    // the form is clean for the next pick
+    expect(document.querySelector<HTMLSelectElement>('#ntCatItem')?.value).toBe('');
+  });
+
+  it('logs a single food by unit, and refuses a quantity that does not read', () => {
+    const { store } = mount();
+    openCatalog();
+    click('[data-slot="lunch"]');
+    choose('#ntCatItem', 'olive_oil');
+    choose('#ntCatUnit', 'tbsp');
+    expect(document.querySelector('#ntCatPreview')?.textContent).toContain('119');
+    type('#ntCatQty', 'הרבה');
+    expect(document.querySelector('#ntCatPreview')?.textContent).toContain('כמות לא תקינה');
+    click('#ntCatAdd');
+    expect(store.getEvents().filter((e) => e.type === 'meal_logged')).toHaveLength(0);
+    type('#ntCatQty', '2');
+    click('#ntCatAdd');
+    const ev = store.getEvents().find((e) => e.type === 'meal_logged');
+    expect(ev?.payload).toMatchObject({ name: '2 כף שמן זית', calories: 239, slot: 'lunch' });
+  });
+
+  it('lists what fits the meal, and the whole catalog on request', () => {
+    mount();
+    openCatalog();
+    click('[data-slot="breakfast"]');
+    const ids = (): string[] => [...document.querySelectorAll<HTMLOptionElement>('#ntCatItem option')].map((o) => o.value);
+    expect(ids()).toContain('oatmeal');
+    expect(ids()).not.toContain('tuna_water');
+    choose('#ntCatAll', 'on');
+    expect(ids()).toContain('tuna_water');
+    // a pick that no longer fits the chosen meal is dropped, not silently kept
+    choose('#ntCatItem', 'tuna_water');
+    choose('#ntCatAll', 'off');
+    expect(document.querySelector<HTMLSelectElement>('#ntCatItem')?.value).toBe('');
+    expect(document.querySelector('#ntCatAdd')).toBeNull();
+  });
+
+  it('a section\'s ＋ opens the form on that meal', () => {
+    mount();
+    openCatalog();
+    click('[data-slot-add="snack_pm"]');
+    expect(document.querySelector('.nt-slot-chip.active')?.getAttribute('data-slot')).toBe('snack_pm');
+  });
+
+  it('shows meals logged before the split under "ללא שיוך"', () => {
+    const { store, render } = mount();
+    logMeal(
+      store,
+      { date: new Date().toISOString().slice(0, 10), name: 'ארוחה ישנה', calories: 500, protein: 20, time: '', source: 'manual' },
+      'old',
+    );
+    render();
+    openCatalog();
+    const sec = document.querySelector('[data-slot-sec="none"]');
+    expect(sec?.querySelector('.nt-slot-name')?.textContent).toContain('ללא שיוך');
+    expect(sec?.querySelector('.nt-meal-name')?.textContent).toBe('ארוחה ישנה');
+    // it cannot be added to — it is history
+    expect(sec?.querySelector('[data-slot-add]')).toBeNull();
+  });
+
+  it('sends the catalog to the estimator as hints', async () => {
+    const reqs: unknown[] = [];
+    const port: NutritionAiPort = {
+      configured: () => true,
+      estimate: (req) => {
+        reqs.push(req);
+        return Promise.resolve({ ok: false, error: 'http' });
+      },
+    };
+    mount({ nutrition: { ai: port } });
+    openCatalog();
+    click('[data-mode="text"]');
+    type('#ntName', 'שיבולת שועל עם בננה');
+    click('#ntEst');
+    await flush();
+    const req = reqs[0] as { text: string; catalog: string[] };
+    expect(req.text).toBe('שיבולת שועל עם בננה');
+    expect(req.catalog.some((l) => l.startsWith('ארוחה קבועה "שיבולת שועל"'))).toBe(true);
   });
 });
