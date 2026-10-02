@@ -1,6 +1,6 @@
 # CLAUDE.md — working on gym-rpg
 
-Hebrew-first (RTL) offline workout RPG PWA. Vite + strict TypeScript, no framework,
+Hebrew-first (RTL) offline workout RPG PWA, also in English (LTR) — see `docs/i18n.md`. Vite + strict TypeScript, no framework,
 single-file build. Real logged training is the only source of progress (XP, energy,
 levels); the game cannot be advanced without it.
 
@@ -29,7 +29,13 @@ npm run verify          # zero external references (allowlist in scripts/verify-
   `legacy/index.html`, guarded byte-for-byte by `tests/program.test.ts`. Deliberate
   changes go through its `POST_LEGACY_IDS` (appended exercises) / `AMENDED_FIELDS`
   (coaching-copy amendments) allowlists — never silently.
-- **Hebrew RTL UI**, design tokens (`--bg:#121824`, `--card:#1E2638`, `--accent:#3B82F6`,
+- **Bilingual UI** (Hebrew RTL is the original, English LTR). Every user-visible string lives
+  in a typed catalog under `src/i18n/messages/` (`en: typeof he`), read with `tr()` at render
+  time; Hebrew output stays byte-identical when copy moves. Data files stay Hebrew; English
+  content is an overlay beside them (`src/i18n/content/*.en.ts`). Language and units are
+  device preferences in `UiState`, never in an event; storage is always metric
+  (`src/i18n/units.ts`). CSS uses logical properties only. Full rules: `docs/i18n.md`.
+- **UI design**: design tokens (`--bg:#121824`, `--card:#1E2638`, `--accent:#3B82F6`,
   `--ok:#10B981`, `--warn:#F59E0B`), touch targets ≥44px, `prefers-reduced-motion`
   respected, `color-scheme: dark` declared (forced-dark defense), `text-size-adjust`
   pinned (Android font boosting).
