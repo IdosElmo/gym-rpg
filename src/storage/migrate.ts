@@ -17,6 +17,8 @@
  */
 
 import { BODY_PARTS, isDayKey, isReservedViewKey, type BodyPart, type DayKey } from '../data/program.ts';
+import { isLocale } from '../i18n/locale.ts';
+import { isUnitSystem } from '../i18n/units.ts';
 import { characterById, resolveCharacterId, skinOf, type SkinDef } from '../data/characters.ts';
 import { EQUIPMENT_SLOTS, bossById, equipmentById } from '../data/gameContent.ts';
 import {
@@ -647,7 +649,11 @@ function normalizeUi(raw: unknown, now: Date = new Date(), plan: PlanDoc | null 
   }
   const known = isTabView(resolveProgram(plan), view);
   const v: ViewKey = isReservedViewKey(view) || known ? (view as ViewKey) : defaultTabView(plan, now);
-  return { view: v, open };
+  const ui: UiState = { view: v, open };
+  // Device preferences: kept when valid, dropped (= the default) otherwise.
+  if (isLocale(raw['locale'])) ui.locale = raw['locale'];
+  if (isUnitSystem(raw['units'])) ui.units = raw['units'];
+  return ui;
 }
 
 /* ---------------------------------------------------------- state routing */

@@ -31,6 +31,10 @@ import { bindAccountCard, renderAccountCard, type AccountDeps } from '../sync/ac
 import { bindDevPanel, devPanelCard, type DevPanelDeps } from './devPanel.ts';
 import { esc, must } from './dom.ts';
 import { toast } from './toast.ts';
+import { LOCALES, LOCALE_NATIVE_NAME, isLocale, locale, tr } from '../i18n/locale.ts';
+import { UNIT_SYSTEMS, isUnitSystem, units } from '../i18n/units.ts';
+import { shell } from '../i18n/messages/shell.ts';
+import { settings as M } from '../i18n/messages/settings.ts';
 
 /**
  * Shown on the app-info line. Kept in sync with `package.json` by a test rather
@@ -67,38 +71,71 @@ function planCard(state: AppState): string {
   const custom = !isDefaultPlan(state.plan);
   const program = resolveProgram(state.plan);
   const counts = program.days.map((d) => `${d.label}: ${d.day.exercises.length}`).join(' · ');
+  const m = tr(M).plan;
   return `
   <section class="game-card plan-card">
-    <h3 class="gc-title">תוכנית האימונים
-      <span class="gc-sub">${custom ? `מותאמת אישית · גרסה ${state.plan?.rev ?? 1}` : 'התוכנית המקורית'}</span>
+    <h3 class="gc-title">${m.title}
+      <span class="gc-sub">${custom ? m.custom(state.plan?.rev ?? 1) : m.original}</span>
     </h3>
     <p class="gc-note">${esc(counts)}</p>
-    <button class="action-btn plan-card-btn" id="btnPlanEdit">⚙️ עריכת התוכנית</button>
+    <button class="action-btn plan-card-btn" id="btnPlanEdit">${m.edit}</button>
   </section>`;
 }
 
 /** Export / import / clear — grouped so the destructive one is not a stray button. */
 function dataCard(): string {
+  const m = tr(M).data;
   return `
   <section class="game-card data-card">
-    <h3 class="gc-title">הנתונים שלי <span class="gc-sub">גיבוי מקומי</span></h3>
-    <p class="gc-note">כל הנתונים נשמרים במכשיר · ניתן לגבות ולשחזר כקובץ JSON</p>
+    <h3 class="gc-title">${m.title} <span class="gc-sub">${m.sub}</span></h3>
+    <p class="gc-note">${m.note}</p>
     <div class="data-actions">
-      <button class="action-btn" id="btnExport">⬇ ייצוא JSON</button>
-      <button class="action-btn" id="btnImport">⬆ ייבוא JSON</button>
-      <button class="action-btn danger" id="btnClear">🗑 מחיקה</button>
+      <button class="action-btn" id="btnExport">${m.export}</button>
+      <button class="action-btn" id="btnImport">${m.import}</button>
+      <button class="action-btn danger" id="btnClear">${m.clear}</button>
     </div>
+  </section>`;
+}
+
+/**
+ * 🌐 Language & units — FIRST on the screen: someone who landed in a language
+ * they cannot read has to find the way out without reading anything else, so
+ * each language is offered in its own name.
+ */
+function prefsCard(): string {
+  const m = tr(shell).prefs;
+  const seg = (attr: string, value: string, label: string, on: boolean, lang?: string): string =>
+    `<button class="seg-btn${on ? ' active' : ''}" data-${attr}="${value}" aria-pressed="${on}"${
+      lang ? ` lang="${lang}"` : ''
+    }>${esc(label)}</button>`;
+  return `
+  <section class="game-card prefs-card" id="prefsCard">
+    <h3 class="gc-title">${m.title}</h3>
+    <div class="prefs-row">
+      <span class="prefs-label">${m.language}</span>
+      <div class="seg" role="group" aria-label="${esc(m.language)}">${LOCALES.map((l) =>
+        seg('locale', l, LOCALE_NATIVE_NAME[l], l === locale(), l),
+      ).join('')}</div>
+    </div>
+    <div class="prefs-row">
+      <span class="prefs-label">${m.units}</span>
+      <div class="seg" role="group" aria-label="${esc(m.units)}">${UNIT_SYSTEMS.map((u) =>
+        seg('units', u, m[u], u === units()),
+      ).join('')}</div>
+    </div>
+    <p class="gc-note">${m.note}</p>
   </section>`;
 }
 
 export function renderSettings(main: HTMLElement, deps: SettingsDeps): void {
   const state = deps.store.getState();
   main.innerHTML = `
+  ${prefsCard()}
   ${deps.account ? renderAccountCard(deps.account) : ''}
   ${planCard(state)}
   ${dataCard()}
   ${deps.dev ? devPanelCard() : ''}
-  <p class="app-info">Gym RPG · גרסה ${esc(APP_VERSION)}<br>💪 האפליקציה עובדת 100% אופליין · הנתונים נשמרים במכשיר בלבד</p>`;
+  <p class="app-info">${tr(M).info(esc(APP_VERSION))}</p>`;
   bind(main, deps);
 }
 
@@ -109,15 +146,35 @@ export function renderSettings(main: HTMLElement, deps: SettingsDeps): void {
  * every other event and every device folds it into a wipe — so the copy has to
  * say that out loud before the user taps it.
  */
-export const CLEAR_CONFIRM_LOCAL = 'למחוק את כל היסטוריית האימונים? פעולה זו אינה הפיכה.';
-export const CLEAR_CONFIRM_ACCOUNT =
-  'למחוק את כל הנתונים מהחשבון ומכל המכשירים? פעולה זו אינה הפיכה.';
+export const CLEAR_CONFIRM_LOCAL = M.he.clearConfirmLocal;
+export const CLEAR_CONFIRM_ACCOUNT = M.he.clearConfirmAccount;
 
 function bind(main: HTMLElement, deps: SettingsDeps): void {
   const { store, rerender } = deps;
   const fileInput = must('importFile') as HTMLInputElement;
   if (deps.account) bindAccountCard(main, deps.account);
   if (deps.dev) bindDevPanel(main, deps.dev);
+
+  main.querySelectorAll<HTMLButtonElement>('#prefsCard [data-locale]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const l = b.dataset['locale'];
+      if (!isLocale(l) || l === store.getState().ui.locale) return;
+      store.update((d) => {
+        d.ui.locale = l;
+      });
+      rerender();
+    });
+  });
+  main.querySelectorAll<HTMLButtonElement>('#prefsCard [data-units]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const u = b.dataset['units'];
+      if (!isUnitSystem(u) || u === store.getState().ui.units) return;
+      store.update((d) => {
+        d.ui.units = u;
+      });
+      rerender();
+    });
+  });
 
   main.querySelector<HTMLButtonElement>('#btnExport')?.addEventListener('click', () => {
     exportJSON(store);
@@ -132,10 +189,11 @@ function bind(main: HTMLElement, deps: SettingsDeps): void {
   });
 
   main.querySelector<HTMLButtonElement>('#btnClear')?.addEventListener('click', () => {
-    if (confirm(deps.isSignedIn?.() ? CLEAR_CONFIRM_ACCOUNT : CLEAR_CONFIRM_LOCAL)) {
+    const m = tr(M);
+    if (confirm(deps.isSignedIn?.() ? m.clearConfirmAccount : m.clearConfirmLocal)) {
       store.clear();
       rerender();
-      toast('כל הנתונים נמחקו');
+      toast(tr(M).toast.cleared);
     }
   });
 }
@@ -149,7 +207,7 @@ function exportJSON(store: DataStore): void {
   a.download = 'workout-backup-' + todayISO() + '.json';
   a.click();
   URL.revokeObjectURL(a.href);
-  toast('קובץ הגיבוי ירד למכשיר');
+  toast(tr(M).toast.exported);
 }
 
 export interface ImportDeps {
@@ -183,14 +241,14 @@ export function initImportInput(store: DataStore, rerender: () => void, deps: Im
     rd.onload = () => {
       const parsed = parseImport(typeof rd.result === 'string' ? rd.result : '');
       if (!parsed) {
-        toast('קובץ לא תקין — הייבוא בוטל');
+        toast(tr(M).toast.badFile);
         return;
       }
       if (deps.isSignedIn?.()) {
         const res = mergeImport(store, parsed);
         rerender();
         deps.onLocalMerge?.();
-        toast(res.added > 0 ? `נוספו ${res.added} רשומות מהגיבוי ✓` : 'הגיבוי כבר קיים בחשבון');
+        toast(res.added > 0 ? tr(M).toast.merged(res.added) : tr(M).toast.alreadyThere);
         return;
       }
       store.replaceAll(parsed.state, parsed.events);
@@ -200,9 +258,9 @@ export function initImportInput(store: DataStore, rerender: () => void, deps: Im
         sessionCount: Object.keys(parsed.state.sessions).length,
       });
       rerender();
-      toast('הנתונים שוחזרו בהצלחה ✓');
+      toast(tr(M).toast.restored);
     };
-    rd.onerror = () => toast('קובץ לא תקין — הייבוא בוטל');
+    rd.onerror = () => toast(tr(M).toast.badFile);
     rd.readAsText(f);
     target.value = '';
   });

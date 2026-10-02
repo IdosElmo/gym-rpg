@@ -30,6 +30,9 @@
  * already switches off, and a bar that vanishes instantly is exactly right.
  */
 
+import { tr } from '../i18n/locale.ts';
+import { shell } from '../i18n/messages/shell.ts';
+
 interface TimerElements {
   bar: HTMLElement;
   time: HTMLElement;
@@ -52,8 +55,8 @@ export interface StartOptions {
   sub?: string;
 }
 
-const DEFAULT_DONE_LABEL = 'המנוחה הסתיימה — לסט הבא! 💪';
-const DEFAULT_SUB = 'טיימר מנוחה';
+/** The bar's default copy, in the reader's language (read per call, not at load). */
+const T = () => tr(shell).timer;
 
 /* ------------------------------------------------------------ Web Audio */
 
@@ -146,7 +149,7 @@ export class RestTimer {
   private iv: ReturnType<typeof setInterval> | null = null;
   private lastTick: number | null = null;
   private hideTo: ReturnType<typeof setTimeout> | null = null;
-  private doneLabel = DEFAULT_DONE_LABEL;
+  private doneLabel = T().done;
   private readonly el: TimerElements;
 
   constructor(el: TimerElements) {
@@ -173,9 +176,9 @@ export class RestTimer {
     this.total = seconds;
     this.left = seconds;
     this.running = true;
-    this.doneLabel = opts.doneLabel ?? DEFAULT_DONE_LABEL;
-    if (this.el.sub) this.el.sub.textContent = opts.sub ?? DEFAULT_SUB;
-    this.el.title.textContent = label ?? 'מנוחה';
+    this.doneLabel = opts.doneLabel ?? T().done;
+    if (this.el.sub) this.el.sub.textContent = opts.sub ?? T().sub;
+    this.el.title.textContent = label ?? T().title;
     this.el.bar.classList.add('show');
     this.el.bar.classList.remove('flash');
     this.setOpen(true);
@@ -300,7 +303,7 @@ export class RestTimer {
     const finished = this.left <= 0;
     this.el.time.textContent = fmtClock(this.left);
     this.el.prog.style.width = (this.total ? (this.left / this.total) * 100 : 0) + '%';
-    this.el.pause.textContent = this.running ? 'השהה' : 'המשך';
+    this.el.pause.textContent = this.running ? T().pause : T().resume;
     // "0:00 · המשך" offers to continue something that is over. In the finished
     // state the control leaves the row entirely (and is disabled, so it is out
     // of the tab order too); איפוס starts the rest again, ✕ puts the bar away.

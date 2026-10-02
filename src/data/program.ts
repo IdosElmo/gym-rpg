@@ -14,6 +14,10 @@
  * The `bodyPart` / `split` metadata is an addition the game layer consumes.
  */
 
+import { equipName, localizeDay } from '../i18n/content.ts';
+import { weekdayName } from '../i18n/format.ts';
+import { locale } from '../i18n/locale.ts';
+
 /** The six trainable body parts of the RPG character. */
 export type BodyPart = 'chest' | 'back' | 'legs' | 'shoulders' | 'arms' | 'core';
 
@@ -1430,8 +1434,8 @@ export const UNKNOWN_DAY_LABEL = 'אימון';
 export function dayLabelOf(program: ResolvedProgram, key: DayKey): string {
   const found = programDay(program, key);
   if (found) return found.label;
-  if (isBuiltInDayKey(key)) return PROGRAM[key].label;
-  return UNKNOWN_DAY_LABEL;
+  if (isBuiltInDayKey(key)) return localizeDay(key, PROGRAM[key]).label;
+  return locale() === 'he' ? UNKNOWN_DAY_LABEL : 'Workout';
 }
 
 /** The day keys in tab order. */
@@ -1453,7 +1457,7 @@ export function defaultDayOf(program: ResolvedProgram, now: Date = new Date()): 
 /** Hebrew caption of a set of weekdays, e.g. `[0, 3]` -> "ראשון · רביעי". */
 export function weekdaysCaption(weekdays: readonly number[]): string {
   return weekdays
-    .map((w) => WEEKDAY_HE[w] ?? '')
+    .map((w) => weekdayName(w))
     .filter((s) => s !== '')
     .join(' · ');
 }
@@ -1465,7 +1469,7 @@ export function weekdaysCaption(weekdays: readonly number[]): string {
  */
 export function weekdayCaption(weekdays: readonly number[], fallback: string): string {
   const first = weekdays[0];
-  return first === undefined ? fallback : (WEEKDAY_HE[first] ?? fallback);
+  return first === undefined ? fallback : weekdayName(first) || fallback;
 }
 
 const EQUIP_HE: Readonly<Record<string, string>> = {
@@ -1475,9 +1479,12 @@ const EQUIP_HE: Readonly<Record<string, string>> = {
   Machine: 'מכונה',
 };
 
-/** Hebrew label for an equipment key (1:1 with the legacy `equipHe`). */
+/**
+ * Label for an equipment key (1:1 with the legacy `equipHe` in Hebrew; the
+ * reader's language otherwise — see `i18n/content.ts#equipName`).
+ */
 export function equipHe(e: string): string {
-  return EQUIP_HE[e] ?? e;
+  return locale() === 'he' ? (EQUIP_HE[e] ?? e) : equipName(e);
 }
 
 /** True for one of the reserved (non-day) view keys. */

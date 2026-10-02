@@ -81,6 +81,43 @@ import { renderSettings, type SettingsDeps } from './settings.ts';
 import { renderStats } from './stats.ts';
 import { renderWorkout } from './workout.ts';
 import { fmtXp } from './xpfx.ts';
+import { DEFAULT_LOCALE, dirOf, pick, setLocale, tr } from '../i18n/locale.ts';
+import { setUnits } from '../i18n/units.ts';
+import { shell } from '../i18n/messages/shell.ts';
+import { localizeDay } from '../i18n/content.ts';
+
+/**
+ * Point the language and units module state at this device's preferences and
+ * make the document agree: `lang`/`dir` on <html> (which flips every logical
+ * CSS property and the text direction at once), the tab title, and the few
+ * strings index.html ships as static markup. Called at the top of EVERY full
+ * render, so a language switch is simply "save the preference, render".
+ */
+export function applyPrefs(store: DataStore): void {
+  const ui = store.getState().ui;
+  const loc = ui.locale ?? DEFAULT_LOCALE;
+  setLocale(loc);
+  setUnits(ui.units ?? 'metric');
+  const root = document.documentElement;
+  if (root.getAttribute('lang') !== loc) root.setAttribute('lang', loc);
+  if (root.getAttribute('dir') !== dirOf(loc)) root.setAttribute('dir', dirOf(loc));
+  const s = tr(shell);
+  if (document.title !== s.doc.title) document.title = s.doc.title;
+  const setText = (sel: string, text: string): void => {
+    const el = document.querySelector(sel);
+    if (el && el.textContent !== text) el.textContent = text;
+  };
+  setText('body > footer', s.doc.footer);
+  const bar = document.getElementById('timerBar');
+  if (bar && bar.getAttribute('dir') !== dirOf(loc)) bar.setAttribute('dir', dirOf(loc));
+  setText('#tReset', s.timer.reset);
+  document.getElementById('tClose')?.setAttribute('aria-label', s.timer.close);
+}
+
+/** "<h1>title <span class="en">sub</span></h1>" — the subtitle only when the locale has one. */
+function titleHtml(title: string, sub: string): string {
+  return `<h1 class="app-title">${title}${sub ? ` <span class="en">${sub}</span>` : ''}</h1>`;
+}
 
 export interface App {
   render: () => void;
@@ -248,9 +285,12 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
    * yields one weekday-titled tab per session of the week.
    */
   function innerTabs(hub: HubId): readonly InnerTab[] {
-    if (hub === 'GM') return GAME_TABS;
-    if (hub === 'NU') return NUTRITION_TABS;
-    if (hub === 'SE') return SETTINGS_TABS;
+    const names = tr(shell).nav.tabs;
+    const named = (list: readonly InnerTab[]): InnerTab[] =>
+      list.map((t) => ({ ...t, title: names[t.viewId as keyof typeof names] ?? t.title }));
+    if (hub === 'GM') return named(GAME_TABS);
+    if (hub === 'NU') return named(NUTRITION_TABS);
+    if (hub === 'SE') return named(SETTINGS_TABS);
     return scheduleTabs(resolveProgram(store.getState().plan)).map((t) => ({
       viewId: t.viewId,
       title: t.title,
@@ -272,7 +312,7 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       (h) => `
       <button class="hub ${h.id === hub ? 'active' : ''}" data-hub="${h.id}"
         role="tab" aria-selected="${h.id === hub ? 'true' : 'false'}">
-        <span class="h-icon" aria-hidden="true">${h.icon}</span><span class="h-label">${esc(h.title)}</span>
+        <span class="h-icon" aria-hidden="true">${h.icon}</span><span class="h-label">${esc(tr(shell).nav.hubs[h.id].title)}</span>
       </button>`,
     ).join('');
 
@@ -287,12 +327,12 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       )
       .join('');
 
-    const hubLabel = HUBS.find((h) => h.id === hub)?.innerLabel ?? '';
+    const hubLabel = tr(shell).nav.hubs[hub].inner;
     // Only the INNER row can ever scroll, and only past four tabs — a five- to
     // seven-day plan. The four main tabs are fixed, so the thing you press to
     // change context never moves.
     tabsEl.innerHTML = `
-    <div class="hub-row" role="tablist" aria-label="ניווט ראשי">${hubRow}</div>
+    <div class="hub-row" role="tablist" aria-label="${esc(tr(shell).nav.mainLabel)}">${hubRow}</div>
     <div class="sub-row ${tabs.length > 4 ? 'scroll' : ''}" role="tablist" aria-label="${esc(hubLabel)}">${innerRow}</div>`;
 
     tabsEl.querySelectorAll<HTMLButtonElement>('.hub').forEach((b) => {
@@ -313,7 +353,7 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
   /** Battle energy lives in the header corner on every screen — small and quiet. */
   function energyPill(): string {
     const game = gameOf(store);
-    return `<div class="energy-pill" title="אנרגיית קרב — נצברת מאימונים אמיתיים">
+    return `<div class="energy-pill" title="${esc(tr(shell).header.energyTitle)}">
       ⚡<span class="ep-num">${fmtXp(game.energy)}</span>
     </div>`;
   }
@@ -321,42 +361,43 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
   function renderHeader(): void {
     const state = store.getState();
     const view = state.ui.view;
+    const H = tr(shell).header;
     if (view === 'ST') {
-      headerEl.innerHTML = `<h1 class="app-title">הגדרות <span class="en">Settings</span></h1>
-      <p class="day-meta">חשבון, תוכנית האימונים וניהול הנתונים</p>${energyPill()}`;
+      headerEl.innerHTML = `${titleHtml(H.ST.title, H.ST.sub)}
+      <p class="day-meta">${H.ST.meta}</p>${energyPill()}`;
       return;
     }
     if (view === 'H') {
-      headerEl.innerHTML = `<h1 class="app-title">היסטוריית אימונים <span class="en">History</span></h1>
-      <p class="day-meta">כל אימון שתועד, והחדש ביותר למעלה</p>${energyPill()}`;
+      headerEl.innerHTML = `${titleHtml(H.H.title, H.H.sub)}
+      <p class="day-meta">${H.H.meta}</p>${energyPill()}`;
       return;
     }
     if (view === 'SS') {
-      headerEl.innerHTML = `<h1 class="app-title">סטטיסטיקות <span class="en">Stats</span></h1>
-      <p class="day-meta">כל מה שהאימונים שלכם מסתכמים אליו</p>${energyPill()}`;
+      headerEl.innerHTML = `${titleHtml(H.SS.title, H.SS.sub)}
+      <p class="day-meta">${H.SS.meta}</p>${energyPill()}`;
       return;
     }
     if (view === 'NT') {
       const totals = dayTotals(state.nutrition, todayISO());
-      headerEl.innerHTML = `<h1 class="app-title">תזונה <span class="en">Nutrition</span></h1>
-      <p class="day-meta">היום: <b>${totals.calories}</b> קלוריות · <b>${totals.protein}</b> גרם חלבון</p>${energyPill()}`;
+      headerEl.innerHTML = `${titleHtml(H.NT.title, H.NT.sub)}
+      <p class="day-meta">${H.NT.meta(`<b>${totals.calories}</b>`, `<b>${totals.protein}</b>`)}</p>${energyPill()}`;
       return;
     }
     if (view === 'WT') {
-      headerEl.innerHTML = `<h1 class="app-title">משקל <span class="en">Weight</span></h1>
+      headerEl.innerHTML = `${titleHtml(H.WT.title, H.WT.sub)}
       <p class="day-meta">${esc(weightHeadline(state.nutrition))}</p>${energyPill()}`;
       return;
     }
     if (view === 'PH') {
-      headerEl.innerHTML = `<h1 class="app-title">תמונות <span class="en">Progress</span></h1>
+      headerEl.innerHTML = `${titleHtml(H.PH.title, H.PH.sub)}
       <p class="day-meta">${esc(photosHeadline(state.nutrition))}</p>${energyPill()}`;
       return;
     }
     if (view === 'PL') {
       const custom = !isDefaultPlan(state.plan);
-      headerEl.innerHTML = `<h1 class="app-title">עריכת תוכנית <span class="en">Plan</span></h1>
-      <p class="day-meta">${custom ? 'תוכנית מותאמת אישית' : 'התוכנית המקורית'} · שינויים נשמרים רק בלחיצה על 💾</p>
-      <button class="plan-back" id="btnPlanBack">← חזרה</button>`;
+      headerEl.innerHTML = `${titleHtml(H.PL.title, H.PL.sub)}
+      <p class="day-meta">${custom ? H.PL.custom : H.PL.original} · ${H.PL.saveHint}</p>
+      <button class="plan-back" id="btnPlanBack">${H.PL.back}</button>`;
       headerEl.querySelector<HTMLButtonElement>('#btnPlanBack')?.addEventListener('click', () => {
         setView(returnView);
       });
@@ -364,32 +405,33 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     }
     if (view === 'CH') {
       const game = gameOf(store);
-      headerEl.innerHTML = `<h1 class="app-title">הדמות שלי <span class="en">Character</span></h1>
-      <p class="day-meta">רמה <b>${game.level}</b> · כל סט אמיתי מחזק חלק אחר בגוף</p>${energyPill()}`;
+      headerEl.innerHTML = `${titleHtml(H.CH.title, H.CH.sub)}
+      <p class="day-meta">${H.CH.meta(`<b>${game.level}</b>`)}</p>${energyPill()}`;
       return;
     }
     if (view === 'LG') {
       const game = gameOf(store);
-      headerEl.innerHTML = `<h1 class="app-title">הליגה <span class="en">League</span></h1>
-      <p class="day-meta">🔵 <b>${game.league.coins}</b> מטבעות ליגה · שבוע מלא = מטבע</p>${energyPill()}`;
+      headerEl.innerHTML = `${titleHtml(H.LG.title, H.LG.sub)}
+      <p class="day-meta">${H.LG.meta(`<b>${game.league.coins}</b>`)}</p>${energyPill()}`;
       return;
     }
     if (view === 'BT') {
       const game = gameOf(store);
       const world = worldById(game.battle.world);
-      headerEl.innerHTML = `<h1 class="app-title">מצב קרב <span class="en">Battle</span></h1>
-      <p class="day-meta">${world.he} · גל <b>${game.battle.wave}</b> · רמה <b>${game.level}</b></p>${energyPill()}`;
+      headerEl.innerHTML = `${titleHtml(H.BT.title, H.BT.sub)}
+      <p class="day-meta">${H.BT.meta(pick(world), `<b>${game.battle.wave}</b>`, `<b>${game.level}</b>`)}</p>${energyPill()}`;
       return;
     }
     const program = resolveProgram(state.plan);
     const dayKey = viewDayKey(view);
     // A day view whose key the plan no longer has (a day deleted on another
     // device) must still render a header rather than throw.
-    const p = dayOf(program, dayKey) ?? program.days[0]?.day ?? null;
-    if (!p) {
-      headerEl.innerHTML = `<h1 class="app-title">אימון <span class="en">Workout</span></h1>${energyPill()}`;
+    const raw = dayOf(program, dayKey) ?? program.days[0]?.day ?? null;
+    if (!raw) {
+      headerEl.innerHTML = `${titleHtml(H.workout.fallbackTitle, H.workout.fallbackSub)}${energyPill()}`;
       return;
     }
+    const p = localizeDay(dayKey, raw);
     // On an occurrence tab the title names THIS session of the week ("יום רביעי
     // · חלק א׳ …"); on a single-tab day the tab's title IS the day's caption, so
     // the line is byte-identical to what it has always been.
@@ -398,10 +440,10 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     const name = tab?.subtitle ?? p.label;
     const last = lastLoggedDate(state, dayKey, program);
     headerEl.innerHTML = `
-    <h1 class="app-title">יום ${esc(caption)} · ${esc(name)} <span class="en">Hypertrophy</span></h1>
+    ${titleHtml(H.workout.title(esc(caption), esc(name)), H.workout.sub)}
     <p class="day-meta"><b>${p.dur}</b> · ${p.focus}</p>
-    <p class="last-log">אימון אחרון שתועד: <span class="val">${last ? fmtDate(last) : '— עדיין לא תועד'}</span></p>
-    <button class="plan-edit-btn" id="btnEditPlan" aria-label="עריכת תוכנית האימונים">⚙️ עריכת תוכנית</button>
+    <p class="last-log">${H.workout.lastLogged} <span class="val">${last ? fmtDate(last) : H.workout.never}</span></p>
+    <button class="plan-edit-btn" id="btnEditPlan" aria-label="${esc(H.workout.editPlanLabel)}">${H.workout.editPlan}</button>
     ${energyPill()}`;
     headerEl.querySelector<HTMLButtonElement>('#btnEditPlan')?.addEventListener('click', () => setView('PL'));
   }
@@ -478,6 +520,7 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
   }
 
   function render(): void {
+    applyPrefs(store);
     // Battles run ONLY while the קרב tab is on screen — every render tears the
     // previous loop down before the new screen is mounted.
     stopBattle();

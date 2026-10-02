@@ -156,7 +156,14 @@ export class LocalStore implements DataStore {
   }
 
   replaceAll(state: AppState, events: readonly AppEvent[]): void {
+    // The device's language and units are ITS preferences, not the data's: a
+    // restored backup or a cloud merge must not switch the screen to whatever
+    // language the file was exported in (or back to Hebrew, for an old file
+    // that predates the setting).
+    const { locale, units } = this.state.ui;
     this.state = state;
+    if (locale !== undefined) this.state.ui = { ...this.state.ui, locale };
+    if (units !== undefined) this.state.ui = { ...this.state.ui, units };
     this.events = [...events];
     this.lastTs = this.ownWatermark();
     this.persistState();
@@ -166,7 +173,13 @@ export class LocalStore implements DataStore {
 
   clear(): void {
     const now = Date.now();
+    // "Delete all data" deletes the DATA — the language and units the device
+    // reads it in are preferences, and a wipe that flipped an English user
+    // back to Hebrew would strand them on a screen they cannot read.
+    const { locale, units } = this.state.ui;
     this.state = emptyState(now);
+    if (locale !== undefined) this.state.ui.locale = locale;
+    if (units !== undefined) this.state.ui.units = units;
     // Legacy data was already imported once; don't resurrect it after a wipe.
     this.state.meta.legacyImported = true;
     // A wipe resets the character too — `data_cleared` replays to the same

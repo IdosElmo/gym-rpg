@@ -13,6 +13,8 @@
  */
 
 import type { EquipmentSlot } from '../data/gameContent.ts';
+import type { Locale } from '../i18n/locale.ts';
+import type { UnitSystem } from '../i18n/units.ts';
 import type { LeagueItemKind } from '../data/leaguePools.ts';
 import type { PlanDoc, UserPreset } from '../data/planTypes.ts';
 import type { BodyPart, DayKey } from '../data/program.ts';
@@ -70,6 +72,16 @@ export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL' | 'ST' | 'SS' | 'LG' | '
 export interface UiState {
   view: ViewKey;
   open: Record<string, boolean>;
+  /**
+   * The language this DEVICE reads the app in. Absent = never chosen, which
+   * renders Hebrew (the app's original language); `main.ts` picks one for a
+   * fresh install from the browser's languages. Device-local like the rest of
+   * `ui`: merges and sync keep it (`mergeIntoStore` carries `ui` over), and no
+   * event ever records it — language is presentation, never data.
+   */
+  locale?: Locale;
+  /** Kilograms or pounds on screen. Absent = metric. Storage is always metric. */
+  units?: UnitSystem;
 }
 
 /* -------------------------------------------------------------- game state */

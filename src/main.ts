@@ -48,9 +48,33 @@ import { initImportInput } from './ui/settings.ts';
 import { createRestTimer } from './ui/timer.ts';
 import { initToast } from './ui/toast.ts';
 import { must } from './ui/dom.ts';
+import { detectLocale } from './i18n/locale.ts';
+import { detectUnits } from './i18n/units.ts';
+
+/**
+ * Give a device that never chose a language and units one, once.
+ *
+ * A device that already HAS history is an install from before the app spoke
+ * anything but Hebrew: it keeps Hebrew and kilograms, whatever language the
+ * phone is set to — an update must never flip someone's app into a language
+ * they did not pick. Only a fresh install reads the browser's languages.
+ */
+function seedPrefs(store: DataStore): void {
+  const ui = store.getState().ui;
+  if (ui.locale !== undefined && ui.units !== undefined) return;
+  const nav = globalThis.navigator;
+  const langs = nav?.languages?.length ? nav.languages : [nav?.language ?? ''];
+  const hasHistory =
+    store.getEvents().some((e) => e.type !== 'data_cleared') || Object.keys(store.getState().sessions).length > 0;
+  store.update((d) => {
+    if (d.ui.locale === undefined) d.ui.locale = hasHistory ? 'he' : detectLocale(langs);
+    if (d.ui.units === undefined) d.ui.units = hasHistory ? 'metric' : detectUnits(langs);
+  });
+}
 
 function boot(): void {
   const store: DataStore = new LocalStore();
+  seedPrefs(store);
   const blobs = wireBlobs(store);
 
   initToast(must('toast'));
