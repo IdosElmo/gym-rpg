@@ -84,7 +84,6 @@ import { fmtXp } from './xpfx.ts';
 import { DEFAULT_LOCALE, dirOf, pick, setLocale, tr } from '../i18n/locale.ts';
 import { setUnits } from '../i18n/units.ts';
 import { shell } from '../i18n/messages/shell.ts';
-import { localizeDay } from '../i18n/content.ts';
 
 /**
  * Point the language and units module state at this device's preferences and
@@ -431,7 +430,8 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       headerEl.innerHTML = `${titleHtml(H.workout.fallbackTitle, H.workout.fallbackSub)}${energyPill()}`;
       return;
     }
-    const p = localizeDay(dayKey, raw);
+    // `resolveProgram` already hands back the day in the reader's language.
+    const p = raw;
     // On an occurrence tab the title names THIS session of the week ("יום רביעי
     // · חלק א׳ …"); on a single-tab day the tab's title IS the day's caption, so
     // the line is byte-identical to what it has always been.
