@@ -36,6 +36,22 @@ html,body{margin:0; padding:0}
  */
 html{color-scheme:dark; -webkit-text-size-adjust:100%; text-size-adjust:100%}
 
+/**
+ * DIRECTION. `ui/app.ts#applyPrefs` puts `dir` on <html> (rtl for Hebrew, ltr
+ * for English) and every rule in these sheets is written to serve both: logical
+ * properties (`margin-inline-start`, `inset-inline-end`, `text-align:start`, …)
+ * wherever a side follows the reading direction. Two things CSS cannot flip on
+ * its own read the direction from here:
+ *   - `--grad-to-start`, the angle of a horizontal gradient that runs toward the
+ *     inline start (90deg = "to right" in RTL, 270deg in LTR). A filling bar is
+ *     anchored at its inline start, so its gradient mirrors with it;
+ *   - `:root[dir="ltr"]` overrides for the few physical leftovers (an LTR run
+ *     aligned with the Hebrew text around it, a transform, a clip-path).
+ * Game art (SVG sprites, the camera mirror) stays physical on purpose.
+ */
+:root{--grad-to-start:90deg}
+:root[dir="ltr"]{--grad-to-start:270deg}
+
 body{
   background:var(--bg); color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Heebo","Noto Sans Hebrew",Arial,sans-serif;

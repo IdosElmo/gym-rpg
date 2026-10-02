@@ -110,9 +110,9 @@
 }
 .part-bar span{
   display:block; height:100%; border-radius:99px;
-  background:linear-gradient(90deg,var(--accent),var(--xp)); transition:width .35s ease;
+  background:linear-gradient(var(--grad-to-start),var(--accent),var(--xp)); transition:width .35s ease;
 }
-.part-bar.streak span{background:linear-gradient(90deg,var(--warn),#FBBF24)}
+.part-bar.streak span{background:linear-gradient(var(--grad-to-start),var(--warn),#FBBF24)}
 .part-foot{font-size:11px; color:var(--muted)}
 .part-xp{direction:ltr; color:var(--dim)}
 
