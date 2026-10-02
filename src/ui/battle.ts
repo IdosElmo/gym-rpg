@@ -72,7 +72,6 @@ import {
   setEnergy,
   setGate,
   skillPower,
-  skillSummaryHe,
   skillUnlockLevel,
   skillUnlocked,
   skillViews,
@@ -102,7 +101,7 @@ import {
 } from '../core/game.ts';
 import { duelCoins, statsOfGame } from '../core/xp.ts';
 import { todayISO } from '../core/workout.ts';
-import { BODY_PART_HE, BODY_PARTS, type BodyPart } from '../data/program.ts';
+import { BODY_PARTS, type BodyPart } from '../data/program.ts';
 import {
   SKILLS,
   SKILL_IDS,
@@ -120,19 +119,22 @@ import { gateCoaching, type GateCoaching } from '../core/coaching.ts';
 import { resolveProgram } from '../core/plan.ts';
 import { characterSvg } from './characterSvg.ts';
 import {
-  GHOST_BAD_PAYLOAD_HE,
-  GHOST_LOOKUP_FAILED_HE,
-  GHOST_NO_HANDLE_HE,
   emptyGhostView,
   ghostCard,
   ghostFigure,
-  ghostMissingHe,
   type GhostCardView,
   type GhostDuelDeps,
 } from './ghost.ts';
 import { esc } from './dom.ts';
 import { toast } from './toast.ts';
 import { fmtXp } from './xpfx.ts';
+import { tr } from '../i18n/locale.ts';
+import { battle as M } from '../i18n/messages/battle.ts';
+import { character as CM } from '../i18n/messages/character.ts';
+import { ghost as GM } from '../i18n/messages/ghost.ts';
+import { bodyPartName, exName } from '../i18n/content.ts';
+import { fmtDayMonth } from '../i18n/format.ts';
+import { foeName, skillDesc, skillName, skillSummary, worldName, worldTagline } from '../i18n/gameText.ts';
 
 export interface BattleDeps {
   store: DataStore;
@@ -223,13 +225,10 @@ function reducedMotion(): boolean {
   }
 }
 
-/** Hebrew for every way a typed handle can be wrong. */
-const HANDLE_ERROR_HE: Readonly<Record<'empty' | 'too_short' | 'too_long' | 'bad_chars', string>> = {
-  empty: 'הקלידו את שם הלוחם של היריב.',
-  too_short: 'שם לוחם הוא לפחות 3 תווים.',
-  too_long: 'שם לוחם הוא עד 20 תווים.',
-  bad_chars: 'שם לוחם יכול לכלול אותיות בעברית או באנגלית, ספרות ו־ _ . -',
-};
+/** "חזה רמה 5" / "Chest Lv 5" — a body part at a level, in the reader's language. */
+function partLevel(part: BodyPart, level: number): string {
+  return tr(M).partLevel(bodyPartName(part), level);
+}
 
 /* ------------------------------------------------------------- animation */
 
@@ -282,15 +281,17 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
   const atBoss = bossStanding(game.battle.world, game.battle.wave, game.battle.bossesDefeated);
   const spec = atBoss ? null : waveSpec(game.battle.world, game.battle.wave);
   const champion = isEndgame(game.battle.bossesDefeated);
+  const T = tr(M);
+  const S = tr(CM).stats;
 
   main.innerHTML = `
   <section class="bt-card">
     <div class="bt-worldbar">
       <div class="bt-world">
-        <b>${esc(world.he)}${champion ? ' 👑' : ''}</b>
-        <span>עולם ${world.id}/${WORLD_COUNT} · ${esc(champion ? 'מצב אלוף — הגלים ממשיכים בלי סוף' : world.tagline)}</span>
+        <b>${esc(worldName(world))}${champion ? ' 👑' : ''}</b>
+        <span>${T.world.of(world.id, WORLD_COUNT)} · ${esc(champion ? T.world.championTagline : worldTagline(world))}</span>
       </div>
-      <div class="bt-wave"><b id="btWave">${game.battle.wave}</b><span>גל</span></div>
+      <div class="bt-wave"><b id="btWave">${game.battle.wave}</b><span>${T.world.waveLabel}</span></div>
     </div>
 
     ${worldStrip(game)}
@@ -305,7 +306,7 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
       <div class="bt-side bt-hero">
         <div class="bt-buffs" id="btBuffs" aria-live="off"></div>
         <div class="bt-sprite hero" id="btHeroSprite">${characterSvg(game.parts, {
-          label: 'הדמות שלך בקרב',
+          label: T.arena.heroLabel,
           // The arena fights with whoever the דמות screen selected…
           character: game.characters.selected,
           // …WEARING what that screen shows them wearing. `GameState['equipment']`
@@ -327,11 +328,11 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
 
       <div class="bt-vs" id="btVs">VS</div>
 
-      <button class="bt-side bt-enemy" id="btEnemy" type="button" aria-label="תקוף את האויב">
+      <button class="bt-side bt-enemy" id="btEnemy" type="button" aria-label="${esc(T.arena.attack)}">
         <div class="bt-sprite enemy" id="btEnemySprite">${spec ? spec.enemy.svg : ''}</div>
         <div class="bt-bar foe"><span id="btFoeHp" style="width:100%"></span></div>
         <div class="bt-hp-txt" id="btFoeHpTxt"></div>
-        <div class="bt-foe-name" id="btFoeName">${spec ? esc(spec.enemy.he) : ''}</div>
+        <div class="bt-foe-name" id="btFoeName">${spec ? esc(foeName(spec.enemy)) : ''}</div>
       </button>
     </div>
 
@@ -341,45 +342,45 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
          time the player is at the boss wave — the EARLY challenge (amber,
          the boss strengthened) while the body-part gate is unmet, the plain
          boss fight once it is met. -->
-    <button class="bt-boss-btn" id="btBossFight" type="button" hidden>🏛 קרב בוס</button>
+    <button class="bt-boss-btn" id="btBossFight" type="button" hidden>${T.arena.bossFight}</button>
 
     <div class="bt-meters">
       <div class="bt-meter">
-        <div class="bm-head"><span>⚡ אנרגיה</span><b id="btEnergy">${fmtXp(game.energy)}</b></div>
+        <div class="bm-head"><span>${T.arena.energy}</span><b id="btEnergy">${fmtXp(game.energy)}</b></div>
         <div class="bt-bar energy"><span id="btEnergyBar" style="width:0%"></span></div>
-        <div class="bm-foot">${BALANCE.combat.energyPerWave} ⚡ לכל גל · אנרגיה נצברת רק מאימון אמיתי</div>
+        <div class="bm-foot">${T.arena.energyFoot(BALANCE.combat.energyPerWave)}</div>
       </div>
       <div class="bt-meter">
-        <div class="bm-head"><span>💥 מהלך על</span><b id="btSuperPct">0%</b></div>
+        <div class="bm-head"><span>${T.arena.super}</span><b id="btSuperPct">0%</b></div>
         <div class="bt-bar super"><span id="btSuperBar" style="width:0%"></span></div>
-        <div class="bm-foot">כל הקשה על האויב טוענת את המד</div>
+        <div class="bm-foot">${T.arena.superFoot}</div>
       </div>
     </div>
 
     ${skillBar(game)}
 
-    <button class="bt-super-btn" id="btSuper" disabled>💥 שחרר מהלך על</button>
+    <button class="bt-super-btn" id="btSuper" disabled>${T.arena.superBtn}</button>
 
     <div class="bt-stats">
-      <div class="cm-item"><b>🪙 <span id="btCoins">${fmtXp(game.battle.coins)}</span></b><span>מטבעות</span></div>
-      <div class="cm-item"><b id="btCleared">${game.battle.wavesCleared}</b><span>גלים שנוצחו</span></div>
-      <div class="cm-item"><b id="btMinis">${game.battle.miniBossesCleared}</b><span>מיני־בוסים</span></div>
-      <div class="cm-item"><b id="btBosses">${game.battle.bossesDefeated.length}</b><span>בוסי עולם</span></div>
+      <div class="cm-item"><b>🪙 <span id="btCoins">${fmtXp(game.battle.coins)}</span></b><span>${T.arena.coins}</span></div>
+      <div class="cm-item"><b id="btCleared">${game.battle.wavesCleared}</b><span>${T.arena.waves}</span></div>
+      <div class="cm-item"><b id="btMinis">${game.battle.miniBossesCleared}</b><span>${T.arena.minis}</span></div>
+      <div class="cm-item"><b id="btBosses">${game.battle.bossesDefeated.length}</b><span>${T.arena.bosses}</span></div>
     </div>
-    <p class="gc-note">המטבעות נקנים לציוד בלשונית 🦸 דמות — הציוד מתווסף לסטטיסטיקות ונראה על הדמות, גם כאן בזירה.</p>
+    <p class="gc-note">${T.arena.coinsNote}</p>
   </section>
 
   <section class="game-card">
-    <h3 class="gc-title">כוח לחימה <span class="gc-sub">נגזר מרמות הגוף</span></h3>
+    <h3 class="gc-title">${T.arena.powerTitle} <span class="gc-sub">${T.arena.powerSub}</span></h3>
     <div class="stat-grid">
-      <div class="stat"><span class="s-k">התקפה</span><b>${stats.atk}</b></div>
-      <div class="stat"><span class="s-k">הגנה</span><b>${stats.def}</b></div>
-      <div class="stat"><span class="s-k">חיים</span><b>${stats.maxHp}</b></div>
-      <div class="stat"><span class="s-k">מהירות</span><b>${(stats.attackIntervalMs / 1000).toFixed(2)}s</b></div>
-      <div class="stat"><span class="s-k">קריטי</span><b>${Math.round(stats.critChance * 100)}%</b></div>
-      <div class="stat"><span class="s-k">התאוששות</span><b>${stats.regen}/ש׳</b></div>
+      <div class="stat"><span class="s-k">${S.atk}</span><b>${stats.atk}</b></div>
+      <div class="stat"><span class="s-k">${S.def}</span><b>${stats.def}</b></div>
+      <div class="stat"><span class="s-k">${S.hp}</span><b>${stats.maxHp}</b></div>
+      <div class="stat"><span class="s-k">${S.speed}</span><b>${(stats.attackIntervalMs / 1000).toFixed(2)}s</b></div>
+      <div class="stat"><span class="s-k">${S.crit}</span><b>${Math.round(stats.critChance * 100)}%</b></div>
+      <div class="stat"><span class="s-k">${S.regen}</span><b>${T.arena.regen(stats.regen)}</b></div>
     </div>
-    <p class="gc-note">הקרב רץ רק כשלשונית הקרב פתוחה — אין רווחים אופליין.</p>
+    <p class="gc-note">${T.arena.offlineNote}</p>
   </section>
 
   ${gateCard(game, coachingOf(store, game), typeof deps.editPlan === 'function')}`;
@@ -406,30 +407,26 @@ export function renderBattle(main: HTMLElement, deps: BattleDeps): void {
 function skillBar(game: GameState): string {
   const levels = partLevels(game);
   const need = skillUnlockLevel();
+  const T = tr(M).skills;
   const slots = SKILLS.map((def) => {
     const unlocked = skillUnlocked(def, levels);
-    const hint = `${BODY_PART_HE[def.part]} רמה ${need}`;
+    const hint = partLevel(def.part, need);
+    const name = skillName(def);
     return `<button class="bt-skill ${unlocked ? 'ready' : 'locked'}" type="button" data-skill="${def.id}"
-      aria-label="${esc(unlocked ? `${def.he} — ${skillSummaryHe(def, skillPower(def, levels))}` : `${def.he} — נעול. ${hint}`)}">
+      aria-label="${esc(unlocked ? T.label(name, skillSummary(def, skillPower(def, levels))) : T.lockedLabel(name, hint))}">
       <span class="sk-sweep" aria-hidden="true"></span>
       <span class="sk-glyph" aria-hidden="true">${unlocked ? def.icon : '🔒'}</span>
-      <span class="sk-name">${esc(def.he)}</span>
-      <span class="sk-sub">${esc(unlocked ? 'מוכן' : hint)}</span>
+      <span class="sk-name">${esc(name)}</span>
+      <span class="sk-sub">${esc(unlocked ? T.ready : hint)}</span>
     </button>`;
   }).join('');
 
   return `
-    <div class="bt-skills" id="btSkills" role="group" aria-label="מיומנויות גוף">${slots}</div>
-    <p class="bm-foot bt-skills-foot">כל חלק גוף פותח מיומנות ברמה ${need} — והיא מתחזקת עם כל רמה נוספת.</p>`;
+    <div class="bt-skills" id="btSkills" role="group" aria-label="${esc(T.group)}">${slots}</div>
+    <p class="bm-foot bt-skills-foot">${T.foot(need)}</p>`;
 }
 
 /* --------------------------------------------------------- daily challenge */
-
-/** "2025-05-04" -> "04.05" — the card only needs day and month. */
-function dayMonth(date: string): string {
-  const [, m, d] = date.split('-');
-  return d && m ? `${d}.${m}` : date;
-}
 
 /**
  * The daily-challenge card, right under the world strip.
@@ -456,22 +453,23 @@ function dailyCard(game: GameState, date: string, run: ChallengeRun | null): str
   const fee = gauntlet.energyCost;
   const live = run !== null && run.outcome === 'running';
   const state = live ? 'live' : record ? 'done' : game.energy < fee ? 'locked' : 'available';
+  const T = tr(M).daily;
 
   // Waves 2/4/6/8/10 — a taste of the tour, ending on the finale mini-boss.
   const preview = gauntlet.waves
     .filter((w) => w.index % 2 === 0)
     .map(
       (w) =>
-        `<span class="dc-foe ${w.miniBoss ? 'mini' : ''}" title="${esc(`גל ${w.index} · ${w.he}`)}"
+        `<span class="dc-foe ${w.miniBoss ? 'mini' : ''}" title="${esc(T.foeTitle(w.index, foeName(w)))}"
           aria-hidden="true">${w.svg}</span>`,
     )
     .join('');
 
   const streak = game.daily.streak;
   const stats = [
-    game.daily.bestScore > 0 ? `שיא ${game.daily.bestScore}/${total}` : '',
-    game.daily.completed > 0 ? `${game.daily.completed} ניצחונות מלאים` : '',
-    streak > 1 ? `🔥 ${streak} ימים ברצף` : '',
+    game.daily.bestScore > 0 ? T.best(game.daily.bestScore, total) : '',
+    game.daily.completed > 0 ? T.completed(game.daily.completed) : '',
+    streak > 1 ? T.streak(streak) : '',
   ]
     .filter((s) => s !== '')
     .join(' · ');
@@ -482,32 +480,32 @@ function dailyCard(game: GameState, date: string, run: ChallengeRun | null): str
     const pct = Math.round((run.cleared / total) * 100);
     body = `
       <div class="dc-live">
-        <b class="dc-count">גל ${at}/${total}</b>
+        <b class="dc-count">${T.liveCount(at, total)}</b>
         <span class="dc-bar"><span style="width:${pct}%"></span></span>
       </div>
-      <p class="dc-note">ריצה אחת, בלי החייאות. יציאה מהזירה עכשיו = ויתור על הריצה של היום.</p>`;
+      <p class="dc-note">${T.liveNote}</p>`;
   } else if (record) {
     body = `
       <div class="dc-result">
         <b class="dc-score">${record.score}/${total}</b>
-        <span>${record.complete ? '🏅 גאונטלט מלא' : 'הושלם היום'} · +${record.coins} 🪙</span>
+        <span>${record.complete ? T.full : T.doneToday} · +${record.coins} 🪙</span>
       </div>
-      <p class="dc-note">מחר יש אתגר חדש — אותו גאונטלט לכולם, נבנה מהתאריך עצמו.</p>`;
+      <p class="dc-note">${T.doneNote}</p>`;
   } else if (state === 'locked') {
     body = `
-      <button class="dc-go locked" id="btDailyGo" type="button">🔒 חסרה אנרגיה · ${fee} ⚡</button>
-      <p class="dc-note">יש לכם ${fmtXp(game.energy)} ⚡ מתוך ${fee}. לכו להתאמן — כל סט מסומן שווה ${BALANCE.energy.perSet} ⚡.</p>`;
+      <button class="dc-go locked" id="btDailyGo" type="button">${T.lockedBtn(fee)}</button>
+      <p class="dc-note">${T.lockedNote(fmtXp(game.energy), fee, BALANCE.energy.perSet)}</p>`;
   } else {
     body = `
-      <button class="dc-go" id="btDailyGo" type="button">⚔️ התחילו את האתגר · ${fee} ⚡</button>
-      <p class="dc-note">${total} גלים מכל העולמות, ריצה אחת ליום, בלי החייאות. הניקוד = גלים שנוקו.</p>`;
+      <button class="dc-go" id="btDailyGo" type="button">${T.go(fee)}</button>
+      <p class="dc-note">${T.goNote(total)}</p>`;
   }
 
   return `
-  <section class="dc" data-state="${state}" aria-label="אתגר יומי">
+  <section class="dc" data-state="${state}" aria-label="${esc(T.label)}">
     <div class="dc-head">
-      <span class="dc-chip">🎲 אתגר יומי</span>
-      <span class="dc-date">${esc(dayMonth(date))}</span>
+      <span class="dc-chip">${T.chip}</span>
+      <span class="dc-date">${esc(fmtDayMonth(date))}</span>
       ${stats ? `<span class="dc-stats">${esc(stats)}</span>` : ''}
     </div>
     <div class="dc-foes">${preview}</div>
@@ -567,6 +565,7 @@ function worldStrip(game: GameState): string {
   const wave = game.battle.wave;
   const champion = isEndgame(game.battle.bossesDefeated);
   const gate = worldGate(cur, partLevels(game));
+  const T = tr(M).strip;
 
   const nodes = WORLDS.map((w) => {
     const perWorld = w.waves;
@@ -588,27 +587,27 @@ function worldStrip(game: GameState): string {
           : 'locked';
 
     let meta: string;
-    if (championHere) meta = `גל ${wave}`;
-    else if (current) meta = wave > perWorld ? 'קרב בוס' : `גל ${wave}/${perWorld}`;
-    else if (cleared) meta = 'הושלם';
-    else meta = 'נעול';
+    if (championHere) meta = T.wave(wave);
+    else if (current) meta = wave > perWorld ? T.bossFight : T.waveOf(wave, perWorld);
+    else if (cleared) meta = T.done;
+    else meta = T.locked;
 
     const pct = current && !champion ? Math.min(100, Math.round(((wave - 1) / perWorld) * 100)) : 0;
-    const label = `${w.he} · ${meta}${current ? (gate.locked ? ' · הבוס פתוח לקרב מוקדם' : ' · הבוס פתוח') : ''}`;
+    const label = `${worldName(w)} · ${meta}${current ? (gate.locked ? T.bossEarly : T.bossOpen) : ''}`;
 
     return `<li class="wp-node ${state}"${current ? ' data-current="1"' : ''}>
       <button class="wp-btn" type="button" data-world="${w.id}" aria-label="${esc(label)}"
         ${current ? 'aria-current="step"' : ''}>
         <span class="wp-glyph" aria-hidden="true">${glyph}</span>
         <span class="wp-icon" aria-hidden="true">${w.icon}</span>
-        <span class="wp-name">${esc(w.he)}</span>
+        <span class="wp-name">${esc(worldName(w))}</span>
         <span class="wp-meta">${esc(meta)}</span>
         ${current ? `<span class="wp-bar"><span style="width:${pct}%"></span></span>` : ''}
       </button>
     </li>`;
   }).join('');
 
-  return `<ol class="wp-strip" id="btWorlds" aria-label="התקדמות בעולמות">${nodes}</ol>`;
+  return `<ol class="wp-strip" id="btWorlds" aria-label="${esc(T.label)}">${nodes}</ol>`;
 }
 
 /** Wire the strip: every node explains itself, the current one leads to the gate. */
@@ -631,17 +630,18 @@ function wireWorldStrip(main: HTMLElement, store: DataStore): void {
       const world = worldById(id);
       const boss = worldBossOf(id);
       const cleared = boss !== undefined && game.battle.bossesDefeated.includes(boss.id);
+      const T = tr(M).strip;
 
       if (id !== game.battle.world) {
         toast(
           cleared
-            ? `🏆 ${world.he} — הושלם.`
-            : `🔒 ${world.he} עדיין נעול — הפילו קודם את בוס ${worldById(id - 1).he}.`,
+            ? T.toastDone(worldName(world))
+            : T.toastLocked(worldName(world), worldName(worldById(id - 1))),
         );
         return;
       }
       if (cleared && isEndgame(game.battle.bossesDefeated)) {
-        toast(`👑 מצב אלוף — הגלים ב${world.he} ממשיכים בלי סוף.`);
+        toast(T.toastChampion(worldName(world)));
         return;
       }
       // The gate card below already renders the full met/unmet list — go there
@@ -649,12 +649,12 @@ function wireWorldStrip(main: HTMLElement, store: DataStore): void {
       const gate = worldGate(id, partLevels(game));
       const missing = gate.requirements
         .filter((r) => !r.met)
-        .map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`)
+        .map((r) => partLevel(r.part, r.need))
         .join(' · ');
       toast(
         gate.locked
-          ? `⚔️ לרמות המומלצות חסר: ${missing} — אפשר להילחם כבר עכשיו, הבוס מחוזק ב־${handicapPct(gate.deficit)}%.`
-          : `✓ בוס ${world.he} פתוח — הגיעו לגל ${bossWaveOf(id)}.`,
+          ? T.toastGated(missing, handicapPct(gate.deficit))
+          : T.toastOpen(worldName(world), bossWaveOf(id)),
       );
       const card = main.querySelector('.bt-gate');
       if (card && typeof card.scrollIntoView === 'function') {
@@ -679,15 +679,16 @@ function gateCard(game: GameState, coaching: GateCoaching | null, canEditPlan: b
   const boss = worldBossOf(game.battle.world);
   if (!boss) return '';
   const done = game.battle.bossesDefeated.includes(boss.id);
+  const T = tr(M).gate;
+  const bossName = esc(foeName(boss));
   if (done) {
     return `
     <section class="game-card bt-gate champion">
-      <h3 class="gc-title">👑 ${esc(boss.he)} הובס <span class="gc-sub">מצב אלוף</span></h3>
+      <h3 class="gc-title">${T.championTitle(bossName)} <span class="gc-sub">${T.championSub}</span></h3>
       <div class="bt-gate-body">
         <div class="bt-gate-sprite defeated">${boss.svg}</div>
         <p class="gc-note">
-          העולם הזה כבר שלכם. הגלים ממשיכים להגיע ולהתחזק בלי גבול — כל גל נוסף הוא שיא אישי חדש,
-          והגביע מחכה לכם בלשונית 🦸 דמות.
+          ${T.championNote}
         </p>
       </div>
     </section>`;
@@ -699,28 +700,31 @@ function gateCard(game: GameState, coaching: GateCoaching | null, canEditPlan: b
   const reqs = gate.requirements
     .map(
       (r) => `<li class="${r.met ? 'met' : 'unmet'}">
-        ${r.met ? '✓' : '✕'} ${BODY_PART_HE[r.part]} רמה ${r.need}
-        <span>(כרגע ${r.have})</span>
+        ${r.met ? '✓' : '✕'} ${partLevel(r.part, r.need)}
+        <span>${T.now(r.have)}</span>
       </li>`,
     )
     .join('');
   const missing = gate.requirements.filter((r) => !r.met);
-  const missingHe = missing.map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`).join(' · ');
+  const missingText = missing.map((r) => partLevel(r.part, r.need)).join(' · ');
   const coach = gate.locked && coaching ? coachingBlock(coaching, canEditPlan) : '';
 
   return `
   <section class="game-card bt-gate ${gate.locked ? 'locked' : 'open'}">
-    <h3 class="gc-title">בוס העולם: ${esc(boss.he)} <span class="gc-sub">${wavesLeft > 0 ? `עוד ${wavesLeft} גלים` : 'מחכה לכם'}</span></h3>
+    <h3 class="gc-title">${T.title(bossName)} <span class="gc-sub">${wavesLeft > 0 ? T.wavesLeft(wavesLeft) : T.waiting}</span></h3>
     <div class="bt-gate-body">
       <div class="bt-gate-sprite">${boss.svg}</div>
       <ul class="bt-reqs">${reqs}</ul>
     </div>
     <p class="gc-note">${
       gate.locked
-        ? `לרמות המומלצות חסר לכם: <b>${esc(missingHe)}</b>. אפשר להילחם כבר עכשיו — ״⚔️ קרב בוס מוקדם״ בגל ${bossWaveOf(game.battle.world)}: הבוס יהיה מחוזק ב־<b>${handicapPct(gate.deficit)}%</b> חיים ו־${handicapAtkPct(gate.deficit)}% נזק, וכל רמה שתעלו בחלקים האלה מחלישה אותו. בינתיים הזירה ממשיכה בקרבות אימון — בלי מטבעות ובלי התקדמות.`
-        : `כל הדרישות הושלמו! כפתור ״🏛 קרב בוס״ מחכה לכם בזירה בגל ${bossWaveOf(game.battle.world)}${
-            spec ? ` · עולה ${spec.energyCost} ⚡ · מזכה ב־${spec.coins} 🪙` : ''
-          }.`
+        ? T.lockedNote(
+            esc(missingText),
+            bossWaveOf(game.battle.world),
+            handicapPct(gate.deficit),
+            handicapAtkPct(gate.deficit),
+          )
+        : T.openNote(bossWaveOf(game.battle.world), spec ? { energy: spec.energyCost, coins: spec.coins } : null)
     }</p>
     ${coach}
   </section>`;
@@ -734,22 +738,23 @@ function gateCard(game: GameState, coaching: GateCoaching | null, canEditPlan: b
  */
 function coachingBlock(c: GateCoaching, canEditPlan: boolean): string {
   if (c.parts.length === 0) return '';
+  const T = tr(M).coach;
   const eta =
     c.workoutsLeft === null
       ? c.measuredOver === 0
-        ? 'עוד אין קצב למדוד לפיו — אחרי כמה אימונים נגיד לכם כמה נשאר.'
+        ? T.noPace
         : ''
-      : `בקצב שלכם (${c.measuredOver} אימונים ב־4 השבועות האחרונים) הרמות המומלצות יושגו בעוד <b>~${c.workoutsLeft}</b> אימונים.`;
+      : T.eta(c.measuredOver, c.workoutsLeft);
   const rows = c.parts
     .map((p) => {
-      const left = p.workoutsLeft === null ? '' : ` · עוד ~${p.workoutsLeft} אימונים`;
+      const left = p.workoutsLeft === null ? '' : T.left(p.workoutsLeft);
       const add =
         p.suggestions.length > 0
-          ? `<span class="bt-coach-add">הוסיפו: ${p.suggestions.map((e) => esc(e.he)).join(' · ')}</span>`
+          ? `<span class="bt-coach-add">${T.add(p.suggestions.map((e) => esc(exName(e))).join(' · '))}</span>`
           : '';
       return `<li data-part="${p.part}">
-        <b>${BODY_PART_HE[p.part]}</b> ${p.have}→${p.need}
-        <span class="bt-coach-sets">${p.setsPerWeek} סטים בשבוע בתוכנית${left}</span>
+        <b>${bodyPartName(p.part)}</b> ${p.have}→${p.need}
+        <span class="bt-coach-sets">${T.sets(p.setsPerWeek, left)}</span>
         ${add}
       </li>`;
     })
@@ -758,7 +763,7 @@ function coachingBlock(c: GateCoaching, canEditPlan: boolean): string {
     <div class="bt-coach">
       ${eta ? `<p class="bt-coach-eta">${eta}</p>` : ''}
       <ul class="bt-coach-list">${rows}</ul>
-      ${canEditPlan ? '<button class="bt-coach-go" id="btCoachPlan" type="button">✏️ לעורך התוכנית</button>' : ''}
+      ${canEditPlan ? `<button class="bt-coach-go" id="btCoachPlan" type="button">${T.editPlan}</button>` : ''}
     </div>`;
 }
 
@@ -776,7 +781,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
   const bossBtn = el<HTMLButtonElement>('btBossFight');
   const sprite = el('btEnemySprite');
   const heroSprite = el('btHeroSprite');
-  const foeName = el('btFoeName');
+  const foeNameEl = el('btFoeName');
   const foeHp = el('btFoeHp');
   const foeHpTxt = el('btFoeHpTxt');
   const heroHp = el('btHeroHp');
@@ -924,7 +929,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
 
   function paintEnemy(): void {
     const e = state.enemy;
-    if (!sprite || !foeName || !foeHp || !foeHpTxt) return;
+    if (!sprite || !foeNameEl || !foeHp || !foeHpTxt) return;
     if (!e) {
       foeHp.style.width = '0%';
       foeHpTxt.textContent = '';
@@ -936,7 +941,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
 
   function spawnSprite(): void {
     const e = state.enemy;
-    if (!sprite || !foeName || !e) return;
+    if (!sprite || !foeNameEl || !e) return;
     sprite.innerHTML = e.svg;
     // The previous occupant died on this node — clear its death marker, and give
     // the newcomer its own idle rhythm.
@@ -948,13 +953,14 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     // fighters face each other instead of both looking the same way.
     sprite.classList.toggle('ghost', e.ghost === true);
     arena?.classList.toggle('boss-fight', e.worldBoss);
-    foeName.textContent = e.ghost
-      ? `⚔️ ${e.he}`
+    const name = foeName(e);
+    foeNameEl.textContent = e.ghost
+      ? `⚔️ ${name}`
       : e.worldBoss
-        ? `🏛 ${e.he}`
+        ? `🏛 ${name}`
         : e.miniBoss
-          ? `👑 ${e.he}`
-          : e.he;
+          ? `👑 ${name}`
+          : name;
     paintEnemy();
   }
 
@@ -989,7 +995,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
       // world does not have.
       waveEl.textContent = !run
         ? state.enemy?.overtime
-          ? `הארכה ${state.overtime + 1}`
+          ? tr(M).arena.overtimeWave(state.overtime + 1)
           : String(state.wave)
         : run.kind === 'ghost'
           ? '⚔️'
@@ -1007,6 +1013,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
    */
   function paintSkills(): void {
     if (skillBtns.size === 0) return;
+    const T = tr(M);
     const views = skillViews(state, levels);
     for (const v of views) {
       const btn = skillBtns.get(v.def.id);
@@ -1021,16 +1028,17 @@ function start(main: HTMLElement, deps: BattleDeps): void {
       const glyph = btn.querySelector('.sk-glyph');
       if (glyph) glyph.textContent = v.unlocked ? v.def.icon : '🔒';
       const sub = btn.querySelector('.sk-sub');
-      const hint = `${BODY_PART_HE[v.def.part]} רמה ${v.need}`;
+      const hint = partLevel(v.def.part, v.need);
       const subText = !v.unlocked
         ? hint
         : v.cooldownMs > 0
           ? `${Math.ceil(v.cooldownMs / 1000)}s`
-          : 'מוכן';
+          : T.skills.ready;
       if (sub && sub.textContent !== subText) sub.textContent = subText;
+      const name = skillName(v.def);
       const label = v.unlocked
-        ? `${v.def.he} — ${skillSummaryHe(v.def, v.power)}`
-        : `${v.def.he} — נעול. ${hint}`;
+        ? T.skills.label(name, skillSummary(v.def, v.power))
+        : T.skills.lockedLabel(name, hint);
       if (btn.getAttribute('aria-label') !== label) btn.setAttribute('aria-label', label);
     }
     paintBuffs(views);
@@ -1051,7 +1059,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     buffsEl.innerHTML = live
       .map(
         (v) =>
-          `<span class="bt-chip sk-${v.def.id}" title="${esc(v.def.he)}">${v.def.icon}${
+          `<span class="bt-chip sk-${v.def.id}" title="${esc(skillName(v.def))}">${v.def.icon}${
             // מכה מדויקת waits for the next swing rather than for a clock.
             v.def.id === 'focus' ? '' : ` ${Math.ceil(v.activeMs / 1000)}`
           }</span>`,
@@ -1069,6 +1077,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     if (!statusEl) return;
     let text = '';
     let cls = '';
+    const T = tr(M).status;
     // A challenge run speaks for itself — it has no energy, no gate and no
     // knock-out recovery, so none of the campaign's lines apply to it.
     const run = state.challenge;
@@ -1079,11 +1088,9 @@ function start(main: HTMLElement, deps: BattleDeps): void {
         // first place the player reads it — the toast and the feed say the same
         // number because all three ask `duelCoins`.
         const won = run.cleared > 0;
-        text = won
-          ? `🏆 ניצחתם את ${name}! הדו־קרב נרשם · ‏+${duelCoins(true)} 🪙`
-          : `💀 ${name} ניצח הפעם — מחר יש הזדמנות חדשה · ‏+${duelCoins(false)} 🪙`;
+        text = won ? T.duelWon(name, duelCoins(true)) : T.duelLost(name, duelCoins(false));
       } else {
-        text = `⚔️ דו־קרב מול ${name} — הוא נלחם בסטטיסטיקות האמיתיות שלו. הקישו ושחררו מיומנויות!`;
+        text = T.duelLive(name);
       }
       statusEl.textContent = text;
       statusEl.className = 'bt-status duel';
@@ -1092,12 +1099,9 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     if (run) {
       const total = run.waves.length;
       if (state.status === 'finished') {
-        text =
-          run.cleared >= total
-            ? `🏅 גאונטלט מלא! ${run.cleared}/${total} · חוזרים לזירה הרגילה…`
-            : `🎲 האתגר היומי הסתיים — ${run.cleared}/${total} גלים. מחר יש חדש!`;
+        text = run.cleared >= total ? T.dailyFull(run.cleared, total) : T.dailyOver(run.cleared, total);
       } else {
-        text = `🎲 אתגר יומי — גל ${Math.min(run.index + 1, total)}/${total}. ריצה אחת, בלי החייאות: הקישו ושחררו מיומנויות.`;
+        text = T.dailyLive(Math.min(run.index + 1, total), total);
       }
       statusEl.textContent = text;
       statusEl.className = 'bt-status daily';
@@ -1114,44 +1118,44 @@ function start(main: HTMLElement, deps: BattleDeps): void {
       bossStanding(state.world, state.wave, state.defeatedBosses);
     switch (state.status) {
       case 'resting':
-        text = `😴 אין מספיק אנרגיה — הדמות נחה. לכו להתאמן! כל סט מסומן שווה ${BALANCE.energy.perSet} ⚡ וסיום אימון עוד ${BALANCE.energy.perWorkout} ⚡.`;
+        text = T.resting(BALANCE.energy.perSet, BALANCE.energy.perWorkout);
         cls = 'rest';
         break;
       case 'recovering':
-        text = `💀 הופלתם בגל ${state.wave} — הדמות קמה ומנסה שוב.`;
+        text = T.recovering(state.wave);
         cls = 'down';
         break;
       default:
         if (state.enemy?.worldBoss) {
-          text = `🏛 קרב בוס! ${state.enemy.he} — הקישו בלי הפסקה ושחררו כל מהלך על.`;
+          text = T.boss(foeName(state.enemy));
           cls = 'boss';
         } else if (overtime) {
           const k = state.overtime + 1;
           const gate = worldGate(state.world, partLevels(gameOf(store)));
           const missing = gate.requirements
             .filter((r) => !r.met)
-            .map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`)
+            .map((r) => partLevel(r.part, r.need))
             .join(' · ');
           text = state.gateOpen
-            ? `⏱ גל הארכה ${k} — הבוס מחכה לכפתור. משלם חצי מטבעות, עולה ${BALANCE.combat.energyPerWave} ⚡; דמי הבוס (${BALANCE.combat.boss.energyCost} ⚡) שמורים.`
-            : `⏱ גל הארכה ${k} — מטבעות לציוד בזמן שמתאמנים לרמות המומלצות (חסר: ${missing || 'אימון'}), או לקרב מוקדם. עולה ${BALANCE.combat.energyPerWave} ⚡; דמי הבוס שמורים.`;
+            ? T.overtimeOpen(k, BALANCE.combat.energyPerWave, BALANCE.combat.boss.energyCost)
+            : T.overtimeGated(k, missing || T.training, BALANCE.combat.energyPerWave);
           cls = 'gate';
         } else if (sparring && !state.gateOpen) {
           const gate = worldGate(state.world, partLevels(gameOf(store)));
           const missing = gate.requirements
             .filter((r) => !r.met)
-            .map((r) => `${BODY_PART_HE[r.part]} רמה ${r.need}`)
+            .map((r) => partLevel(r.part, r.need))
             .join(' · ');
-          text = `🥊 קרב אימון — בלי מטבעות ובלי התקדמות. הבוס פתוח לקרב מוקדם (מחוזק ב־${handicapPct(gate.deficit)}%); לרמות המומלצות חסר: ${missing || 'אימון'}.`;
+          text = T.sparringGated(handicapPct(gate.deficit), missing || T.training);
           cls = 'gate';
         } else if (sparring) {
-          text = '🥊 קרב אימון — בלי מטבעות ובלי התקדמות. הבוס מוכן: לחצו על ״🏛 קרב בוס״ כשתרצו להתחיל.';
+          text = T.sparringOpen;
           cls = 'gate';
         } else {
           text =
             state.streakDefeats >= BALANCE.combat.defeatsBeforeHint
-              ? '⚠️ האויב חזק מדי. לכו להתאמן כדי להעלות רמות — הסטטיסטיקות הן ההבדל.'
-              : 'הקישו על האויב כדי לתקוף ולטעון את מד מהלך העל.';
+              ? T.tooStrong
+              : T.tap;
           cls = state.streakDefeats >= BALANCE.combat.defeatsBeforeHint ? 'warn' : '';
         }
     }
@@ -1180,9 +1184,10 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     const early = !state.gateOpen;
     bossBtn.disabled = false;
     bossBtn.classList.toggle('early', early);
-    const label = early
-      ? `⚔️ קרב בוס מוקדם${boss ? `: ${boss.he}` : ''} · מחוזק +${handicapPct(state.gateDeficit)}%${spec ? ` · ${spec.energyCost} ⚡` : ''}`
-      : `🏛 קרב בוס${boss ? `: ${boss.he}` : ''}${spec ? ` · ${spec.energyCost} ⚡` : ''}`;
+    const T = tr(M).bossBtn;
+    const name = boss ? foeName(boss) : null;
+    const cost = spec ? spec.energyCost : null;
+    const label = early ? T.early(name, handicapPct(state.gateDeficit), cost) : T.ready(name, cost);
     if (bossBtn.textContent !== label) bossBtn.textContent = label;
   }
 
@@ -1226,7 +1231,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     card?.classList.toggle('challenge', kind === 'daily');
     arena?.classList.toggle('duel', kind === 'ghost');
     card?.classList.toggle('duel', kind === 'ghost');
-    if (heroName) heroName.textContent = kind === 'ghost' ? 'אתם' : '';
+    if (heroName) heroName.textContent = kind === 'ghost' ? tr(M).arena.you : '';
   }
 
   /**
@@ -1238,7 +1243,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
    */
   function startDaily(): void {
     if (state.challenge) {
-      if (state.challenge.kind === 'ghost') toast('⚔️ סיימו קודם את הדו־קרב — זירה אחת, קרב אחד.');
+      if (state.challenge.kind === 'ghost') toast(tr(M).toast.finishDuel);
       return;
     }
     const status = dailyStatus(store, today);
@@ -1246,8 +1251,8 @@ function start(main: HTMLElement, deps: BattleDeps): void {
       const waves = BALANCE.daily.waves;
       toast(
         status.error === 'already_played'
-          ? `🎲 האתגר של היום כבר נוצל — ${status.record?.score ?? 0}/${waves}. מחר יש אתגר חדש!`
-          : `⚡ צריך ${status.energyCost} אנרגיה כדי להיכנס לאתגר היומי. לכו להתאמן!`,
+          ? tr(M).toast.dailyUsed(status.record?.score ?? 0, waves)
+          : tr(M).toast.dailyNoEnergy(status.energyCost),
       );
       paintDaily();
       return;
@@ -1260,7 +1265,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     state = createChallengeBattle({ run: dailyRun(today), stats, energy: g.energy });
     setChallengeSkin('daily');
     buffSig = '';
-    toast(`🎲 אתגר יומי — ${BALANCE.daily.waves} גלים, ריצה אחת. בהצלחה!`);
+    toast(tr(M).toast.dailyStart(BALANCE.daily.waves));
     paintDaily();
     consume(advance(state, BALANCE.combat.tickMs, stats));
   }
@@ -1273,13 +1278,9 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     deps.refreshHeader();
     paintDaily();
     if (save.duplicate) {
-      toast('🎲 האתגר של היום כבר נרשם — אין תשלום כפול.');
+      toast(tr(M).toast.dailyDuplicate);
     } else {
-      toast(
-        `🎲 אתגר יומי: ${result.score}/${BALANCE.daily.waves} · +${result.coins} 🪙${
-          result.complete ? ' · גאונטלט מלא! 🏅' : ''
-        }`,
-      );
+      toast(tr(M).toast.dailyResult(result.score, BALANCE.daily.waves, result.coins, result.complete === true));
     }
     // Let the result sit for a beat, then hand the arena back to the campaign.
     setTimeout(() => {
@@ -1377,12 +1378,12 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     if (!port) return;
     const check = checkHandle(raw);
     if (!check.ok) {
-      ghostView = { ...ghostView, query: raw, opponent: null, error: HANDLE_ERROR_HE[check.error ?? 'empty'] };
+      ghostView = { ...ghostView, query: raw, opponent: null, error: tr(M).handleError[check.error ?? 'empty'] };
       paintGhost();
       return;
     }
     if (check.handle === port.myHandle()) {
-      ghostView = { ...ghostView, query: raw, opponent: null, error: 'זה אתם — חפשו את השם של מישהו אחר.' };
+      ghostView = { ...ghostView, query: raw, opponent: null, error: tr(M).handleError.self };
       paintGhost();
       return;
     }
@@ -1394,16 +1395,16 @@ function start(main: HTMLElement, deps: BattleDeps): void {
       row = await port.fetch(check.handle);
     } catch {
       if (disposed) return;
-      ghostView = { ...ghostView, searching: false, error: GHOST_LOOKUP_FAILED_HE };
+      ghostView = { ...ghostView, searching: false, error: tr(GM).lookupFailed };
       paintGhost();
       return;
     }
     if (disposed) return;
     const ghost = row ? normalizeGhost(row.payload) : null;
     if (!row) {
-      ghostView = { ...ghostView, searching: false, error: ghostMissingHe(check.handle) };
+      ghostView = { ...ghostView, searching: false, error: tr(GM).missing(check.handle) };
     } else if (!ghost) {
-      ghostView = { ...ghostView, searching: false, error: GHOST_BAD_PAYLOAD_HE };
+      ghostView = { ...ghostView, searching: false, error: tr(GM).badPayload };
     } else {
       ghostView = {
         ...ghostView,
@@ -1431,20 +1432,20 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     if (!port || !opponent) return;
     // One fight at a time: the arena holds exactly one challenge context.
     if (state.challenge) {
-      toast('🎲 סיימו קודם את האתגר היומי — זירה אחת, קרב אחד.');
+      toast(tr(M).toast.finishDaily);
       return;
     }
     const myHandle = port.myHandle();
     if (!myHandle) {
-      toast(GHOST_NO_HANDLE_HE);
+      toast(tr(GM).noHandle);
       return;
     }
     const status = ghostDuelStatus(store, today, opponent.handle);
     if (!status.ok) {
       toast(
         status.error === 'already_dueled'
-          ? `⚔️ כבר נלחמתם היום מול ${opponent.ghost.name} — ${status.record?.won ? 'ניצחתם' : 'הפסדתם'}. מחר אפשר שוב!`
-          : `⚡ צריך ${status.energyCost} אנרגיה לדו־קרב. לכו להתאמן!`,
+          ? tr(M).toast.alreadyDueled(opponent.ghost.name, status.record?.won === true)
+          : tr(M).toast.duelNoEnergy(status.energyCost),
       );
       paintGhost();
       return;
@@ -1466,7 +1467,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     });
     setChallengeSkin('ghost');
     buffSig = '';
-    toast(`⚔️ דו־קרב מול ${opponent.ghost.name} — בהצלחה!`);
+    toast(tr(M).toast.duelStart(opponent.ghost.name));
     paintGhost();
     consume(advance(state, BALANCE.combat.tickMs, stats));
   }
@@ -1490,14 +1491,10 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     paintGhost();
     const name = result.opponent?.name ?? '';
     if (save.duplicate) {
-      toast('⚔️ הדו־קרב הזה כבר נרשם היום — אין תשלום כפול.');
+      toast(tr(M).toast.duelDuplicate);
     } else {
       const coins = duelCoins(result.won === true);
-      toast(
-        result.won
-          ? `⚔️ ניצחון על ${name}! ‏+${coins} 🪙`
-          : `💀 ${name} ניצח הפעם · ‏+${coins} 🪙. מחר יש הזדמנות חדשה.`,
-      );
+      toast(result.won ? tr(M).toast.duelWon(name, coins) : tr(M).toast.duelLost(name, coins));
       // The purse moved — show it landing, exactly like a cleared wave does.
       if (coins > 0) float(`+${coins} 🪙`, 'coin', 'hero');
     }
@@ -1534,7 +1531,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
         case 'boss_spawn':
           spawnSprite();
           shake(true);
-          toast(`🏛 בוס העולם ${ev.spec.boss.he} הופיע!`);
+          toast(tr(M).toast.bossSpawn(foeName(ev.spec.boss)));
           break;
         case 'hit':
           paintEnemy();
@@ -1556,7 +1553,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
         case 'dodged':
           // ממלכת הצללים — the blow found nothing. It must be VISIBLE or a shade
           // just looks like a bug; the hero still lunges, because they did swing.
-          float('החמיץ!', 'miss', 'enemy');
+          float(tr(M).arena.miss, 'miss', 'enemy');
           if (ev.source !== 'super' && ev.source !== 'skill') {
             anim(heroSprite, 'anim-attack', ANIM.attack);
           }
@@ -1605,9 +1602,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
           arena?.classList.remove('boss-fight');
           sprite?.classList.remove('world-boss');
           toast(
-            ev.result.endgame
-              ? '👑 זאוס הובס! נפתח מצב אלוף — הגלים ממשיכים בלי סוף.'
-              : `🏛 בוס העולם הובס! עולם ${ev.result.nextWorld} נפתח.`,
+            ev.result.endgame ? tr(M).toast.endgame : tr(M).toast.bossDown(ev.result.nextWorld),
           );
           // The whole screen changes (new world, new gate card) — remount it.
           queueRemount();
@@ -1656,7 +1651,7 @@ function start(main: HTMLElement, deps: BattleDeps): void {
           // The two heavy blows shove the screen; the rest only tint it.
           shake(ev.skillId === 'smash' || ev.skillId === 'quake');
           const def = SKILLS.find((s) => s.id === ev.skillId);
-          if (def) float(`${def.icon} ${def.he}`, 'skill', 'hero');
+          if (def) float(`${def.icon} ${skillName(def)}`, 'skill', 'hero');
           break;
         }
         case 'sparring_cleared':
@@ -1757,14 +1752,14 @@ function start(main: HTMLElement, deps: BattleDeps): void {
       }
       if (!def) return;
       const view = skillViews(state, levels).find((v) => v.def.id === id);
+      const T = tr(M).toast;
+      const name = skillName(def);
       if (res.reason === 'locked') {
-        toast(
-          `🔒 ${def.he} — נפתחת ב${BODY_PART_HE[def.part]} רמה ${skillUnlockLevel()} (כרגע ${view?.have ?? 1}). ${def.desc}`,
-        );
+        toast(T.skillLocked(name, bodyPartName(def.part), skillUnlockLevel(), view?.have ?? 1, skillDesc(def)));
       } else if (res.reason === 'cooldown') {
-        toast(`⏳ ${def.he} עוד ${Math.ceil((view?.cooldownMs ?? 0) / 1000)} שניות.`);
+        toast(T.skillCooldown(name, Math.ceil((view?.cooldownMs ?? 0) / 1000)));
       } else {
-        toast(`${def.icon} ${def.he} — אין אויב על המסך כרגע.`);
+        toast(T.skillNoEnemy(def.icon, name));
       }
       paintSkills();
     });
@@ -1786,13 +1781,13 @@ function start(main: HTMLElement, deps: BattleDeps): void {
     if (!res.ok) {
       const spec = bossSpec(state.world, state.gateDeficit);
       if (res.reason === 'no_energy') {
-        toast(`⚡ צריך ${spec?.energyCost ?? 0} אנרגיה לקרב הבוס — יש לכם ${fmtXp(state.energy)}. לכו להתאמן!`);
+        toast(tr(M).toast.bossNoEnergy(spec?.energyCost ?? 0, fmtXp(state.energy)));
       }
       paintBossBtn();
       return;
     }
     if (!state.gateOpen) {
-      toast(`⚔️ קרב מוקדם! הבוס מחוזק ב־${handicapPct(state.gateDeficit)}% — כל רמה שתעלו תחליש אותו.`);
+      toast(tr(M).toast.earlyFight(handicapPct(state.gateDeficit)));
     }
     // The next tick spawns the boss — run it now so the fight starts under the
     // player's finger rather than a frame later.

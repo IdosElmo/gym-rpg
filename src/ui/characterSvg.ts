@@ -71,6 +71,9 @@ import {
 } from '../data/gameContent.ts';
 import { BODY_PARTS, type BodyPart } from '../data/program.ts';
 import type { PartsProgress } from '../storage/DataStore.ts';
+import { tr } from '../i18n/locale.ts';
+import { character as CM } from '../i18n/messages/character.ts';
+import { enemyName } from '../i18n/gameText.ts';
 
 /* ------------------------------------------------------------- geometry */
 
@@ -1168,11 +1171,12 @@ function trophyPins(geo: CharacterGeometry, count: number): string {
 
 /**
  * A standalone trophy medallion for the character screen's shelf.
- * Self-contained SVG so it can be dropped anywhere in the page.
+ * Self-contained SVG so it can be dropped anywhere in the page. `world` is the
+ * world's name as the caller displays it (already in the reader's language).
  */
-export function trophyMedallion(boss: BossDef, worldHe: string): string {
+export function trophyMedallion(boss: BossDef, world: string): string {
   return `<svg class="tr-svg" viewBox="0 0 72 84" xmlns="http://www.w3.org/2000/svg" role="img"
-    aria-label="גביע: ${boss.he}, ${worldHe}">
+    aria-label="${tr(CM).svg.trophy(enemyName(boss), world)}">
     <path d="M22 4 h28 l-8 22 h-12 Z" fill="#B91C1C"/>
     <path d="M14 4 h16 l-6 20 h-14 Z" fill="#7F1D1D"/>
     <circle cx="36" cy="52" r="26" fill="#FBBF24" stroke="#B45309" stroke-width="3"/>
@@ -1629,7 +1633,7 @@ export function characterSvg(parts: PartsProgress, opts: CharacterSvgOptions = {
   const geo = characterGeometry(parts, char.geometry);
   const pulse = new Set<BodyPart>(opts.pulse ?? []);
   const cls = (part: BodyPart): string => `ch-part${pulse.has(part) ? ' pulse' : ''}`;
-  const label = opts.label ?? 'הדמות שלך';
+  const label = opts.label ?? tr(CM).svg.label;
   const pecOffset = geo.chestHalf * geo.pecSpread;
   const group = (slot: EquipmentSlot): string => equipmentGroup(slot, geo, opts.equipment);
   const look = lookLayers(geo, char);

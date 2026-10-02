@@ -34,6 +34,8 @@ import { BODY_PARTS } from '../data/program.ts';
 import { characterSvg } from './characterSvg.ts';
 import { esc } from './dom.ts';
 import { fmtXp } from './xpfx.ts';
+import { tr } from '../i18n/locale.ts';
+import { ghost as M } from '../i18n/messages/ghost.ts';
 
 export const GHOST_CARD_ID = 'btGhost';
 
@@ -111,7 +113,7 @@ function ghostParts(ghost: GhostPayload): PartsProgress {
  */
 export function ghostFigure(ghost: GhostPayload): string {
   return characterSvg(ghostParts(ghost), {
-    label: `הדמות של ${ghost.name}`,
+    label: tr(M).figureLabel(ghost.name),
     character: ghostCharacterId(ghost),
     equipment: { equipped: ghost.equipped, upgrades: ghost.upgrades },
   });
@@ -135,6 +137,7 @@ export function ghostPhase(game: GameState, view: GhostCardView, date: string): 
 function preview(game: GameState, opponent: GhostOpponentView): string {
   const ghost = opponent.ghost;
   const tally = game.duels.byOpponent[opponent.handle] ?? { wins: 0, losses: 0, duels: 0 };
+  const T = tr(M);
   const gear = Object.values(ghost.equipped).filter((id) => typeof id === 'string').length;
   return `
     <div class="gd-foe">
@@ -146,16 +149,16 @@ function preview(game: GameState, opponent: GhostOpponentView): string {
           // on the tooltip: enough to know what you are fighting, not a scarlet
           // letter.
           ghost.dev === true
-            ? ` <span class="gd-dev" title="${esc(GHOST_DEV_HE)}" aria-label="${esc(GHOST_DEV_HE)}">🛠</span>`
+            ? ` <span class="gd-dev" title="${esc(T.dev)}" aria-label="${esc(T.dev)}">🛠</span>`
             : ''
         }</b>
-        <span class="gd-level">רמה ${ghost.characterLevel}${
-          ghost.streakTier > 0 ? ` · 🔥 רצף ${ghost.streakTier}` : ''
-        }${gear > 0 ? ` · ${gear} פריטי ציוד` : ''}</span>
+        <span class="gd-level">${T.level(ghost.characterLevel)}${
+          ghost.streakTier > 0 ? T.streak(ghost.streakTier) : ''
+        }${gear > 0 ? T.gear(gear) : ''}</span>
         <span class="gd-record">${
           tally.duels > 0
-            ? `מאזן מולו: <b>${tallyHe(tally.wins, tally.losses)}</b>`
-            : 'עוד לא נפגשתם'
+            ? T.record(tallyHe(tally.wins, tally.losses))
+            : T.neverMet
         }</span>
       </div>
     </div>`;
@@ -172,16 +175,17 @@ export function ghostCard(game: GameState, view: GhostCardView, date: string, ru
   const fee = BALANCE.duel.entryEnergy;
   const totals = game.duels;
   const opponent = view.opponent;
+  const T = tr(M);
 
   const head = `
     <div class="gd-head">
-      <span class="gd-chip">⚔️ דו־קרב רפאים</span>
+      <span class="gd-chip">${T.chip}</span>
       ${
         totals.duels > 0
-          ? `<span class="gd-stats">${esc(`מאזן כללי ${tallyHe(totals.wins, totals.losses)}`)}</span>`
+          ? `<span class="gd-stats">${esc(T.overall(tallyHe(totals.wins, totals.losses)))}</span>`
           : ''
       }
-      ${view.myHandle ? `<span class="gd-me">אתם: <b>${esc(view.myHandle)}</b></span>` : ''}
+      ${view.myHandle ? `<span class="gd-me">${T.me(esc(view.myHandle))}</span>` : ''}
     </div>`;
 
   // The lookup row is on the card in every phase except the live fight: finding
@@ -192,13 +196,13 @@ export function ghostCard(game: GameState, view: GhostCardView, date: string, ru
       ? ''
       : `
     <div class="gd-search">
-      <label class="gd-label" for="gdHandle">שם הלוחם של היריב</label>
+      <label class="gd-label" for="gdHandle">${T.handleLabel}</label>
       <div class="gd-row">
         <input class="gd-input" id="gdHandle" type="text" inputmode="text" autocomplete="off"
-          list="gdRecent" maxlength="20" value="${esc(view.query)}" placeholder="לדוגמה: יוסי"
-          aria-label="שם הלוחם של היריב">
+          list="gdRecent" maxlength="20" value="${esc(view.query)}" placeholder="${esc(T.placeholder)}"
+          aria-label="${esc(T.handleLabel)}">
         <button class="gd-find" id="gdFind" type="button" ${view.searching ? 'disabled' : ''}>
-          ${view.searching ? '⏳ מחפש…' : '🔍 חיפוש'}
+          ${view.searching ? T.searching : T.search}
         </button>
       </div>
       <datalist id="gdRecent">${list}</datalist>
@@ -209,70 +213,58 @@ export function ghostCard(game: GameState, view: GhostCardView, date: string, ru
     body = `
       <div class="gd-live">
         <b class="gd-count">⚔️ ${esc(opponent.ghost.name)}</b>
-        <span>${run && run.cleared > 0 ? 'הרוח נפלה!' : 'הקרב בעיצומו'}</span>
+        <span>${run && run.cleared > 0 ? T.ghostFell : T.inProgress}</span>
       </div>
-      <p class="gd-note">יציאה מהזירה עכשיו נחשבת הפסד — הדו־קרב של היום מול היריב הזה כבר נספר.</p>`;
+      <p class="gd-note">${T.liveNote}</p>`;
   } else if (phase === 'missing') {
     body = `<p class="gd-note warn">${esc(view.error)}</p>`;
   } else if (opponent) {
     const record = game.duels.runs[`${date}|${opponent.handle}`] ?? null;
     body = preview(game, opponent) + resultLine(phase, record, fee, game.energy);
   } else {
-    body = `<p class="gd-note">בקשו מהיריב את "שם הלוחם" שלו (מסך ההגדרות), הקלידו אותו כאן — ותילחמו בדמות האמיתית שלו: הרמות, הרצף והציוד שלו.</p>`;
+    body = `<p class="gd-note">${T.idleNote}</p>`;
   }
 
   return `
-  <section class="gd" data-state="${phase}" aria-label="דו־קרב רפאים">
+  <section class="gd" data-state="${phase}" aria-label="${esc(T.cardLabel)}">
     ${head}
     ${search}
     ${body}
     ${
       phase === 'live'
         ? ''
-        : `<p class="gd-foot">${fee} ⚡ לדו־קרב · ניצחון ${duelCoins(true)} 🪙, הפסד ${duelCoins(
-            false,
-          )} 🪙 · דו־קרב אחד ליום מול כל יריב.</p>`
+        : `<p class="gd-foot">${T.foot(fee, duelCoins(true), duelCoins(false))}</p>`
     }
   </section>`;
 }
 
 /** The button (or the verdict) under a previewed opponent. */
 function resultLine(phase: GhostPhase, record: GhostDuelRecord | null, fee: number, energy: number): string {
+  const T = tr(M);
   if (phase === 'done' && record) {
     // The purse is quoted from the OUTCOME, not stored on the record: `won`
     // already says which of the two prices was paid, and this line only ever
     // describes TODAY's duel — so today's balance is the right one to read.
     return `
       <div class="gd-result ${record.won ? 'win' : 'loss'}">
-        <b>${record.won ? '🏆 ניצחתם' : '💀 הפסדתם'}</b>
-        <span>‏+${duelCoins(record.won)} 🪙 · הדו־קרב של היום מולו כבר נוצל — מחר אפשר שוב.</span>
+        <b>${record.won ? T.won : T.lost}</b>
+        <span>${T.doneNote(duelCoins(record.won))}</span>
       </div>`;
   }
   if (phase === 'locked') {
     return `
-      <button class="gd-go locked" id="gdFight" type="button">🔒 חסרה אנרגיה · ${fee} ⚡</button>
-      <p class="gd-note">יש לכם ${fmtXp(energy)} ⚡ מתוך ${fee}. לכו להתאמן — כל סט מסומן שווה ${BALANCE.energy.perSet} ⚡.</p>`;
+      <button class="gd-go locked" id="gdFight" type="button">${T.lockedBtn(fee)}</button>
+      <p class="gd-note">${T.lockedNote(fmtXp(energy), fee, BALANCE.energy.perSet)}</p>`;
   }
   // The prize is on the FOOT line (one place, every phase) — the button stays a
   // button.
-  return `<button class="gd-go" id="gdFight" type="button">⚔️ צאו לדו־קרב · ${fee} ⚡</button>`;
+  return `<button class="gd-go" id="gdFight" type="button">${T.go(fee)}</button>`;
 }
 
 /* ------------------------------------------------------------------ copy */
 
-/** Hebrew for the 🛠 next to a dev-flagged opponent's name. */
-export const GHOST_DEV_HE = 'הדמות הזו קיבלה הענקות במצב מפתח (לא רק אימונים אמיתיים)';
-
-/** Hebrew for "nobody answers to that name". */
-export function ghostMissingHe(handle: string): string {
-  return `לא נמצא לוחם בשם "${handle}". בדקו את האיות — היריב רואה את השם שלו במסך ההגדרות.`;
-}
-
-/** Hebrew for "the lookup itself failed" (offline, server down). */
-export const GHOST_LOOKUP_FAILED_HE = 'החיפוש נכשל — בדקו את החיבור לאינטרנט ונסו שוב.';
-
-/** Hebrew for a payload we refused to read (wrong version, or nonsense). */
-export const GHOST_BAD_PAYLOAD_HE = 'הנתונים של היריב לא נקראים — אולי הוא משתמש בגרסה אחרת של האפליקציה.';
-
-/** Hebrew for "you have no name yet, so there is nothing to fight with". */
-export const GHOST_NO_HANDLE_HE = 'עדיין אין לכם שם לוחם — קבעו אחד במסך ההגדרות כדי להילחם.';
+/**
+ * The card's copy lives in `i18n/messages/ghost.ts` (the arena reads the lookup
+ * errors from there too). This export stays for the tests that pin the Hebrew.
+ */
+export const GHOST_DEV_HE = M.he.dev;
