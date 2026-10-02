@@ -60,7 +60,7 @@
   font-size:10px; font-weight:800; line-height:1.15; text-align:center;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%;
 }
-.wp-meta{font-size:9.5px; font-weight:700; color:var(--dim); direction:rtl}
+.wp-meta{font-size:9.5px; font-weight:700; color:var(--dim)}
 .wp-bar{
   display:block; width:82%; height:3px; margin-top:3px;
   background:#0B0F1999; border-radius:99px; overflow:hidden;
@@ -114,11 +114,11 @@
   border-radius:99px; overflow:hidden;
 }
 .bt-bar span{display:block; height:100%; border-radius:99px; transition:width .15s linear}
-.bt-bar.hp span{background:linear-gradient(90deg,var(--ok),#34D399)}
-.bt-bar.hp span.low{background:linear-gradient(90deg,var(--danger),#F87171)}
-.bt-bar.foe span{background:linear-gradient(90deg,var(--danger),#FB923C)}
-.bt-bar.energy span{background:linear-gradient(90deg,var(--warn),#FBBF24)}
-.bt-bar.super span{background:linear-gradient(90deg,#A78BFA,#F472B6)}
+.bt-bar.hp span{background:linear-gradient(var(--grad-to-start),var(--ok),#34D399)}
+.bt-bar.hp span.low{background:linear-gradient(var(--grad-to-start),var(--danger),#F87171)}
+.bt-bar.foe span{background:linear-gradient(var(--grad-to-start),var(--danger),#FB923C)}
+.bt-bar.energy span{background:linear-gradient(var(--grad-to-start),var(--warn),#FBBF24)}
+.bt-bar.super span{background:linear-gradient(var(--grad-to-start),#A78BFA,#F472B6)}
 .bt-hp-txt{font-size:10.5px; color:var(--muted); direction:ltr; font-variant-numeric:tabular-nums}
 .bt-foe-name{font-size:12px; font-weight:800; color:var(--text); text-align:center}
 
@@ -185,17 +185,17 @@
    it is what starts the fight. */
 .bt-boss-btn{
   width:100%; min-height:44px; margin-top:10px;
-  background:linear-gradient(90deg,#B91C1C,#EF4444); border:1px solid #FCA5A5AA;
+  background:linear-gradient(var(--grad-to-start),#B91C1C,#EF4444); border:1px solid #FCA5A5AA;
   color:#fff; border-radius:12px; font-size:14px; font-weight:800; transition:.15s;
   box-shadow:0 0 14px #EF444444;
 }
 .bt-boss-btn:active{transform:scale(.98)}
 .bt-boss-btn.early{
-  background:linear-gradient(90deg,#B45309,#F59E0B); border:1px solid #FCD34DAA;
+  background:linear-gradient(var(--grad-to-start),#B45309,#F59E0B); border:1px solid #FCD34DAA;
   color:#1B1408; box-shadow:0 0 14px #F59E0B44;
 }
 .bt-super-btn.ready{
-  background:linear-gradient(90deg,#7C3AED,#DB2777); border-color:#A78BFA; color:#fff;
+  background:linear-gradient(var(--grad-to-start),#7C3AED,#DB2777); border-color:#A78BFA; color:#fff;
 }
 .bt-super-btn:disabled{cursor:default}
 
@@ -277,7 +277,7 @@
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%;
 }
 .sk-sub{
-  font-size:9px; font-weight:700; color:var(--dim); direction:rtl;
+  font-size:9px; font-weight:700; color:var(--dim);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%;
 }
 /* the cooldown sweep: a dark wedge that unwinds as `--cd` falls to 0 */
@@ -350,7 +350,7 @@
 
 .dc-go{
   width:100%; min-height:44px; margin-top:2px; cursor:pointer;
-  background:linear-gradient(90deg,#B45309,#F59E0B); border:1px solid #FBBF24; color:#141A26;
+  background:linear-gradient(var(--grad-to-start),#B45309,#F59E0B); border:1px solid #FBBF24; color:#141A26;
   border-radius:12px; font-size:14px; font-weight:900;
 }
 .dc-go.locked{background:var(--card); border-color:var(--line); color:var(--muted)}
@@ -359,7 +359,7 @@
 .dc-live{display:flex; align-items:center; gap:8px; min-height:44px}
 .dc-count{flex:0 0 auto; font-size:14px; font-weight:900; color:var(--warn)}
 .dc-bar{flex:1; height:7px; background:#0B0F1999; border-radius:99px; overflow:hidden}
-.dc-bar span{display:block; height:100%; background:linear-gradient(90deg,var(--warn),#FBBF24)}
+.dc-bar span{display:block; height:100%; background:linear-gradient(var(--grad-to-start),var(--warn),#FBBF24)}
 
 .dc-result{display:flex; align-items:baseline; gap:8px; min-height:44px}
 .dc-score{font-size:18px; font-weight:900; color:var(--ok); direction:ltr}
@@ -429,7 +429,7 @@
 
 .gd-go{
   width:100%; min-height:44px; margin-top:8px; cursor:pointer;
-  background:linear-gradient(90deg,#6D28D9,#8B5CF6); border:1px solid #A78BFA; color:#F5F3FF;
+  background:linear-gradient(var(--grad-to-start),#6D28D9,#8B5CF6); border:1px solid #A78BFA; color:#F5F3FF;
   border-radius:12px; font-size:14px; font-weight:900; font-family:inherit;
 }
 .gd-go.locked{background:var(--card); border-color:var(--line); color:var(--muted)}

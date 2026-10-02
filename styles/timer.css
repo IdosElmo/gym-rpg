@@ -22,7 +22,7 @@
  * `body.timer-open` (base.css) reserves the matching room under every screen.
  */
 #timerBar{
-  position:fixed; bottom:0; right:0; left:0; z-index:60;
+  position:fixed; bottom:0; inset-inline:0; z-index:60;
   max-width:100%; overflow:hidden;
   background:#1A2334F2; backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
   border-top:1px solid var(--line);
@@ -36,8 +36,8 @@
   50%{background:#10B981E0}
 }
 .t-progress{
-  position:absolute; top:0; right:0; height:3px; background:var(--warn);
-  width:100%; transition:width .5s linear; border-radius:0 0 0 3px;
+  position:absolute; top:0; inset-inline-start:0; height:3px; background:var(--warn);
+  width:100%; transition:width .5s linear; border-end-end-radius:3px;
 }
 .t-inner{display:flex; align-items:center; flex-wrap:wrap; gap:8px 10px}
 .t-time{

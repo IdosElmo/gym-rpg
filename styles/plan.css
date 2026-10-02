@@ -75,6 +75,7 @@
 .pl-names{flex:1; min-width:0}
 .pl-names b{display:block; font-size:14.5px; font-weight:800; line-height:1.35}
 .pl-en{display:block; font-size:11px; color:var(--dim); direction:ltr; text-align:right}
+:root[dir="ltr"] .pl-en{text-align:left}
 .pl-badge{
   display:inline-block; margin-top:3px; font-size:10px; font-weight:700;
   color:var(--warn); border:1px solid #F59E0B44; border-radius:99px; padding:1px 7px;
@@ -198,7 +199,7 @@
 .pl-two .pl-field{flex:1}
 .pl-chips{border:1px solid var(--line); border-radius:12px; padding:8px 10px 10px; margin:0}
 .pl-chips legend{font-size:11px; color:var(--dim); font-weight:700; padding:0 4px}
-.pl-chip{display:inline-flex; align-items:center; gap:6px; margin:4px 4px 0 0; min-height:40px}
+.pl-chip{display:inline-flex; align-items:center; gap:6px; margin-block:4px 0; margin-inline:4px 0; min-height:40px}
 .pl-chip input{width:20px; height:20px; accent-color:var(--accent)}
 .pl-chip span{
   border:1px solid var(--line); background:var(--card-2); border-radius:99px;

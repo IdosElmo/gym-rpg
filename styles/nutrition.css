@@ -82,7 +82,7 @@
 .nt-num{white-space:nowrap; font-variant-numeric:tabular-nums}
 .nt-del{
   background:none; border:none; color:var(--danger); font-size:16px;
-  min-width:44px; min-height:44px; margin:-8px -10px -8px 0;
+  min-width:44px; min-height:44px; margin-block:-8px; margin-inline:-10px 0;
 }
 .nt-share{height:3px; border-radius:99px; background:var(--card); overflow:hidden}
 .nt-share i{display:block; height:100%; background:var(--accent); opacity:.7; border-radius:99px}
@@ -253,7 +253,7 @@ select.inp{text-align:start; font-weight:600; font-size:16px; font-family:inheri
    scrolls INSIDE its own box (about five rows tall) so a long log does not
    push the goal card off the screen; the page itself never grows with it. */
 .wt-list{
-  list-style:none; margin:10px 0 0; padding:0 2px 2px 0; display:flex; flex-direction:column; gap:8px;
+  list-style:none; margin:10px 0 0; padding-block:0 2px; padding-inline:2px 0; display:flex; flex-direction:column; gap:8px;
   max-height:340px; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
   scrollbar-width:thin;
 }

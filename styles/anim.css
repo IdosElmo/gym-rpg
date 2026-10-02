@@ -58,10 +58,12 @@
 
 /* ---------- direction ----------
    Transforms ignore `direction`, so "toward the enemy" has to be a number. The
-   app is RTL — the hero stands on the right, the enemy on the left — and the
-   LTR fallback keeps this honest if the shell is ever mirrored. */
+   arena is a flex row that mirrors with the document: in Hebrew (RTL) the hero
+   stands on the right and the enemy on the left, in English (LTR) the other way
+   round — the damage numbers follow (`inset-inline-start` in ui/battle.ts) and
+   so must every lunge and knockback. The sprites themselves are not flipped. */
 .bt-arena{--to-foe:-1; --to-hero:1}
-[dir="ltr"] .bt-arena{--to-foe:1; --to-hero:-1}
+:root[dir="ltr"] .bt-arena{--to-foe:1; --to-hero:-1}
 
 /* ---------- the player attacks: lunge + recoil ---------- */
 .bt-sprite.hero.anim-attack .ch-svg{
