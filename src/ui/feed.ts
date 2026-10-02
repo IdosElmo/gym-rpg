@@ -1,7 +1,8 @@
 /**
  * ui/feed.ts — the game-event feed of screen 4 (היסטוריה).
  *
- * Pure(ish) projection of the append-only log into compact Hebrew lines:
+ * Pure(ish) projection of the append-only log into compact lines, in the
+ * reader's language (the lines are built at render time, never stored):
  * level-ups, personal records, finished workouts, streak changes, battle
  * progress and imported backups. Nothing here reads state — the log is the
  * story.
@@ -27,6 +28,9 @@ import { tsToIso } from '../core/xp.ts';
 import { fmtDate } from '../core/workout.ts';
 import type { AppEvent } from '../storage/DataStore.ts';
 import { esc } from './dom.ts';
+import { pick, tr } from '../i18n/locale.ts';
+import { bodyPartName, exName } from '../i18n/content.ts';
+import { feed as M } from '../i18n/messages/feed.ts';
 
 export interface FeedItem {
   ts: number;
@@ -65,20 +69,27 @@ interface WaveRun {
 }
 
 /**
- * Which parts a dev XP grant went into, in Hebrew: one part by name, all six as
+ * Which parts a dev XP grant went into: one part by name, all six as
  * "every body part", anything between as a count — a six-name list would be
  * longer than the line it sits on.
  */
 function devPartsHe(raw: unknown): string {
+  const m = tr(M).devParts;
   if (typeof raw !== 'object' || raw === null) return '';
   const parts = Object.keys(raw as Record<string, unknown>).filter((k): k is BodyPart =>
     Object.prototype.hasOwnProperty.call(BODY_PART_HE, k),
   );
   const first = parts[0];
-  if (parts.length === 1 && first) return `ל${BODY_PART_HE[first]}`;
-  if (parts.length >= Object.keys(BODY_PART_HE).length) return 'לכל חלקי הגוף';
-  if (parts.length > 1) return `ל־${parts.length} חלקי גוף`;
+  if (parts.length === 1 && first) return m.one(bodyPartName(first));
+  if (parts.length >= Object.keys(BODY_PART_HE).length) return m.all;
+  if (parts.length > 1) return m.some(parts.length);
   return '';
+}
+
+/** An equipment slot's name in the reader's language. */
+function slotName(slot: string): string {
+  if (!isSlot(slot)) return slot;
+  return tr(M).slots?.[slot] ?? SLOT_HE[slot];
 }
 
 /** Names the workout day of a `workout_finished` event ('' = leave it unnamed). */
@@ -102,19 +113,20 @@ export function buildFeed(
   resolve: ExerciseResolver = findExercise,
   dayName: DayNamer = () => '',
 ): FeedItem[] {
+  const m = tr(M);
   const items: FeedItem[] = [];
   let run: WaveRun | null = null;
 
   const flush = (): void => {
     if (!run) return;
     const world = worldById(run.world);
-    const span = run.from === run.to ? `גל ${run.from}` : `גלים ${run.from}–${run.to}`;
+    const span = run.from === run.to ? m.waves.one(run.from) : m.waves.range(run.from, run.to);
     items.push({
       ts: run.ts,
       date: run.date,
       icon: '⚔️',
       cls: 'wave',
-      text: `${span} ב${esc(world.he)} נוצחו · +${run.coins} 🪙`,
+      text: m.waves.cleared(span, esc(pick(world)), run.coins),
     });
     run = null;
   };
@@ -134,7 +146,7 @@ export function buildFeed(
           date,
           icon: '👑',
           cls: 'boss',
-          text: `מיני־בוס ב${p['overtime'] === true ? 'גל הארכה' : 'גל'} ${wave} (${esc(worldById(world).he)}) הופל! +${coins} 🪙`,
+          text: m.waves.miniBoss(p['overtime'] === true, wave, esc(pick(worldById(world))), coins),
         });
         continue;
       }
@@ -154,13 +166,13 @@ export function buildFeed(
     switch (ev.type) {
       case 'level_up': {
         const part = str(p['part']) as BodyPart;
-        const he = BODY_PART_HE[part] ?? part;
+        const he = Object.prototype.hasOwnProperty.call(BODY_PART_HE, part) ? bodyPartName(part) : part;
         items.push({
           ts: ev.ts,
           date,
           icon: '🎉',
           cls: 'level',
-          text: `${esc(he)} עלה לרמה ${num(p['to'])}${p['retro'] === true ? ' (מהיסטוריה)' : ''}`,
+          text: m.levelUp(esc(he), num(p['to']), p['retro'] === true),
         });
         break;
       }
@@ -171,7 +183,7 @@ export function buildFeed(
           date,
           icon: '🏆',
           cls: 'pr',
-          text: `שיא אישי ב${esc(ex ? ex.he : str(p['exId']))} · ${num(p['volume'])} (קודם ${num(p['previousBest'])})`,
+          text: m.pr(esc(ex ? exName(ex) : str(p['exId'])), num(p['volume']), num(p['previousBest'])),
         });
         break;
       }
@@ -186,7 +198,7 @@ export function buildFeed(
           date,
           icon: '💪',
           cls: 'workout',
-          text: label ? `אימון הושלם במלואו · ${esc(label)}` : 'אימון הושלם במלואו',
+          text: label ? m.workoutDay(esc(label)) : m.workout,
         });
         break;
       }
@@ -199,18 +211,16 @@ export function buildFeed(
           icon: to > from ? '🔥' : '🧊',
           cls: 'streak',
           text:
-            to > from
-              ? `שבוע מושלם! דרגת רצף ${to} · בונוס +${to * 10}% לכל הסטטיסטיקות`
-              : `דרגת רצף ירדה ל־${to} · הבונוס עכשיו +${to * 10}%`,
+            to > from ? m.streakUp(to, to * 10) : m.streakDown(to, to * 10),
         });
         break;
       }
       case 'boss_defeated': {
         const boss = bossById(str(p['bossId']));
         const world = worldById(Math.max(1, num(p['world'])));
-        const name = boss ? boss.he : str(p['bossId']);
+        const name = boss ? pick(boss) : str(p['bossId']);
         // An EARLY kill (below the recommended levels) is the bigger feat — say so.
-        const early = num(p['deficit']) > 0 ? ` ⚔️ קרב מוקדם, ${num(p['deficit'])} רמות מתחת למומלץ` : '';
+        const early = num(p['deficit']) > 0 ? m.boss.early(num(p['deficit'])) : '';
         items.push({
           ts: ev.ts,
           date,
@@ -218,8 +228,8 @@ export function buildFeed(
           cls: 'boss',
           text:
             p['endgame'] === true
-              ? `${esc(name)} הובס — מצב אלוף נפתח! +${num(p['coins'])} 🪙${early}`
-              : `בוס העולם ${esc(name)} (${esc(world.he)}) הובס! עולם ${num(p['nextWorld'])} נפתח · +${num(p['coins'])} 🪙${early}`,
+              ? m.boss.endgame(esc(name), num(p['coins']), early)
+              : m.boss.world(esc(name), esc(pick(world)), num(p['nextWorld']), num(p['coins']), early),
         });
         break;
       }
@@ -236,9 +246,7 @@ export function buildFeed(
           date,
           icon: complete ? '🏅' : '🎲',
           cls: 'daily',
-          text: `אתגר יומי: ${score}/${BALANCE.daily.waves} · +${num(p['coins'])} 🪙${
-            complete ? ' · גאונטלט מלא' : ''
-          }`,
+          text: m.daily(score, BALANCE.daily.waves, num(p['coins']), complete),
         });
         break;
       }
@@ -256,7 +264,7 @@ export function buildFeed(
           date,
           icon: '⚔️',
           cls: won ? 'duel win' : 'duel loss',
-          text: `${won ? `ניצחון על ${esc(who)}!` : `הפסד מול ${esc(who)}`} ‏+${num(p['coins'])} 🪙`,
+          text: m.duel(won, esc(who), num(p['coins'])),
         });
         break;
       }
@@ -276,7 +284,7 @@ export function buildFeed(
           date,
           icon: '🛠',
           cls: 'dev',
-          text: `אנרגיה: +${num(p['amount'])} ⚡ (מצב מפתח)`,
+          text: m.dev.energy(num(p['amount'])),
         });
         break;
       }
@@ -287,7 +295,7 @@ export function buildFeed(
           date,
           icon: '🛠',
           cls: 'dev',
-          text: `XP: +${num(p['total'])} ${esc(devPartsHe(p['parts']))} (מצב מפתח)`,
+          text: m.dev.xp(num(p['total']), esc(devPartsHe(p['parts']))),
         });
         break;
       }
@@ -297,7 +305,7 @@ export function buildFeed(
           date,
           icon: '🛠',
           cls: 'dev',
-          text: `מטבעות: +${num(p['amount'])} 🪙 (מצב מפתח)`,
+          text: m.dev.coins(num(p['amount'])),
         });
         break;
       }
@@ -308,10 +316,7 @@ export function buildFeed(
           date,
           icon: '🛠',
           cls: 'dev',
-          text:
-            scope === 'duels'
-              ? `דו־קרבות היום אופסו — אפשר להילחם שוב (מצב מפתח)`
-              : `האתגר היומי אופס — אפשר לשחק שוב (מצב מפתח)`,
+          text: scope === 'duels' ? m.dev.resetDuels : m.dev.resetDaily,
         });
         break;
       }
@@ -326,7 +331,7 @@ export function buildFeed(
           date,
           icon: '🛠',
           cls: 'dev',
-          text: 'הענקות מצב המפתח בוטלו — הדמות חזרה לאימונים האמיתיים בלבד',
+          text: m.dev.purge,
         });
         break;
       }
@@ -337,7 +342,7 @@ export function buildFeed(
           date,
           icon: '🛒',
           cls: 'shop',
-          text: `${esc(item ? item.he : str(p['itemId']))} נרכש בחנות · −${num(p['cost'])} 🪙`,
+          text: m.bought(esc(item ? pick(item) : str(p['itemId'])), num(p['cost'])),
         });
         break;
       }
@@ -359,7 +364,7 @@ export function buildFeed(
           date,
           icon: '⬆',
           cls: 'import',
-          text: `יובאו נתונים מקובץ (${num(p['added'])} אירועים)`,
+          text: m.imported(num(p['added'])),
         });
         break;
       }
@@ -376,7 +381,7 @@ export function buildFeed(
           date,
           icon: '🎭',
           cls: 'shop',
-          text: `דמות ${esc(skin ? skin.he : str(p['characterId']))} נרכשה · −${num(p['cost'])} 🪙`,
+          text: m.skin(esc(skin ? pick(skin) : str(p['characterId'])), num(p['cost'])),
         });
         break;
       }
@@ -393,7 +398,7 @@ export function buildFeed(
           date,
           icon: '⬆',
           cls: 'shop',
-          text: `שודרג: ${esc(item ? item.he : str(p['itemId']))} ${level} · −${num(p['cost'])} 🪙`,
+          text: m.upgraded(esc(item ? pick(item) : str(p['itemId'])), level, num(p['cost'])),
         });
         break;
       }
@@ -401,13 +406,13 @@ export function buildFeed(
         const id = str(p['itemId']);
         const item = id ? equipmentById(id) : undefined;
         const slot = str(p['slot']);
-        const slotHe = isSlot(slot) ? SLOT_HE[slot] : slot;
+        const slotHe = slotName(slot);
         items.push({
           ts: ev.ts,
           date,
           icon: '🎽',
           cls: 'shop',
-          text: item ? `${esc(item.he)} הוצמד (${esc(slotHe)})` : `${esc(slotHe)} הוסרה`,
+          text: item ? m.equipped(esc(pick(item)), esc(slotHe)) : m.unequipped(esc(slotHe)),
         });
         break;
       }
@@ -429,10 +434,11 @@ export function renderFeed(
   dayName: DayNamer = () => '',
 ): string {
   const items = buildFeed(events, limit, resolve, dayName);
+  const m = tr(M).card;
   if (items.length === 0) {
     return `<section class="game-card">
-      <h3 class="gc-title">יומן הרפתקה <span class="gc-sub">אירועי המשחק</span></h3>
-      <p class="gc-note">עדיין אין אירועים. סמנו סטים כדי להעלות רמות ופתחו את לשונית הקרב. ⚔️</p>
+      <h3 class="gc-title">${m.title} <span class="gc-sub">${m.emptySub}</span></h3>
+      <p class="gc-note">${m.empty}</p>
     </section>`;
   }
   const rows = items
@@ -448,7 +454,7 @@ export function renderFeed(
   // events are metres of page, and the card's own header — which says how many
   // there are — has to stay on screen while you read them.
   return `<section class="game-card">
-    <h3 class="gc-title">יומן הרפתקה <span class="gc-sub">${items.length} אירועים אחרונים</span></h3>
+    <h3 class="gc-title">${m.title} <span class="gc-sub">${m.sub(items.length)}</span></h3>
     <div class="scroll-pane feed-scroll"><ul class="feed">${rows}</ul></div>
   </section>`;
 }

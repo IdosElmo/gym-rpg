@@ -18,6 +18,8 @@
  */
 
 import { commit, commitRebuild, gameOf } from '../core/game.ts';
+import { tr } from '../i18n/locale.ts';
+import { dev as M } from '../i18n/messages/dev.ts';
 import {
   DEV_GRANTS,
   buildDevCoins,
@@ -105,24 +107,16 @@ function frozenSnapshot(game: GameState): GameState {
   return copy;
 }
 
-export const DEV_HELP_HE = [
-  '🛠 מצב מפתח — window.gymDev',
-  '',
-  `gymDev.addEnergy(n = ${DEV_GRANTS.energy})    ⚡ הענקת אנרגיה  · grant battle energy`,
-  `gymDev.addCoins(n = ${DEV_GRANTS.coins})     🪙 הענקת מטבעות  · grant coins`,
-  `gymDev.addXp(part, n = ${DEV_GRANTS.xp})   ✨ XP לחלק גוף     · grant XP to one body part`,
-  `     part: ${BODY_PARTS.join(' | ')}`,
-  `gymDev.levelAllParts(n = ${DEV_GRANTS.levels})    ⬆ רמה לכל חלקי הגוף · +n levels everywhere`,
-  'gymDev.completeToday()      💪 בונוס סיום אימון להיום · today\'s completion bonus',
-  'gymDev.resetDaily()         🎲 פתיחת האתגר היומי מחדש · replay today\'s challenge',
-  'gymDev.resetDuels()         ⚔️ פתיחת דו־קרבות היום מחדש · replay today\'s duels',
-  'gymDev.resetCooldowns()     ⏳ איפוס זמני קירור (רק בקרב פעיל) · live battle only',
-  'gymDev.purge()              🧹 ביטול כל הענקות המפתח · undo every dev grant',
-  'gymDev.state()              📋 תצלום קפוא של מצב המשחק · frozen game state',
-  '',
-  'כל הענקה היא אירוע אמיתי ביומן, מסומן 🛠, ומסתנכרנת לכל המכשירים.',
-  'Every grant is a real, 🛠-marked event in the log and syncs across devices.',
-].join('\n');
+const HELP_ARGS = {
+  energy: DEV_GRANTS.energy,
+  coins: DEV_GRANTS.coins,
+  xp: DEV_GRANTS.xp,
+  levels: DEV_GRANTS.levels,
+  parts: BODY_PARTS.join(' | '),
+};
+
+/** The console help, Hebrew with an English gloss on every line (the original). */
+export const DEV_HELP_HE = M.he.help(HELP_ARGS);
 
 /** Build the dev API over a store. Pure wiring — it holds no state of its own. */
 export function createDevApi(deps: DevDeps): DevApi {
@@ -212,8 +206,10 @@ export function createDevApi(deps: DevDeps): DevApi {
     },
 
     help(): string {
-      console.log(DEV_HELP_HE);
-      return DEV_HELP_HE;
+      // The reader's language: an English device gets the English-only sheet.
+      const text = tr(M).help(HELP_ARGS);
+      console.log(text);
+      return text;
     },
   };
 }

@@ -94,6 +94,10 @@ import type { AppEvent, DataStore, GameState, LeagueWeekRecord } from '../storag
 import { esc } from './dom.ts';
 import { fmtNum } from './stats.ts';
 import { toast } from './toast.ts';
+import { locale, tr } from '../i18n/locale.ts';
+import { fmtDayMonth } from '../i18n/format.ts';
+import { league as M } from '../i18n/messages/league.ts';
+import type { HandleError } from '../core/handle.ts';
 
 /* ------------------------------------------------------------------ ports */
 
@@ -161,8 +165,24 @@ export interface LeagueDeps {
 interface PendingSpend {
   kind: 'reward' | 'challenge';
   id: string;
-  /** A Hebrew refusal from the last attempt, shown inside the sheet. */
-  error: string;
+  /** The refusal of the last attempt, shown inside the sheet (worded at paint time). */
+  error: LeagueSpendError | null;
+}
+
+/**
+ * What went wrong with the rival lookup — kept as a REASON and worded at paint
+ * time, so a language switch rewords it too.
+ */
+type RivalError =
+  | { kind: 'handle'; code: HandleError }
+  | { kind: 'self' }
+  | { kind: 'missing'; handle: string };
+
+function rivalErrorText(e: RivalError): string {
+  const m = tr(M);
+  if (e.kind === 'handle') return m.handleErrors[e.code];
+  if (e.kind === 'self') return m.self;
+  return m.missing(e.handle);
 }
 
 /**
@@ -183,8 +203,8 @@ interface RivalState {
   /** `handle` whose ghost was already looked up. */
   devAsked: string;
   loading: boolean;
-  /** A Hebrew problem with the handle itself. */
-  error: string;
+  /** A problem with the handle itself; `null` = none. */
+  error: RivalError | null;
 }
 
 const emptyRival = (): RivalState => ({
@@ -195,7 +215,7 @@ const emptyRival = (): RivalState => ({
   dev: false,
   devAsked: '',
   loading: false,
-  error: '',
+  error: null,
 });
 
 /** Survives re-renders within a session, like the shop drawer on דמות. */
@@ -210,38 +230,26 @@ export function resetLeagueScreen(): void {
 
 /* ------------------------------------------------------------------- copy */
 
-/** Hebrew for every way a 🔵 spend can be refused. */
-export const LEAGUE_ERROR_HE: Readonly<Record<LeagueSpendError, string>> = {
-  unknown_item: 'הפריט הזה לא קיים בליגה.',
-  wrong_month: 'הפריט הזה לא שייך לחנות של החודש הזה.',
-  already_redeemed: 'הפריט הזה כבר נפדה החודש — אחד לכל חודש.',
-  challenge_already_set: 'כבר בחרתם אתגר לחודש הזה — אחד בלבד.',
-  no_challenge: 'לא בחרתם אתגר לחודש הזה.',
-  already_completed: 'האתגר הזה כבר סומן כהושלם.',
-  insufficient_coins: 'אין מספיק 🔵 — כל שבוע מלא מזכה במטבע אחד.',
-};
+/*
+ * The Hebrew originals stay exported for the tests that pin them; the screen
+ * itself reads `tr(M)` at paint time.
+ */
 
-/** Hebrew for every way a typed handle can be wrong. */
-const HANDLE_ERROR_HE: Readonly<Record<'empty' | 'too_short' | 'too_long' | 'bad_chars', string>> = {
-  empty: 'הקלידו את שם הלוחם של היריב.',
-  too_short: 'שם לוחם הוא לפחות 3 תווים.',
-  too_long: 'שם לוחם הוא עד 20 תווים.',
-  bad_chars: 'שם לוחם יכול לכלול אותיות בעברית או באנגלית, ספרות ו־ _ . -',
-};
+/** Hebrew for every way a 🔵 spend can be refused. */
+export const LEAGUE_ERROR_HE: Readonly<Record<LeagueSpendError, string>> = M.he.errors;
 
 /** The 🛠 tooltip, in the duel card's words — one meaning, one sentence. */
-export const LEAGUE_DEV_HE = 'החשבון הזה קיבל הענקות במצב מפתח (לא רק אימונים אמיתיים)';
+export const LEAGUE_DEV_HE = M.he.dev;
 
 /** The social contract, in one line. It is the whole spending rule. */
-export const LEAGUE_HONOR_HE = 'הזוכה החודשי קונה — כבוד המשחק!';
+export const LEAGUE_HONOR_HE = M.he.honor;
 
 /** Shown while behind: dimmed, never blocked. */
-export const LEAGUE_BEHIND_HE =
-  'אתם מפגרים החודש. אפשר לפדות — האפליקציה לא חוסמת — אבל הכבוד אומר לחכות לסיום החודש.';
+export const LEAGUE_BEHIND_HE = M.he.behind;
 
-/** Nobody answers to that handle. */
+/** Nobody answers to that handle (in the current language). */
 export function leagueMissingHe(handle: string): string {
-  return `לא נמצאו שבועות בשם "${handle}". בדקו את האיות — היריב רואה את השם שלו במסך ההגדרות.`;
+  return tr(M).missing(handle);
 }
 
 /* ------------------------------------------------------------- the numbers */
@@ -249,13 +257,6 @@ export function leagueMissingHe(handle: string): string {
 type Comp = 'c' | 'q' | 'l' | 'p';
 
 const COMPS: readonly Comp[] = ['c', 'q', 'l', 'p'] as const;
-
-const COMP_HE: Readonly<Record<Comp, string>> = {
-  c: 'עקביות',
-  q: 'השלמה',
-  l: 'עומס',
-  p: 'שיאים',
-};
 
 function pct(v: number): number {
   return Math.round(Math.min(1, Math.max(0, v)) * 100);
@@ -277,11 +278,12 @@ function fmtScore(n: number): string {
  * it every bar simply reads its own percentage.
  */
 export function weekBars(rec: LeagueWeekRecord, captions: Partial<Record<Comp, string>> = {}): string {
+  const names = tr(M).comp;
   const rows = COMPS.map((k) => {
     const value = pct(rec[k]);
     return `
       <div class="lg-bar" data-comp="${k}">
-        <span class="lb-k">${COMP_HE[k]}</span>
+        <span class="lb-k">${names[k]}</span>
         <span class="lb-track"><i style="width:${value}%"></i></span>
         <span class="lb-v">${esc(captions[k] ?? `${value}%`)}</span>
       </div>`;
@@ -291,25 +293,27 @@ export function weekBars(rec: LeagueWeekRecord, captions: Partial<Record<Comp, s
 
 /** The live week's captions — the concrete numbers behind each component. */
 function liveCaptions(week: WeekScore): Partial<Record<Comp, string>> {
+  const m = tr(M).live;
   return {
-    c: `${week.days} מתוך ${week.target} ימים`,
-    q: `${week.completedSets} מתוך ${week.plannedSets} סטים`,
+    c: m.days(week.days, week.target),
+    q: m.sets(week.completedSets, week.plannedSets),
     l:
       week.baseline > 0
-        ? `${fmtNum(week.volume)} מול בסיס ${fmtNum(week.baseline)}`
+        ? m.load(fmtNum(week.volume), fmtNum(week.baseline))
         : week.days > 0
-          ? 'שבוע ראשון — אין בסיס להשוואה'
-          : 'עדיין בלי עומס',
-    p: `${week.prs} מתוך ${BALANCE.league.prTarget} שיאים`,
+          ? m.firstWeek
+          : m.noLoad,
+    p: m.prs(week.prs, BALANCE.league.prTarget),
   };
 }
 
 /** A closed week's captions — what the ledger (or the rival's row) explains. */
 function recordCaptions(rec: LeagueWeekRecord): Partial<Record<Comp, string>> {
+  const m = tr(M).record;
   return {
-    c: `${rec.days} ימי אימון`,
-    l: `${fmtNum(rec.volume)} נק׳`,
-    p: `${rec.prs} שיאים`,
+    c: m.days(rec.days),
+    l: m.points(fmtNum(rec.volume)),
+    p: m.prs(rec.prs),
   };
 }
 
@@ -322,18 +326,19 @@ function recordCaptions(rec: LeagueWeekRecord): Partial<Record<Comp, string>> {
  * do this evening.
  */
 export function coinGateHe(week: WeekScore): string {
-  if (week.coin) return '🔵 השבוע הזה כבר מזכה במטבע ✓';
+  const m = tr(M).gate;
+  if (week.coin) return m.earned;
   const B = BALANCE.league;
   const needDays = Math.max(0, week.target - week.days);
   if (week.days === 0) {
-    return `כדי לזכות ב־🔵 השבוע: עוד ${needDays} ימי אימון — עדיין לא התאמנתם.`;
+    return m.notStarted(needDays);
   }
   const needSets = Math.max(0, Math.ceil(B.coinCompletion * week.plannedSets) - week.completedSets);
   const parts: string[] = [];
-  if (needDays > 0) parts.push(needDays === 1 ? 'עוד יום אימון אחד' : `עוד ${needDays} ימי אימון`);
-  if (needSets > 0) parts.push(needSets === 1 ? 'עוד סט אחד' : `עוד ${needSets} סטים`);
-  if (parts.length === 0) return 'כדי לזכות ב־🔵 השבוע: השלימו את הסטים של הימים שנותרו.';
-  return `כדי לזכות ב־🔵 השבוע: ${parts.join(' ו')}.`;
+  if (needDays > 0) parts.push(m.days(needDays));
+  if (needSets > 0) parts.push(m.sets(needSets));
+  if (parts.length === 0) return m.finish;
+  return m.need(parts);
 }
 
 /**
@@ -348,19 +353,25 @@ export function staleLineHe(view: LeagueMonthSnapshot): string {
     `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`,
   );
   const time = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
-  return `נכון ל־${day}, ${time} — לא הצלחנו לרענן עכשיו.`;
+  return tr(M).stale(day, time);
 }
 
-/** "07.06–13.06" — one week, compactly. */
+/** "07.06–13.06" / "Jun 7–Jun 13" — one week, compactly. */
 function weekRangeHe(weekKey: string): string {
+  if (locale() !== 'he') return `${fmtDayMonth(weekKey)}–${fmtDayMonth(weekEndOf(weekKey))}`;
   const from = fmtDate(weekKey).slice(0, 5);
   const to = fmtDate(weekEndOf(weekKey)).slice(0, 5);
   return `${from}–${to}`;
 }
 
-/** "אוגוסט 2026" — the pool already carries every month's Hebrew name. */
+/**
+ * "אוגוסט 2026" — the pool already carries every month's Hebrew name; other
+ * languages read theirs from the catalog ("August 2026").
+ */
 function monthHe(monthKey: string): string {
-  return `${poolOfMonth(monthKey).he} ${monthKey.slice(0, 4)}`;
+  const he = poolOfMonth(monthKey).he;
+  const name = locale() === 'he' ? he : (tr(M).months[Number(monthKey.slice(5, 7)) - 1] ?? he);
+  return `${name} ${monthKey.slice(0, 4)}`;
 }
 
 /**
@@ -389,36 +400,37 @@ function redemptionDates(events: readonly AppEvent[]): Map<string, string> {
 
 /** השבוע שלי — the live week, graded as it stands right now. */
 function liveCard(week: WeekScore): string {
+  const m = tr(M).liveCard;
   return `
-  <section class="lg-card lg-live" aria-label="השבוע שלי">
-    <h3 class="lg-title">השבוע שלי <span class="lg-sub">${esc(weekRangeHe(week.weekKey))}</span></h3>
+  <section class="lg-card lg-live" aria-label="${esc(m.title)}">
+    <h3 class="lg-title">${m.title} <span class="lg-sub">${esc(weekRangeHe(week.weekKey))}</span></h3>
     <div class="lg-score" data-score="${week.score}">
-      <b>${fmtScore(week.score)}</b><span>נקודות · מתוך 100</span>
+      <b>${fmtScore(week.score)}</b><span>${m.points}</span>
     </div>
     ${weekBars(week, liveCaptions(week))}
     <p class="lg-coin ${week.coin ? 'ok' : 'warn'}" data-coin="${week.coin ? 'earned' : 'missing'}">
       ${esc(coinGateHe(week))}
     </p>
-    <p class="lg-note dim">השבוע נסגר במוצאי שבת ונרשם ליומן. עד אז הציון זז עם כל סט.</p>
+    <p class="lg-note dim">${m.note}</p>
   </section>`;
 }
 
 /** One cell of the race table: a score with its four bars, or a dash. */
 function raceCell(rec: LeagueWeekRecord | null, live: boolean): string {
-  if (!rec) return '<span class="lg-empty" aria-label="אין שבוע">—</span>';
+  const m = tr(M);
+  if (!rec) return `<span class="lg-empty" aria-label="${esc(m.noWeek)}">—</span>`;
   return `
     <span class="lg-cell-score">${fmtScore(rec.score)}${rec.coin ? ' 🔵' : ''}</span>
-    ${live ? '<span class="lg-livechip">בהתהוות</span>' : ''}
+    ${live ? `<span class="lg-livechip">${m.inProgress}</span>` : ''}
     ${weekBars(rec, recordCaptions(rec))}`;
 }
 
 /** Who is ahead, in one line. */
 function leaderHe(mine: number, theirs: number, name: string): string {
+  const m = tr(M).leader;
   const diff = Math.round(Math.abs(mine - theirs) * 10) / 10;
-  if (diff === 0) return `תיקו — ${fmtScore(mine)} נקודות לכל אחד.`;
-  return mine > theirs
-    ? `אתם מובילים ב־${fmtScore(diff)} נקודות.`
-    : `${name} מוביל/ה ב־${fmtScore(diff)} נקודות.`;
+  if (diff === 0) return m.tie(fmtScore(mine));
+  return mine > theirs ? m.mine(fmtScore(diff)) : m.theirs(name, fmtScore(diff));
 }
 
 /**
@@ -444,6 +456,7 @@ function raceCard(
   cloud?: LeagueCloudDeps,
 ): string {
   if (!cloud || !cloud.signedIn()) return '';
+  const m = tr(M).race;
   const live = progress.liveWeek;
   const mineTotal = progress.closed;
 
@@ -456,18 +469,18 @@ function raceCard(
   // The month is already on the title; the head answers the other question a
   // person has here — "what name do I read out to them".
   const head = myHandle
-    ? `<div class="lg-race-head"><span class="lg-chip">🏁 אתם: <b>${esc(myHandle)}</b></span></div>`
+    ? `<div class="lg-race-head"><span class="lg-chip">${m.you(esc(myHandle))}</span></div>`
     : '';
 
   const search = `
     <div class="lg-search">
-      <label class="lg-label" for="lgHandle">שם הלוחם של היריב/ה</label>
+      <label class="lg-label" for="lgHandle">${m.label}</label>
       <div class="lg-row">
         <input class="lg-input" id="lgHandle" type="text" inputmode="text" autocomplete="off"
-          list="lgRivals" maxlength="20" value="${esc(rival.query)}" placeholder="לדוגמה: יוסי"
-          aria-label="שם הלוחם של היריב">
+          list="lgRivals" maxlength="20" value="${esc(rival.query)}" placeholder="${esc(m.placeholder)}"
+          aria-label="${esc(m.aria)}">
         <button class="lg-find" id="lgFind" type="button" ${rival.loading ? 'disabled' : ''}>
-          ${rival.loading ? '⏳ טוען…' : '🔍 חיפוש'}
+          ${rival.loading ? m.loading : m.search}
         </button>
       </div>
       <datalist id="lgRivals">${list}</datalist>
@@ -475,19 +488,19 @@ function raceCard(
 
   if (rival.error) {
     return `
-    <section class="lg-card lg-race" data-state="missing" aria-label="המרוץ החודשי">
-      <h3 class="lg-title">המרוץ החודשי <span class="lg-sub">${esc(monthHe(month))}</span></h3>
+    <section class="lg-card lg-race" data-state="missing" aria-label="${esc(m.title)}">
+      <h3 class="lg-title">${m.title} <span class="lg-sub">${esc(monthHe(month))}</span></h3>
       ${head}${search}
-      <p class="lg-note warn">${esc(rival.error)}</p>
+      <p class="lg-note warn">${esc(rivalErrorText(rival.error))}</p>
     </section>`;
   }
 
   if (!rival.handle || !view) {
     return `
-    <section class="lg-card lg-race" data-state="idle" aria-label="המרוץ החודשי">
-      <h3 class="lg-title">המרוץ החודשי <span class="lg-sub">${esc(monthHe(month))}</span></h3>
+    <section class="lg-card lg-race" data-state="idle" aria-label="${esc(m.title)}">
+      <h3 class="lg-title">${m.title} <span class="lg-sub">${esc(monthHe(month))}</span></h3>
       ${head}${search}
-      <p class="lg-note">בקשו מהיריב/ה את "שם הלוחם" (מסך ההגדרות), הקלידו אותו כאן — והחודש שלכם יעמוד מול החודש שלו/ה, שבוע מול שבוע.</p>
+      <p class="lg-note">${m.invite}</p>
     </section>`;
   }
 
@@ -507,28 +520,28 @@ function raceCard(
 
   const stale = staleLineHe(view);
   return `
-  <section class="lg-card lg-race" data-state="ready" aria-label="המרוץ החודשי">
-    <h3 class="lg-title">המרוץ החודשי <span class="lg-sub">${esc(monthHe(month))}</span></h3>
+  <section class="lg-card lg-race" data-state="ready" aria-label="${esc(m.title)}">
+    <h3 class="lg-title">${m.title} <span class="lg-sub">${esc(monthHe(month))}</span></h3>
     ${head}${search}
     <div class="lg-cols">
       <div class="lg-colhead">
         <span class="lg-wk"></span>
-        <span class="lg-cell mine">אני</span>
+        <span class="lg-cell mine">${m.me}</span>
         <span class="lg-cell theirs">${esc(rival.handle)}${
           rival.dev
-            ? ` <span class="lg-dev" title="${esc(LEAGUE_DEV_HE)}" aria-label="${esc(LEAGUE_DEV_HE)}">🛠</span>`
+            ? ` <span class="lg-dev" title="${esc(tr(M).dev)}" aria-label="${esc(tr(M).dev)}">🛠</span>`
             : ''
         }</span>
       </div>
       ${rows}
       <div class="lg-week total" data-week="total">
-        <div class="lg-wk">סה״כ</div>
+        <div class="lg-wk">${m.total}</div>
         <div class="lg-cell mine" data-side="mine">
           <b class="lg-total" data-total="mine">${fmtScore(mineTotal)}</b>${
             progress.live > 0
-              ? `<span class="lg-total-live" data-total-live="${progress.live}">‎+${fmtScore(
-                  progress.live,
-                )} בהתהוות</span>`
+              ? `<span class="lg-total-live" data-total-live="${progress.live}">${m.liveTotal(
+                  fmtScore(progress.live),
+                )}</span>`
               : ''
           }
         </div>
@@ -538,7 +551,7 @@ function raceCard(
     <p class="lg-leader ${mineTotal >= theirTotal ? 'ok' : 'warn'}">${esc(leaderHe(mineTotal, theirTotal, rival.handle))}</p>
     ${
       progress.live > 0
-        ? '<p class="lg-note dim" data-closed-only="1">הסה״כ סופר שבועות סגורים בלבד — משני הצדדים. השבוע שבהתהוות ייכנס כשייסגר.</p>'
+        ? `<p class="lg-note dim" data-closed-only="1">${m.closedOnly}</p>`
         : ''
     }
     ${stale ? `<p class="lg-stale" data-stale="1">${esc(stale)}</p>` : ''}
@@ -553,6 +566,7 @@ function raceCard(
  * greyed-out mystery.
  */
 function itemCard(item: LeagueItem, opts: { claimedOn: string | null; action: 'redeem' | 'stake' }): string {
+  const m = tr(M).item;
   const price = priceOf(item.kind);
   const claimed = opts.claimedOn !== null;
   return `
@@ -561,14 +575,14 @@ function itemCard(item: LeagueItem, opts: { claimedOn: string | null; action: 'r
       <div class="li-head"><span class="li-emoji" aria-hidden="true">${item.emoji}</span><b>${esc(item.he)}</b></div>
       <p class="li-detail">${esc(item.detail)}</p>
       <div class="li-foot">
-        <span class="li-price">🔵 ${price}${item.bonus > 0 ? ` · בונוס ${item.bonus} 🔵` : ''}</span>
+        <span class="li-price">🔵 ${price}${item.bonus > 0 ? m.bonus(item.bonus) : ''}</span>
         ${
           claimed
-            ? `<span class="li-claimed" data-claimed="1">✓ ${item.kind === 'challenge' ? 'הושלם' : 'נפדה'} ${esc(
+            ? `<span class="li-claimed" data-claimed="1">✓ ${item.kind === 'challenge' ? m.completed : m.redeemed} ${esc(
                 fmtDate(opts.claimedOn as string),
               )}</span>`
             : `<button class="lg-btn li-btn" type="button" data-${opts.action}="${esc(item.id)}">${
-                item.kind === 'challenge' ? `⚔️ הימור · 🔵 ${price}` : `פדיון · 🔵 ${price}`
+                item.kind === 'challenge' ? m.stake(price) : m.redeem(price)
               }</button>`
         }
       </div>
@@ -584,29 +598,31 @@ function spendSheet(game: GameState, month: string): string {
   const cost = priceOf(item.kind);
   const coins = game.league.coins;
   const missing = Math.max(0, cost - coins);
+  const m = tr(M);
   return `
-    <div class="lg-sheet" id="lgSheet" role="group" aria-label="אישור הוצאה">
+    <div class="lg-sheet" id="lgSheet" role="group" aria-label="${esc(m.sheet.aria)}">
       <div class="ls-head"><b>${item.emoji} ${esc(item.he)}</b><span>${esc(item.detail)}</span></div>
-      <p class="ls-price">מחיר: <b>🔵 ${cost}</b> · יש לכם: <b>🔵 ${coins}</b>${
-        missing > 0 ? ` · <span class="warn">חסרים ${missing}</span>` : ''
+      <p class="ls-price">${m.sheet.price(cost, coins)}${
+        missing > 0 ? ` · <span class="warn">${m.sheet.missing(missing)}</span>` : ''
       }</p>
       ${
         item.kind === 'challenge'
-          ? `<p class="lg-note dim">הימור: ${cost} 🔵 עכשיו, ${item.bonus} 🔵 בחזרה כשמסמנים "השלמתי". אתגר אחד לחודש.</p>`
-          : `<p class="lg-note dim">${esc(LEAGUE_HONOR_HE)} הפדיון נרשם ביומן ולא ניתן לביטול.</p>`
+          ? `<p class="lg-note dim">${m.sheet.stakeNote(cost, item.bonus)}</p>`
+          : `<p class="lg-note dim">${m.sheet.redeemNote(esc(m.honor))}</p>`
       }
-      ${pending.error ? `<p class="lg-error" data-error="1">${esc(pending.error)}</p>` : ''}
+      ${pending.error ? `<p class="lg-error" data-error="1">${esc(m.errors[pending.error])}</p>` : ''}
       <div class="ls-actions">
         <button class="lg-btn buy" type="button" data-confirm="1">${
-          item.kind === 'challenge' ? '⚔️ אני מהמר/ת' : '🔵 פדיון'
+          item.kind === 'challenge' ? m.sheet.confirmStake : m.sheet.confirmRedeem
         }</button>
-        <button class="lg-btn off" type="button" data-cancel="1">ביטול</button>
+        <button class="lg-btn off" type="button" data-cancel="1">${m.sheet.cancel}</button>
       </div>
     </div>`;
 }
 
 /** חנות החודש — the pool, the purse and the two spending flows. */
 function shopCard(game: GameState, month: string, behind: boolean, dates: Map<string, string>): string {
+  const m = tr(M);
   const pool = poolOfMonth(month);
   const league = game.league;
   const stake = league.challenges[month] ?? null;
@@ -632,11 +648,11 @@ function shopCard(game: GameState, month: string, behind: boolean, dates: Map<st
         <div class="li-head"><span class="li-emoji" aria-hidden="true">⚔️</span><b>${esc(staked.he)}</b></div>
         <p class="li-detail">${esc(staked.detail)}</p>
         <div class="li-foot">
-          <span class="li-price">הימור 🔵 ${stake?.cost ?? priceOf('challenge')} · בונוס ${staked.bonus} 🔵</span>
+          <span class="li-price">${m.shop.stakedPrice(stake?.cost ?? priceOf('challenge'), staked.bonus)}</span>
           ${
             completed === undefined
-              ? '<button class="lg-btn li-btn done" type="button" data-complete="1">השלמתי ✓</button>'
-              : `<span class="li-claimed" data-claimed="1">✓ הושלם${
+              ? `<button class="lg-btn li-btn done" type="button" data-complete="1">${m.shop.done}</button>`
+              : `<span class="li-claimed" data-claimed="1">✓ ${m.shop.completed}${
                   dates.has(`${month}|${staked.id}`) ? ` ${esc(fmtDate(dates.get(`${month}|${staked.id}`) as string))}` : ''
                 } · +${completed} 🔵</span>`
           }
@@ -646,19 +662,19 @@ function shopCard(game: GameState, month: string, behind: boolean, dates: Map<st
 
   return `
   <section class="lg-card lg-shop ${behind ? 'behind' : ''}" data-behind="${behind ? '1' : '0'}"
-    aria-label="חנות החודש">
-    <h3 class="lg-title">חנות החודש <span class="lg-sub">${esc(monthHe(month))}</span></h3>
+    aria-label="${esc(m.shop.title)}">
+    <h3 class="lg-title">${m.shop.title} <span class="lg-sub">${esc(monthHe(month))}</span></h3>
     <div class="lg-purse">
       <b data-purse="1">🔵 ${league.coins}</b>
-      <span>מטבעות ליגה · ${league.coinsEarned} נצברו · ${league.coinsSpent} הוצאו</span>
+      <span>${m.shop.purse(league.coinsEarned, league.coinsSpent)}</span>
     </div>
-    <p class="lg-honor" data-honor="1">${esc(LEAGUE_HONOR_HE)}</p>
-    ${behind ? `<p class="lg-note warn" data-behind-note="1">${esc(LEAGUE_BEHIND_HE)}</p>` : ''}
+    <p class="lg-honor" data-honor="1">${esc(m.honor)}</p>
+    ${behind ? `<p class="lg-note warn" data-behind-note="1">${esc(m.behind)}</p>` : ''}
     ${spendSheet(game, month)}
-    <h4 class="lg-sub-title">🎁 מתנות · 🌄 חוויות</h4>
+    <h4 class="lg-sub-title">${m.shop.rewards}</h4>
     <div class="lg-pool">${rewards}</div>
-    <h4 class="lg-sub-title">⚔️ אתגר החודש <span class="lg-sub">${
-      staked ? 'הימור פעיל' : 'אחד לחודש, מוחזר עם בונוס'
+    <h4 class="lg-sub-title">${m.shop.challenge} <span class="lg-sub">${
+      staked ? m.shop.activeStake : m.shop.oneAMonth
     }</span></h4>
     <div class="lg-pool challenges">${challenges}</div>
   </section>`;
@@ -666,28 +682,29 @@ function shopCard(game: GameState, month: string, behind: boolean, dates: Map<st
 
 /** היסטוריה — the months already settled, newest first. */
 function historyCard(game: GameState, month: string): string {
+  const m = tr(M).history;
   const months = Object.values(game.league.months)
     .filter((m) => m.month !== month)
     .sort((a, b) => (a.month < b.month ? 1 : -1));
 
   const body =
     months.length === 0
-      ? '<p class="lg-note dim">עוד אין חודשים סגורים. החודש הראשון ייכנס לכאן ברגע שיתחלף.</p>'
+      ? `<p class="lg-note dim">${m.empty}</p>`
       : `<ul class="lg-months">${months
           .map(
-            (m) => `
-        <li class="lg-month" data-month="${esc(m.month)}">
-          <span class="lm-name">${esc(monthHe(m.month))}</span>
-          <span class="lm-score"><b>${fmtScore(m.score)}</b> נק׳</span>
-          <span class="lm-weeks">${m.weeks} שבועות</span>
-          <span class="lm-coins">🔵 ${m.coins}</span>
+            (mo) => `
+        <li class="lg-month" data-month="${esc(mo.month)}">
+          <span class="lm-name">${esc(monthHe(mo.month))}</span>
+          <span class="lm-score"><b>${fmtScore(mo.score)}</b> ${m.points}</span>
+          <span class="lm-weeks">${m.weeks(mo.weeks)}</span>
+          <span class="lm-coins">🔵 ${mo.coins}</span>
         </li>`,
           )
           .join('')}</ul>`;
 
   return `
-  <section class="lg-card lg-history" aria-label="היסטוריית הליגה">
-    <h3 class="lg-title">היסטוריה <span class="lg-sub">חודשים שנסגרו</span></h3>
+  <section class="lg-card lg-history" aria-label="${esc(m.aria)}">
+    <h3 class="lg-title">${m.title} <span class="lg-sub">${m.sub}</span></h3>
     ${body}
   </section>`;
 }
@@ -740,7 +757,7 @@ function wire(main: HTMLElement, deps: LeagueDeps, today: string): void {
     // Typing invalidates the loaded rival: the table must never be labelled
     // with somebody other than the name in the field.
     rival.query = input.value;
-    rival.error = '';
+    rival.error = null;
   });
   input?.addEventListener('keydown', (e) => {
     if ((e as KeyboardEvent).key === 'Enter') void findRival(main, deps, input.value, month);
@@ -754,7 +771,7 @@ function wire(main: HTMLElement, deps: LeagueDeps, today: string): void {
     btn.addEventListener('click', () => {
       const id = btn.dataset['redeem'];
       if (!id) return;
-      pending = { kind: 'reward', id, error: '' };
+      pending = { kind: 'reward', id, error: null };
       again();
     });
   });
@@ -762,7 +779,7 @@ function wire(main: HTMLElement, deps: LeagueDeps, today: string): void {
     btn.addEventListener('click', () => {
       const id = btn.dataset['stake'];
       if (!id) return;
-      pending = { kind: 'challenge', id, error: '' };
+      pending = { kind: 'challenge', id, error: null };
       again();
     });
   });
@@ -780,14 +797,14 @@ function wire(main: HTMLElement, deps: LeagueDeps, today: string): void {
     if (!result.ok) {
       // A refusal never reached the log (`core/league.ts` decides first), so the
       // only thing to do is say why — inside the sheet, and once as a toast.
-      const he = LEAGUE_ERROR_HE[result.error ?? 'unknown_item'];
-      pending = { ...p, error: he };
-      toast(he);
+      const error = result.error ?? 'unknown_item';
+      pending = { ...p, error };
+      toast(tr(M).errors[error]);
       again();
       return;
     }
     pending = null;
-    toast(p.kind === 'reward' ? `נפדה! 🔵 ${result.cost} ירדו מהארנק.` : `ההימור נרשם — בהצלחה! ⚔️`);
+    toast(p.kind === 'reward' ? tr(M).toast.redeemed(result.cost) : tr(M).toast.staked);
     again();
   });
 
@@ -795,10 +812,10 @@ function wire(main: HTMLElement, deps: LeagueDeps, today: string): void {
   main.querySelector<HTMLButtonElement>('[data-complete]')?.addEventListener('click', () => {
     const result = completeLeagueChallenge(deps.store, month);
     if (!result.ok) {
-      toast(LEAGUE_ERROR_HE[result.error ?? 'no_challenge']);
+      toast(tr(M).errors[result.error ?? 'no_challenge']);
       return;
     }
-    toast('כל הכבוד! הבונוס נכנס לארנק 🔵');
+    toast(tr(M).toast.completed);
     again();
   });
 }
@@ -866,12 +883,12 @@ async function findRival(main: HTMLElement, deps: LeagueDeps, raw: string, month
   if (!cloud) return;
   const check = checkHandle(raw);
   if (!check.ok) {
-    rival = { ...rival, query: raw, handle: '', month: null, error: HANDLE_ERROR_HE[check.error ?? 'empty'] };
+    rival = { ...rival, query: raw, handle: '', month: null, error: { kind: 'handle', code: check.error ?? 'empty' } };
     refresh(main, deps);
     return;
   }
   if (check.handle === cloud.myHandle()) {
-    rival = { ...rival, query: raw, handle: '', month: null, error: 'זה אתם — חפשו את השם של מישהו אחר.' };
+    rival = { ...rival, query: raw, handle: '', month: null, error: { kind: 'self' } };
     refresh(main, deps);
     return;
   }
@@ -881,7 +898,7 @@ async function findRival(main: HTMLElement, deps: LeagueDeps, raw: string, month
     query: check.handle,
     handle: check.handle,
     month: null,
-    error: '',
+    error: null,
     loading: true,
     asked: `${check.handle}|${month}`,
     dev: false,
@@ -893,7 +910,7 @@ async function findRival(main: HTMLElement, deps: LeagueDeps, raw: string, month
   if (rival.handle !== check.handle) return;
   const empty = Object.keys(view.month.weeks).length === 0;
   if (empty && view.fetchedAt === null) {
-    rival = { ...rival, loading: false, month: null, error: leagueMissingHe(check.handle) };
+    rival = { ...rival, loading: false, month: null, error: { kind: 'missing', handle: check.handle } };
     refresh(main, deps);
     return;
   }
