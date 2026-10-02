@@ -152,7 +152,7 @@ const en: typeof he = {
       sub: '',
       custom: 'Custom plan',
       original: 'The original plan',
-      saveHint: 'changes are saved only when you tap 💾',
+      saveHint: 'tap 💾 to save',
       back: '← Back',
     },
     CH: {
