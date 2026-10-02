@@ -80,6 +80,9 @@ import type {
 } from '../storage/DataStore.ts';
 import { esc } from './dom.ts';
 import { toast } from './toast.ts';
+import { isRtl, tr } from '../i18n/locale.ts';
+import { nutrition as M } from '../i18n/messages/nutrition.ts';
+import { displayNames, entryName, unitLabel } from '../i18n/foodText.ts';
 
 export interface NutritionDeps {
   store: DataStore;
@@ -95,20 +98,18 @@ export interface NutritionDeps {
   now?: () => string;
 }
 
-/** One Hebrew line per way an estimate can fail. */
-export const ESTIMATE_ERROR_HE: Readonly<Record<EstimateError, string>> = {
-  signed_out: 'הערכת קלוריות דורשת התחברות לחשבון (במסך ההגדרות) — או הזנה ידנית.',
-  offline: 'אין חיבור לאינטרנט — אפשר להזין קלוריות ידנית.',
-  rate_limited: 'יותר מדי בקשות — נסו שוב בעוד רגע.',
-  http: 'השרת לא ענה — נסו שוב.',
-  unparseable: 'לא הצלחנו להבין את התשובה — נסו לנסח אחרת או להזין ידנית.',
-};
+/** One Hebrew line per way an estimate can fail (kept for importers; the screen reads the locale's). */
+export const ESTIMATE_ERROR_HE: Readonly<Record<EstimateError, string>> = M.he.estimateError;
 
-export const CONFIDENCE_HE: Readonly<Record<MealEstimate['confidence'], string>> = {
-  low: 'נמוך',
-  medium: 'בינוני',
-  high: 'גבוה',
-};
+export const CONFIDENCE_HE: Readonly<Record<MealEstimate['confidence'], string>> = M.he.confidence;
+
+/** A meal of the day's heading / chip, in the reader's language (`MEAL_SLOTS` keeps the Hebrew). */
+function slotLabel(key: MealSlot): string {
+  return tr(M).slots[key].label;
+}
+function slotShort(key: MealSlot): string {
+  return tr(M).slots[key].short;
+}
 
 /** "4 דפים דף אורז" → the quantity and the name, as one stored/spoken label. */
 function itemLabel(it: EstimateItem): string {
@@ -122,13 +123,14 @@ function storedItem(it: EstimateItem): MealAiItem {
 
 /** The estimate's breakdown — one row per ingredient, ⚠️ where the quantity was assumed. */
 export function breakdownHtml(items: readonly MealAiItem[]): string {
+  const m = tr(M).breakdown;
   return items
     .map((it) => {
       const nums =
         it.kcal !== null && it.proteinG !== null
-          ? `<span class="nt-bd-nums">${it.grams ?? 0} ג׳ · 🔥 ${it.kcal} · 💪 ${it.proteinG} ג׳</span>`
+          ? `<span class="nt-bd-nums">${m.nums(it.grams ?? 0, it.kcal, it.proteinG)}</span>`
           : '';
-      const badge = it.assumed ? `<span class="nt-assumed">⚠️ כמות משוערת</span>` : '';
+      const badge = it.assumed ? `<span class="nt-assumed">${m.assumed}</span>` : '';
       return `<li class="nt-bd-row ${it.assumed ? 'assumed' : ''}">
         <span class="nt-bd-name">${esc(it.name)}${it.quantity ? ` <span class="dim">${esc(it.quantity)}</span>` : ''}${badge}</span>
         ${nums}
@@ -203,18 +205,18 @@ export function ringHtml(kind: 'cal' | 'prot', value: number, target: number | n
   const pct = has ? Math.min(1, value / target) : 0;
   const over = has && value > target;
   const offset = Math.round(RING_CIRC * (1 - pct) * 10) / 10;
+  const m = tr(M).ring;
   // A margin ring names its lens; the "+" stays on the left of the digits in RTL.
-  const label =
-    margin > 0 ? `<bdi dir="ltr">+${margin}%</bdi>` : kind === 'cal' ? 'קלוריות' : 'גרם חלבון';
-  const ariaLabel = margin > 0 ? `קלוריות בתוספת ${margin}%` : kind === 'cal' ? 'קלוריות' : 'גרם חלבון';
+  const label = margin > 0 ? `<bdi dir="ltr">+${margin}%</bdi>` : kind === 'cal' ? m.cal : m.prot;
+  const ariaLabel = margin > 0 ? m.marginAria(margin) : kind === 'cal' ? m.cal : m.prot;
   const emoji = kind === 'cal' ? '🔥' : '💪';
   const sub = !has
-    ? `<span class="nt-ring-sub dim">ללא יעד</span>`
+    ? `<span class="nt-ring-sub dim">${m.noTarget}</span>`
     : over
-      ? `<span class="nt-ring-sub over">+${value - target} מעל היעד</span>`
-      : `<span class="nt-ring-sub">נותרו ${target - value}</span>`;
+      ? `<span class="nt-ring-sub over">${m.over(value - target)}</span>`
+      : `<span class="nt-ring-sub">${m.left(target - value)}</span>`;
   const pctText = has ? `${Math.round((value / target) * 100)}%` : '';
-  const aria = has ? `${ariaLabel}: ${value} מתוך ${target}` : `${ariaLabel}: ${value}`;
+  const aria = has ? m.aria(ariaLabel, value, target) : m.ariaNoTarget(ariaLabel, value);
   return `
     <div class="nt-ring ${has ? 'has-target' : 'no-target'} ${over ? 'over' : ''} ${margin > 0 ? 'margin' : ''}" role="img" aria-label="${esc(aria)}">
       <svg viewBox="0 0 100 100" class="nt-ring-svg" aria-hidden="true">
@@ -239,31 +241,32 @@ function totalsCard(n: NutritionState, date: string, today: string): string {
   const g = n.targets;
   const noTargets = g.calories === null && g.protein === null;
   const protPct = g.protein !== null && g.protein > 0 ? Math.round((t.protein / g.protein) * 100) : null;
+  const m = tr(M).totals;
   const status =
     t.meals === 0
-      ? 'עוד לא תועדו ארוחות ביום הזה'
+      ? m.empty
       : closed
-        ? 'היום נסגר — הוא נספר בממוצע של ימים מלאים בגרף'
+        ? m.closed
         : noTargets
-        ? 'הגדירו יעדים יומיים למטה — והעיגולים יתמלאו לפי ההתקדמות'
+        ? m.noTargets
         : g.calories !== null && t.calories > g.calories
-          ? 'עברתם את יעד הקלוריות — שווה לבדוק מה אפשר להוריד מחר'
+          ? m.overCal
           : protPct !== null && protPct >= 100
-            ? 'יעד החלבון הושג 💪'
+            ? m.protDone
             : g.calories !== null && t.calories >= g.calories * 0.9
-              ? 'כמעט ביעד הקלוריות — עוד ארוחה קטנה ודי'
-              : 'ממשיכים לתעד — כל ארוחה נכנסת לעיגולים';
+              ? m.nearCal
+              : m.keepGoing;
   return `
   <section class="game-card nt-totals">
-    <div class="gc-title">סיכום ${date === today ? 'היום' : 'היום הזה'} <span class="gc-sub">${t.meals === 0 ? 'אין ארוחות' : `${t.meals} ארוחות`}</span>${
-      closed ? ` <span class="nt-closed-chip">✅ יום סגור</span>` : ''
+    <div class="gc-title">${m.title(date === today)} <span class="gc-sub">${t.meals === 0 ? m.noMeals : m.meals(t.meals)}</span>${
+      closed ? ` <span class="nt-closed-chip">${m.closedChip}</span>` : ''
     }</div>
     <div class="nt-rings">
       ${ringHtml('cal', t.calories, g.calories)}
       ${ringHtml('prot', t.protein, g.protein)}
     </div>
     <div class="nt-margins">
-      <p class="nt-margins-title">ואם ההערכות נמוכות מהמציאות? 🔥 הקלוריות בתוספת</p>
+      <p class="nt-margins-title">${m.marginsTitle}</p>
       <div class="nt-rings">
         ${SAFETY_MARGINS.map((m) => ringHtml('cal', withMargin(t.calories, m), g.calories, m)).join('')}
       </div>
@@ -271,8 +274,8 @@ function totalsCard(n: NutritionState, date: string, today: string): string {
     <p class="gc-note nt-status">${status}</p>
     ${
       t.meals > 0 && !closed
-        ? `<button class="action-btn ghost nt-close-btn" id="ntClose" type="button">✅ סגרתי את היום</button>
-    <p class="gc-note dim">סיימתם לרשום את כל מה שנאכל ביום הזה? סגירה מכניסה אותו לממוצע של ימים מלאים בגרף.</p>`
+        ? `<button class="action-btn ghost nt-close-btn" id="ntClose" type="button">${m.closeBtn}</button>
+    <p class="gc-note dim">${m.closeNote}</p>`
         : ''
     }
   </section>`;
@@ -282,7 +285,8 @@ function totalsCard(n: NutritionState, date: string, today: string): string {
 
 /** The estimate's byline, e.g. "🤖 הערכת Gemini · דיוק בינוני". */
 function aiByline(ai: MealAiInfo): string {
-  return `🤖 הערכת ${esc(ai.model === 'gemini' ? 'Gemini' : ai.model)} · דיוק ${CONFIDENCE_HE[ai.confidence]}`;
+  const m = tr(M);
+  return m.meal.aiByline(esc(ai.model === 'gemini' ? 'Gemini' : ai.model), m.confidence[ai.confidence]);
 }
 
 /**
@@ -296,7 +300,7 @@ function mealDetailsHtml(row: MealRow): string {
   if (row.source === 'catalog' && cat && cat.lines.length > 1) {
     return `
     <details class="nt-meal-more">
-      <summary class="nt-meal-sum"><span class="nt-caret" aria-hidden="true">▸</span>📋 מהקטלוג · ${cat.lines.length} רכיבים</summary>
+      <summary class="nt-meal-sum"><span class="nt-caret" aria-hidden="true">▸</span>${tr(M).meal.fromCatalogSum(cat.lines.length)}</summary>
       <ul class="nt-breakdown">${breakdownHtml(cat.lines)}</ul>
     </details>`;
   }
@@ -307,7 +311,7 @@ function mealDetailsHtml(row: MealRow): string {
       ? `<ul class="nt-breakdown">${breakdownHtml(ai.breakdown)}</ul>`
       : ai.items.length > 0
         ? `<p class="nt-items">${ai.items.map((it) => `<span class="nt-chip">${esc(it)}</span>`).join('')}</p>`
-        : `<p class="gc-note dim">ההערכה לא כללה פירוט מרכיבים.</p>`;
+        : `<p class="gc-note dim">${tr(M).meal.noBreakdown}</p>`;
   const why = ai.reason ? `<p class="gc-note nt-reason">${esc(ai.reason)}</p>` : '';
   return `
     <details class="nt-meal-more">
@@ -319,10 +323,12 @@ function mealDetailsHtml(row: MealRow): string {
 
 function mealRowHtml(row: MealRow, dayCalories: number, locked: boolean): string {
   const conf = row.ai ? ` conf-${row.ai.confidence}` : '';
+  const all = tr(M);
+  const m = all.meal;
   const mark = row.ai
-    ? `<span class="nt-ai${conf}" title="הוערך על ידי ${esc(row.ai.model)} · דיוק ${CONFIDENCE_HE[row.ai.confidence]}">🤖</span>`
+    ? `<span class="nt-ai${conf}" title="${m.aiTitle(esc(row.ai.model), all.confidence[row.ai.confidence])}">🤖</span>`
     : row.source === 'catalog'
-      ? `<span class="nt-ai" title="מהקטלוג — חושב לפי ערכים קבועים">📋</span>`
+      ? `<span class="nt-ai" title="${m.catalogTitle}">📋</span>`
       : '';
   const share = dayCalories > 0 ? Math.round((row.calories / dayCalories) * 100) : 0;
   return `
@@ -334,11 +340,11 @@ function mealRowHtml(row: MealRow, dayCalories: number, locked: boolean): string
       </div>
       <div class="nt-meal-nums">
         <span class="nt-num">🔥 ${row.calories}</span>
-        <span class="nt-num">💪 ${row.protein} ג׳</span>
-        ${locked ? '' : `<button class="nt-del" type="button" data-del="${esc(row.id)}" aria-label="מחיקת ${esc(row.name)}">🗑</button>`}
+        <span class="nt-num">${m.protein(row.protein)}</span>
+        ${locked ? '' : `<button class="nt-del" type="button" data-del="${esc(row.id)}" aria-label="${m.deleteAria(esc(row.name))}">🗑</button>`}
       </div>
     </div>
-    <div class="nt-share" title="${share}% מהקלוריות של היום" aria-hidden="true"><i style="width:${share}%"></i></div>
+    <div class="nt-share" title="${m.shareTitle(share)}" aria-hidden="true"><i style="width:${share}%"></i></div>
     ${mealDetailsHtml(row)}
   </li>`;
 }
@@ -359,15 +365,16 @@ function slotSectionHtml(
 ): string {
   const cal = rows.reduce((s, r) => s + r.calories, 0);
   const prot = rows.reduce((s, r) => s + r.protein, 0);
+  const m = tr(M).meal;
   const add =
     locked || key === 'none'
       ? ''
-      : `<button class="nt-slot-add" type="button" data-slot-add="${key}" aria-label="הוספה ל${esc(label)}">＋</button>`;
+      : `<button class="nt-slot-add" type="button" data-slot-add="${key}" aria-label="${m.slotAddAria(esc(label))}">＋</button>`;
   return `
   <div class="nt-slot ${rows.length === 0 ? 'empty' : ''}" data-slot-sec="${key}">
     <div class="nt-slot-head">
       <span class="nt-slot-name">${esc(label)}${window ? ` <span class="nt-slot-win dim">${window}</span>` : ''}</span>
-      ${rows.length > 0 ? `<span class="nt-slot-sum">🔥 ${cal} · 💪 ${prot} ג׳</span>` : ''}
+      ${rows.length > 0 ? `<span class="nt-slot-sum">${m.slotSum(cal, prot)}</span>` : ''}
       ${add}
     </div>
     ${rows.length > 0 ? `<ul class="nt-meals">${rows.map((r) => mealRowHtml(r, dayCalories, locked)).join('')}</ul>` : ''}
@@ -384,22 +391,22 @@ function mealsCard(n: NutritionState, date: string): string {
   const rows = mealsForDate(n, date);
   const total = rows.reduce((s, r) => s + r.calories, 0);
   const locked = isDayClosed(n, date);
+  const m = tr(M).meal;
   const sections = MEAL_SLOTS.map((def) => {
     const mine = rows.filter((r) => r.slot === def.key);
     if (locked && mine.length === 0) return '';
     const window = def.from && def.to ? `<bdi dir="ltr">${hourOf(def.from)}–${hourOf(def.to)}</bdi>` : '';
-    return slotSectionHtml(def.key, def.label, window, mine, total, locked);
+    return slotSectionHtml(def.key, slotLabel(def.key), window, mine, total, locked);
   }).join('');
   const loose = rows.filter((r) => !r.slot);
-  const legacy = loose.length > 0 ? slotSectionHtml('none', 'ללא שיוך', '', loose, total, locked) : '';
-  const empty =
-    rows.length === 0 ? `<p class="empty">לא תועדו ארוחות ביום הזה — לוחצים ＋ ליד ארוחה, או בוחרים למטה 👇</p>` : '';
+  const legacy = loose.length > 0 ? slotSectionHtml('none', m.unassigned, '', loose, total, locked) : '';
+  const empty = rows.length === 0 ? `<p class="empty">${m.empty}</p>` : '';
   const hasAi = rows.some((r) => r.ai);
   const hasCat = rows.some((r) => r.source === 'catalog');
-  const legend = [hasAi ? '🤖 = הערכת Gemini' : '', hasCat ? '📋 = מהקטלוג' : ''].filter(Boolean).join(' · ');
+  const legend = [hasAi ? m.legendAi : '', hasCat ? m.legendCatalog : ''].filter(Boolean).join(' · ');
   return `
   <section class="game-card nt-day-meals">
-    <div class="gc-title">הארוחות של היום${legend ? ` <span class="gc-sub">${legend}</span>` : ''}</div>
+    <div class="gc-title">${m.title}${legend ? ` <span class="gc-sub">${legend}</span>` : ''}</div>
     ${empty}
     ${sections}
     ${legacy}
@@ -409,33 +416,37 @@ function mealsCard(n: NutritionState, date: string): string {
 /* ------------------------------------------------------------ the add form */
 
 export type AddMode = 'catalog' | 'text';
+/** The Hebrew labels (kept for importers); the form reads the current locale's. */
 export const ADD_MODES: readonly { key: AddMode; label: string }[] = [
-  { key: 'catalog', label: '📋 מהקטלוג' },
-  { key: 'text', label: '✍️ תיאור / תמונה' },
+  { key: 'catalog', label: M.he.modes.catalog },
+  { key: 'text', label: M.he.modes.text },
 ] as const;
 
 function slotChipsHtml(slot: MealSlot | null): string {
-  return `<div class="nt-slot-pick" role="group" aria-label="לאיזו ארוחה">${MEAL_SLOTS.map(
+  return `<div class="nt-slot-pick" role="group" aria-label="${tr(M).form.slotAria}">${MEAL_SLOTS.map(
     (s) =>
       `<button class="nt-slot-chip ${s.key === slot ? 'active' : ''}" type="button" data-slot="${s.key}"
-        aria-pressed="${s.key === slot ? 'true' : 'false'}">${esc(s.short)}</button>`,
+        aria-pressed="${s.key === slot ? 'true' : 'false'}">${esc(slotShort(s.key))}</button>`,
   ).join('')}</div>`;
 }
 
 function optionsHtml(entries: readonly CatalogEntry[], picked: string): string {
   return entries
-    .map((e) => `<option value="${esc(e.id)}" ${e.id === picked ? 'selected' : ''}>${esc(e.name)}</option>`)
+    .map((e) => `<option value="${esc(e.id)}" ${e.id === picked ? 'selected' : ''}>${esc(entryName(e))}</option>`)
     .join('');
 }
 
 /** The pick's price, or why there is none — shown live under the quantity. */
 export function catalogPreviewHtml(id: string, unit: string, qtyRaw: string): string {
   const qty = parseQty(qtyRaw);
-  if (qty === null) return `<p class="gc-note nt-cat-bad">כמות לא תקינה — למשל 1, 0.5 או 1/2.</p>`;
-  const price = priceCatalog(id, unit, qty);
+  const m = tr(M).form;
+  if (qty === null) return `<p class="gc-note nt-cat-bad">${m.badQty}</p>`;
+  // Rendered live from the catalog, so the lines speak the reader's language
+  // (a logged pick stores the catalog's own names — see core/catalog.ts).
+  const price = priceCatalog(id, unit, qty, displayNames);
   if (!price) return '';
   const lines = price.lines.length > 1 ? `<ul class="nt-breakdown">${breakdownHtml(price.lines)}</ul>` : '';
-  return `<p class="nt-cat-total">🔥 <b>${price.calories}</b> קלוריות · 💪 <b>${price.protein}</b> ג׳ חלבון</p>${lines}`;
+  return `<p class="nt-cat-total">${m.preview(`<b>${price.calories}</b>`, `<b>${price.protein}</b>`)}</p>${lines}`;
 }
 
 /** The catalog pick: what, how much, when — priced live, in code. */
@@ -447,85 +458,88 @@ function catalogFormHtml(slot: MealSlot | null): string {
   const entry = catPick ? catalogEntry(catPick) : null;
   const units = entry ? unitsOf(entry) : [];
   if (!units.some((u) => u.id === catUnit)) catUnit = units[0]?.id ?? '';
+  const m = tr(M).form;
   const group = (label: string, list: readonly CatalogEntry[]): string =>
     list.length > 0 ? `<optgroup label="${esc(label)}">${optionsHtml(list, catPick)}</optgroup>` : '';
   const select = `
-    <label class="nt-field">מה אכלתם
+    <label class="nt-field">${m.whatAte}
       <select class="inp" id="ntCatItem">
-        <option value="">— בחרו מהרשימה —</option>
-        ${group('ארוחות קבועות', fits.filter((e) => e.kind === 'meal'))}
-        ${group('מאכלים', fits.filter((e) => e.kind === 'food'))}
-        ${group('שאר הקטלוג', rest)}
+        <option value="">${m.choose}</option>
+        ${group(m.groupMeals, fits.filter((e) => e.kind === 'meal'))}
+        ${group(m.groupFoods, fits.filter((e) => e.kind === 'food'))}
+        ${group(m.groupRest, rest)}
       </select>
     </label>
-    ${slot ? `<label class="nt-check"><input type="checkbox" id="ntCatAll" ${catAll ? 'checked' : ''}> הצגת כל הקטלוג, לא רק מה שמתאים לארוחה הזו</label>` : ''}`;
+    ${slot ? `<label class="nt-check"><input type="checkbox" id="ntCatAll" ${catAll ? 'checked' : ''}>${m.showAll}</label>` : ''}`;
   if (!entry) {
     return `${select}
-    <p class="gc-note dim">לא מוצאים ברשימה? עוברים ל״תיאור / תמונה״ — ההערכה מכירה את הקטלוג.</p>`;
+    <p class="gc-note dim">${m.notListed}</p>`;
   }
   const unitField =
     units.length > 1
       ? `<select class="inp" id="ntCatUnit">${units
-          .map((u) => `<option value="${esc(u.id)}" ${u.id === catUnit ? 'selected' : ''}>${esc(u.label)}</option>`)
+          .map((u) => `<option value="${esc(u.id)}" ${u.id === catUnit ? 'selected' : ''}>${esc(unitLabel(entry, u))}</option>`)
           .join('')}</select>`
-      : `<span class="inp nt-unit-fixed">${esc(units[0]?.label ?? '')}</span>`;
+      : `<span class="inp nt-unit-fixed">${esc(units[0] ? unitLabel(entry, units[0]) : '')}</span>`;
   return `${select}
     <div class="nt-field-row">
-      <label class="nt-field">כמות
+      <label class="nt-field">${m.qty}
         <input class="inp" id="ntCatQty" type="text" inputmode="decimal" autocomplete="off" value="${esc(catQty)}">
       </label>
-      <label class="nt-field">יחידה ${unitField}</label>
-      <label class="nt-field">שעה
+      <label class="nt-field">${m.unit} ${unitField}</label>
+      <label class="nt-field">${m.time}
         <input class="inp" id="ntTime" type="time" value="${esc(draft.time)}">
       </label>
     </div>
     <div class="nt-cat-preview" id="ntCatPreview" role="status">${catalogPreviewHtml(catPick, catUnit, catQty)}</div>
-    <button class="action-btn" id="ntCatAdd" type="button">הוספה</button>`;
+    <button class="action-btn" id="ntCatAdd" type="button">${m.add}</button>`;
 }
 
 /** Free text (and ✨ / 📷 when signed in) — for anything not in the catalog. */
 function textFormHtml(showAi: boolean): string {
+  const m = tr(M).form;
   const aiRow = showAi
     ? `
     <div class="nt-est-row">
-      <button class="action-btn" id="ntEst" type="button">✨ הערכה עם Gemini</button>
-      <button class="action-btn ghost" id="ntPhotoBtn" type="button" aria-label="צירוף תמונת ארוחה">📷</button>
+      <button class="action-btn" id="ntEst" type="button">${m.estimate}</button>
+      <button class="action-btn ghost" id="ntPhotoBtn" type="button" aria-label="${m.photoAria}">📷</button>
       <input type="file" id="ntPhoto" accept="image/*" hidden>
     </div>
-    <p class="gc-note" id="ntPhotoNote" hidden>📷 תמונה צורפה <button class="nt-photo-clear" id="ntPhotoClear" type="button">הסרה</button></p>
+    <p class="gc-note" id="ntPhotoNote" hidden>${m.photoAttached} <button class="nt-photo-clear" id="ntPhotoClear" type="button">${m.photoRemove}</button></p>
     <p class="gc-note" id="ntEstMsg" role="status"></p>
     <ul class="nt-breakdown" id="ntEstBreakdown" hidden></ul>`
     : '';
   return `
-    <label class="nt-field">תיאור הארוחה
+    <label class="nt-field">${m.describe}
       <textarea class="inp nt-textarea" id="ntName" rows="3" maxlength="300" autocomplete="off"
-        placeholder="למשל: טוסט עם 2 פרוסות גבינה צהובה וקופסת טונה אחת — ככל שהתיאור מפורט יותר (כמויות, אופן הכנה), ההערכה מדויקת יותר">${esc(draft.name)}</textarea>
+        placeholder="${esc(m.describePlaceholder)}">${esc(draft.name)}</textarea>
     </label>
     ${aiRow}
     <div class="nt-field-row">
-      <label class="nt-field">קלוריות
+      <label class="nt-field">${m.calories}
         <input class="inp" id="ntCal" type="text" inputmode="numeric" autocomplete="off" placeholder="0" value="${esc(draft.cal)}">
       </label>
-      <label class="nt-field">חלבון (גרם)
+      <label class="nt-field">${m.protein}
         <input class="inp" id="ntProt" type="text" inputmode="numeric" autocomplete="off" placeholder="0" value="${esc(draft.prot)}">
       </label>
-      <label class="nt-field">שעה
+      <label class="nt-field">${m.time}
         <input class="inp" id="ntTime" type="time" value="${esc(draft.time)}">
       </label>
     </div>
-    <button class="action-btn" id="ntAdd" type="button">הוספה</button>`;
+    <button class="action-btn" id="ntAdd" type="button">${m.add}</button>`;
 }
 
 function addCard(showAi: boolean, date: string, today: string, slot: MealSlot | null): string {
   // On a past day the card says WHERE the meal will land — a forgotten dinner
   // is logged onto yesterday, not silently onto today.
-  const dayNote = date === today ? '' : ` <span class="gc-sub">ליום ${esc(fmtDate(date))}</span>`;
+  const m = tr(M);
+  const dayNote = date === today ? '' : ` <span class="gc-sub">${m.form.forDay(esc(fmtDate(date)))}</span>`;
   return `
   <section class="game-card nt-add" id="ntAddCard">
-    <div class="gc-title">הוספה${dayNote}</div>
+    <div class="gc-title">${m.form.title}${dayNote}</div>
     ${slotChipsHtml(slot)}
-    ${slot ? '' : `<p class="gc-note nt-slot-need">לאיזו ארוחה להוסיף? בוחרים למעלה.</p>`}
-    ${seg(ADD_MODES, addMode, 'mode', 'איך לרשום')}
+    ${slot ? '' : `<p class="gc-note nt-slot-need">${m.form.needSlot}</p>`}
+    ${seg(ADD_MODES.map((it) => ({ key: it.key, label: m.modes[it.key] })), addMode, 'mode', m.form.modeAria)}
     ${addMode === 'catalog' ? catalogFormHtml(slot) : textFormHtml(showAi)}
     <p class="gc-note" id="ntAddMsg" role="status"></p>
   </section>`;
@@ -536,11 +550,12 @@ function addCard(showAi: boolean, date: string, today: string, slot: MealSlot | 
  * added or deleted until it is reopened — then it can be closed again.
  */
 function closedCard(date: string, today: string): string {
+  const m = tr(M).closedCard;
   return `
   <section class="game-card nt-closed">
-    <div class="gc-title">✅ ${date === today ? 'היום' : 'היום הזה'} סגור</div>
-    <p class="gc-note">סימנתם שהרישום של היום הזה מלא, אז הוספה ומחיקה של ארוחות נעולות. צריך לשנות משהו? פותחים את היום, מעדכנים וסוגרים שוב.</p>
-    <button class="action-btn" id="ntReopen" type="button">🔓 פתיחה להוספה</button>
+    <div class="gc-title">${m.title(date === today)}</div>
+    <p class="gc-note">${m.note}</p>
+    <button class="action-btn" id="ntReopen" type="button">${m.reopen}</button>
   </section>`;
 }
 
@@ -549,23 +564,24 @@ function closedCard(date: string, today: string): string {
 /** How many days the intake chart shows, and which number. */
 export type IntakeRange = 7 | 14 | 30;
 export type IntakeMetric = 'calories' | 'protein';
+/* The Hebrew labels below are kept for importers; the card reads the current locale's (`chartSegs`). */
 export const INTAKE_RANGES: readonly { key: IntakeRange; label: string }[] = [
-  { key: 7, label: 'שבוע' },
-  { key: 14, label: 'שבועיים' },
-  { key: 30, label: 'חודש' },
+  { key: 7, label: M.he.chart.ranges[7] },
+  { key: 14, label: M.he.chart.ranges[14] },
+  { key: 30, label: M.he.chart.ranges[30] },
 ] as const;
 export const INTAKE_METRICS: readonly { key: IntakeMetric; label: string }[] = [
-  { key: 'calories', label: '🔥 קלוריות' },
-  { key: 'protein', label: '💪 חלבון' },
+  { key: 'calories', label: M.he.chart.metrics.calories },
+  { key: 'protein', label: M.he.chart.metrics.protein },
 ] as const;
 /** Every logged day, or only the days the user closed as complete. */
 export type IntakeDays = 'all' | 'closed';
 export const INTAKE_DAYS: readonly { key: IntakeDays; label: string }[] = [
-  { key: 'all', label: 'כל הימים' },
-  { key: 'closed', label: '✅ רק ימים סגורים' },
+  { key: 'all', label: M.he.chart.days.all },
+  { key: 'closed', label: M.he.chart.days.closed },
 ] as const;
 export const INTAKE_MARGINS: readonly { key: SafetyMargin; label: string }[] = [
-  { key: 0, label: 'כפי שנרשם' },
+  { key: 0, label: M.he.chart.asLogged },
   ...SAFETY_MARGINS.map((m) => ({ key: m, label: `<bdi dir="ltr">+${m}%</bdi>` })),
 ];
 
@@ -574,7 +590,7 @@ const CHART_H = 150;
 const PAD_X = 8;
 const PAD_TOP = 16;
 const PAD_BOTTOM = 18;
-/** The right-hand gutter for the y labels — a Hebrew line starts there. */
+/** The gutter for the y labels, where a line starts: the right in Hebrew, the left in English. */
 const LABEL_W = 36;
 
 /** A "nice" ceiling for the y axis: the top of the data (or a line) plus air, rounded up. */
@@ -609,8 +625,10 @@ export function intakeChartSvg(
   const val = (d: DaySummary): number => (metric === 'calories' ? d.calories : d.protein);
   const dataMax = days.reduce((m, d) => Math.max(m, val(d)), 0);
   const top = niceCeiling(Math.max(dataMax, average ?? 0, target ?? 0));
-  const plotLeft = PAD_X;
-  const plotRight = CHART_W - LABEL_W - PAD_X;
+  const rtl = isRtl();
+  const m = tr(M).chart;
+  const plotLeft = rtl ? PAD_X : LABEL_W + PAD_X;
+  const plotRight = rtl ? CHART_W - LABEL_W - PAD_X : CHART_W - PAD_X;
   const plotW = plotRight - plotLeft;
   const plotH = CHART_H - PAD_TOP - PAD_BOTTOM;
   const baseline = PAD_TOP + plotH;
@@ -618,16 +636,21 @@ export function intakeChartSvg(
   const barW = Math.max(3, Math.min(22, Math.round(slot * 0.62 * 10) / 10));
   const gap = (slot - barW) / 2;
   const r = Math.min(4, barW / 2);
-  const cx = (i: number): number => Math.round((plotRight - i * slot - slot / 2) * 10) / 10;
+  // i = 0 (the oldest day) sits at the reading start: the right in Hebrew, the left in English.
+  const cx = (i: number): number =>
+    rtl
+      ? Math.round((plotRight - i * slot - slot / 2) * 10) / 10
+      : Math.round((plotLeft + i * slot + slot / 2) * 10) / 10;
   const y = (v: number): number => Math.round((PAD_TOP + (1 - v / top) * plotH) * 10) / 10;
   const round1 = (v: number): number => Math.round(v * 10) / 10;
-  const unit = metric === 'calories' ? 'קלוריות' : 'ג׳ חלבון';
+  const unit = metric === 'calories' ? m.unitCal : m.unitProtLong;
+  const ylabX = rtl ? plotRight + LABEL_W / 2 + PAD_X / 2 : plotLeft - LABEL_W / 2 - PAD_X / 2;
 
   const grid = [top, top / 2]
     .map(
       (v) =>
         `<line class="nt-grid" x1="${plotLeft}" y1="${y(v)}" x2="${plotRight}" y2="${y(v)}"/>` +
-        `<text class="nt-ylab" x="${plotRight + LABEL_W / 2 + PAD_X / 2}" y="${y(v) + 3}" text-anchor="middle">${Math.round(v)}</text>`,
+        `<text class="nt-ylab" x="${ylabX}" y="${y(v) + 3}" text-anchor="middle">${Math.round(v)}</text>`,
     )
     .join('') + `<line class="nt-grid base" x1="${plotLeft}" y1="${baseline}" x2="${plotRight}" y2="${baseline}"/>`;
 
@@ -644,7 +667,7 @@ export function intakeChartSvg(
         ? `<text class="nt-xlab ${d.date === today ? 'today' : ''}" x="${cx(i)}" y="${CHART_H - 4}" text-anchor="middle">${dom}</text>`
         : '';
       if (d.meals === 0 || (closedOnly && !d.closed)) {
-        const why = d.meals === 0 ? 'לא תועד' : 'לא נסגר';
+        const why = d.meals === 0 ? m.notTracked : m.notClosed;
         return (
           `<rect class="nt-tick${d.meals === 0 ? '' : ' open'}" x="${left}" y="${baseline - 1.5}" width="${barW}" height="3" rx="1.5"/>` +
           `<rect class="nt-hit" x="${round1(left - gap)}" y="${PAD_TOP}" width="${round1(slot)}" height="${plotH + PAD_BOTTOM}">` +
@@ -662,7 +685,7 @@ export function intakeChartSvg(
       return (
         `<path class="${cls}" d="${path}"/>${direct}` +
         `<rect class="nt-hit" x="${round1(left - gap)}" y="${PAD_TOP}" width="${round1(slot)}" height="${plotH + PAD_BOTTOM}">` +
-        `<title>${esc(fmtDate(d.date))} · ${v} ${unit} · ${d.meals} ארוחות${d.closed ? ' · סגור' : ''}</title></rect>${xlab}`
+        `<title>${esc(m.barTitle(fmtDate(d.date), v, unit, d.meals, d.closed))}</title></rect>${xlab}`
       );
     })
     .join('');
@@ -677,7 +700,7 @@ export function intakeChartSvg(
       : '';
 
   return `<svg class="chart nt-chart" viewBox="0 0 ${CHART_W} ${CHART_H}" role="img"
-    aria-label="${unit} ב־${n} הימים האחרונים${average !== null ? `, ממוצע ${average}` : ''}">
+    aria-label="${esc(m.aria(unit, n, average))}">
     ${grid}
     ${goalLine}
     ${bars}
@@ -710,73 +733,71 @@ function chartCard(n: NutritionState, today: string): string {
   const stats = intakeStats(days, closedOnly);
   const average = chartMetric === 'calories' ? stats.avgCalories : stats.avgProtein;
   const target = chartMetric === 'calories' ? n.targets.calories : n.targets.protein;
-  const unit = chartMetric === 'calories' ? 'קלוריות' : 'ג׳';
+  const m = tr(M).chart;
+  const unit = chartMetric === 'calories' ? m.unitCal : m.unitProt;
   const lens = margin > 0 ? ` <bdi dir="ltr">+${margin}%</bdi>` : '';
   const anyOpen = !closedOnly && days.some((d) => d.meals > 0 && !d.closed);
   const gap =
     average !== null && target !== null && target > 0
       ? average > target
-        ? ` <span class="nt-gap over">(${average - target} מעל היעד)</span>`
-        : ` <span class="nt-gap">(${target - average} מתחת ליעד)</span>`
+        ? ` <span class="nt-gap over">${m.over(average - target)}</span>`
+        : ` <span class="nt-gap">${m.under(target - average)}</span>`
       : '';
   const legend =
     stats.tracked === 0
       ? closedOnly
-        ? `<p class="empty nt-chart-empty">עוד אין ימים סגורים בטווח הזה — סוגרים יום בכפתור ✅ שבסיכום היומי</p>`
-        : `<p class="empty nt-chart-empty">עוד אין ימים עם רישום בטווח הזה — הגרף מתחיל מהארוחה הראשונה</p>`
+        ? `<p class="empty nt-chart-empty">${m.emptyClosed}</p>`
+        : `<p class="empty nt-chart-empty">${m.empty}</p>`
       : `<div class="chart-legend">
-      <span class="cl-item"><i class="dot"></i>צריכה יומית${lens}</span>
-      ${anyOpen ? `<span class="cl-item"><i class="dot open"></i>יום שלא נסגר</span>` : ''}
-      <span class="cl-item"><i class="dot trend"></i>ממוצע${lens} <b>${average ?? 0} ${unit}</b>${gap} <span class="dim">(${stats.tracked} ${closedOnly ? 'ימים סגורים' : 'ימים עם רישום'})</span></span>
-      ${target !== null ? `<span class="cl-item"><i class="dot goal"></i>יעד <b>${target} ${unit}</b></span>` : ''}
+      <span class="cl-item"><i class="dot"></i>${m.daily}${lens}</span>
+      ${anyOpen ? `<span class="cl-item"><i class="dot open"></i>${m.openDay}</span>` : ''}
+      <span class="cl-item"><i class="dot trend"></i>${m.avg}${lens} <b>${average ?? 0} ${unit}</b>${gap} <span class="dim">(${stats.tracked} ${closedOnly ? m.trackedClosed : m.tracked})</span></span>
+      ${target !== null ? `<span class="cl-item"><i class="dot goal"></i>${m.goal} <b>${target} ${unit}</b></span>` : ''}
     </div>`;
+  const named = <K extends string | number>(
+    items: readonly { key: K; label: string }[],
+    labels: Readonly<Record<K, string>>,
+  ): { key: K; label: string }[] => items.map((it) => ({ key: it.key, label: labels[it.key] }));
+  const margins = INTAKE_MARGINS.map((it) => (it.key === 0 ? { key: it.key, label: m.asLogged } : it));
   return `
   <section class="game-card nt-chart-card">
-    <div class="gc-title">📊 הצריכה לאורך זמן <span class="gc-sub">${chartRange} ימים אחרונים</span></div>
-    ${seg(INTAKE_METRICS, chartMetric, 'metric', 'מה להציג')}
-    ${seg(INTAKE_RANGES, chartRange, 'range', 'טווח הגרף')}
-    ${seg(INTAKE_DAYS, chartDays, 'days', 'אילו ימים')}
-    ${chartMetric === 'calories' ? seg(INTAKE_MARGINS, chartMargin, 'margin', 'תוספת להערכת חסר') : ''}
+    <div class="gc-title">${m.title} <span class="gc-sub">${m.sub(chartRange)}</span></div>
+    ${seg(named(INTAKE_METRICS, m.metrics), chartMetric, 'metric', m.metricAria)}
+    ${seg(named(INTAKE_RANGES, m.ranges), chartRange, 'range', m.rangeAria)}
+    ${seg(named(INTAKE_DAYS, m.days), chartDays, 'days', m.daysAria)}
+    ${chartMetric === 'calories' ? seg(margins, chartMargin, 'margin', m.marginAria) : ''}
     ${intakeChartSvg(days, chartMetric, average, target, today, closedOnly)}
     ${legend}
-    <p class="gc-note dim">הזמן זורם מימין לשמאל — היום בקצה השמאלי. יום בלי רישום נשאר ריק ולא נספר בממוצע.${
-      closedOnly ? ' ימים שלא נסגרו מוסתרים ולא נספרים.' : ' עמודה חלולה = יום שעוד לא נסגר.'
-    }</p>
+    <p class="gc-note dim">${m.note}${closedOnly ? m.noteClosed : m.noteOpen}</p>
   </section>`;
 }
 
 /* ------------------------------------------------------------ the targets */
 
 function targetsCard(targets: NutritionTargets): string {
+  const m = tr(M).targets;
   return `
   <section class="game-card nt-targets">
-    <div class="gc-title">יעדים יומיים <span class="gc-sub">לא חובה</span></div>
+    <div class="gc-title">${m.title} <span class="gc-sub">${m.optional}</span></div>
     <div class="nt-field-row">
-      <label class="nt-field">קלוריות ליום
+      <label class="nt-field">${m.cal}
         <input class="inp" id="ntTgtCal" type="text" inputmode="numeric" autocomplete="off"
           value="${targets.calories ?? ''}" placeholder="—">
       </label>
-      <label class="nt-field">חלבון ליום (גרם)
+      <label class="nt-field">${m.prot}
         <input class="inp" id="ntTgtProt" type="text" inputmode="numeric" autocomplete="off"
           value="${targets.protein ?? ''}" placeholder="—">
       </label>
     </div>
-    <button class="action-btn" id="ntTgtSave" type="button">שמירת יעדים</button>
+    <button class="action-btn" id="ntTgtSave" type="button">${m.save}</button>
     <p class="gc-note" id="ntTgtMsg" role="status"></p>
   </section>`;
 }
 
 /* ---------------------------------------------------------- the reminders */
 
-/** One Hebrew line per state of the 🔔 subscription on this device. */
-export const PUSH_STATE_HE: Readonly<Record<PushResult, string>> = {
-  unsupported: 'הדפדפן הזה לא תומך בהתראות. באנדרואיד: פותחים ב־Chrome ומוסיפים את האפליקציה למסך הבית.',
-  signed_out: 'כדי לקבל תזכורות צריך להתחבר לחשבון (במסך ההגדרות).',
-  denied: 'ההתראות חסומות לאפליקציה הזו. מאפשרים אותן בהגדרות האתר בדפדפן, וחוזרים לכאן.',
-  off: 'כבויות במכשיר הזה.',
-  on: 'פעילות במכשיר הזה ✅',
-  failed: 'לא הצלחנו לשמור את ההרשמה בשרת — נסו שוב.',
-};
+/** One Hebrew line per state of the 🔔 subscription on this device (kept for importers). */
+export const PUSH_STATE_HE: Readonly<Record<PushResult, string>> = M.he.pushState;
 
 /**
  * The 🔔 card: what the reminders do, and one button that turns them on or
@@ -787,21 +808,23 @@ function remindersCard(): string {
   const starts = MEAL_SLOTS.filter((s) => s.from !== null)
     .map((s) => `<bdi dir="ltr">${hourOf(s.from ?? '')}</bdi>`)
     .join(', ');
+  const m = tr(M).remind;
   return `
   <section class="game-card nt-remind">
-    <div class="gc-title">🔔 תזכורות לארוחות</div>
-    <p class="gc-note">התראה בתחילת כל חלון ארוחה (${starts}), עם הצעה מהתפריט. אם כבר רשמתם משהו באותה ארוחה, התזכורת מדלגת.</p>
-    <p class="gc-note nt-remind-state" id="ntRemindState" role="status">בודק…</p>
+    <div class="gc-title">${m.title}</div>
+    <p class="gc-note">${m.note(starts)}</p>
+    <p class="gc-note nt-remind-state" id="ntRemindState" role="status">${m.checking}</p>
     <button class="action-btn" id="ntRemindBtn" type="button" hidden></button>
   </section>`;
 }
 
 function dayNav(date: string, today: string): string {
+  const m = tr(M).nav;
   return `
   <div class="nt-daynav">
-    <button class="action-btn ghost" id="ntPrev" type="button">→ יום אחורה</button>
-    <span class="nt-date"><b>${date === today ? 'היום' : esc(fmtDate(date))}</b></span>
-    <button class="action-btn ghost" id="ntNext" type="button" ${date === today ? 'disabled' : ''}>יום קדימה ←</button>
+    <button class="action-btn ghost" id="ntPrev" type="button">${m.prev}</button>
+    <span class="nt-date"><b>${date === today ? m.today : esc(fmtDate(date))}</b></span>
+    <button class="action-btn ghost" id="ntNext" type="button" ${date === today ? 'disabled' : ''}>${m.next}</button>
   </div>`;
 }
 
@@ -918,12 +941,12 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
   /* ---- close / reopen the day ---- */
   main.querySelector<HTMLButtonElement>('#ntClose')?.addEventListener('click', () => {
     if (!setDayClosed(deps.store, date, true)) return;
-    toast('היום נסגר ✅');
+    toast(tr(M).msg.closed);
     again();
   });
   main.querySelector<HTMLButtonElement>('#ntReopen')?.addEventListener('click', () => {
     setDayClosed(deps.store, date, false);
-    toast('היום נפתח להוספה');
+    toast(tr(M).msg.reopened);
     again();
   });
 
@@ -932,7 +955,7 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
     btn.addEventListener('click', () => {
       const id = btn.dataset['del'];
       if (!id) return;
-      if (!confirm('למחוק את הארוחה? הרישום יוסר מהסיכום היומי.')) return;
+      if (!confirm(tr(M).msg.confirmDelete)) return;
       deleteMeal(deps.store, id);
       again();
     });
@@ -954,7 +977,7 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
   };
   const needSlot = (): boolean => {
     if (slot) return false;
-    if (addMsg) addMsg.textContent = 'בחרו קודם לאיזו ארוחה להוסיף.';
+    if (addMsg) addMsg.textContent = tr(M).msg.needSlot;
     return true;
   };
 
@@ -1009,7 +1032,7 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
     if (needSlot() || !slot) return;
     const qty = parseQty(catQty);
     if (qty === null) {
-      if (addMsg) addMsg.textContent = 'כמות לא תקינה — למשל 1, 0.5 או 1/2.';
+      if (addMsg) addMsg.textContent = tr(M).form.badQty;
       return;
     }
     const input = catalogMealInput({
@@ -1022,12 +1045,12 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
     });
     const ev = input ? logMeal(deps.store, input, crypto.randomUUID()) : null;
     if (!ev) {
-      if (addMsg) addMsg.textContent = 'לא הצלחנו לרשום — בדקו את הבחירה.';
+      if (addMsg) addMsg.textContent = tr(M).msg.pickFailed;
       return;
     }
     resetPick();
     clearDraft();
-    toast('נרשם 📋');
+    toast(tr(M).msg.pickLogged);
     again();
   });
 
@@ -1038,11 +1061,11 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
     const protein = intOf(protInp, MEAL_MAX_PROTEIN);
     if (needSlot() || !slot) return;
     if (!name) {
-      if (addMsg) addMsg.textContent = 'לארוחה צריך תיאור — גם מילה אחת מספיקה.';
+      if (addMsg) addMsg.textContent = tr(M).msg.needName;
       return;
     }
     if (calories === null || protein === null) {
-      if (addMsg) addMsg.textContent = 'קלוריות וחלבון צריכים להיות מספרים.';
+      if (addMsg) addMsg.textContent = tr(M).msg.needNumbers;
       return;
     }
     // The estimate's byline survives only while its numbers do.
@@ -1071,13 +1094,13 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
     };
     const ev = logMeal(deps.store, input, crypto.randomUUID());
     if (!ev) {
-      if (addMsg) addMsg.textContent = 'לא הצלחנו לרשום את הארוחה — בדקו את הפרטים.';
+      if (addMsg) addMsg.textContent = tr(M).msg.mealFailed;
       return;
     }
     lastEstimate = null;
     photo = null;
     clearDraft();
-    toast('הארוחה נרשמה 🍽️');
+    toast(tr(M).msg.mealLogged);
     again();
   });
 
@@ -1088,18 +1111,18 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
   if (push && remindState && remindBtn) {
     let on = false;
     const show = (st: PushResult): void => {
-      remindState.textContent = PUSH_STATE_HE[st];
+      remindState.textContent = tr(M).pushState[st];
       on = st === 'on';
       const actionable = st === 'on' || st === 'off' || st === 'failed';
       remindBtn.hidden = !actionable;
       remindBtn.disabled = false;
-      remindBtn.textContent = on ? 'כיבוי תזכורות' : 'הפעלת תזכורות';
+      remindBtn.textContent = on ? tr(M).remind.turnOff : tr(M).remind.turnOn;
       remindBtn.classList.toggle('ghost', on);
     };
     void push.status().then(show, () => show('failed'));
     remindBtn.addEventListener('click', () => {
       remindBtn.disabled = true;
-      remindState.textContent = on ? 'מכבה…' : 'מפעיל…';
+      remindState.textContent = on ? tr(M).remind.turningOff : tr(M).remind.turningOn;
       void (on ? push.disable() : push.enable()).then(show, () => show('failed'));
     });
   }
@@ -1112,14 +1135,14 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
     const cal = calRaw === '' ? null : Number(calRaw);
     const prot = protRaw === '' ? null : Number(protRaw);
     if ((cal !== null && (!Number.isFinite(cal) || cal < 0)) || (prot !== null && (!Number.isFinite(prot) || prot < 0))) {
-      if (tgtMsg) tgtMsg.textContent = 'היעדים צריכים להיות מספרים (או ריקים).';
+      if (tgtMsg) tgtMsg.textContent = tr(M).msg.badTargets;
       return;
     }
     setTargets(deps.store, {
       calories: cal === null ? null : Math.floor(cal),
       protein: prot === null ? null : Math.floor(prot),
     });
-    toast('היעדים נשמרו');
+    toast(tr(M).msg.targetsSaved);
     again();
   });
 
@@ -1151,7 +1174,7 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
         showPhotoNote();
       })
       .catch(() => {
-        if (estMsg) estMsg.textContent = 'לא הצלחנו לקרוא את התמונה — נסו תמונה אחרת.';
+        if (estMsg) estMsg.textContent = tr(M).msg.photoFailed;
       });
   });
 
@@ -1159,12 +1182,12 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
     estBtn.addEventListener('click', () => {
       const text = (nameInp?.value ?? '').trim();
       if (!text && !photo) {
-        if (estMsg) estMsg.textContent = 'כתבו תיאור קצר או צרפו תמונה — ואז ✨.';
+        if (estMsg) estMsg.textContent = tr(M).msg.needInput;
         return;
       }
       estBtn.disabled = true;
       const label = estBtn.textContent;
-      estBtn.textContent = 'מעריך…';
+      estBtn.textContent = tr(M).msg.estimating;
       if (estMsg) estMsg.textContent = '';
       if (breakdown) {
         breakdown.hidden = true;
@@ -1174,7 +1197,7 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
         .estimate({ text, ...(photo ? { photo } : {}), catalog: catalogHints() })
         .then((result) => {
           if (!result.ok) {
-            if (estMsg) estMsg.textContent = ESTIMATE_ERROR_HE[result.error];
+            if (estMsg) estMsg.textContent = tr(M).estimateError[result.error];
             return;
           }
           const est = result.estimate;
@@ -1186,11 +1209,12 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
           draft.prot = String(est.proteinG);
           if (estMsg) {
             const names = est.items.map(itemLabel);
-            const found = names.length > 0 ? `נמצא: ${names.join(', ')} · ` : '';
+            const m = tr(M);
+            const found = names.length > 0 ? m.msg.found(names.join(', ')) : '';
             // Anything short of high confidence says WHY, so the user knows what
             // to add to the description (a quantity, a preparation) and retry.
             const why = est.confidence !== 'high' && est.reason ? ` (${est.reason})` : '';
-            estMsg.textContent = `${found}דיוק ${CONFIDENCE_HE[est.confidence]}${why} — אפשר לתקן לפני ההוספה.`;
+            estMsg.textContent = m.msg.estimated(found, m.confidence[est.confidence], why);
           }
           // The breakdown IS the number: one line per ingredient, so the user
           // can see where the total came from and which line to pin down.
