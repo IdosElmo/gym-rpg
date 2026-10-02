@@ -113,10 +113,23 @@ function exactOf(food: CatalogFood, unit: FoodUnit, qty: number): Exact {
   return { grams, kcal: (grams * food.kcal100) / 100, protein: (grams * food.protein100) / 100 };
 }
 
-function lineOf(food: CatalogFood, unit: FoodUnit, qty: number, e: Exact): MealAiItem {
+/**
+ * The names a priced line carries. The default is the catalog's own (Hebrew)
+ * text — what a logged pick freezes into its payload. A screen that renders a
+ * price LIVE from the catalog may pass the reader's language instead
+ * (i18n/foodText.ts); this module never reads the locale itself.
+ */
+export interface CatalogNames {
+  food: (food: CatalogFood) => string;
+  unit: (food: CatalogFood, unit: FoodUnit) => string;
+}
+
+const STORED_NAMES: CatalogNames = { food: (f) => f.name, unit: (_f, u) => u.label };
+
+function lineOf(food: CatalogFood, unit: FoodUnit, qty: number, e: Exact, names: CatalogNames): MealAiItem {
   return {
-    name: food.name,
-    quantity: `${fmtQty(qty)} ${unit.label}`,
+    name: names.food(food),
+    quantity: `${fmtQty(qty)} ${names.unit(food, unit)}`,
     grams: Math.round(e.grams),
     kcal: Math.round(e.kcal),
     proteinG: Math.round(e.protein),
@@ -129,7 +142,12 @@ function lineOf(food: CatalogFood, unit: FoodUnit, qty: number, e: Exact): MealA
  * or a bad quantity. Totals are rounded ONCE, from the exact sums — not the
  * sum of the rounded lines.
  */
-export function priceCatalog(id: string, unitId: string, qty: number): CatalogPrice | null {
+export function priceCatalog(
+  id: string,
+  unitId: string,
+  qty: number,
+  names: CatalogNames = STORED_NAMES,
+): CatalogPrice | null {
   const entry = catalogEntry(id);
   if (!entry || !Number.isFinite(qty) || qty <= 0 || qty > CATALOG_MAX_QTY) return null;
   const parts: { food: CatalogFood; unit: FoodUnit; qty: number }[] = [];
@@ -153,7 +171,7 @@ export function priceCatalog(id: string, unitId: string, qty: number): CatalogPr
     const e = exactOf(p.food, p.unit, p.qty);
     kcal += e.kcal;
     protein += e.protein;
-    lines.push(lineOf(p.food, p.unit, p.qty, e));
+    lines.push(lineOf(p.food, p.unit, p.qty, e, names));
   }
   return { calories: Math.round(kcal), protein: Math.round(protein), lines };
 }
