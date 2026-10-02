@@ -45,6 +45,8 @@
 
 import { demoFor, type DemoVariant } from '../data/exercisePoses.ts';
 import { esc } from './dom.ts';
+import { locale, tr } from '../i18n/locale.ts';
+import { DEMO_CAPTION_EN, workout as W } from '../i18n/messages/workout.ts';
 import {
   ease,
   figureSvg,
@@ -60,7 +62,7 @@ import {
 const FRAME_MS = 1000 / 30;
 
 export interface DemoOptions {
-  /** Accessible name; defaults to a generic Hebrew one. */
+  /** Accessible name; defaults to a generic one in the reader's language. */
   readonly label?: string;
   /** Force the still (tests, and any caller that knows better). */
   readonly still?: boolean;
@@ -129,15 +131,25 @@ export function demoSvg(demo: DemoVariant, pose: Pose, label: string): string {
 }
 
 /**
+ * A variant's caption in the reader's language. The data keeps the Hebrew
+ * caption (the pose tests pin it); English looks it up, and shows the Hebrew
+ * one only for a caption the map does not know yet.
+ */
+export function captionText(caption: string): string {
+  return locale() === 'en' ? (DEMO_CAPTION_EN[caption] ?? caption) : caption;
+}
+
+/**
  * One stage: the picture, and — only when there is more than one — the little
- * Hebrew caption that says WHICH way of doing it this one is.
+ * caption that says WHICH way of doing it this one is.
  */
 export function stageHtml(v: DemoVariant, label: string): string {
-  const name = v.caption ? `${label} · ${v.caption}` : label;
+  const cap = v.caption ? captionText(v.caption) : '';
+  const name = cap ? `${label} · ${cap}` : label;
   return (
     `<div class="cd-stage">` +
     demoSvg(v, stillPose(v), name) +
-    (v.caption ? `<p class="cd-cap">${esc(v.caption)}</p>` : '') +
+    (cap ? `<p class="cd-cap">${esc(cap)}</p>` : '') +
     `</div>`
   );
 }
@@ -169,7 +181,7 @@ export function mountExerciseDemo(host: HTMLElement, exId: string, opts: DemoOpt
   const el = document.createElement('div');
   el.className = variants.length > 1 ? 'ex-demo ex-demo-pair' : 'ex-demo';
   el.dataset['demo'] = demo.id;
-  const label = opts.label ?? 'הדגמת ביצוע';
+  const label = opts.label ?? tr(W).demo.label;
   const still = opts.still === true || !canAnimate();
   el.innerHTML = variants.map((v) => stageHtml(v, label)).join('');
   host.appendChild(el);

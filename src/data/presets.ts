@@ -18,16 +18,30 @@
  * The rows point at BUILT-IN exercise ids only (`data/program.ts`, program +
  * library), so a preset carries no custom exercises and inherits every future
  * improvement to the coaching copy.
+ *
+ * LANGUAGE. A preset's name and description are presentation, read from the
+ * catalog (`i18n/messages/plan.ts`) every time the picker draws them. The day
+ * LABELS a preset builds are different: they become the user's plan the moment
+ * it is saved, so they are built in the language on screen at the time of the
+ * pick and are user content from then on (Hebrew is byte-identical to what
+ * this file always built). The rep schemes stay the program's own Hebrew
+ * words, like every built-in row: `repsText` renders them in either language,
+ * so they keep translating after a later language switch. `builtin3` builds
+ * `defaultPlanDoc` untouched — the original plan, whose built-in day names are
+ * localized on display (`displayDayLabel`) — so picking it still IS the
+ * original plan.
  */
 
 import { defaultPlanDoc, deriveWeeklyTarget, makePlanDay, newDayKey } from '../core/plan.ts';
 import { PLAN_DOC_VERSION, type PlanDay, type PlanDoc, type PlanExercise } from './planTypes.ts';
+import { tr } from '../i18n/locale.ts';
+import { plan as P } from '../i18n/messages/plan.ts';
 
 /** One entry of the "תוכניות מוכנות" sheet. */
 export interface PlanPreset {
   /** Stable id — what the picker's button carries. */
   readonly id: string;
-  /** Hebrew name shown in the sheet. */
+  /** Name shown in the sheet, in the reader's language. */
   readonly name: string;
   /** One line: who it is for and how it is trained. */
   readonly description: string;
@@ -72,8 +86,9 @@ function docOf(days: PlanDay[]): PlanDoc {
  * exists to express.
  */
 function abFourDays(): PlanDoc {
+  const L = tr(P).preset.ab4;
   return docOf([
-    day('אימון A — רגליים, דחיפה ודקומפרסיה', [0, 3], [
+    day(L.dayA, [0, 3], [
       row('x11', 3, '8–10', COMPOUND_REST), // סקוואט גובלט
       row('c2', 3, '8–10', COMPOUND_REST), // דדליפט רומני
       row('x12', 3, '8–10', COMPOUND_REST), // לחיצת חזה עם משקולות
@@ -85,7 +100,7 @@ function abFourDays(): PlanDoc {
       row('a6', 3, '10–12', ISOLATION_REST), // הרמות ברכיים בתלייה
       row('x13', 2, '30–45 שנ׳', ISOLATION_REST), // תלייה פסיבית
     ]),
-    day('אימון B1 — גב ומשיכה · כוח למתח', [2], [
+    day(L.dayB1, [2], [
       row('x14', 4, '5–8', COMPOUND_REST), // מתח עם גומייה / גרביטון
       row('x15', 3, '8–10', COMPOUND_REST), // חתירה בפולי בישיבה
       row('b2', 3, '10–12', COMPOUND_REST), // פולי עליון אחיזה רחבה
@@ -96,7 +111,7 @@ function abFourDays(): PlanDoc {
       row('x16', 3, '10–12 לצד', ISOLATION_REST), // פאלוף פרס
       row('x13', 2, '30–45 שנ׳', ISOLATION_REST), // תלייה פסיבית
     ]),
-    day('אימון B2 — גב ומשיכה · שליליות', [4], [
+    day(L.dayB2, [4], [
       row('x17', 4, '3–5', COMPOUND_REST), // מתח שלילי
       row('x18', 3, '8–10', COMPOUND_REST), // חתירה עם תמיכת חזה
       row('x19', 3, '10–12', COMPOUND_REST), // פולי עליון אחיזה רגילה
@@ -110,18 +125,28 @@ function abFourDays(): PlanDoc {
   ]);
 }
 
+// `name` / `description` are GETTERS: the catalog is read when the picker asks,
+// so the sheet speaks whatever language is on screen (see docs/i18n.md).
 export const PLAN_PRESETS: readonly PlanPreset[] = [
   {
     id: 'builtin3',
-    name: 'היפרטרופיה 3 ימים',
-    description: 'התוכנית המקורית של האפליקציה: A/B/C, כל הגוף על פני שלושה אימונים בשבוע.',
+    get name() {
+      return tr(P).preset.builtin3.name;
+    },
+    get description() {
+      return tr(P).preset.builtin3.description;
+    },
     days: 3,
     build: defaultPlanDoc,
   },
   {
     id: 'ab4',
-    name: 'תוכנית A/B — 4 ימים',
-    description: 'ארבעה ימים, שלושה אימונים: ראשון ורביעי אימון A (רגליים ודחיפה), שלישי אימון B1 וחמישי אימון B2 (גב ומשיכה).',
+    get name() {
+      return tr(P).preset.ab4.name;
+    },
+    get description() {
+      return tr(P).preset.ab4.description;
+    },
     days: 3,
     build: abFourDays,
   },

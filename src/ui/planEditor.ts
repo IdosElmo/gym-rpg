@@ -26,9 +26,6 @@
 import {
   BODY_PARTS,
   BODY_PART_HE,
-  WEEKDAY_HE,
-  WEEKDAY_SHORT_HE,
-  equipHe,
   isCardio,
   weekdaysCaption,
   type BodyPart,
@@ -50,9 +47,11 @@ import {
   PLAN_UNITS,
   clonePlanDoc,
   collapseRoutingRanges,
+  customToExercise,
   defaultPlanDoc,
   deleteUserPreset,
   deriveWeeklyTarget,
+  displayDayLabel,
   instantiateUserPreset,
   isBuiltInWeekdayMap,
   isDefaultPlan,
@@ -79,6 +78,21 @@ import type { DataStore } from '../storage/DataStore.ts';
 import { esc } from './dom.ts';
 import { mountExerciseDemo, type DemoHandle } from './exerciseDemo.ts';
 import { toast } from './toast.ts';
+import { locale, tr } from '../i18n/locale.ts';
+import { weekdayName, weekdayOrder, weekdayShort } from '../i18n/format.ts';
+import {
+  bodyPartName,
+  equipName,
+  exCue,
+  exMuscle,
+  exName,
+  exSubName,
+  exUnit,
+  repsText,
+  unitWord,
+} from '../i18n/content.ts';
+import { plan as P } from '../i18n/messages/plan.ts';
+import { workout as W } from '../i18n/messages/workout.ts';
 
 export interface PlanEditorDeps {
   store: DataStore;
@@ -123,8 +137,16 @@ let preview: DemoHandle | null = null;
  */
 let weekdayHint = '';
 
-/** New days are born named; the user renames them in place. */
-export const NEW_DAY_LABEL = 'אימון חדש';
+/**
+ * New days are born named; the user renames them in place. (The Hebrew name;
+ * a day added in another language is born with that language's — `newDayLabel`.)
+ */
+export const NEW_DAY_LABEL = P.he.newDayLabel;
+
+/** The name a day added right now is born with — the reader's language. */
+function newDayLabel(): string {
+  return tr(P).newDayLabel;
+}
 
 /**
  * Drop the draft. `ui/app.ts` calls this whenever the editor is OPENED, so a
@@ -149,9 +171,20 @@ function activeDayOf(doc: PlanDoc): PlanDay {
   return day;
 }
 
-/** Hebrew name of the day being edited (used in confirms and toasts). */
+/** Name of the day being edited, as shown (used in confirms and toasts). */
 function activeLabel(doc: PlanDoc): string {
-  return activeDayOf(doc).label;
+  return dayLabel(activeDayOf(doc));
+}
+
+/** A plan day's name as the screen shows it (see `displayDayLabel`). */
+function dayLabel(day: PlanDay): string {
+  return displayDayLabel(day.key, day.label);
+}
+
+/** An exercise's name by id, through the draft (customs included). */
+function nameOf(doc: PlanDoc, id: string): string {
+  const def = makeResolver(doc)(id);
+  return def ? exName(def) : id;
 }
 
 /** The draft, created on demand from the saved plan (or the built-in program). */
@@ -169,20 +202,21 @@ function rowsOf(doc: PlanDoc, day: DayKey): PlanExercise[] {
 function dayTabs(doc: PlanDoc): string {
   const active = activeDayOf(doc).key;
   const full = doc.days.length >= PLAN_LIMITS.maxDays;
+  const D = tr(P).days;
   return `<div class="pl-days-row">
-    <div class="pl-days" role="tablist" aria-label="ימי האימון">
+    <div class="pl-days" role="tablist" aria-label="${esc(D.tabsLabel)}">
       ${doc.days
         .map((d) => {
           const on = d.key === active;
           return `<button class="pl-day ${on ? 'active' : ''}" role="tab" aria-selected="${on}" data-day="${esc(d.key)}">
-          <span class="pl-day-name">${esc(d.label)}</span>
-          <span class="pl-day-sub">${d.exercises.length} תרגילים</span>
+          <span class="pl-day-name">${esc(dayLabel(d))}</span>
+          <span class="pl-day-sub">${D.exercises(d.exercises.length)}</span>
         </button>`;
         })
         .join('')}
     </div>
-    <button class="pl-day-add" id="plDayAdd" aria-label="הוספת יום אימון" ${full ? 'disabled' : ''}
-      title="${full ? `עד ${PLAN_LIMITS.maxDays} ימי אימון` : 'הוספת יום אימון'}">＋</button>
+    <button class="pl-day-add" id="plDayAdd" aria-label="${esc(D.add)}" ${full ? 'disabled' : ''}
+      title="${esc(full ? D.max(PLAN_LIMITS.maxDays) : D.add)}">＋</button>
   </div>`;
 }
 
@@ -198,27 +232,34 @@ function dayCard(doc: PlanDoc, day: PlanDay): string {
   const idx = doc.days.findIndex((d) => d.key === day.key);
   const only = doc.days.length <= PLAN_LIMITS.minDays;
   const assigned = new Set(day.weekdays ?? []);
-  const chips = WEEKDAY_SHORT_HE.map((short, wd) => {
-    const on = assigned.has(wd);
-    const name = WEEKDAY_HE[wd] ?? short;
-    return `<button class="pl-wd ${on ? 'on' : ''}" data-wd="${wd}" aria-pressed="${on}"
-      aria-label="${esc(name)}${on ? ' — משובץ' : ''}">${esc(short)}</button>`;
-  }).join('');
-  const caption = assigned.size > 0 ? `ימי אימון: ${weekdaysCaption([...assigned].sort((a, b) => a - b))}` : 'לא שובצו ימים בשבוע — היום הזה לא ייפתח אוטומטית';
+  const D = tr(P).days;
+  const label = dayLabel(day);
+  // DISPLAY order only (Monday first in English); `data-wd` stays the
+  // Sunday-based index the plan stores.
+  const chips = weekdayOrder()
+    .map((wd) => {
+      const on = assigned.has(wd);
+      const short = weekdayShort(wd);
+      const name = weekdayName(wd) || short;
+      return `<button class="pl-wd ${on ? 'on' : ''}" data-wd="${wd}" aria-pressed="${on}"
+      aria-label="${esc(name)}${on ? esc(D.assigned) : ''}">${esc(short)}</button>`;
+    })
+    .join('');
+  const caption = assigned.size > 0 ? D.caption(weekdaysCaption([...assigned].sort((a, b) => a - b))) : D.unscheduled;
   return `<section class="pl-day-card">
     <div class="pl-day-head">
       <label class="pl-field block pl-day-name-field">
-        <span>שם היום</span>
+        <span>${D.nameField}</span>
         <input type="text" id="plDayLabel" maxlength="${PLAN_LIMITS.maxNameLength}" autocomplete="off"
-          value="${esc(day.label)}" aria-label="שם יום האימון">
+          value="${esc(label)}" aria-label="${esc(D.nameLabel)}">
       </label>
       <div class="pl-move">
-        <button class="pl-mini" id="plDayUp" aria-label="העבר את ${esc(day.label)} קדימה" ${idx <= 0 ? 'disabled' : ''}>▲</button>
-        <button class="pl-mini" id="plDayDown" aria-label="העבר את ${esc(day.label)} אחורה" ${idx >= doc.days.length - 1 ? 'disabled' : ''}>▼</button>
-        <button class="pl-mini danger" id="plDayRemove" aria-label="הסרת ${esc(day.label)} מהתוכנית" ${only ? 'disabled' : ''}>🗑</button>
+        <button class="pl-mini" id="plDayUp" aria-label="${esc(D.up(label))}" ${idx <= 0 ? 'disabled' : ''}>▲</button>
+        <button class="pl-mini" id="plDayDown" aria-label="${esc(D.down(label))}" ${idx >= doc.days.length - 1 ? 'disabled' : ''}>▼</button>
+        <button class="pl-mini danger" id="plDayRemove" aria-label="${esc(D.remove(label))}" ${only ? 'disabled' : ''}>🗑</button>
       </div>
     </div>
-    <div class="pl-wds" role="group" aria-label="ימי השבוע של ${esc(day.label)}">${chips}</div>
+    <div class="pl-wds" role="group" aria-label="${esc(D.weekdaysOf(label))}">${chips}</div>
     <p class="gc-note pl-wd-caption" id="plWdCaption">${esc(caption)}</p>
     ${weekdayHint ? `<p class="gc-note pl-wd-hint" id="plWdHint">${esc(weekdayHint)}</p>` : ''}
     <p class="gc-note pl-target" id="plTarget">${esc(targetText(doc))}</p>
@@ -227,7 +268,7 @@ function dayCard(doc: PlanDoc, day: PlanDay): string {
 
 /** The derived streak target, spelled out — the reason the chips matter. */
 function targetText(doc: PlanDoc): string {
-  return `יעד שבועי: ${doc.weeklyTarget} ימי אימון (משפיע על רצף השבוע המושלם)`;
+  return tr(P).days.target(doc.weeklyTarget);
 }
 
 /**
@@ -249,9 +290,10 @@ function rowHtml(
   shared = false,
 ): string {
   const def = makeResolver(doc)(row.id);
-  const name = def ? def.he : row.id;
-  const en = def ? def.en : '';
-  const unit = def ? def.unit : 'חזרות';
+  const R = tr(P).row;
+  const name = def ? exName(def) : row.id;
+  const en = def ? exSubName(def) : '';
+  const unit = def ? exUnit(def) : unitWord('חזרות');
   const custom = isCustomId(row.id);
   const sh = shared ? ' rest-shared' : '';
   // A cardio row keeps the three fields and renames them: its sets are STAGES
@@ -263,28 +305,28 @@ function rowHtml(
       <div class="pl-names">
         <b>${esc(name)}</b>
         ${en ? `<span class="pl-en">${esc(en)}</span>` : ''}
-        ${custom ? '<span class="pl-badge">מותאם אישית</span>' : ''}
-        ${cardio ? '<span class="pl-badge">קרדיו</span>' : ''}
+        ${custom ? `<span class="pl-badge">${R.custom}</span>` : ''}
+        ${cardio ? `<span class="pl-badge">${R.cardio}</span>` : ''}
       </div>
       <div class="pl-move">
-        <button class="pl-mini" data-up="${esc(row.id)}" aria-label="העבר את ${esc(name)} למעלה" ${idx === 0 ? 'disabled' : ''}>▲</button>
-        <button class="pl-mini" data-down="${esc(row.id)}" aria-label="העבר את ${esc(name)} למטה" ${idx === total - 1 ? 'disabled' : ''}>▼</button>
-        <button class="pl-mini danger" data-remove="${esc(row.id)}" aria-label="הסר את ${esc(name)} מהתוכנית">🗑</button>
+        <button class="pl-mini" data-up="${esc(row.id)}" aria-label="${esc(R.up(name))}" ${idx === 0 ? 'disabled' : ''}>▲</button>
+        <button class="pl-mini" data-down="${esc(row.id)}" aria-label="${esc(R.down(name))}" ${idx === total - 1 ? 'disabled' : ''}>▼</button>
+        <button class="pl-mini danger" data-remove="${esc(row.id)}" aria-label="${esc(R.remove(name))}">🗑</button>
       </div>
     </div>
     <div class="pl-fields">
       <label class="pl-field${sh}">
-        <span>${cardio ? 'שלבים' : 'סטים'}</span>
+        <span>${cardio ? R.stages : R.sets}</span>
         <input type="number" inputmode="numeric" min="${PLAN_LIMITS.minSets}" max="${maxSetsOf(def)}"
           value="${row.sets}" data-edit="sets" data-id="${esc(row.id)}">
       </label>
       <label class="pl-field wide">
         <span>${esc(unit)}</span>
-        <input type="text" maxlength="${PLAN_LIMITS.maxRepsLength}" value="${esc(row.reps)}"
+        <input type="text" maxlength="${PLAN_LIMITS.maxRepsLength}" value="${esc(repsText(row.reps))}"
           data-edit="reps" data-id="${esc(row.id)}">
       </label>
       <label class="pl-field${sh}">
-        <span>${cardio ? 'אורך שלב (שנ׳)' : 'מנוחה (שנ׳)'}</span>
+        <span>${cardio ? R.stageLength : R.rest}</span>
         <input type="number" inputmode="numeric" step="5" min="${PLAN_LIMITS.minRest}" max="${PLAN_LIMITS.maxRest}"
           value="${row.rest}" data-edit="rest" data-id="${esc(row.id)}">
       </label>
@@ -330,44 +372,45 @@ function rowsHtml(doc: PlanDoc, day: PlanDay): string {
 
 /** The dashed "🔗 צרו סופר־סט" pill between two rows that are not linked. */
 function linkHtml(doc: PlanDoc, day: PlanDay, a: PlanExercise, b: PlanExercise): string {
-  const resolve = makeResolver(doc);
-  const nameA = resolve(a.id)?.he ?? a.id;
-  const nameB = resolve(b.id)?.he ?? b.id;
+  const S = tr(P).superset;
+  const nameA = nameOf(doc, a.id);
+  const nameB = nameOf(doc, b.id);
   const taken = isSuperset(day, a.id) || isSuperset(day, b.id);
-  const title = taken ? 'התרגיל כבר משובץ בסופר־סט אחר' : `קישור ${nameA} ו${nameB} לסופר־סט`;
+  const title = taken ? S.taken : S.link(nameA, nameB);
   return `<li class="pl-sslink">
     <button type="button" data-sslink="${esc(a.id)}" ${taken ? 'disabled' : ''}
-      title="${esc(title)}" aria-label="${esc(title)}">🔗 צרו סופר־סט</button>
+      title="${esc(title)}" aria-label="${esc(title)}">${S.linkBtn}</button>
   </li>`;
 }
 
 /** Two linked rows: one violet bracket, one shared rest, one way out of it. */
 function pairHtml(doc: PlanDoc, a: PlanExercise, b: PlanExercise, idx: number, total: number): string {
-  const resolve = makeResolver(doc);
-  const nameA = resolve(a.id)?.he ?? a.id;
-  const nameB = resolve(b.id)?.he ?? b.id;
+  const S = tr(P).superset;
+  const nameA = nameOf(doc, a.id);
+  const nameB = nameOf(doc, b.id);
   return `<li class="pl-ss-pair" data-ss-pair="${esc(a.id)}">
-    <span class="pl-ss-tag">🔗 סופר־סט</span>
+    <span class="pl-ss-tag">${S.tag}</span>
     ${rowHtml(doc, a, idx, total, 'div', true)}
     <div class="pl-sslink on">
       <button type="button" data-ssunlink="${esc(a.id)}"
-        aria-label="${esc(`ביטול הסופר־סט בין ${nameA} ל${nameB}`)}">🔗 מקושר · ביטול</button>
+        aria-label="${esc(S.unlink(nameA, nameB))}">${S.unlinkBtn}</button>
     </div>
     ${rowHtml(doc, b, idx + 1, total, 'div', true)}
-    <div class="pl-ss-rest-note">⏱ מנוחה משותפת — נספרת פעם אחת, אחרי שני התרגילים</div>
+    <div class="pl-ss-rest-note">${S.restNote}</div>
   </li>`;
 }
 
 function sheetHtml(doc: PlanDoc, store: DataStore): string {
   if (sheet === 'closed') return '';
   const body = sheet === 'new' ? newExerciseForm() : sheet === 'presets' ? presetList(store) : libraryList(doc);
+  const T = tr(P).sheet;
   const title =
-    sheet === 'new' ? 'תרגיל חדש' : sheet === 'presets' ? 'תוכניות מוכנות' : `הוספת תרגיל · ${esc(activeLabel(doc))}`;
+    sheet === 'new' ? T.newTitle : sheet === 'presets' ? T.presetsTitle : T.addTitle(esc(activeLabel(doc)));
   return `<div class="pl-backdrop" id="plBackdrop"></div>
-  <section class="pl-sheet" role="dialog" aria-modal="true" aria-label="${sheet === 'presets' ? 'תוכניות מוכנות' : 'הוספת תרגיל'}">
+  <section class="pl-sheet" role="dialog" aria-modal="true" aria-label="${esc(sheet === 'presets' ? T.presetsTitle : T.addLabel)}">
     <div class="pl-sheet-head">
       <h3>${title}</h3>
-      <button class="pl-mini" id="plSheetClose" aria-label="סגירת החלון">✕</button>
+      <button class="pl-mini" id="plSheetClose" aria-label="${esc(T.close)}">✕</button>
     </div>
     ${body}
   </section>`;
@@ -379,11 +422,12 @@ function sheetHtml(doc: PlanDoc, store: DataStore): string {
  * current draft under a name, so "my plan" becomes a preset too.
  */
 function presetList(store: DataStore): string {
+  const T = tr(P).presets;
   const items = PLAN_PRESETS.map(
     (p) => `<li>
       <button class="pl-lib pl-preset" data-preset="${esc(p.id)}">
         <b>${esc(p.name)}</b>
-        <span>${p.days} ימי אימון · ${esc(p.description)}</span>
+        <span>${T.days(p.days)} · ${esc(p.description)}</span>
       </button>
     </li>`,
   ).join('');
@@ -392,21 +436,36 @@ function presetList(store: DataStore): string {
       ({ id, preset }) => `<li class="pl-mypreset">
       <button class="pl-lib pl-preset" data-user-preset="${esc(id)}">
         <b>${esc(preset.name)}</b>
-        <span>${preset.plan.days.length} ימי אימון · תוכנית ששמרתם בעצמכם</span>
+        <span>${T.days(preset.plan.days.length)} · ${T.mine}</span>
       </button>
-      <button class="pl-mini danger pl-preset-del" data-preset-del="${esc(id)}" aria-label="מחיקת ${esc(preset.name)}">🗑</button>
+      <button class="pl-mini danger pl-preset-del" data-preset-del="${esc(id)}" aria-label="${esc(T.remove(preset.name))}">🗑</button>
     </li>`,
     )
     .join('');
   return `<ul class="pl-lib-list">${items}</ul>
-    ${mine ? `<h4 class="pl-mine-title">⭐ התוכניות שלי</h4><ul class="pl-lib-list">${mine}</ul>` : ''}
-    <button class="action-btn pl-save-preset" id="plSavePreset">⭐ שמירת התוכנית הנוכחית כתוכנית מוכנה</button>
-    <p class="gc-note dim">בחירה בתוכנית מוכנה מחליפה את הטיוטה הנוכחית. שום דבר לא נשמר עד לחיצה על 💾 שמירה, וההיסטוריה נשמרת בכל מקרה. שמירת תוכנית ⭐ מקפיאה את התוכנית שבעריכה כמו שהיא — אפשר לחזור אליה מכאן בכל רגע, גם ממכשיר אחר.</p>`;
+    ${mine ? `<h4 class="pl-mine-title">${T.mineTitle}</h4><ul class="pl-lib-list">${mine}</ul>` : ''}
+    <button class="action-btn pl-save-preset" id="plSavePreset">${T.saveCurrent}</button>
+    <p class="gc-note dim">${T.note}</p>`;
+}
+
+/**
+ * The library in the order the sheet lists it: alphabetical by the name it
+ * SHOWS. `libraryExercises` already sorts by the Hebrew name; any other
+ * language re-sorts by its own (stable, so equal names keep their order).
+ */
+function libraryInOrder(doc: PlanDoc): Exercise[] {
+  const list = libraryExercises(doc);
+  if (locale() === 'he') return list;
+  return list
+    .map((ex) => ({ ex, name: exName(ex) }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'en'))
+    .map((e) => e.ex);
 }
 
 function libraryList(doc: PlanDoc): string {
   const inDay = new Set(rowsOf(doc, activeDay).map((r) => r.id));
-  const available = libraryExercises(doc).filter((ex) => !inDay.has(ex.id));
+  const L = tr(P).library;
+  const available = libraryInOrder(doc).filter((ex) => !inDay.has(ex.id));
   // a card can only be open on something the list still offers
   if (picked !== null && !available.some((ex) => ex.id === picked)) picked = null;
   const items = available
@@ -414,17 +473,17 @@ function libraryList(doc: PlanDoc): string {
       const open = ex.id === picked;
       return `<li${open ? ' class="pl-lib-open"' : ''}>
       <button class="pl-lib" data-pick="${esc(ex.id)}" aria-expanded="${open ? 'true' : 'false'}">
-        <b>${esc(ex.he)}</b>
-        <span>${esc([ex.en, ex.muscle].filter(Boolean).join(' · '))}</span>
-        ${isCustomId(ex.id) ? '<span class="pl-badge">מותאם אישית</span>' : ''}
+        <b>${esc(exName(ex))}</b>
+        <span>${esc([exSubName(ex), exMuscle(ex)].filter(Boolean).join(' · '))}</span>
+        ${isCustomId(ex.id) ? `<span class="pl-badge">${tr(P).row.custom}</span>` : ''}
       </button>
       ${open ? previewCard(ex) : ''}
     </li>`;
     })
     .join('');
   return `
-    ${items ? `<ul class="pl-lib-list">${items}</ul>` : '<p class="gc-note">כל התרגילים כבר נמצאים ביום הזה. אפשר ליצור תרגיל חדש. ✨</p>'}
-    <button class="action-btn pl-new-btn" id="plNewToggle">✨ יצירת תרגיל חדש</button>`;
+    ${items ? `<ul class="pl-lib-list">${items}</ul>` : `<p class="gc-note">${L.allIn}</p>`}
+    <button class="action-btn pl-new-btn" id="plNewToggle">${L.newBtn}</button>`;
 }
 
 /**
@@ -436,62 +495,77 @@ function libraryList(doc: PlanDoc): string {
  * offers the button.
  */
 function previewCard(ex: Exercise): string {
-  const scheme = isCardio(ex) ? `${ex.sets} שלבים × ${ex.reps}` : `${ex.sets} × ${ex.reps}`;
-  const meta = [ex.equip.map(equipHe).join(' / '), ex.muscle, scheme].filter(Boolean).join(' · ');
+  const L = tr(P).library;
+  const reps = repsText(ex.reps);
+  const scheme = isCardio(ex) ? L.stages(ex.sets, reps) : `${ex.sets} × ${reps}`;
+  const meta = [ex.equip.map(equipName).join(' / '), exMuscle(ex), scheme].filter(Boolean).join(' · ');
+  const cue = exCue(ex);
   const demo = isCustomId(ex.id)
-    ? '<p class="gc-note dim pl-preview-nodemo">לתרגיל מותאם אישית אין הדגמה — הוא נראה כמו שאתם מבצעים אותו.</p>'
+    ? `<p class="gc-note dim pl-preview-nodemo">${L.noDemo}</p>`
     : '<div class="pl-preview-demo" id="plPreviewDemo"></div>';
   return `<div class="pl-preview" data-preview="${esc(ex.id)}">
       ${demo}
       <p class="pl-preview-meta">${esc(meta)}</p>
-      ${ex.cue ? `<p class="pl-preview-cue">${esc(ex.cue)}</p>` : ''}
+      ${cue ? `<p class="pl-preview-cue">${esc(cue)}</p>` : ''}
       <div class="pl-preview-actions">
-        <button class="action-btn pl-add-confirm" data-add="${esc(ex.id)}">➕ הוספה ליום</button>
-        <button class="pl-mini pl-unpick" data-unpick aria-label="סגירת התצוגה המקדימה">✕</button>
+        <button class="action-btn pl-add-confirm" data-add="${esc(ex.id)}">${L.add}</button>
+        <button class="pl-mini pl-unpick" data-unpick aria-label="${esc(L.closePreview)}">✕</button>
       </div>
     </div>`;
 }
 
+/**
+ * The ✨ form. A custom exercise stores a `he` name (required — it is the name
+ * every screen falls back to) and an optional `en` one. In Hebrew the form asks
+ * for exactly that. In English the FIRST field is the name the reader types in
+ * their own language: it is stored as `en` (which `exName` shows in English)
+ * and also as `he` unless a Hebrew name is given in the second field — so the
+ * exercise always has the required name and shows sensibly in both languages.
+ * The `dir="ltr"` sits on whichever field holds the English name.
+ */
 function newExerciseForm(): string {
-  const parts = BODY_PARTS.map((p) => `<option value="${p}">${BODY_PART_HE[p]}</option>`).join('');
-  const units = PLAN_UNITS.map((u) => `<option value="${esc(u)}">${esc(u)}</option>`).join('');
+  const F = tr(P).form;
+  const en = locale() === 'en';
+  const parts = BODY_PARTS.map((p) => `<option value="${p}">${esc(bodyPartName(p))}</option>`).join('');
+  // the option VALUE is the program's own unit word (what is stored); the text is the reader's
+  const units = PLAN_UNITS.map((u) => `<option value="${esc(u)}">${esc(unitWord(u))}</option>`).join('');
   const chips = EQUIPMENT_KEYS.map(
     (k) => `<label class="pl-chip">
       <input type="checkbox" value="${esc(k)}" data-equip>
-      <span>${esc(equipHe(k))}</span>
+      <span>${esc(equipName(k))}</span>
     </label>`,
   ).join('');
   return `<form class="pl-new" id="plNewForm" novalidate>
     <label class="pl-field block">
-      <span>שם התרגיל (עברית) *</span>
-      <input type="text" id="nxHe" maxlength="${PLAN_LIMITS.maxNameLength}" autocomplete="off" required>
+      <span>${F.name}</span>
+      <input type="text" id="nxHe" maxlength="${PLAN_LIMITS.maxNameLength}" autocomplete="off" required${en ? ' dir="ltr"' : ''}>
     </label>
     <label class="pl-field block">
-      <span>שם באנגלית (רשות)</span>
-      <input type="text" id="nxEn" maxlength="${PLAN_LIMITS.maxNameLength}" autocomplete="off" dir="ltr">
+      <span>${F.second}</span>
+      <input type="text" id="nxEn" maxlength="${PLAN_LIMITS.maxNameLength}" autocomplete="off"${en ? ' dir="rtl" lang="he"' : ' dir="ltr"'}>
     </label>
     <div class="pl-two">
       <label class="pl-field block">
-        <span>חלק גוף עיקרי</span>
+        <span>${F.part}</span>
         <select id="nxPart">${parts}</select>
       </label>
       <label class="pl-field block">
-        <span>חלק גוף משני (רשות)</span>
-        <select id="nxPart2"><option value="">ללא</option>${parts}</select>
+        <span>${F.part2}</span>
+        <select id="nxPart2"><option value="">${F.none}</option>${parts}</select>
       </label>
     </div>
     <label class="pl-field block">
-      <span>יחידת מדידה</span>
+      <span>${F.unit}</span>
       <select id="nxUnit">${units}</select>
     </label>
     <fieldset class="pl-chips">
-      <legend>ציוד</legend>
+      <legend>${F.equip}</legend>
       ${chips}
     </fieldset>
-    <p class="gc-note">חלק גוף משני מחלק את ה־XP ביחס 70/30 — בדיוק כמו בתרגילי התוכנית המקורית.</p>
+    <p class="gc-note">${F.note}</p>
     <div class="pl-new-actions">
-      <button type="submit" class="action-btn">✨ הוספה לתוכנית</button>
-      <button type="button" class="action-btn" id="nxCancel">ביטול</button>
+      <button type="submit" class="action-btn">${F.submit}</button>
+      <button type="button" class="action-btn" id="nxCancel">${F.cancel}</button>
     </div>
   </form>`;
 }
@@ -502,22 +576,23 @@ export function renderPlanEditor(main: HTMLElement, deps: PlanEditorDeps): void 
   const rows = day.exercises;
   const stored = deps.store.getState().plan;
   const dirty = planIsDirty(doc, stored);
+  const E = tr(P).editor;
 
   main.innerHTML = `
   <section class="plan-editor">
     ${dayTabs(doc)}
     ${dayCard(doc, day)}
     <ol class="pl-rows">${rowsHtml(doc, day)}</ol>
-    ${rows.length === 0 ? '<p class="gc-note pl-empty">היום עדיין ריק — הוסיפו לפחות תרגיל אחד לפני השמירה. 🏋️</p>' : ''}
-    <button class="pl-add" id="plAdd">+ הוספת תרגיל</button>
+    ${rows.length === 0 ? `<p class="gc-note pl-empty">${E.empty}</p>` : ''}
+    <button class="pl-add" id="plAdd">${E.add}</button>
     <div class="pl-actions">
-      <button class="action-btn pl-save ${dirty ? 'dirty' : ''}" id="plSave">💾 שמירה</button>
-      <button class="action-btn" id="plClose">סגירה</button>
+      <button class="action-btn pl-save ${dirty ? 'dirty' : ''}" id="plSave">${E.save}</button>
+      <button class="action-btn" id="plClose">${E.close}</button>
     </div>
     <p class="gc-note pl-hint" id="plHint">${hintText(dirty, stored)}</p>
-    <button class="action-btn pl-presets" id="plPresets">📋 תוכניות מוכנות</button>
-    <button class="action-btn danger pl-reset" id="plReset">איפוס לתוכנית המקורית</button>
-    <p class="gc-note dim">שינוי התוכנית לא נוגע בהיסטוריה, ב־XP או בשיאים: כל אלה נשמרים לפי מזהה התרגיל, כך שאפשר לסדר מחדש, להסיר ולהחזיר תרגילים בלי לאבד כלום.</p>
+    <button class="action-btn pl-presets" id="plPresets">${E.presets}</button>
+    <button class="action-btn danger pl-reset" id="plReset">${E.reset}</button>
+    <p class="gc-note dim">${E.note}</p>
   </section>
   ${sheetHtml(doc, deps.store)}`;
 
@@ -531,7 +606,7 @@ export function renderPlanEditor(main: HTMLElement, deps: PlanEditorDeps): void 
   const host = main.querySelector<HTMLElement>('#plPreviewDemo');
   if (host && picked !== null) {
     const ex = libraryExercises(doc).find((e) => e.id === picked);
-    preview = mountExerciseDemo(host, picked, { label: `הדגמת ביצוע: ${ex?.he ?? ''}` });
+    preview = mountExerciseDemo(host, picked, { label: tr(W).demo.labelOf(ex ? exName(ex) : '') });
   }
   const card = main.querySelector<HTMLElement>('.pl-preview');
   if (card && typeof card.scrollIntoView === 'function') card.scrollIntoView({ block: 'nearest' });
@@ -540,8 +615,9 @@ export function renderPlanEditor(main: HTMLElement, deps: PlanEditorDeps): void 
 }
 
 function hintText(dirty: boolean, stored: PlanDoc | null): string {
-  if (dirty) return '⚠️ יש שינויים שלא נשמרו — לחצו על 💾 שמירה.';
-  return isDefaultPlan(stored) ? 'התוכנית זהה לתוכנית המקורית.' : 'התוכנית שמורה. ✓';
+  const E = tr(P).editor;
+  if (dirty) return E.dirty;
+  return isDefaultPlan(stored) ? E.original : E.saved;
 }
 
 /* ---------------------------------------------------------------- wiring */
@@ -565,11 +641,11 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
   /* ---------------------------------------------------- day management --- */
   main.querySelector<HTMLButtonElement>('#plDayAdd')?.addEventListener('click', () => {
     if (doc.days.length >= PLAN_LIMITS.maxDays) {
-      toast(`עד ${PLAN_LIMITS.maxDays} ימי אימון בתוכנית.`);
+      toast(tr(P).days.maxToast(PLAN_LIMITS.maxDays));
       return;
     }
     const key = newDayKey();
-    leavingMap(doc, () => doc.days.push(makePlanDay(key, NEW_DAY_LABEL, [], [])));
+    leavingMap(doc, () => doc.days.push(makePlanDay(key, newDayLabel(), [], [])));
     doc.weeklyTarget = deriveWeeklyTarget(doc.days);
     activeDay = key;
     weekdayHint = '';
@@ -589,13 +665,13 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
     const tab = [...main.querySelectorAll<HTMLElement>('.pl-day')]
       .find((t) => t.dataset['day'] === day.key)
       ?.querySelector<HTMLElement>('.pl-day-name');
-    if (tab) tab.textContent = day.label;
+    if (tab) tab.textContent = dayLabel(day);
     markDirty(main, deps);
   });
   nameInput?.addEventListener('change', () => {
     const day = activeDayOf(doc);
     if (!day.label.trim()) {
-      day.label = NEW_DAY_LABEL;
+      day.label = newDayLabel();
       nameInput.value = day.label;
     }
     refresh();
@@ -611,11 +687,12 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
   });
   main.querySelector<HTMLButtonElement>('#plDayRemove')?.addEventListener('click', () => {
     if (doc.days.length <= PLAN_LIMITS.minDays) {
-      toast('התוכנית חייבת לכלול לפחות יום אימון אחד. 🗓');
+      toast(tr(P).days.minToast);
       return;
     }
     const day = activeDayOf(doc);
-    if (!confirm(`להסיר את ${day.label} מהתוכנית? אימונים שכבר תועדו ביום הזה יישארו בהיסטוריה — רק היום עצמו יורד מהתוכנית.`)) {
+    const label = dayLabel(day);
+    if (!confirm(tr(P).days.removeConfirm(label))) {
       return;
     }
     leavingMap(doc, () => {
@@ -624,7 +701,7 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
     doc.weeklyTarget = deriveWeeklyTarget(doc.days);
     activeDay = doc.days[0]?.key ?? '';
     weekdayHint = '';
-    toast(`${day.label} הוסר מהתוכנית`);
+    toast(tr(P).days.removed(label));
     refresh();
   });
 
@@ -710,10 +787,10 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
       const rows = rowsOf(doc, activeDay);
       const def = makeResolver(doc)(id);
       if (rows.length <= 1) {
-        toast('חייב להישאר לפחות תרגיל אחד ביום. 🏋️');
+        toast(tr(P).row.minToast);
         return;
       }
-      if (!confirm(`להסיר את ${def ? def.he : id} מ${activeLabel(doc)}?`)) return;
+      if (!confirm(tr(P).row.removeConfirm(def ? exName(def) : id, activeLabel(doc)))) return;
       const idx = rows.findIndex((r) => r.id === id);
       if (idx >= 0) rows.splice(idx, 1);
       // A removed row takes its superset with it — the other half stays, alone.
@@ -771,12 +848,12 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
       if (!preset) return;
       // A preset REPLACES the whole draft, so it asks first — and it still only
       // touches the draft: the plan on disk changes when 💾 is pressed, not now.
-      if (!confirm(`להחליף את התוכנית שבעריכה ב"${preset.name}"? כל שינוי שלא נשמר יאבד.`)) return;
+      if (!confirm(tr(P).presets.replaceConfirm(preset.name))) return;
       draft = clonePlanDoc(preset.build());
       activeDay = draft.days[0]?.key ?? '';
       sheet = 'closed';
       weekdayHint = '';
-      toast(`${preset.name} נטענה — לחצו 💾 שמירה כדי להחיל אותה`);
+      toast(tr(P).presets.loaded(preset.name));
       refresh();
     });
   });
@@ -787,25 +864,25 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
       if (!preset) return;
       // Same contract as a built-in preset: replace the DRAFT after a confirm,
       // with fresh day keys minted per application (see `instantiateUserPreset`).
-      if (!confirm(`להחליף את התוכנית שבעריכה ב"${preset.name}"? כל שינוי שלא נשמר יאבד.`)) return;
+      if (!confirm(tr(P).presets.replaceConfirm(preset.name))) return;
       draft = instantiateUserPreset(preset);
       activeDay = draft.days[0]?.key ?? '';
       sheet = 'closed';
       weekdayHint = '';
-      toast(`${preset.name} נטענה — לחצו 💾 שמירה כדי להחיל אותה`);
+      toast(tr(P).presets.loaded(preset.name));
       refresh();
     });
   });
   main.querySelector<HTMLButtonElement>('#plSavePreset')?.addEventListener('click', () => {
     // Freezes the DRAFT — exactly what the user is looking at, saved or not.
-    const name = prompt('איך לקרוא לתוכנית השמורה?', 'התוכנית שלי');
+    const name = prompt(tr(P).presets.namePrompt, tr(P).presets.nameDefault);
     if (name === null) return;
     const res = saveUserPreset(deps.store, name, doc);
     if (!res.ok) {
       toast(res.error);
       return;
     }
-    toast(`"${res.preset.name}" נשמרה לתוכניות המוכנות ⭐`);
+    toast(tr(P).presets.saved(res.preset.name));
     refresh(); // the sheet stays open, so the new card is right there
   });
   main.querySelectorAll<HTMLButtonElement>('[data-preset-del]').forEach((b) => {
@@ -813,9 +890,9 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
       const id = b.dataset['presetDel'] ?? '';
       const preset = deps.store.getState().planPresets[id];
       if (!preset) return;
-      if (!confirm(`למחוק את "${preset.name}" מהתוכניות השמורות? התוכנית הפעילה וההיסטוריה לא מושפעות.`)) return;
+      if (!confirm(tr(P).presets.deleteConfirm(preset.name))) return;
       deleteUserPreset(deps.store, id);
-      toast(`"${preset.name}" נמחקה`);
+      toast(tr(P).presets.deleted(preset.name));
       refresh();
     });
   });
@@ -842,22 +919,22 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
   main.querySelector<HTMLButtonElement>('#plSave')?.addEventListener('click', () => {
     const res = savePlan(deps.store, doc);
     if (!res.ok) {
-      toast(res.errors[0] ?? 'התוכנית אינה תקינה');
+      toast(res.errors[0] ?? tr(P).validate.invalid);
       return;
     }
     draft = clonePlanDoc(res.plan ?? defaultPlanDoc());
-    toast('התוכנית נשמרה ✓');
+    toast(tr(P).editor.savedToast);
     refresh();
   });
 
   main.querySelector<HTMLButtonElement>('#plReset')?.addEventListener('click', () => {
-    if (!confirm('לאפס את התוכנית חזרה לתוכנית המקורית? התרגילים המותאמים אישית יוסרו מהתוכנית (ההיסטוריה נשמרת).')) {
+    if (!confirm(tr(P).editor.resetConfirm)) {
       return;
     }
     savePlan(deps.store, null);
     draft = clonePlanDoc(defaultPlanDoc());
     sheet = 'closed';
-    toast('התוכנית אופסה לתוכנית המקורית ✓');
+    toast(tr(P).editor.resetToast);
     refresh();
   });
 
@@ -928,7 +1005,7 @@ function toggleWeekday(doc: PlanDoc, day: PlanDay, wd: number): void {
     if (owner) {
       owner.weekdays = (owner.weekdays ?? []).filter((w) => w !== wd);
       if (owner.weekdays.length === 0) delete owner.weekdays;
-      weekdayHint = `${WEEKDAY_HE[wd] ?? ''} הועבר מ${owner.label}`;
+      weekdayHint = tr(P).days.moved(weekdayName(wd), dayLabel(owner));
     }
     day.weekdays = [...current, wd].sort((a, b) => a - b);
   }
@@ -1035,7 +1112,7 @@ function addRow(doc: PlanDoc, id: string): void {
   const rows = rowsOf(doc, activeDay);
   if (rows.some((r) => r.id === id)) return;
   if (rows.length >= PLAN_LIMITS.maxExercisesPerDay) {
-    toast(`עד ${PLAN_LIMITS.maxExercisesPerDay} תרגילים ליום.`);
+    toast(tr(P).row.maxToast(PLAN_LIMITS.maxExercisesPerDay));
     return;
   }
   const def = makeResolver(doc)(id);
@@ -1060,9 +1137,14 @@ function submitNewExercise(main: HTMLElement, doc: PlanDoc, refresh: () => void)
   const val = (id: string): string => main.querySelector<HTMLInputElement>(`#${id}`)?.value ?? '';
   const sel = (id: string): string => main.querySelector<HTMLSelectElement>(`#${id}`)?.value ?? '';
 
-  const he = val('nxHe').trim();
-  if (!he) {
-    toast('צריך שם בעברית לתרגיל החדש.');
+  // In English the first field is the reader's own name for it (stored as `en`,
+  // and as the required `he` unless a Hebrew one is given) — see newExerciseForm.
+  const en = locale() === 'en';
+  const first = val('nxHe').trim();
+  const second = val('nxEn').trim();
+  const he = en ? second || first : first;
+  if (!first) {
+    toast(tr(P).form.nameMissing);
     main.querySelector<HTMLInputElement>('#nxHe')?.focus();
     return;
   }
@@ -1079,10 +1161,11 @@ function submitNewExercise(main: HTMLElement, doc: PlanDoc, refresh: () => void)
   const custom: CustomExercise = {
     id: newCustomId(),
     he: he.slice(0, PLAN_LIMITS.maxNameLength),
-    en: val('nxEn').trim().slice(0, PLAN_LIMITS.maxNameLength),
+    en: (en ? first : second).slice(0, PLAN_LIMITS.maxNameLength),
     bodyPart,
     unit,
     equip: equip.length > 0 ? equip : ['Bodyweight'],
+    // stored in the program's own word (data); `exMuscle` shows it in the reader's
     muscle: BODY_PART_HE[bodyPart],
   };
   // A secondary part is stored as the same 70/30 split the built-in compound
@@ -1092,6 +1175,6 @@ function submitNewExercise(main: HTMLElement, doc: PlanDoc, refresh: () => void)
   doc.customExercises.push(custom);
   addRow(doc, custom.id);
   sheet = 'closed';
-  toast(`${custom.he} נוסף ל${activeLabel(doc)} ✨`);
+  toast(tr(P).form.added(exName(customToExercise(custom)), activeLabel(doc)));
   refresh();
 }
