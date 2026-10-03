@@ -15,6 +15,7 @@
 import type { EquipmentSlot } from '../data/gameContent.ts';
 import type { Locale } from '../i18n/locale.ts';
 import type { UnitSystem } from '../i18n/units.ts';
+import type { Theme } from '../ui/theme.ts';
 import type { LeagueItemKind } from '../data/leaguePools.ts';
 import type { PlanDoc, UserPreset } from '../data/planTypes.ts';
 import type { BodyPart, DayKey } from '../data/program.ts';
@@ -82,6 +83,8 @@ export interface UiState {
   locale?: Locale;
   /** Kilograms or pounds on screen. Absent = metric. Storage is always metric. */
   units?: UnitSystem;
+  /** Dark (navy, the default) or light. Absent = dark. A device preference like `locale`. */
+  theme?: Theme;
 }
 
 /* -------------------------------------------------------------- game state */

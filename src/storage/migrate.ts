@@ -19,6 +19,7 @@
 import { BODY_PARTS, isDayKey, isReservedViewKey, type BodyPart, type DayKey } from '../data/program.ts';
 import { isLocale } from '../i18n/locale.ts';
 import { isUnitSystem } from '../i18n/units.ts';
+import { isTheme } from '../ui/theme.ts';
 import { characterById, resolveCharacterId, skinOf, type SkinDef } from '../data/characters.ts';
 import { EQUIPMENT_SLOTS, bossById, equipmentById } from '../data/gameContent.ts';
 import {
@@ -653,6 +654,7 @@ function normalizeUi(raw: unknown, now: Date = new Date(), plan: PlanDoc | null 
   // Device preferences: kept when valid, dropped (= the default) otherwise.
   if (isLocale(raw['locale'])) ui.locale = raw['locale'];
   if (isUnitSystem(raw['units'])) ui.units = raw['units'];
+  if (isTheme(raw['theme'])) ui.theme = raw['theme'];
   return ui;
 }
 

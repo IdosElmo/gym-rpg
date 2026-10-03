@@ -84,11 +84,13 @@ import { fmtXp } from './xpfx.ts';
 import { DEFAULT_LOCALE, dirOf, pick, setLocale, tr } from '../i18n/locale.ts';
 import { setUnits } from '../i18n/units.ts';
 import { shell } from '../i18n/messages/shell.ts';
+import { DEFAULT_THEME, THEME_CHROME } from './theme.ts';
 
 /**
  * Point the language and units module state at this device's preferences and
  * make the document agree: `lang`/`dir` on <html> (which flips every logical
- * CSS property and the text direction at once), the tab title, and the few
+ * CSS property and the text direction at once), `data-theme` (which swaps every
+ * colour token, see styles/tokens.css) and the browser chrome colour, the tab title, and the few
  * strings index.html ships as static markup. Called at the top of EVERY full
  * render, so a language switch is simply "save the preference, render".
  */
@@ -98,6 +100,10 @@ export function applyPrefs(store: DataStore): void {
   setLocale(loc);
   setUnits(ui.units ?? 'metric');
   const root = document.documentElement;
+  const theme = ui.theme ?? DEFAULT_THEME;
+  if (root.getAttribute('data-theme') !== theme) root.setAttribute('data-theme', theme);
+  const chrome = document.querySelector('meta[name="theme-color"]');
+  if (chrome && chrome.getAttribute('content') !== THEME_CHROME[theme]) chrome.setAttribute('content', THEME_CHROME[theme]);
   if (root.getAttribute('lang') !== loc) root.setAttribute('lang', loc);
   if (root.getAttribute('dir') !== dirOf(loc)) root.setAttribute('dir', dirOf(loc));
   const s = tr(shell);

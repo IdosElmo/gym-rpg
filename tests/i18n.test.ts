@@ -152,7 +152,11 @@ describe('language and units are device preferences', () => {
       d.ui.locale = 'en';
       d.ui.units = 'imperial';
     });
+    store.update((d) => {
+      d.ui.theme = 'light';
+    });
     store.clear();
+    expect(store.getState().ui.theme).toBe('light');
     expect(store.getState().ui.locale).toBe('en');
     expect(store.getState().ui.units).toBe('imperial');
   });

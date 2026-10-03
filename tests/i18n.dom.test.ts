@@ -101,6 +101,17 @@ describe('the language switch', () => {
     expect(hubLabels()).toEqual(['אימון', 'קרב', 'תזונה', 'הגדרות']);
   });
 
+  it('the theme defaults to dark, and the light switch flips <html data-theme> and back', () => {
+    const { store } = mount();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(document.querySelector('#prefsCard [data-look="dark"]')?.getAttribute('aria-pressed')).toBe('true');
+    click('#prefsCard [data-look="light"]');
+    expect(store.getState().ui.theme).toBe('light');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    click('#prefsCard [data-look="dark"]');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+  });
+
   it('the units switch is stored as a preference', () => {
     const { store } = mount();
     click('#prefsCard [data-units="imperial"]');

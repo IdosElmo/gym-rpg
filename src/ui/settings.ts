@@ -35,6 +35,7 @@ import { LOCALES, LOCALE_NATIVE_NAME, isLocale, locale, tr } from '../i18n/local
 import { UNIT_SYSTEMS, isUnitSystem, units } from '../i18n/units.ts';
 import { shell } from '../i18n/messages/shell.ts';
 import { settings as M } from '../i18n/messages/settings.ts';
+import { DEFAULT_THEME, THEMES, isTheme, type Theme } from './theme.ts';
 
 /**
  * Shown on the app-info line. Kept in sync with `package.json` by a test rather
@@ -102,7 +103,7 @@ function dataCard(): string {
  * they cannot read has to find the way out without reading anything else, so
  * each language is offered in its own name.
  */
-function prefsCard(): string {
+function prefsCard(theme: Theme): string {
   const m = tr(shell).prefs;
   const seg = (attr: string, value: string, label: string, on: boolean, lang?: string): string =>
     `<button class="seg-btn${on ? ' active' : ''}" data-${attr}="${value}" aria-pressed="${on}"${
@@ -118,6 +119,12 @@ function prefsCard(): string {
       ).join('')}</div>
     </div>
     <div class="prefs-row">
+      <span class="prefs-label">${m.appearance}</span>
+      <div class="seg" role="group" aria-label="${esc(m.appearance)}">${THEMES.map((t) =>
+        seg('look', t, m[t], t === theme),
+      ).join('')}</div>
+    </div>
+    <div class="prefs-row">
       <span class="prefs-label">${m.units}</span>
       <div class="seg" role="group" aria-label="${esc(m.units)}">${UNIT_SYSTEMS.map((u) =>
         seg('units', u, m[u], u === units()),
@@ -130,7 +137,7 @@ function prefsCard(): string {
 export function renderSettings(main: HTMLElement, deps: SettingsDeps): void {
   const state = deps.store.getState();
   main.innerHTML = `
-  ${prefsCard()}
+  ${prefsCard(state.ui.theme ?? DEFAULT_THEME)}
   ${deps.account ? renderAccountCard(deps.account) : ''}
   ${planCard(state)}
   ${dataCard()}
@@ -161,6 +168,16 @@ function bind(main: HTMLElement, deps: SettingsDeps): void {
       if (!isLocale(l) || l === store.getState().ui.locale) return;
       store.update((d) => {
         d.ui.locale = l;
+      });
+      rerender();
+    });
+  });
+  main.querySelectorAll<HTMLButtonElement>('#prefsCard [data-look]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const t = b.dataset['look'];
+      if (!isTheme(t) || t === (store.getState().ui.theme ?? DEFAULT_THEME)) return;
+      store.update((d) => {
+        d.ui.theme = t;
       });
       rerender();
     });
