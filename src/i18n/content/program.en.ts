@@ -963,6 +963,174 @@ export const EXERCISE_EN: Readonly<Record<string, ExerciseCopy>> = {
 
   // ════════════════ LIBRARY · BODYWEIGHT (home / outdoors) — ids w1… ════════════════
   // (append this group's entries below this line, in id order)
+  w1: {
+    name: 'Bodyweight Squat',
+    muscle: 'Quads · glutes',
+    steps: [
+      'Stand shoulder-width apart, toes turned slightly out, your weight on your whole foot.',
+      'Send your hips back and down as if sitting onto a chair, and reach your arms forward for balance.',
+      'Lower until your thighs are parallel to the floor or slightly below, chest open and back straight.',
+      'Push the floor away through mid-foot back to standing, and squeeze your glutes at the top.',
+    ],
+    cue: 'Your knees track your toes — push them slightly out on the way down.',
+    mistake: 'Common mistake: heels lifting off the floor, or knees caving in on the way up.',
+  },
+  w2: {
+    name: 'Walking Lunge',
+    muscle: 'Quads · glutes · balance',
+    steps: [
+      'Stand tall, hands on your hips or by your sides, core braced.',
+      'Take a big step forward and lower until your back knee almost touches the floor and both knees are at 90 degrees.',
+      'Drive through the heel of your front foot, bring your back leg forward and pass through standing.',
+      'Go straight into the next step with the other leg — every step is one rep for that leg.',
+    ],
+    cue: 'Torso tall and the descent vertical — your back knee drops to the floor, your torso does not tip forward.',
+    mistake: 'Common mistake: a short step that pushes your front knee far past your toes, or stepping on one line as if on a tightrope.',
+  },
+  w3: {
+    name: 'Glute Bridge',
+    muscle: 'Glutes · hamstrings',
+    steps: [
+      'Lie on your back, knees bent and feet flat on the floor hip-width apart, close to your glutes.',
+      'Arms by your sides on the floor; flatten your lower back and brace your abs.',
+      'Drive through your heels and lift your hips until your shoulders, hips and knees form one straight line.',
+      'Pause for a second at the top with your glutes squeezed, then lower slowly without resting on the floor.',
+    ],
+    cue: 'Your glutes lift your hips — not your lower back; at the top your knees are over your feet.',
+    mistake: 'Common mistake: arching your lower back past the straight line, or pushing through your toes instead of your heels.',
+  },
+  w4: {
+    name: 'Incline Push-Up',
+    muscle: 'Lower chest · triceps',
+    steps: [
+      'Place your hands on the edge of a sturdy bench (or table), slightly wider than your shoulders, and walk your feet back.',
+      'Your body is one straight line from head to heels — glutes and core squeezed.',
+      'Lower under control until your chest almost touches the edge of the bench, elbows back at about 45 degrees.',
+      'Push the bench away back to full extension, without losing the straight line.',
+    ],
+    cue: 'The lower the surface, the harder the exercise; progress gradually toward push-ups from the floor.',
+    mistake: 'Common mistake: hips lagging behind or sagging, or your head reaching for the bench before your chest.',
+  },
+  w5: {
+    name: 'Pike Push-Up',
+    muscle: 'Shoulders · triceps',
+    steps: [
+      'Get into an inverted V: hands on the floor shoulder-width apart, hips high, legs nearly straight.',
+      'Walk your feet in toward your hands until your shoulders are almost over your palms.',
+      'Bend your elbows and lower the crown of your head to the floor, slightly in front of your hands — elbows back, not out to the sides.',
+      'Press back up to full extension; your hips stay high the whole time.',
+    ],
+    cue: 'Your head and both hands form a triangle on the floor — this is an upside-down shoulder press, not a push-up.',
+    mistake: 'Common mistake: your hips dropping and the body opening into a regular push-up, or elbows flaring out to the sides.',
+  },
+  w6: {
+    name: 'Inverted Row',
+    muscle: 'Upper back · biceps',
+    steps: [
+      'Hang under a low bar (or the edge of a sturdy table) with a grip slightly wider than your shoulders, arms straight.',
+      'Heels on the floor and your body one straight line from shoulders to heels — glutes and core squeezed.',
+      'Pull your chest to the bar: elbows back and down, shoulder blades squeezing together.',
+      'Pause for a second at the top, then lower under control to straight arms.',
+    ],
+    cue: 'Your chest rises to the bar — not your chin; the more horizontal your body, the harder it gets.',
+    mistake: 'Common mistake: hips sagging and folding the body, or a partial pull with the arms only.',
+  },
+  w7: {
+    name: 'Bench Dips',
+    muscle: 'Triceps · lower chest',
+    steps: [
+      'Sit on the edge of a sturdy bench or chair, hands on the edge beside your hips, fingers forward.',
+      'Slide your hips forward off the bench, knees bent and feet flat on the floor (straight legs — harder).',
+      'Bend your elbows straight back and lower to about 90 degrees, your back close to the bench.',
+      "Push through your palms back to straight arms, without slamming your elbows into lockout.",
+    ],
+    cue: 'Elbows point back and shoulders stay away from your ears — your triceps lift you, not your legs.',
+    mistake: 'Common mistake: going too deep and loading the front of your shoulder, or drifting away from the bench with your hips.',
+  },
+  w8: {
+    name: 'Mountain Climbers',
+    muscle: 'Core · shoulders · cardio',
+    steps: [
+      'High plank: hands under your shoulders, arms straight, body one straight line from head to heels.',
+      'Drive one knee to your chest, the foot hovering above the floor.',
+      'Send it back and at the same moment drive the other knee in — like running in place.',
+      'Keep a fast pace and steady breathing the whole time.',
+    ],
+    cue: 'Your shoulders stay over your hands and your hips level with your shoulders — only your legs run.',
+    mistake: 'Common mistake: hips bouncing up with every step, or shoulders drifting back behind your hands.',
+  },
+  w9: {
+    name: 'Burpee',
+    muscle: 'Full body · cardio',
+    steps: [
+      'From standing, drop into a squat and place your palms on the floor in front of your feet.',
+      'Jump your feet back into a high plank — body in a straight line, core braced.',
+      'Jump your feet back in to your hands, feet flat on the floor.',
+      'Stand up and jump with your arms overhead; land softly and go straight into the next rep.',
+    ],
+    cue: 'A soft landing on the whole foot with bent knees — the rhythm comes from your legs, not your back.',
+    mistake: 'Common mistake: hips sagging in the plank, or a rounded back as you bring your hands to the floor.',
+  },
+  w10: {
+    name: 'Jumping Jacks',
+    muscle: 'Cardio · shoulders · calves',
+    steps: [
+      'Stand tall, feet together and arms by your sides.',
+      'Jump your feet out slightly wider than your shoulders and, at the same moment, swing your arms out to the sides and overhead.',
+      'Jump again and close — feet together, arms back by your sides.',
+      'Keep a steady rhythm on the balls of your feet, knees soft on every landing.',
+    ],
+    cue: 'Quiet, light landings — on your toes, not your heels.',
+    mistake: 'Common mistake: landing on locked knees, or arms stopping at shoulder height instead of reaching overhead.',
+  },
+  w11: {
+    name: 'Superman Hold',
+    muscle: 'Spinal erectors · glutes',
+    steps: [
+      'Lie on your stomach, arms straight out past your head and legs straight back.',
+      'Squeeze your glutes and lift your arms, chest and legs off the floor at the same time.',
+      'Eyes on the floor, neck in line with your back; only your belly stays on the floor.',
+      'Hold for the time and breathe, then lower slowly to the floor.',
+    ],
+    cue: 'Get long — reach your hands forward and your toes back, not just up.',
+    mistake: 'Common mistake: throwing your head back to look forward, or bending your knees to lift your legs higher.',
+  },
+  w12: {
+    name: 'Wall Sit',
+    muscle: 'Quads (isometric)',
+    steps: [
+      'Stand with your back against a wall and walk your feet about one step forward, hip-width apart.',
+      'Slide your back down the wall until your thighs are parallel to the floor and your knees at 90 degrees.',
+      'Knees over ankles, back and head against the wall, arms straight out in front at shoulder height.',
+      'Hold for the time and breathe, then slide back up.',
+    ],
+    cue: 'Press your back into the wall and your heels into the floor — the weight is on your heels.',
+    mistake: 'Common mistake: leaning your hands on your thighs, or knees travelling past your toes.',
+  },
+  w13: {
+    name: 'Bodyweight Step-Up',
+    muscle: 'Quads · glutes',
+    steps: [
+      'Stand facing a sturdy bench or a knee-high step, and place one whole foot on top.',
+      'Lean your torso slightly forward and drive through the heel of the top foot until you stand tall on the bench.',
+      'Bring the other foot up beside it, then step down under control with that same foot back to the floor.',
+      'Finish all the reps on one leg, then switch.',
+    ],
+    cue: 'The top leg does all the work — the bottom leg does not bounce off the floor.',
+    mistake: 'Common mistake: pushing off the foot on the floor, or the top knee caving inward.',
+  },
+  w14: {
+    name: 'Single-Leg Calf Raise',
+    muscle: 'Calves',
+    steps: [
+      'Stand on the edge of a step on the ball of one foot, heel in the air; the other leg bent behind you.',
+      'Put a hand on a wall or a rail for balance only.',
+      'Lower your heel slowly below the level of the step to a full stretch in your calf.',
+      'Rise as high as you can onto the ball of your foot, pause for a second at the top, and lower slowly again.',
+    ],
+    cue: 'A full, slow range — a deep stretch at the bottom and all the way up at the top.',
+    mistake: 'Common mistake: quick, short half-range bounces, or pulling with the hand on the wall.',
+  },
 
   // ──────────────── end of BODYWEIGHT (home / outdoors) ────────────────
 };
@@ -1062,4 +1230,15 @@ export const MUSCLE_EN: Readonly<Record<string, string>> = {
   'מקרבים · ישבן · ארבע־ראשי': 'Adductors · glutes · quads',
   'שוקיים': 'Calves',
   'כתף אחורית · גב עליון': 'Rear delts · upper back',
+  // bodyweight library
+  'ארבע־ראשי · ישבן · שיווי משקל': 'Quads · glutes · balance',
+  'חזה תחתון · טרייספס': 'Lower chest · triceps',
+  'כתפיים · טרייספס': 'Shoulders · triceps',
+  'גב עליון · יד קדמית': 'Upper back · biceps',
+  'טרייספס · חזה תחתון': 'Triceps · lower chest',
+  'ליבה · כתפיים · קרדיו': 'Core · shoulders · cardio',
+  'כל הגוף · קרדיו': 'Full body · cardio',
+  'קרדיו · כתפיים · שוקיים': 'Cardio · shoulders · calves',
+  'זוקפי גב · ישבן': 'Spinal erectors · glutes',
+  'ארבע־ראשי (סטטי)': 'Quads (isometric)',
 };
