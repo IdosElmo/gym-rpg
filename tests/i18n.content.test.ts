@@ -46,7 +46,7 @@ afterEach(() => {
 
 describe('EXERCISE_EN coverage', () => {
   it('lists the 53 built-in exercises', () => {
-    expect(BUILT_INS.length).toBe(53);
+    expect(BUILT_INS.length).toBe(65);
   });
 
   it.each(BUILT_INS.map((ex) => [ex.id, ex] as const))('%s has every field, step for step', (_id, ex) => {
