@@ -16,7 +16,7 @@ import type { EquipmentSlot } from '../data/gameContent.ts';
 import type { Locale } from '../i18n/locale.ts';
 import type { UnitSystem } from '../i18n/units.ts';
 import type { Theme } from '../ui/theme.ts';
-import type { LeagueItemKind } from '../data/leaguePools.ts';
+import type { LeagueItemKind, PrizeMode } from '../data/leaguePools.ts';
 import type { PlanDoc, UserPreset } from '../data/planTypes.ts';
 import type { BodyPart, DayKey } from '../data/program.ts';
 
@@ -85,6 +85,26 @@ export interface UiState {
   units?: UnitSystem;
   /** Dark (navy, the default) or light. Absent = dark. A device preference like `locale`. */
   theme?: Theme;
+  /**
+   * 🏆 Whose prizes the league shop shows: rewards you give YOURSELF, or the
+   * couple's winner-is-treated pools. A device preference like `locale` — never
+   * in an event, kept by `clear()` and `replaceAll()`. Absent = resolved by
+   * `prizeModeOf` (core/league.ts), and pinned on boot (ui/app.ts).
+   */
+  prizes?: PrizeMode;
+  /**
+   * 🏆 The league rival this device CHOSE (typed, or accepted from an invite
+   * link). Device-local bookkeeping, never an event: the race is drawn from
+   * the rival's published rows, not from anything in the log. Absent = none
+   * chosen; the screen never picks one on its own.
+   */
+  rival?: string;
+  /**
+   * 🏆 A `#rival=<handle>` invitation that opened the app and has not been
+   * answered yet. Kept in the store (not in the URL) so it survives a
+   * sign-in redirect; cleared once accepted or declined.
+   */
+  invite?: string;
 }
 
 /* -------------------------------------------------------------- game state */

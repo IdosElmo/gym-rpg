@@ -10,6 +10,7 @@
  */
 
 import type { EquipmentSlot } from '../data/gameContent.ts';
+import type { PrizeMode } from '../data/leaguePools.ts';
 import type { BodyPart, DayKey, Exercise } from '../data/program.ts';
 import type {
   AppEvent,
@@ -542,15 +543,17 @@ function spend(store: DataStore, plan: LeagueSpendPlan, now: Date): LeagueSpendR
  *
  * Same contract as `buyItem`: `core/league.ts` decides (the item, the month, the
  * ledger, the purse) BEFORE anything is appended, so a refused redemption leaves
- * no trace in the log at all.
+ * no trace in the log at all. `mode` is the prize mode the shop is showing — the
+ * item must be in that mode's pool; it is never written anywhere.
  */
 export function redeemLeagueReward(
   store: DataStore,
   month: string,
   itemId: string,
   now: Date = new Date(),
+  mode: PrizeMode = 'couple',
 ): LeagueSpendResult {
-  return spend(store, buildLeagueRedemption(gameOf(store), month, itemId, todayISO(now), now.getTime()), now);
+  return spend(store, buildLeagueRedemption(gameOf(store), month, itemId, todayISO(now), now.getTime(), mode), now);
 }
 
 /** Stake this month's challenge (one slot per month, paid for up front). */
@@ -559,10 +562,11 @@ export function setLeagueChallenge(
   month: string,
   challengeId: string,
   now: Date = new Date(),
+  mode: PrizeMode = 'couple',
 ): LeagueSpendResult {
   return spend(
     store,
-    buildLeagueChallengeSet(gameOf(store), month, challengeId, todayISO(now), now.getTime()),
+    buildLeagueChallengeSet(gameOf(store), month, challengeId, todayISO(now), now.getTime(), mode),
     now,
   );
 }
