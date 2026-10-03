@@ -665,6 +665,150 @@ export const EXERCISE_EN: Readonly<Record<string, ExerciseCopy>> = {
   },
   // ════════════════ LIBRARY · GYM (barbell, cable) — ids g1… ════════════════
   // (append this group's entries below this line, in id order)
+  g1: {
+    name: 'Barbell Back Squat',
+    muscle: 'Quads · glutes',
+    steps: [
+      'Set the bar on your upper traps (not your neck), grip it slightly wider than your shoulders and walk it out of the rack in two small steps back.',
+      'Stand shoulder width apart, toes turned slightly out; take a deep breath into your belly and brace your core.',
+      'Lower under control (2–3 seconds) — hips back and down, knees tracking your toes — until your thighs are at least parallel to the floor.',
+      'Drive back up through your whole foot; the bar rises in a straight line over mid-foot, and your chest and hips come up together.',
+    ],
+    cue: 'The bar stays over mid-foot for the whole rep — your torso leans forward exactly as much as it takes to keep it there.',
+    mistake: 'Common mistake: heels lifting or knees caving in on the way up, or hips rising before the chest and turning the squat into a "good morning".',
+  },
+  g2: {
+    name: 'Barbell Deadlift',
+    muscle: 'Hamstrings · glutes · spinal erectors',
+    steps: [
+      'Stand hip width apart with the bar over mid-foot, about 3 cm from your shins.',
+      'Hinge at the hips and grip the bar just outside your knees; lower your hips until your shins touch the bar — flat back, open chest, shoulders slightly in front of the bar.',
+      'Breathe and brace, straighten your arms to "take the slack out" of the bar, and push the floor away with your legs — the bar drags up your shins and thighs.',
+      'Finish standing tall with your glutes squeezed, without leaning back; lower in reverse — hips back first, knees only once the bar has passed them.',
+    ],
+    cue: "Push the floor away — don't pull the bar with your back. Shoulders and hips rise at the same rate.",
+    mistake: 'Common mistake: the lower back rounding off the floor, or the bar drifting away from your body and forward.',
+  },
+  g3: {
+    name: 'Barbell Bench Press',
+    muscle: 'Mid chest',
+    steps: [
+      'Lie on a flat bench with your eyes under the bar; feet planted on the floor, shoulder blades pulled back and down.',
+      'Grip the bar slightly wider than your shoulders, unrack it and bring it over your shoulders with straight arms.',
+      'Lower under control (2–3 seconds) to your lower chest — the nipple line — with your elbows at about 45 degrees from your body.',
+      'Press up and slightly back, to over your shoulders again, just short of lockout.',
+    ],
+    cue: "Try to \"bend\" the bar in your hands and drive yourself into the bench — your shoulder blades don't move.",
+    mistake: 'Common mistake: bouncing the bar off your chest, or lifting your hips off the bench to finish the rep.',
+  },
+  g4: {
+    name: 'Barbell Bent-Over Row',
+    muscle: 'Back thickness · mid traps',
+    steps: [
+      'Stand hip width apart and take an overhand grip on the bar, slightly wider than your shoulders.',
+      'Soften your knees and hinge forward at the hips until your torso is nearly parallel to the floor; flat back, the bar hanging under your shoulders.',
+      'Row the bar to your upper belly — elbows leading back, close to your body — and squeeze your shoulder blades at the top.',
+      'Lower slowly until your arms are straight, without moving your torso.',
+    ],
+    cue: 'Your torso is frozen at its angle — your back and elbows do the work, not a swing of the hips.',
+    mistake: 'Common mistake: standing up a little on every rep to "swing" the weight, or a rounded lower back.',
+  },
+  g5: {
+    name: 'Standing Barbell Overhead Press',
+    muscle: 'Front & side delts',
+    steps: [
+      'Stand hip width apart with the bar resting on your front delts, a grip slightly wider than your shoulders and your elbows slightly in front of the bar.',
+      'Squeeze your glutes and abs — your body is one column from ankles to shoulders.',
+      'Press the bar straight up; tilt your head slightly back to clear its path, and as soon as it passes your forehead, push your head "through the window".',
+      'Lock out over mid-foot, arms straight beside your ears, then lower under control back to your shoulders.',
+    ],
+    cue: "The bar travels a straight line — your head moves out of its way, the bar doesn't go around it.",
+    mistake: 'Common mistake: arching your lower back and leaning back, which turns it into an upper-chest press.',
+  },
+  g6: {
+    name: 'Barbell Hip Thrust',
+    muscle: 'Glute max · hamstrings',
+    steps: [
+      'Sit on the floor with your shoulder blades on the edge of a bench, and set the bar (with a pad) in the crease of your hips.',
+      'Feet hip width apart, close enough that your shins are vertical at the top; hold the bar on both sides.',
+      'Drive through your heels and lift your hips until your torso and thighs form one straight line, parallel to the floor; chin slightly tucked.',
+      'Pause for a second with your glutes squeezed hard, then lower your hips under control until they almost touch the floor.',
+    ],
+    cue: 'Ribs down and chin tucked — the movement belongs to your hips, not your lower back.',
+    mistake: 'Common mistake: arching the lower back at the top instead of fully extending the hips, or feet so far out that the work shifts to the hamstrings.',
+  },
+  g7: {
+    name: 'Leg Press (Machine)',
+    muscle: 'Quads & glutes',
+    steps: [
+      'Sit in the machine with your back and hips against the pad; feet hip width apart in the middle of the platform.',
+      'Push the platform slightly, release the safety lock and hold the handles beside the seat.',
+      'Lower the platform under control (2–3 seconds) until your knees are at about 90 degrees — before your hips start to lift off the seat.',
+      'Push through your whole foot back up to just short of straight, without locking your knees.',
+    ],
+    cue: 'Your lower back stays glued to the pad — it sets how deep you go, not how much weight you loaded.',
+    mistake: 'Common mistake: slamming the knees into lockout at the top, or going so deep that your pelvis tucks under and your lower back rounds.',
+  },
+  g8: {
+    name: 'Cable Lateral Raise',
+    muscle: 'Side delts',
+    steps: [
+      'Stand side-on to a low pulley and take the handle in the hand farther from it; the cable runs in front of your body.',
+      'Your free hand holds the machine; torso upright, elbow slightly bent.',
+      'Raise your arm out to the side in a wide arc to shoulder height — your elbow leads, not your hand.',
+      "Lower slowly (2–3 seconds) to in front of your thigh, without letting the weight rest at the bottom; finish your reps, then switch sides.",
+    ],
+    cue: "Imagine pushing the wall beside you away with your elbow — and your shoulder doesn't creep up to your ear.",
+    mistake: 'Common mistake: raising above shoulder height, or leaning your torso to the side to create momentum.',
+  },
+  g9: {
+    name: 'Cable Biceps Curl',
+    muscle: 'Biceps',
+    steps: [
+      'Face a low pulley and take a short bar in an underhand grip, shoulder width apart.',
+      'Take a small step back, torso upright and elbows tucked to your ribs.',
+      'Bend your elbows and bring the bar up to shoulder height — only your forearms move.',
+      'Lower slowly to almost fully straight; the cable keeps tension even at the bottom.',
+    ],
+    cue: "Elbows nailed to your ribs — the cable pulls the whole time, so don't rest at the bottom.",
+    mistake: 'Common mistake: elbows drifting forward at the top, or rocking your torso to lift the weight.',
+  },
+  g10: {
+    name: 'Standing Calf Raise (Machine)',
+    muscle: 'Calves (gastrocnemius & soleus)',
+    steps: [
+      'Step under the shoulder pads and stand with the balls of your feet on the edge of the step; heels in the air.',
+      'Knees straight (not locked), torso upright, hands on the handles.',
+      'Lower your heels slowly into a deep calf stretch, and hold it for a second.',
+      'Rise onto your toes as high as you can, pause for a second in the squeeze, and lower again under control.',
+    ],
+    cue: "Full range — a deep stretch at the bottom, a pause at the top. Only your ankle moves, your knees don't.",
+    mistake: 'Common mistake: short, bouncy reps with no stretch at the bottom and no pause at the top.',
+  },
+  g11: {
+    name: 'Hip Abduction Machine',
+    muscle: 'Glute medius · hip abductors',
+    steps: [
+      'Sit in the machine with your back against the pad, feet on the footrests and the pads on the outside of your knees.',
+      'Hold the handles beside the seat, brace your core and sit deep in the seat.',
+      'Push your knees out as wide as they go and pause for a second, squeezing your glutes.',
+      "Return slowly (2–3 seconds) without letting the weights touch.",
+    ],
+    cue: "Your knees open from your glutes — your torso stays still and doesn't rock back and forth.",
+    mistake: 'Common mistake: "throwing" the knees out with momentum and letting the weight slam them back together.',
+  },
+  g12: {
+    name: 'Cable Glute Kickback',
+    muscle: 'Glute max (isolation)',
+    steps: [
+      'Attach an ankle strap to a low pulley, face it and hold the machine; hinge slightly forward at the hips.',
+      'Standing leg with a soft knee; the working leg under your hips, knee almost straight.',
+      'Kick the leg back and up in an arc until your thigh is slightly behind your body line, and pause for a second in the squeeze.',
+      'Return slowly and under control; finish your reps, then switch legs.',
+    ],
+    cue: 'The rep ends when your glute is squeezed, not when your leg is high — your hips stay square to the machine.',
+    mistake: 'Common mistake: arching your lower back to lift the leg higher, or rotating your hips to the side.',
+  },
 
   // ──────────────── end of GYM (barbell, cable) ────────────────
 
@@ -763,4 +907,9 @@ export const MUSCLE_EN: Readonly<Record<string, string>> = {
   'ליבה עמוקה · בטן': 'Deep core · abs',
   'ליבה · כתפיים': 'Core · shoulders',
   'חזה פנימי · יד אחורית': 'Inner chest · triceps',
+  // gym library
+  'ישבן גדול · ירך אחורית': 'Glute max · hamstrings',
+  'תאומים וסוליה (שוקיים)': 'Calves (gastrocnemius & soleus)',
+  'ישבן אמצעי · מרחיקי ירך': 'Glute medius · hip abductors',
+  'ישבן גדול (בידוד)': 'Glute max (isolation)',
 };
