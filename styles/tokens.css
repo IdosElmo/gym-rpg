@@ -44,6 +44,11 @@
   --shadow:#00000073; --overlay:#000000a0; --track:#050d1f99; --halo:#000000b0;
   /* a recessed well behind small sprites (enemy faces, a duel opponent) */
   --well:#050d1f66;
+  /* the app chrome (Pulse): the bottom bar, the docked rest timer, the thin
+     level bar under the header, and the one shadow a card may cast */
+  --nav-bg:#0b1730; --tbar-bg:#0f1f3d; --bar-track:#1d335e;
+  --xp-fill:#ffc35a; --energy-ink:#ffc35a;
+  --card-shadow:none; --dock-shadow:none;
 }
 :root[data-theme="light"]{
   --bg:#eceef2; --card:#ffffff; --card-2:#f4f6f9; --line:#dde1e8; --input:#f1f3f6;
@@ -54,10 +59,21 @@
   --ss:#7c3aed; --ss-soft:#6d28d9; --on-ss:#ffffff;
   --shadow:#18202e29; --overlay:#18202e73; --track:#18202e17; --halo:#ffffffe6;
   --well:#18202e0f;
+  --nav-bg:#ffffff; --tbar-bg:#ffffff; --bar-track:#e4e7ed;
+  --xp-fill:#d99a06; --energy-ink:#a16207;
+  --card-shadow:0 1px 2px #18202e0f, 0 1px 1px #18202e08;
+  /* the docked timer floats over white cards: a soft lift off the page */
+  --dock-shadow:0 -6px 18px #18202e14;
 }
 :root,
 .bt-arena, .char-stage, .ph-viewer, .ph-cam{
-  --radius:14px;
+  /* Shape & rhythm (Pulse): cards are 16px, controls inside them 12px,
+     chips and pills fully round. Spacing runs on a 4px grid. */
+  --radius:16px; --radius-sm:12px; --radius-pill:999px;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px;
+  /* The bottom bar's height ABOVE the safe area, and the docked rest timer's
+     height — what every screen keeps clear under its last line. */
+  --nav-h:62px; --timer-h:118px;
   /* Tints. -soft: a wash behind a state; -line: its hairline border; -strong: an
      emphatic border. Built from the INK so a light-theme border is visible. */
   --accent-soft:color-mix(in srgb, var(--accent-ink) 12%, transparent);

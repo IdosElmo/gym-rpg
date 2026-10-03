@@ -76,22 +76,32 @@
 
 /* Export / import / clear, grouped inside the "הנתונים שלי" card on הגדרות. */
 .data-actions{display:flex; gap:10px; margin:12px 0 0}
+/* Buttons (Pulse): a secondary is a card-coloured block with accent text;
+   `.primary` is THE action of a screen, filled with the accent; `.danger`
+   keeps the block and turns its text red; `.ghost` recedes. */
 .action-btn{
-  flex:1; background:var(--card); border:1px solid var(--line); color:var(--accent-ink);
-  border-radius:12px; padding:11px; font-size:14px; font-weight:700;
+  flex:1; min-height:44px; background:var(--card-2); border:1px solid var(--line); color:var(--accent-ink);
+  border-radius:var(--radius-sm); padding:10px 12px; font-size:14px; font-weight:700; line-height:1.25;
+  transition:background-color .15s, border-color .15s;
 }
-.action-btn.danger{color:var(--danger)}
+.action-btn:focus-visible{outline:2px solid var(--accent-ink); outline-offset:2px}
+.action-btn.primary{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
+.action-btn.danger{color:var(--danger); border-color:var(--danger-line)}
+.action-btn.ghost{background:transparent}
+.action-btn[disabled]{opacity:.5; cursor:default}
+/* Above the bottom bar — and above the rest timer while it is up. */
 .toast{
-  position:fixed; bottom:120px; right:50%; transform:translateX(50%);
+  position:fixed; bottom:calc(var(--nav-h) + 14px + env(safe-area-inset-bottom)); right:50%; transform:translateX(50%);
   background:var(--card-2); border:1px solid var(--accent-ink); color:var(--text);
   padding:9px 18px; border-radius:99px; font-size:13.5px; z-index:80;
   box-shadow:0 6px 18px var(--shadow);
   opacity:0; transition:.25s; pointer-events:none;
 }
 .toast.show{opacity:1}
+body.timer-open .toast{bottom:calc(var(--nav-h) + var(--timer-h) + 14px + env(safe-area-inset-bottom))}
 
 /* ---------- Game-event feed (יומן הרפתקה) ---------- */
-.hist-heading{margin:18px 0 10px; font-size:15px; font-weight:800}
+.hist-heading{margin:18px 0 10px; font-size:16px; font-weight:700; letter-spacing:-.01em}
 .feed{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px}
 .feed-item{
   display:flex; align-items:baseline; gap:8px;
@@ -135,7 +145,7 @@
 .dev-xp-row .action-btn{flex:0 0 auto; min-width:96px; min-height:44px}
 .dev-select{
   flex:1; min-width:0; min-height:44px; padding:0 10px;
-  background:var(--input); border:1px solid var(--line); border-radius:12px;
+  background:var(--input); border:1px solid var(--line); border-radius:var(--radius-sm);
   color:var(--text); font-size:14px; font-weight:700; font-family:inherit;
 }
 .dev-card .action-btn.danger{width:100%; margin-top:12px; min-height:44px}

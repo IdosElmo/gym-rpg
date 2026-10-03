@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * tests/stats.dom.test.ts — the 📊 סטטיסטיקות screen: its place in the settings
+ * tests/stats.dom.test.ts — the 📊 סטטיסטיקות screen: its place in the progress
  * hub, and the markup of the two charts this app now draws by hand.
  *
  * The rendering is a pure function of the computed stats (`statsHtml`), so most
@@ -99,13 +99,13 @@ const SESSIONS: Record<string, Session> = {
 
 /* ------------------------------------------------------------ the tab */
 
-describe('the 📊 tab in the settings hub', () => {
-  it('is the settings hub third inner tab and renders the screen when tapped', () => {
+describe('the 📊 tab in the progress hub', () => {
+  it('is the progress hub second inner tab and renders the screen when tapped', () => {
     const store = mount();
-    clickHub('SE');
+    clickHub('PR');
     const tabs = [...document.querySelectorAll<HTMLElement>('#tabs .sub-row .tab')];
-    expect(tabs.map((t) => t.dataset['view'])).toEqual(['ST', 'H', 'SS']);
-    expect(tabs[2]?.textContent).toContain('סטטיסטיקות');
+    expect(tabs.map((t) => t.dataset['view'])).toEqual(['H', 'SS', 'WT', 'PH']);
+    expect(tabs[1]?.textContent).toContain('סטטיסטיקות');
 
     clickView('SS');
     expect(store.getState().ui.view).toBe('SS');
@@ -116,14 +116,14 @@ describe('the 📊 tab in the settings hub', () => {
 
   it('still remembers the last inner tab of each hub — now including 📊', () => {
     const store = mount();
-    clickHub('SE');
+    clickHub('PR');
     clickView('SS');
     clickHub('GM');
     expect(store.getState().ui.view).toBe('BT');
-    clickHub('SE');
+    clickHub('PR');
     expect(store.getState().ui.view).toBe('SS'); // came back to where it was left
     clickHub('TR');
-    clickHub('SE');
+    clickHub('PR');
     expect(store.getState().ui.view).toBe('SS');
   });
 
@@ -143,7 +143,7 @@ describe('the 📊 tab in the settings hub', () => {
     store.update((draft) => {
       draft.sessions[date] = { day: 'A', ex: { a1: [set('100', '10')] } };
     });
-    clickHub('SE');
+    clickHub('PR');
     clickView('SS');
     expect(document.querySelector('#main .hero-num')?.textContent).toContain('1,000');
   });

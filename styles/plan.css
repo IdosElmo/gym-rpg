@@ -4,19 +4,19 @@
    the add-sheet slides up from the bottom where the thumb already is. */
 
 /* Entry points ---------------------------------------------------------- */
-.plan-edit-btn{
-  margin-top:8px; min-height:40px;
+/* The header's two plan buttons: "edit plan" on a workout (beside the "last
+   logged" line) and "back" in the editor (in the header's end column). */
+.plan-edit-btn, .plan-back{
+  min-height:44px; flex:0 0 auto;
   display:inline-flex; align-items:center; gap:6px;
   background:var(--card); border:1px solid var(--line); color:var(--accent-ink);
-  border-radius:99px; padding:8px 15px; font-size:12.5px; font-weight:700;
+  box-shadow:var(--card-shadow);
+  border-radius:var(--radius-pill); padding:6px 14px; font-size:13px; font-weight:700;
 }
+.plan-edit-btn .ic, .plan-back .ic{inline-size:16px; block-size:16px}
+.plan-edit-btn:focus-visible, .plan-back:focus-visible{outline:2px solid var(--accent-ink); outline-offset:2px}
 .plan-card .gc-note{margin-bottom:10px}
 .plan-card-btn{width:100%; min-height:44px}
-.plan-back{
-  position:absolute; top:18px; inset-inline-end:16px; min-height:40px;
-  background:var(--card); border:1px solid var(--line); color:var(--accent-ink);
-  border-radius:99px; padding:8px 15px; font-size:13px; font-weight:700;
-}
 
 /* Day sub-tabs ---------------------------------------------------------- */
 .pl-days{display:flex; gap:6px; margin:2px 0 14px}
@@ -43,7 +43,7 @@
 
 .pl-day-card{
   background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
-  padding:11px 12px 9px; margin-bottom:12px;
+  box-shadow:var(--card-shadow); padding:12px 14px 10px; margin-bottom:12px;
 }
 .pl-day-head{display:flex; align-items:flex-end; gap:8px}
 .pl-day-name-field{flex:1; min-width:0}
@@ -95,7 +95,7 @@
 .pl-field>span{font-size:10.5px; color:var(--dim); font-weight:700}
 .pl-field input,.pl-field select{
   width:100%; min-height:42px; background:var(--input); border:1px solid var(--line);
-  color:var(--text); border-radius:10px; padding:8px 10px; font-size:15px; text-align:center;
+  color:var(--text); border-radius:var(--radius-sm); padding:8px 10px; font-size:15px; text-align:center;
 }
 .pl-field.block input,.pl-field.block select{text-align:start}
 .pl-field input:focus,.pl-field select:focus{outline:2px solid var(--accent-ink); outline-offset:1px}

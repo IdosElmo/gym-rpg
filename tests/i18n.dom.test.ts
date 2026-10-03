@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * Switching language from the settings screen: the document's lang/dir flip,
- * the shell (nav, header, footer, timer bar) speaks the new language, and
+ * the shell (nav, header, timer bar) speaks the new language, and
  * switching back restores the Hebrew shell exactly.
  */
 import { readFileSync } from 'node:fs';
@@ -76,7 +76,7 @@ describe('the language switch', () => {
     mount();
     expect(document.documentElement.getAttribute('dir')).toBe('rtl');
     expect(document.documentElement.getAttribute('lang')).toBe('he');
-    expect(hubLabels()).toEqual(['אימון', 'קרב', 'תזונה', 'הגדרות']);
+    expect(hubLabels()).toEqual(['אימון', 'תזונה', 'הרפתקה', 'התקדמות', 'פרופיל']);
     expect(document.querySelector('#prefsCard [data-locale="he"]')?.getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -89,16 +89,17 @@ describe('the language switch', () => {
     expect(document.documentElement.getAttribute('dir')).toBe('ltr');
     expect(document.documentElement.getAttribute('lang')).toBe('en');
     expect(document.getElementById('timerBar')?.getAttribute('dir')).toBe('ltr');
-    expect(hubLabels()).toEqual(['Train', 'Battle', 'Nutrition', 'Settings']);
+    expect(hubLabels()).toEqual(['Train', 'Nutrition', 'Quest', 'Progress', 'Profile']);
     expect(document.querySelector('#header .app-title')?.textContent).toBe('Settings');
-    expect(document.querySelector('body > footer')?.textContent).toContain('offline');
+    // the offline line lives on the settings screen now (the shell has no footer)
+    expect(document.querySelector('#main .app-info')?.textContent).toContain('offline');
     expect(document.title).toBe('Gym RPG');
     expect(document.querySelector('#main .data-card')?.textContent).toContain('My data');
 
     click('#prefsCard [data-locale="he"]');
     expect(document.documentElement.getAttribute('dir')).toBe('rtl');
     expect(document.getElementById('header')?.innerHTML).toBe(hebrewHeader);
-    expect(hubLabels()).toEqual(['אימון', 'קרב', 'תזונה', 'הגדרות']);
+    expect(hubLabels()).toEqual(['אימון', 'תזונה', 'הרפתקה', 'התקדמות', 'פרופיל']);
   });
 
   it('the theme defaults to dark, and the light switch flips <html data-theme> and back', () => {

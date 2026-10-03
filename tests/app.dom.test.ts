@@ -61,7 +61,7 @@ function currentDay(store: LocalStore): BuiltInDayKey {
   return view;
 }
 
-/** The four main tabs, in order. */
+/** The five main tabs (the bottom bar), in order. */
 function hubs(): HTMLElement[] {
   return [...document.querySelectorAll<HTMLElement>('#tabs .hub-row .hub')];
 }
@@ -98,9 +98,9 @@ function openDay(date: string): HTMLElement {
 }
 
 describe('workout screen', () => {
-  it('renders the 4 hubs + the 3 day tabs of the built-in plan, and the day exercise cards', () => {
+  it('renders the 5 hubs + the 3 day tabs of the built-in plan, and the day exercise cards', () => {
     const { store } = mount();
-    expect(hubs()).toHaveLength(4);
+    expect(hubs()).toHaveLength(5);
     expect(innerTabs()).toHaveLength(3);
     const view = currentDay(store);
     expect(document.querySelectorAll('#main .ex-card')).toHaveLength(PROGRAM[view].exercises.length);
@@ -298,7 +298,7 @@ describe('schedule-expanded day tabs', () => {
     // The four occurrences are the WHOLE inner row now: דמות/קרב/היסטוריה moved
     // into their own hubs, so a four-day split no longer overflows anything.
     expect(tabs()).toHaveLength(4);
-    expect(hubs()).toHaveLength(4);
+    expect(hubs()).toHaveLength(5);
     // אימון A runs twice so its two tabs carry occurrence ids; B1 and B2 run
     // once a week each and keep their plain keys
     expect(tabs().slice(0, 4).map((t) => t.dataset['view'])).toEqual([
@@ -338,7 +338,7 @@ describe('schedule-expanded day tabs', () => {
     if (!res.ok) throw new Error(res.errors.join(', '));
     mount(store);
     expect(tabs()).toHaveLength(6);
-    expect(hubs()).toHaveLength(4);
+    expect(hubs()).toHaveLength(5);
     expect(document.querySelector('#tabs .sub-row')?.classList.contains('scroll')).toBe(true);
   });
 
@@ -449,12 +449,12 @@ describe('history screen', () => {
 /* ------------------------------------------------------ two-level navigation */
 
 /**
- * The main bar is exactly four hubs — אימון / קרב / תזונה / הגדרות — and the
+ * The main bar is exactly five hubs — אימון / תזונה / הרפתקה / התקדמות / פרופיל — and the
  * second row is whatever that hub contains. The hub is DERIVED from `ui.view`,
  * so no stored view had to move for this: every id the app ever persisted still
  * names the same screen, and now also names the hub that screen lives in.
  */
-describe('the four-hub navigation', () => {
+describe('the five-hub navigation', () => {
   function hubIds(): (string | undefined)[] {
     return hubs().map((h) => h.dataset['hub']);
   }
@@ -463,17 +463,17 @@ describe('the four-hub navigation', () => {
     return hubs().find((h) => h.classList.contains('active'))?.dataset['hub'];
   }
 
-  it('always shows exactly four main tabs, whatever screen is open', () => {
+  it('always shows exactly five main tabs, whatever screen is open', () => {
     const { store, render } = mount();
     for (const view of ['A', 'B', 'C', 'CH', 'BT', 'H', 'ST', 'PL', 'NT', 'WT', 'PH']) {
       store.update((d) => {
         d.ui.view = view;
       });
       render();
-      expect(hubIds()).toEqual(['TR', 'GM', 'NU', 'SE']);
+      expect(hubIds()).toEqual(['TR', 'NU', 'GM', 'PR', 'SE']);
       expect(hubs().filter((h) => h.classList.contains('active'))).toHaveLength(1);
     }
-    expect(HUBS.map((h) => h.title)).toEqual(['אימון', 'קרב', 'תזונה', 'הגדרות']);
+    expect(HUBS.map((h) => h.title)).toEqual(['אימון', 'תזונה', 'הרפתקה', 'התקדמות', 'פרופיל']);
   });
 
   it('derives the hub from every view id the store can hold', () => {
@@ -485,10 +485,11 @@ describe('the four-hub navigation', () => {
     expect(hubOf('CH')).toBe('GM');
     expect(hubOf('LG')).toBe('GM');
     expect(hubOf('NT')).toBe('NU');
-    expect(hubOf('WT')).toBe('NU');
+    expect(hubOf('WT')).toBe('PR');
+    expect(hubOf('PH')).toBe('PR');
     expect(hubOf('ST')).toBe('SE');
-    expect(hubOf('H')).toBe('SE');
-    expect(hubOf('SS')).toBe('SE');
+    expect(hubOf('H')).toBe('PR');
+    expect(hubOf('SS')).toBe('PR');
     // a day key minted by a plan on another device is still a workout day
     expect(hubOf('d_whatever')).toBe('TR');
   });
@@ -509,10 +510,10 @@ describe('the four-hub navigation', () => {
     expect(of('CH')).toBe('GM');
     expect(of('LG')).toBe('GM');
     expect(of('NT')).toBe('NU');
-    expect(of('WT')).toBe('NU');
+    expect(of('WT')).toBe('PR');
     expect(of('ST')).toBe('SE');
-    expect(of('H')).toBe('SE');
-    expect(of('SS')).toBe('SE');
+    expect(of('H')).toBe('PR');
+    expect(of('SS')).toBe('PR');
   });
 
   it('gives each hub its own inner tabs', () => {
@@ -525,17 +526,19 @@ describe('the four-hub navigation', () => {
     expect(innerTabs()[1]?.textContent).toContain('דמות');
     expect(innerTabs()[2]?.textContent).toContain('ליגה');
 
+    // a hub with a single view has no inner row at all
     clickHub('NU');
-    expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['NT', 'WT', 'PH']);
-    expect(innerTabs()[2]?.textContent).toContain('תמונות');
-    expect(innerTabs()[0]?.textContent).toContain('תזונה');
-    expect(innerTabs()[1]?.textContent).toContain('משקל');
+    expect(innerTabs()).toHaveLength(0);
+
+    clickHub('PR');
+    expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['H', 'SS', 'WT', 'PH']);
+    expect(innerTabs()[0]?.textContent).toContain('היסטוריה');
+    expect(innerTabs()[1]?.textContent).toContain('סטטיסטיקות');
+    expect(innerTabs()[2]?.textContent).toContain('משקל');
+    expect(innerTabs()[3]?.textContent).toContain('תמונות');
 
     clickHub('SE');
-    expect(innerTabs().map((t) => t.dataset['view'])).toEqual(['ST', 'H', 'SS']);
-    expect(innerTabs()[0]?.textContent).toContain('הגדרות');
-    expect(innerTabs()[1]?.textContent).toContain('היסטוריה');
-    expect(innerTabs()[2]?.textContent).toContain('סטטיסטיקות');
+    expect(innerTabs()).toHaveLength(0);
   });
 
   it('opens each hub on its home screen and remembers the inner tab per hub', () => {
@@ -548,18 +551,18 @@ describe('the four-hub navigation', () => {
     clickView('CH');
     expect(store.getState().ui.view).toBe('CH');
 
-    clickHub('SE');
-    expect(store.getState().ui.view).toBe('ST'); // settings-first, not history
-    clickView('H');
-    expect(store.getState().ui.view).toBe('H');
+    clickHub('PR');
+    expect(store.getState().ui.view).toBe('H'); // the record first, then what it adds up to
+    clickView('SS');
+    expect(store.getState().ui.view).toBe('SS');
 
     // …and every hub comes back to where it was left
     clickHub('TR');
     expect(store.getState().ui.view).toBe('B');
     clickHub('GM');
     expect(store.getState().ui.view).toBe('CH');
-    clickHub('SE');
-    expect(store.getState().ui.view).toBe('H');
+    clickHub('PR');
+    expect(store.getState().ui.view).toBe('SS');
   });
 
   it('does not remember the plan editor as the training hub’s inner tab', () => {
@@ -573,18 +576,18 @@ describe('the four-hub navigation', () => {
     expect(store.getState().ui.view).toBe('C');
   });
 
-  it('opens an install left on the old היסטוריה view inside the settings hub', () => {
+  it('opens an install left on the old היסטוריה view inside the progress hub', () => {
     const store = new LocalStore(fakeStorage());
     store.update((d) => {
       d.ui.view = 'H';
     });
     mount(store);
-    expect(activeHub()).toBe('SE');
+    expect(activeHub()).toBe('PR');
     expect(store.getState().ui.view).toBe('H');
     expect(innerTabs().find((t) => t.classList.contains('active'))?.dataset['view']).toBe('H');
     expect(document.querySelector('#main .empty')).not.toBeNull();
-    // …and its hub-mate is one tap away
-    clickView('ST');
+    // …and its old hub-mate, settings, is one tap away
+    clickHub('SE');
     expect(document.getElementById('btnExport')).not.toBeNull();
   });
 });
@@ -612,7 +615,7 @@ describe('the settings hub', () => {
     expect(document.querySelector('#main .hist-day')).toBeNull();
     expect(document.querySelector('#main .feed')).toBeNull();
 
-    clickView('H');
+    clickHub('PR');
     // היסטוריה: the log and the adventure feed, and none of the buttons
     expect(openDay('2025-01-05').querySelector('h3')?.textContent).toContain('05.01.2025');
     expect(document.querySelector('#main .hist-heading')?.textContent).toContain('אימונים מתועדים');

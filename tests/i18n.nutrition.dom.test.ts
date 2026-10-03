@@ -112,7 +112,12 @@ function type(sel: string, value: string): void {
 }
 
 function open(view: 'NT' | 'WT' | 'PH'): void {
-  click('#tabs .hub[data-hub="NU"]');
+  // the meals are the 🍽️ hub on their own; weight and photos live in התקדמות
+  if (view === 'NT') {
+    click('#tabs .hub[data-hub="NU"]');
+    return;
+  }
+  click('#tabs .hub[data-hub="PR"]');
   click(`#tabs .tab[data-view="${view}"]`);
 }
 

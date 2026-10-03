@@ -49,7 +49,7 @@ describe('Android text autosizing', () => {
     const base = sheet('base.css');
     // A clamp() with an explicit maximum cannot be inflated past what it was
     // designed at, whatever the renderer thinks the page needs.
-    expect(ruleOf(base, '.app-title')).toMatch(/font-size:clamp\([^)]*,20px\)/);
+    expect(ruleOf(base, '.app-title')).toMatch(/font-size:clamp\([^)]*,24px\)/);
     expect(ruleOf(base, '.day-meta')).toMatch(/font-size:clamp\([^)]*,13\.5px\)/);
   });
 
@@ -144,8 +144,8 @@ describe('the rest timer bar on a narrow phone', () => {
     expect(narrow, 'no narrow-screen block').not.toBe('');
     expect(narrow).toContain('flex:1 0 100%'); // the button row takes the width
     expect(narrow).toContain('flex:1 1 0'); // …and the five buttons share it
-    // and they stay thumb-sized: the app's ≥40px target rule
-    expect(ruleOf(timer, '.t-btn')).toContain('min-height:40px');
+    // and they stay thumb-sized: the app's ≥44px target rule
+    expect(ruleOf(timer, '.t-btn')).toContain('min-height:44px');
   });
 
   it('carries the structural hooks that CSS needs, in the shell', () => {

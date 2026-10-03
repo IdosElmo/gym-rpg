@@ -110,7 +110,7 @@ function type(sel: string, value: string): void {
 }
 
 function openPhotos(): void {
-  click('#tabs .hub[data-hub="NU"]');
+  click('#tabs .hub[data-hub="PR"]');
   click('#tabs .tab[data-view="PH"]');
 }
 

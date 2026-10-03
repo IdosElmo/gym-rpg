@@ -46,6 +46,10 @@ const PATHS = {
   globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.5 3.5 5.3 3.5 8.5s-1.1 6-3.5 8.5c-2.4-2.5-3.5-5.3-3.5-8.5s1.1-6 3.5-8.5z"/>',
   scale: '<rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="M7.5 11a4.5 4.5 0 0 1 9 0"/><path d="M12 11l2.2-2.6"/><circle cx="12" cy="11" r=".6"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+  // the bottom bar (ui/nav.ts): תזונה, הרפתקה, התקדמות — אימון and פרופיל reuse dumbbell / user
+  food: '<path d="M7 3v7a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V3M9 12v9M17 21V3c-2 0-3.5 2.5-3.5 6s1.5 4 3.5 4"/>',
+  shield: '<path d="M12 3l7 3v5.5c0 4.6-3 8-7 9.5-4-1.5-7-4.9-7-9.5V6z"/><path d="M9 12l2 2 4-4"/>',
+  chart: '<path d="M3 20h18M6 16v-4M11 16V7M16 16v-6M21 16V4"/>',
 } as const;
 
 export type IconName = keyof typeof PATHS;

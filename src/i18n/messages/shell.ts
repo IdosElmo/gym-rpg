@@ -1,6 +1,6 @@
 /**
  * i18n/messages/shell.ts — the app shell: the nav, the screen headers, the
- * static parts of index.html (footer, rest-timer bar, document title) and the
+ * static parts of index.html (rest-timer bar, document title) and the
  * language/units card of the settings screen.
  *
  * Every Hebrew value here is the exact string the shell printed before i18n
@@ -14,7 +14,6 @@ import type { Catalog } from '../locale.ts';
 const he = {
   doc: {
     title: 'היפרטרופיה 3 ימים · חזה וליבה',
-    footer: '💪 האפליקציה עובדת 100% אופליין · הנתונים נשמרים במכשיר בלבד',
   },
   timer: {
     title: 'מנוחה',
@@ -29,24 +28,32 @@ const he = {
     mainLabel: 'ניווט ראשי',
     hubs: {
       TR: { title: 'אימון', inner: 'ימי האימון' },
-      GM: { title: 'קרב', inner: 'מסכי המשחק' },
       NU: { title: 'תזונה', inner: 'מעקב תזונה' },
-      SE: { title: 'הגדרות', inner: 'הגדרות והיסטוריה' },
+      GM: { title: 'הרפתקה', inner: 'מסכי המשחק' },
+      PR: { title: 'התקדמות', inner: 'מסכי ההתקדמות' },
+      SE: { title: 'פרופיל', inner: 'פרופיל והגדרות' },
     },
     tabs: {
-      BT: '⚔️ קרב',
-      CH: '🦸 דמות',
-      LG: '🏆 ליגה',
+      BT: 'קרב',
+      CH: 'דמות',
+      LG: 'ליגה',
       ST: 'הגדרות',
       H: 'היסטוריה',
-      SS: '📊 סטטיסטיקות',
-      NT: '🍽️ תזונה',
-      WT: '⚖️ משקל',
-      PH: '📸 תמונות',
+      SS: 'סטטיסטיקות',
+      NT: 'תזונה',
+      WT: 'משקל',
+      PH: 'תמונות',
     },
   },
   header: {
     energyTitle: 'אנרגיית קרב — נצברת מאימונים אמיתיים',
+    /** The eyebrow over a workout / the meals: today's weekday and date. */
+    today: (weekday: string, date: string) => `היום · יום ${weekday} ${date}`,
+    level: (n: string) => `רמה ${n}`,
+    levelTitle: 'רמת הדמות — הממוצע של שש קבוצות השריר',
+    /** The thin bar under the header: how far the character is into its level. */
+    toNext: (pct: string, next: string) => `${pct}% לרמה ${next}`,
+    maxLevel: 'רמה מקסימלית',
     ST: { title: 'הגדרות', sub: 'Settings', meta: 'חשבון, תוכנית האימונים וניהול הנתונים' },
     H: { title: 'היסטוריית אימונים', sub: 'History', meta: 'כל אימון שתועד, והחדש ביותר למעלה' },
     SS: { title: 'סטטיסטיקות', sub: 'Stats', meta: 'כל מה שהאימונים שלכם מסתכמים אליו' },
@@ -63,7 +70,7 @@ const he = {
       custom: 'תוכנית מותאמת אישית',
       original: 'התוכנית המקורית',
       saveHint: 'שינויים נשמרים רק בלחיצה על 💾',
-      back: '← חזרה',
+      back: 'חזרה',
     },
     CH: {
       title: 'הדמות שלי',
@@ -87,7 +94,7 @@ const he = {
       sub: 'Hypertrophy',
       lastLogged: 'אימון אחרון שתועד:',
       never: '— עדיין לא תועד',
-      editPlan: '⚙️ עריכת תוכנית',
+      editPlan: 'עריכת תוכנית',
       editPlanLabel: 'עריכת תוכנית האימונים',
     },
   },
@@ -107,7 +114,6 @@ const he = {
 const en: typeof he = {
   doc: {
     title: 'Gym RPG',
-    footer: '💪 Works 100% offline · your data stays on this device',
   },
   timer: {
     title: 'Rest',
@@ -122,24 +128,30 @@ const en: typeof he = {
     mainLabel: 'Main navigation',
     hubs: {
       TR: { title: 'Train', inner: 'Workout days' },
-      GM: { title: 'Battle', inner: 'Game screens' },
       NU: { title: 'Nutrition', inner: 'Nutrition tracking' },
-      SE: { title: 'Settings', inner: 'Settings and history' },
+      GM: { title: 'Quest', inner: 'Game screens' },
+      PR: { title: 'Progress', inner: 'Progress screens' },
+      SE: { title: 'Profile', inner: 'Profile and settings' },
     },
     tabs: {
-      BT: '⚔️ Battle',
-      CH: '🦸 Hero',
-      LG: '🏆 League',
+      BT: 'Battle',
+      CH: 'Hero',
+      LG: 'League',
       ST: 'Settings',
       H: 'History',
-      SS: '📊 Stats',
-      NT: '🍽️ Meals',
-      WT: '⚖️ Weight',
-      PH: '📸 Photos',
+      SS: 'Stats',
+      NT: 'Meals',
+      WT: 'Weight',
+      PH: 'Photos',
     },
   },
   header: {
     energyTitle: 'Battle energy — earned only by real training',
+    today: (weekday: string, date: string) => `Today · ${weekday}, ${date}`,
+    level: (n: string) => `Lvl ${n}`,
+    levelTitle: 'Character level — the average of your six muscle groups',
+    toNext: (pct: string, next: string) => `${pct}% to Lvl ${next}`,
+    maxLevel: 'Max level',
     ST: { title: 'Settings', sub: '', meta: 'Account, training plan and your data' },
     H: { title: 'Workout history', sub: '', meta: 'Every logged workout, newest first' },
     SS: { title: 'Stats', sub: '', meta: 'What all your training adds up to' },
@@ -156,7 +168,7 @@ const en: typeof he = {
       custom: 'Custom plan',
       original: 'The original plan',
       saveHint: 'tap 💾 to save',
-      back: '← Back',
+      back: 'Back',
     },
     CH: {
       title: 'My hero',
@@ -180,7 +192,7 @@ const en: typeof he = {
       sub: '',
       lastLogged: 'Last logged:',
       never: '— not logged yet',
-      editPlan: '⚙️ Edit plan',
+      editPlan: 'Edit plan',
       editPlanLabel: 'Edit the training plan',
     },
   },

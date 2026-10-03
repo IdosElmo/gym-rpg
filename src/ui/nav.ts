@@ -7,21 +7,26 @@
  * bar, it is a list — nothing tells you that "רביעי" and "היסטוריה" are
  * different KINDS of destination.
  *
- * So the bar became two levels:
+ * So navigation has two levels. The first is the BOTTOM BAR — five fixed hubs,
+ * an icon and a word each, where the thumb already is (the "Pulse" redesign):
  *
- *   🏋️ אימון   — the training hub: one inner tab per scheduled workout
- *                 occurrence (`scheduleTabs`), plus the plan editor (`PL`),
- *                 which is still reached from the ⚙️ header button rather than
- *                 from a tab of its own.
- *   🎮 קרב     — the game hub: קרב (`BT`), דמות (`CH`) and 🏆 ליגה (`LG` — the
- *                 monthly leaderboard fought with weekly 🔵).
- *   🍽️ תזונה   — the nutrition hub: the meal tracker (`NT`) and the ⚖️ weight
- *                 log (`WT`). A hub of its own because logging a meal or a
- *                 weigh-in is a daily act like training, not a setting you
- *                 visit.
- *   ⚙️ הגדרות  — the settings hub: הגדרות (`ST` — account, plan card, data
- *                 actions), היסטוריה (`H` — the workout log + the feed) and
- *                 📊 סטטיסטיקות (`SS` — what that log adds up to).
+ *   אימון      — the training hub: one inner tab per scheduled workout
+ *                occurrence (`scheduleTabs`), plus the plan editor (`PL`),
+ *                which is reached from the header's edit button rather than
+ *                from a tab of its own.
+ *   תזונה      — the meal tracker (`NT`), alone. Logging a meal is a daily act
+ *                like training, so it is a hub of its own.
+ *   הרפתקה     — the game: קרב (`BT`), דמות (`CH`) and ליגה (`LG` — the
+ *                monthly leaderboard fought with weekly 🔵).
+ *   התקדמות    — everything that READS what the training added up to:
+ *                היסטוריה (`H`), סטטיסטיקות (`SS`), משקל (`WT`) and תמונות
+ *                (`PH`). Reading screens, not settings and not meals — which is
+ *                why they left the settings and nutrition hubs.
+ *   פרופיל     — הגדרות (`ST`): language and look, the profile, the account,
+ *                the plan card and the data actions.
+ *
+ * The second level is the hub's own sub-views, a compact pill row under the
+ * header — shown only when the hub HAS more than one view.
  *
  * THE STORE DID NOT CHANGE. There is no `hub` in `UiState`: the hub is DERIVED
  * from `ui.view` by `hubOf`, which is a total function over every view id the
@@ -32,26 +37,34 @@
  */
 
 import type { ViewKey } from '../storage/DataStore.ts';
+import type { IconName } from './icons.ts';
 
-/** The four fixed hubs of the main bar. */
-export type HubId = 'TR' | 'GM' | 'NU' | 'SE';
+/** The five fixed hubs of the bottom bar. */
+export type HubId = 'TR' | 'NU' | 'GM' | 'PR' | 'SE';
 
 export interface Hub {
   readonly id: HubId;
-  /** Big glyph of the main tab. */
-  readonly icon: string;
+  /** The bar's stroke icon (ui/icons.ts). */
+  readonly icon: IconName;
   /** Hebrew caption of the main tab. */
   readonly title: string;
   /** Screen-reader description of the inner row this hub owns. */
   readonly innerLabel: string;
 }
 
+/** In reading order: אימון is the inline START (the right edge in Hebrew). */
 export const HUBS: readonly Hub[] = [
-  { id: 'TR', icon: '🏋️', title: 'אימון', innerLabel: 'ימי האימון' },
-  { id: 'GM', icon: '🎮', title: 'קרב', innerLabel: 'מסכי המשחק' },
-  { id: 'NU', icon: '🍽️', title: 'תזונה', innerLabel: 'מעקב תזונה' },
-  { id: 'SE', icon: '⚙️', title: 'הגדרות', innerLabel: 'הגדרות והיסטוריה' },
+  { id: 'TR', icon: 'dumbbell', title: 'אימון', innerLabel: 'ימי האימון' },
+  { id: 'NU', icon: 'food', title: 'תזונה', innerLabel: 'מעקב תזונה' },
+  { id: 'GM', icon: 'shield', title: 'הרפתקה', innerLabel: 'מסכי המשחק' },
+  { id: 'PR', icon: 'chart', title: 'התקדמות', innerLabel: 'מסכי ההתקדמות' },
+  { id: 'SE', icon: 'user', title: 'פרופיל', innerLabel: 'פרופיל והגדרות' },
 ] as const;
+
+/** True for a string that names one of the five hubs. */
+export function isHubId(v: unknown): v is HubId {
+  return v === 'TR' || v === 'NU' || v === 'GM' || v === 'PR' || v === 'SE';
+}
 
 /** ONE inner tab: a view the user can reach by tapping inside a hub. */
 export interface InnerTab {
@@ -64,62 +77,48 @@ export interface InnerTab {
 
 /**
  * The game hub's inner row — the arena first, since that is what it is for,
- * then the character it is fought with, then 🏆 הליגה.
- *
- * The league sits LAST for the same reason statistics sits last in the settings
- * hub: קרב and דמות are things you DO, and the league is what the doing adds up
- * to over a month. It belongs to the game hub rather than to הגדרות because it
- * is played, not configured — its currency (🔵) is minted by training and spent
- * on the month's pool, which is a game loop, just a slower one than a wave.
+ * then the character it is fought with, then הליגה: קרב and דמות are things you
+ * DO, and the league is what the doing adds up to over a month.
  */
 export const GAME_TABS: readonly InnerTab[] = [
-  { viewId: 'BT', title: '⚔️ קרב', subtitle: '' },
-  { viewId: 'CH', title: '🦸 דמות', subtitle: '' },
-  { viewId: 'LG', title: '🏆 ליגה', subtitle: '' },
+  { viewId: 'BT', title: 'קרב', subtitle: '' },
+  { viewId: 'CH', title: 'דמות', subtitle: '' },
+  { viewId: 'LG', title: 'ליגה', subtitle: '' },
 ] as const;
 
 /**
- * The settings hub's inner row — settings FIRST, then the two READING screens.
- *
- * History is not a setting, but it is the other thing that lives outside a
- * workout and outside the game, and burying it in a fourth main tab would undo
- * the point of having exactly three. Settings leads because the hub's own name
- * promises it.
- *
- * 📊 סטטיסטיקות joins it for exactly the same reason, and sits AFTER history on
- * purpose: history is the record ("what did I do on the 4th"), statistics is
- * what that record adds up to. Reading the raw thing before its summary is the
- * order the two screens were built in and the order they make sense in.
+ * The progress hub's inner row: the RECORD first (history — "what did I do on
+ * the 4th"), then what it adds up to (stats), then the body's own two
+ * measures — the number on the scale and what the mirror says.
  */
-export const SETTINGS_TABS: readonly InnerTab[] = [
-  { viewId: 'ST', title: 'הגדרות', subtitle: '' },
+export const PROGRESS_TABS: readonly InnerTab[] = [
   { viewId: 'H', title: 'היסטוריה', subtitle: '' },
-  { viewId: 'SS', title: '📊 סטטיסטיקות', subtitle: '' },
+  { viewId: 'SS', title: 'סטטיסטיקות', subtitle: '' },
+  { viewId: 'WT', title: 'משקל', subtitle: '' },
+  { viewId: 'PH', title: 'תמונות', subtitle: '' },
 ] as const;
 
 /**
- * The nutrition hub's inner row — the meals first (the daily act the hub is
- * named for), then ⚖️ משקל, the number those meals add up to over weeks, then
- * 📸 תמונות, what the mirror says about both. Day
- * navigation (אתמול/מחר) lives INSIDE the meal screen, because "which day am I
- * looking at" is reading state, not navigation between kinds of destination.
+ * The nutrition hub: the meals, alone. Day navigation (אתמול/מחר) lives INSIDE
+ * the meal screen, because "which day am I looking at" is reading state, not
+ * navigation between kinds of destination. One view = no inner row.
  */
-export const NUTRITION_TABS: readonly InnerTab[] = [
-  { viewId: 'NT', title: '🍽️ תזונה', subtitle: '' },
-  { viewId: 'WT', title: '⚖️ משקל', subtitle: '' },
-  { viewId: 'PH', title: '📸 תמונות', subtitle: '' },
-] as const;
+export const NUTRITION_TABS: readonly InnerTab[] = [{ viewId: 'NT', title: 'תזונה', subtitle: '' }] as const;
+
+/** The profile hub: the settings screen, alone (one view = no inner row). */
+export const SETTINGS_TABS: readonly InnerTab[] = [{ viewId: 'ST', title: 'הגדרות', subtitle: '' }] as const;
 
 /**
- * The hub a view belongs to. TOTAL: anything that is not one of the eight
- * reserved non-training screens is a workout day, and workout days are the
- * training hub — which is also the right answer for a day key this build has
- * never seen (one minted by a plan on another device).
+ * The hub a view belongs to. TOTAL: anything that is not one of the reserved
+ * non-training screens is a workout day, and workout days are the training
+ * hub — which is also the right answer for a day key this build has never seen
+ * (one minted by a plan on another device).
  */
 export function hubOf(view: string): HubId {
   if (view === 'BT' || view === 'CH' || view === 'LG') return 'GM';
-  if (view === 'NT' || view === 'WT' || view === 'PH') return 'NU';
-  if (view === 'ST' || view === 'H' || view === 'SS') return 'SE';
+  if (view === 'NT') return 'NU';
+  if (view === 'H' || view === 'SS' || view === 'WT' || view === 'PH') return 'PR';
+  if (view === 'ST') return 'SE';
   return 'TR'; // every day view, and the plan editor
 }
 
@@ -131,8 +130,9 @@ export function hubOf(view: string): HubId {
  */
 export const HUB_HOME: Readonly<Record<HubId, ViewKey | null>> = {
   TR: null,
-  GM: 'BT',
   NU: 'NT',
+  GM: 'BT',
+  PR: 'H',
   SE: 'ST',
 };
 

@@ -21,15 +21,14 @@
 </head>
 <body>
 
-<nav class="tabs" id="tabs"></nav>
-
 <header id="header"></header>
+
+<!-- The hub's inner pill row (in flow, under the header) + the bottom bar (docked) -->
+<nav class="tabs" id="tabs"></nav>
 
 <main id="main"></main>
 
-<footer>💪 האפליקציה עובדת 100% אופליין · הנתונים נשמרים במכשיר בלבד</footer>
-
-<!-- Floating rest timer -->
+<!-- Rest timer: docked directly above the bottom bar -->
 <div id="timerBar" dir="rtl">
   <div class="t-progress" id="tProg"></div>
   <div class="t-inner">
@@ -43,7 +42,7 @@
       <button class="t-btn" id="tPlus">‎+15s</button>
       <button class="t-btn warn" id="tPause">השהה</button>
       <button class="t-btn" id="tReset">איפוס</button>
-      <button class="t-btn close" id="tClose">✕</button>
+      <button class="t-btn close" id="tClose" aria-label="סגירה"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
   </div>
 </div>

@@ -19,7 +19,6 @@ body.onb-open{padding-bottom:0}
 body.onb-open > #tabs,
 body.onb-open > #header,
 body.onb-open > #main,
-body.onb-open > footer,
 body.onb-open > #timerBar{display:none !important}
 
 /* ---------- the frame ---------- */

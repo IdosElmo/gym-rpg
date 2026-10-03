@@ -7,7 +7,7 @@
 
 .bt-card{
   background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
-  padding:10px 12px 12px; margin-bottom:14px;
+  box-shadow:var(--card-shadow); padding:12px 14px 14px; margin-bottom:14px;
 }
 
 .bt-worldbar{display:flex; align-items:center; gap:10px; margin-bottom:8px}
@@ -217,11 +217,6 @@
 .bt-reqs li.met{color:var(--ok); border-color:var(--ok-line)}
 .bt-reqs li.unmet{color:var(--muted)}
 
-/* ---------- nav tab ---------- */
-/* The arena keeps its warm accent inside the 🎮 hub's inner row — the one place
-   in the nav that is not `--accent` blue, exactly as the flat bar had it. */
-.sub-row .tab[data-view="BT"].active{border-color:var(--warn); color:var(--warn)}
-
 /* ---------- world-boss fight ---------- */
 .bt-sprite.enemy.world-boss .en-svg{
   width:min(42vw,150px); filter:drop-shadow(0 0 14px #EF444488);
@@ -405,7 +400,7 @@
 .gd-row{display:flex; gap:6px}
 .gd-input{
   flex:1; min-width:0; min-height:44px; padding:0 10px;
-  background:var(--input); border:1px solid var(--line); border-radius:10px;
+  background:var(--input); border:1px solid var(--line); border-radius:var(--radius-sm);
   color:var(--text); font-size:14px; font-family:inherit;
 }
 .gd-input:focus{outline:2px solid var(--ss); outline-offset:1px}
@@ -463,7 +458,7 @@
 .handle-row{display:flex; gap:6px; margin-top:4px}
 .handle-input{
   flex:1; min-width:0; min-height:44px; padding:0 10px;
-  background:var(--input); border:1px solid var(--line); border-radius:10px;
+  background:var(--input); border:1px solid var(--line); border-radius:var(--radius-sm);
   color:var(--text); font-size:14px; font-family:inherit;
 }
 .handle-input:focus{outline:2px solid var(--accent-ink); outline-offset:1px}
