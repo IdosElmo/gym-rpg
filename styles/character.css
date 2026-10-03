@@ -44,14 +44,14 @@
 
 .char-level{
   position:absolute; top:8px; inset-inline-start:10px; text-align:center;
-  background:#0F172ACC; border:1px solid var(--accent); border-radius:12px;
+  background:color-mix(in srgb, var(--bg) 80%, transparent); border:1px solid var(--accent-ink); border-radius:12px;
   padding:5px 11px; min-width:52px;
 }
-.char-level .cl-num{display:block; font-size:22px; font-weight:900; color:var(--accent); line-height:1}
+.char-level .cl-num{display:block; font-size:22px; font-weight:900; color:var(--accent-ink); line-height:1}
 .char-level .cl-lbl{display:block; font-size:10px; color:var(--muted); letter-spacing:.08em}
 .char-streak-chip{
   position:absolute; top:8px; inset-inline-end:10px;
-  background:#F59E0B1F; border:1px solid #F59E0B55; color:var(--warn);
+  background:var(--warn-soft); border:1px solid var(--warn-line); color:var(--warn);
   border-radius:99px; padding:5px 11px; font-size:12px; font-weight:700;
 }
 
@@ -67,10 +67,10 @@
 }
 .char-preview .cp-chip{
   position:absolute; top:8px; inset-inline-end:10px;
-  background:#F59E0B1F; border:1px dashed #F59E0B88; color:var(--warn);
+  background:var(--warn-soft); border:1px dashed var(--warn-strong); color:var(--warn);
   border-radius:99px; padding:5px 11px; font-size:11.5px; font-weight:800;
 }
-.char-preview .cp-back{pointer-events:auto; min-height:40px; padding:0 14px; background:#0F172AE6}
+.char-preview .cp-back{pointer-events:auto; min-height:40px; padding:0 14px; background:color-mix(in srgb, var(--bg) 90%, transparent)}
 
 .char-meta{display:flex; gap:8px; margin-top:10px}
 .cm-item{
@@ -103,7 +103,7 @@
 .parts{display:flex; flex-direction:column; gap:12px}
 .part-head,.part-foot{display:flex; justify-content:space-between; align-items:baseline}
 .part-name{font-size:14px; font-weight:800}
-.part-level{font-size:12px; font-weight:800; color:var(--accent)}
+.part-level{font-size:12px; font-weight:800; color:var(--accent-ink)}
 .part-bar{
   height:9px; background:var(--bg); border:1px solid var(--line); border-radius:99px;
   overflow:hidden; margin:5px 0 3px;
@@ -112,13 +112,13 @@
   display:block; height:100%; border-radius:99px;
   background:linear-gradient(var(--grad-to-start),var(--accent),var(--xp)); transition:width .35s ease;
 }
-.part-bar.streak span{background:linear-gradient(var(--grad-to-start),var(--warn),#FBBF24)}
+.part-bar.streak span{background:linear-gradient(var(--grad-to-start),var(--warn),var(--gold))}
 .part-foot{font-size:11px; color:var(--muted)}
 .part-xp{direction:ltr; color:var(--dim)}
 
 .streak-row{display:flex; gap:12px; align-items:flex-start}
 .streak-tier{
-  flex:0 0 68px; background:var(--card-2); border:1px solid #F59E0B44; border-radius:12px;
+  flex:0 0 68px; background:var(--card-2); border:1px solid var(--warn-line); border-radius:12px;
   padding:9px 4px; text-align:center;
 }
 .streak-tier b{display:block; font-size:22px; font-weight:900; color:var(--warn); line-height:1.1}
@@ -135,7 +135,7 @@
 /* ---------- equipment shop ---------- */
 .eq-slots{display:flex; flex-direction:column; gap:8px}
 .eq-slot{background:var(--card-2); border:1px solid var(--line); border-radius:12px; overflow:hidden}
-.eq-slot.open{border-color:var(--accent)}
+.eq-slot.open{border-color:var(--accent-ink)}
 .eq-head{
   display:flex; align-items:center; gap:8px; width:100%; min-height:44px;
   padding:8px 12px; background:none; border:0; color:var(--text);
@@ -153,8 +153,8 @@
   display:flex; align-items:center; gap:9px;
   background:var(--bg); border:1px solid var(--line); border-radius:11px; padding:7px 9px;
 }
-.eq-item.owned{border-color:#3B82F655}
-.eq-item.equipped{border-color:var(--ok); background:#10B9810F}
+.eq-item.owned{border-color:var(--accent-line)}
+.eq-item.equipped{border-color:var(--ok); background:var(--ok-soft)}
 .eq-item.poor{opacity:.6}
 .eq-art{flex:0 0 34px; display:flex}
 .eq-icon{width:34px; height:34px; display:block}
@@ -168,8 +168,8 @@
   border-radius:10px; font-size:12.5px; font-weight:800; cursor:pointer;
   background:var(--card-2); border:1px solid var(--line); color:var(--text);
 }
-.eq-btn.buy{border-color:#F59E0B66; color:var(--warn); direction:ltr}
-.eq-btn.on{border-color:var(--accent); color:var(--accent)}
+.eq-btn.buy{border-color:var(--warn-line); color:var(--warn); direction:ltr}
+.eq-btn.on{border-color:var(--accent-ink); color:var(--accent-ink)}
 .eq-btn.off{border-color:var(--line); color:var(--muted)}
 .eq-btn:disabled{opacity:.45; cursor:default}
 
@@ -178,7 +178,7 @@
    thumb targets on a phone instead of fighting for one row's width. */
 .eq-actions{flex:0 0 auto; display:flex; flex-direction:column; gap:5px; align-items:stretch}
 .eq-actions .eq-btn{width:100%}
-.eq-btn.up{border-color:#A78BFA66; color:#C4B5FD; direction:ltr; font-size:11.5px}
+.eq-btn.up{border-color:var(--ss-line); color:var(--ss-soft); direction:ltr; font-size:11.5px}
 .eq-max{
   flex:0 0 auto; min-height:26px; display:flex; align-items:center; justify-content:center;
   font-size:11px; font-weight:800; color:var(--warn); white-space:nowrap;
@@ -188,11 +188,11 @@
   font-size:10.5px; font-weight:800; color:var(--dim);
   background:var(--card-2); border:1px solid var(--line);
 }
-.eq-up.up-1{color:#93C5FD; border-color:#3B82F666}
-.eq-up.up-2{color:#C4B5FD; border-color:#A78BFA66}
-.eq-up.up-3{color:#FDE68A; border-color:#F59E0B88}
-.eq-item.upgraded{border-color:#A78BFA55}
-.eq-item.up-3{border-color:#F59E0B77}
+.eq-up.up-1{color:var(--accent-ink); border-color:var(--accent-line)}
+.eq-up.up-2{color:var(--ss-soft); border-color:var(--ss-line)}
+.eq-up.up-3{color:var(--gold-ink); border-color:var(--warn-strong)}
+.eq-item.upgraded{border-color:var(--ss-line)}
+.eq-item.up-3{border-color:var(--warn-strong)}
 
 /* THE FLAIR ON THE DRAWING lives entirely in the SVG now — see the GLOW block
    in `ui/characterSvg.ts`. This used to be
@@ -222,7 +222,7 @@
   background:transparent; border:1px solid transparent; border-radius:9px;
 }
 .chr-body span{font-size:16px; line-height:1}
-.chr-body.on{color:var(--accent); background:#3B82F61F; border-color:var(--accent)}
+.chr-body.on{color:var(--accent-ink); background:var(--accent-soft); border-color:var(--accent-ink)}
 
 .chr-row{
   margin:0; padding:2px 0 2px; list-style:none;
@@ -236,23 +236,23 @@
   padding:8px 5px 7px; cursor:pointer; color:var(--text);
   background:var(--card-2); border:1px solid var(--line); border-radius:12px;
 }
-.chr-card.selected{border-color:var(--accent); background:#3B82F61A}
-.chr-card.owned{border-color:#3B82F544}
+.chr-card.selected{border-color:var(--accent-ink); background:var(--accent-soft)}
+.chr-card.owned{border-color:var(--accent-line)}
 .chr-card.locked{border-style:dashed}
-.chr-card.previewing{border-color:var(--warn); background:#F59E0B14}
+.chr-card.previewing{border-color:var(--warn); background:var(--warn-soft)}
 .chr-card.previewing .chr-tag{color:var(--warn)}
 .chr-card.poor{opacity:.62}
 .chr-art{display:flex; justify-content:center; height:62px}
 .chr-art .ch-svg{width:auto; height:62px}
 .chr-name{font-size:12px; font-weight:800; line-height:1.2; text-align:center}
 .chr-tag{font-size:10.5px; font-weight:700; color:var(--muted); direction:ltr}
-.chr-card.selected .chr-tag{color:var(--accent)}
+.chr-card.selected .chr-tag{color:var(--accent-ink)}
 .chr-card.owned .chr-tag{color:var(--ok)}
 .chr-card.locked .chr-tag{color:var(--warn)}
 
 .chr-buy{
   margin-top:10px; padding:10px 11px;
-  background:var(--card-2); border:1px solid var(--accent); border-radius:12px;
+  background:var(--card-2); border:1px solid var(--accent-ink); border-radius:12px;
 }
 .chr-buy-head{display:flex; flex-direction:column; gap:2px}
 .chr-buy-head b{font-size:13.5px; font-weight:800}
@@ -270,7 +270,7 @@
   display:grid; grid-template-columns:repeat(auto-fill,minmax(84px,1fr)); gap:9px;
 }
 .trophy{
-  background:var(--card-2); border:1px solid #FBBF2444; border-radius:12px;
+  background:var(--card-2); border:1px solid var(--gold-line); border-radius:12px;
   padding:8px 4px 7px; text-align:center;
 }
 .tr-svg{width:44px; height:52px; display:block; margin:0 auto 4px}

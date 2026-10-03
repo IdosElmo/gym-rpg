@@ -1,9 +1,91 @@
-/* Design tokens — unchanged from the original app. */
-:root{
-  --bg:#121824; --card:#1E2638; --card-2:#232E44; --line:#2C3A55;
-  --accent:#3B82F6; --ok:#10B981; --warn:#F59E0B; --danger:#EF4444;
-  --text:#E8EDF5; --muted:#8B96AB; --dim:#5D6B85;
-  --radius:14px;
+/**
+ * DESIGN TOKENS — two themes, one set of names.
+ *
+ * `<html data-theme="dark|light">` picks the palette; NO attribute renders DARK
+ * (the default for everyone). Every rule in these sheets reads a token, so a
+ * theme is nothing but the values below — no selector anywhere else needs to
+ * know which theme is on, except the handful of `:root[data-theme="light"]`
+ * tweaks next to the art they tune.
+ *
+ * ACCENT, TWICE. The sky accent is bright enough to be a FILL in both themes
+ * (an active hub, a ring, a bar, a primary button) but `#5cc8ff` is unreadable
+ * as TEXT on white, so it is split by role:
+ *   --accent      the fill (buttons, rings, bars, active pills, chart areas);
+ *   --on-accent   the text ON that fill — dark ink, never white (white on the
+ *                 sky is ~1.9:1 and fails in both themes);
+ *   --accent-ink  the accent as text / icon / stroke / outline ON A SURFACE —
+ *                 the same sky in the dark theme, a deep sky in the light one.
+ * The same split exists for the other fills that carry text: --on-ok, --on-ss.
+ *
+ * STAGES ARE ALWAYS NIGHT. The arena, the character stage, the photo viewer and
+ * the camera are scenes, not surfaces: their art (world gradients, enemy
+ * sprites, glows, floating damage) is painted for a dark backdrop. They take
+ * the DARK palette in both themes by being listed beside `:root` below, so a
+ * `var(--text)` inside them stays light on their dark panel while the page
+ * around them is light.
+ *
+ * DERIVED TINTS are `color-mix()` over the base tokens and are declared on the
+ * same selectors, so they recompute per theme (a custom property resolves its
+ * `var()`s where it is declared, then inherits the RESULT — declaring them on
+ * `:root` alone would hand a stage the page's light tints).
+ */
+:root,
+:root[data-theme="dark"],
+.bt-arena, .char-stage, .ph-viewer, .ph-cam{
+  --bg:#0d1b36; --card:#142649; --card-2:#182d55; --line:#1f3563; --input:#10213f;
+  --text:#eef3ff; --text-2:#c9d4ea; --muted:#94a6c9; --dim:#6c80a8;
+  --accent:#5cc8ff; --accent-ink:#5cc8ff; --on-accent:#04263a;
+  --ok:#2dd4a0; --on-ok:#03241a; --warn:#ffc35a; --danger:#ff6b7a; --danger-ink:#ffa3ad;
+  /* game gold (champions, +3 gear, coins) — a step warmer than --warn */
+  --gold:#fbbf24; --gold-ink:#fde68a;
   /* Supersets: the one colour that means "these two are one thing". */
-  --ss:#8B5CF6; --ss-soft:#C4B5FD;
+  --ss:#a78bfa; --ss-soft:#c4b5fd; --on-ss:#1d0f45;
+  /* depth & scrims */
+  --shadow:#00000073; --overlay:#000000a0; --track:#050d1f99; --halo:#000000b0;
+  /* a recessed well behind small sprites (enemy faces, a duel opponent) */
+  --well:#050d1f66;
+}
+:root[data-theme="light"]{
+  --bg:#eceef2; --card:#ffffff; --card-2:#f4f6f9; --line:#dde1e8; --input:#f1f3f6;
+  --text:#18202e; --text-2:#394253; --muted:#5f6878; --dim:#8a93a3;
+  --accent:#5cc8ff; --accent-ink:#0284c7; --on-accent:#04263a;
+  --ok:#10a874; --on-ok:#ffffff; --warn:#d97706; --danger:#dc2626; --danger-ink:#b91c1c;
+  --gold:#d99a06; --gold-ink:#a16207;
+  --ss:#7c3aed; --ss-soft:#6d28d9; --on-ss:#ffffff;
+  --shadow:#18202e29; --overlay:#18202e73; --track:#18202e17; --halo:#ffffffe6;
+  --well:#18202e0f;
+}
+:root,
+.bt-arena, .char-stage, .ph-viewer, .ph-cam{
+  --radius:14px;
+  /* Tints. -soft: a wash behind a state; -line: its hairline border; -strong: an
+     emphatic border. Built from the INK so a light-theme border is visible. */
+  --accent-soft:color-mix(in srgb, var(--accent-ink) 12%, transparent);
+  --accent-line:color-mix(in srgb, var(--accent-ink) 30%, transparent);
+  --accent-strong:color-mix(in srgb, var(--accent-ink) 55%, transparent);
+  /* a subtle accent-tinted surface (an opaque chip/pill background) */
+  --chip:color-mix(in srgb, var(--accent) 14%, var(--card));
+  /* text on a filled accent that has to read one step quieter */
+  --on-accent-2:color-mix(in srgb, var(--on-accent) 72%, var(--accent));
+  --ok-soft:color-mix(in srgb, var(--ok) 12%, transparent);
+  --ok-line:color-mix(in srgb, var(--ok) 32%, transparent);
+  --ok-strong:color-mix(in srgb, var(--ok) 55%, transparent);
+  --warn-soft:color-mix(in srgb, var(--warn) 11%, transparent);
+  --warn-line:color-mix(in srgb, var(--warn) 30%, transparent);
+  --warn-strong:color-mix(in srgb, var(--warn) 55%, transparent);
+  --danger-soft:color-mix(in srgb, var(--danger) 10%, transparent);
+  --danger-line:color-mix(in srgb, var(--danger) 32%, transparent);
+  --gold-line:color-mix(in srgb, var(--gold) 34%, transparent);
+  --gold-strong:color-mix(in srgb, var(--gold) 55%, transparent);
+  --ss-faint:color-mix(in srgb, var(--ss) 5%, transparent);
+  --ss-tint:color-mix(in srgb, var(--ss) 11%, transparent);
+  --ss-line:color-mix(in srgb, var(--ss) 30%, transparent);
+  --ss-strong:color-mix(in srgb, var(--ss) 55%, transparent);
+  /* a neutral dashed hairline (the dev workbench) */
+  --muted-line:color-mix(in srgb, var(--muted) 40%, transparent);
+  /* the floating rest-timer bar: the card, nearly opaque, over a blur */
+  --glass:color-mix(in srgb, var(--card) 95%, transparent);
+  /* chrome laid over a PHOTO (pose mark, pick badge, wipe tags): the photo is
+     the backdrop in both themes, so these stay a dark scrim with light text */
+  --media-scrim:#0d1b36cc; --on-media:#eef3ff;
 }
