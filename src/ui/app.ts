@@ -60,7 +60,8 @@ import type { GhostDuelDeps } from './ghost.ts';
 import { exitCharacterPreview, renderCharacter } from './character.ts';
 import { esc, must } from './dom.ts';
 import { renderHistory } from './history.ts';
-import { renderLeague, type LeagueCloudDeps } from './league.ts';
+import { captureRivalInvite, renderLeague, type LeagueCloudDeps } from './league.ts';
+import { prizeModeOf } from '../core/league.ts';
 import {
   GAME_TABS,
   HUBS,
@@ -175,6 +176,20 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
   const tabsEl = must('tabs');
   const headerEl = must('header');
   const mainEl = must('main');
+
+  // 🏆 The league's prize mode is pinned the first time this version boots:
+  // an install that already has a league past keeps the couple's pools, a
+  // fresh one starts on personal prizes and stays there as its history grows
+  // (`prizeModeOf`). A device preference — never an event.
+  if (store.getState().ui.prizes === undefined) {
+    const prizes = prizeModeOf(store.getState());
+    store.update((d) => {
+      d.ui.prizes = prizes;
+    });
+  }
+  // Opened from an invitation link (`#rival=<handle>`): straight to 🏆 ליגה,
+  // which asks before anything is decided. The hash leaves the address bar.
+  captureRivalInvite(store, window);
 
   /** The screen the plan editor was opened from, so ← can return to it. */
   let returnView: ViewKey = store.getState().ui.view;
@@ -595,6 +610,14 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     // a repaint that sync deferred (see main.ts) has just been satisfied.
     hooks.onRender?.();
   }
+
+  // An invitation link opened while the app is already open in this tab.
+  window.addEventListener('hashchange', () => {
+    if (document.getElementById('main') !== mainEl) return; // a shell that was replaced
+    if (!captureRivalInvite(store, window)) return;
+    rememberInner('LG');
+    render();
+  });
 
   return { render };
 }

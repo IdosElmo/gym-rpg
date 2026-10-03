@@ -35,8 +35,33 @@ const he = {
   missing: (handle: string) =>
     `לא נמצאו שבועות בשם "${handle}". בדקו את האיות — היריב רואה את השם שלו במסך ההגדרות.`,
   dev: 'החשבון הזה קיבל הענקות במצב מפתח (לא רק אימונים אמיתיים)',
+  /** Couple prizes only: the winner is treated by the loser. */
   honor: 'הזוכה החודשי קונה — כבוד המשחק!',
+  /** Personal prizes: the same line's place, for someone treating themself. */
+  selfReward: 'פרסים לעצמכם — כל 🔵 הוא שבוע מלא שהרווחתם ביושר.',
+  /** Couple prizes only. */
   behind: 'אתם מפגרים החודש. אפשר לפדות — האפליקציה לא חוסמת — אבל הכבוד אומר לחכות לסיום החודש.',
+  prizes: {
+    aria: 'סוג הפרסים',
+    label: 'פרסים:',
+    personal: 'אישיים',
+    couple: 'זוגיים',
+  },
+  invite: {
+    lead: 'עוד אין יריב/ה החודש. שלחו הזמנה — הקישור פותח את הליגה עם שם הלוחם שלכם, ומי שמקבל/ת אותו בוחר/ת אם להתחרות.',
+    button: '📨 הזמנת יריב/ה',
+    title: 'הזמנה למרוץ החודשי',
+    message: (handle: string) => `🏆 מתחרים בי החודש? שם הלוחם שלי: ${handle}. הקישור פותח את ההזמנה:`,
+    copied: 'הקישור הועתק — שלחו אותו למי שתרצו.',
+    copyManually: 'סמנו את הטקסט, העתיקו ושלחו.',
+    fallbackLabel: 'ההזמנה — להעתקה ושליחה:',
+    received: '📨 קיבלתם הזמנה למרוץ החודשי',
+    ask: (handle: string) => `להתחרות מול <b>${handle}</b>?`,
+    accept: '⚔️ כן, להתחרות',
+    decline: 'לא עכשיו',
+    signIn: (handle: string) =>
+      `📨 ${handle} הזמין/ה אתכם למרוץ החודשי. התחברו לחשבון (במסך ההגדרות) כדי לקבל את ההזמנה.`,
+  },
   comp: { c: 'עקביות', q: 'השלמה', l: 'עומס', p: 'שיאים' },
   live: {
     days: (days: number, target: number) => `${days} מתוך ${target} ימים`,
@@ -154,8 +179,30 @@ const en: typeof he = {
     `No weeks found for "${handle}". Check the spelling — your rival can see their name on the Settings screen.`,
   dev: 'This account received dev-mode grants (not only real training)',
   honor: "The month's winner buys — that's the game's honor!",
+  selfReward: 'Prizes for yourself — every 🔵 is a full week you honestly earned.',
   behind:
     "You're behind this month. You can still redeem — the app won't stop you — but honor says wait for the month to end.",
+  prizes: {
+    aria: 'Kind of prizes',
+    label: 'Prizes:',
+    personal: 'Personal',
+    couple: 'Couple',
+  },
+  invite: {
+    lead: 'No rival yet this month. Send an invitation — the link opens the league with your warrior name, and whoever gets it decides whether to race.',
+    button: '📨 Invite a rival',
+    title: 'An invitation to the monthly race',
+    message: (handle: string) => `🏆 Race me this month? My warrior name: ${handle}. The link opens the invitation:`,
+    copied: 'Link copied — send it to whoever you like.',
+    copyManually: 'Select the text, copy it and send it.',
+    fallbackLabel: 'The invitation — copy and send:',
+    received: '📨 You were invited to the monthly race',
+    ask: (handle: string) => `Race against <b>${handle}</b>?`,
+    accept: "⚔️ Yes, let's race",
+    decline: 'Not now',
+    signIn: (handle: string) =>
+      `📨 ${handle} invited you to the monthly race. Sign in (on the Settings screen) to accept.`,
+  },
   comp: { c: 'Consistency', q: 'Completion', l: 'Load', p: 'Records' },
   live: {
     days: (days: number, target: number) => `${days} of ${target} days`,

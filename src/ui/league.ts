@@ -29,13 +29,20 @@
  * ───────────────────────────────────────────────────────────────────────────
  * THE RIVAL, AND WHY THE SCREEN DOES NOT INVENT A SECOND NOTEBOOK
  * ───────────────────────────────────────────────────────────────────────────
- * The rival is picked BY HANDLE, exactly like a duel opponent, and reuses the
- * duel card's `rememberOpponent` list rather than keeping a league-only one.
- * A handle is ONE identity across the whole social surface (the ghost publishes
- * under it and the league rows carry the same string), so a second recent-list
- * would be a second vocabulary for the same two people — the person you duel is
- * the person you race. Concretely: `recent()[0]` is the rival the screen opens
- * on, so the common case (a two-person league) needs no typing at all.
+ * The rival is picked BY HANDLE, exactly like a duel opponent — and only ever
+ * BY THE PERSON: typed into the field, or accepted from an invitation link
+ * (`#rival=<handle>`, see `parseRivalHash`). The screen never picks one on its
+ * own. Somebody you once duelled is a SUGGESTION (the duel card's
+ * `rememberOpponent` list feeds the field's datalist), not a rival: a stranger
+ * whose ghost you fought has not agreed to race you, and a race you did not
+ * choose is a leaderboard you did not ask to be on.
+ *
+ * The choice is remembered on this device (`UiState.rival`, never an event), so
+ * the screen reopens on it after a reload or a month change. ONE migration: a
+ * device that has no choice recorded yet but has already RACED someone — their
+ * league rows for this month are in the local cache, which before this rule only
+ * the old open-on-`recent()[0]` behaviour could have put there — keeps that
+ * rival, so an existing two-person league opens exactly as it did.
  *
  * STALENESS is stated, never guessed, and follows stage 2's contract literally:
  *   * `stale: false`               — just read from the server: say nothing;
@@ -63,6 +70,12 @@
  * blocked, because a lock that the other player's phone could bypass is not a
  * lock, and because the two people playing this share a kitchen.
  *
+ * THAT CONTRACT IS THE COUPLE'S. The prize mode (`prizeModeOf`, a device
+ * preference with a toggle on the shop card) picks whose prizes are on offer:
+ * the COUPLE's pools carry the winner-buys line and the behind-dimming; the
+ * PERSONAL pools are rewards you buy yourself, so they carry neither — being
+ * behind a rival does not make a massage you earned by training any less yours.
+ *
  * THE SHOP THEREFORE WORKS OFFLINE and while signed out: it spends a LOCAL
  * ledger (🔵 minted by this log's own closed weeks) on items from a pool that is
  * a pure function of the month. Only the RACE needs the cloud, and it is absent
@@ -83,13 +96,22 @@ import { normalizeGhost } from '../core/ghost.ts';
 import {
   monthKeyOf,
   monthProgress,
+  prizeModeOf,
   weekEndOf,
   weeksOfMonth,
   type LeagueSpendError,
   type WeekScore,
 } from '../core/league.ts';
 import { fmtDate, todayISO } from '../core/workout.ts';
-import { leagueItemById, poolOfMonth, priceOf, type LeagueItem } from '../data/leaguePools.ts';
+import {
+  isPrizeMode,
+  leagueItemById,
+  poolOfMonth,
+  priceOf,
+  type LeagueItem,
+  type PrizeMode,
+} from '../data/leaguePools.ts';
+import { leagueItemDetail, leagueItemName } from '../i18n/leagueText.ts';
 import type { AppEvent, DataStore, GameState, LeagueWeekRecord } from '../storage/DataStore.ts';
 import { esc } from './dom.ts';
 import { fmtNum } from './stats.ts';
@@ -221,11 +243,85 @@ const emptyRival = (): RivalState => ({
 /** Survives re-renders within a session, like the shop drawer on דמות. */
 let rival: RivalState = emptyRival();
 let pending: PendingSpend | null = null;
+/**
+ * The invitation text, once the 📨 button found neither a share sheet nor a
+ * clipboard it could trust — shown in a selectable field so it can always be
+ * copied by hand. `null` = not shown.
+ */
+let inviteText: string | null = null;
 
-/** Test/boot helper: forget the open sheet and the looked-up rival. */
+/** Test/boot helper: forget the open sheet, the looked-up rival and the invite field. */
 export function resetLeagueScreen(): void {
   rival = emptyRival();
   pending = null;
+  inviteText = null;
+}
+
+/* ------------------------------------------------------------ invitations */
+
+/** The URL-hash key an invitation link carries: `#rival=<handle>`. */
+export const RIVAL_HASH_KEY = 'rival';
+
+/**
+ * The handle an invitation link names, or `null` when the hash is not one.
+ *
+ * Pure. Accepts `#rival=<handle>` (and the same key among other `&`-separated
+ * hash parameters), percent-decoded and trimmed; anything else — an empty
+ * value, a handle longer than any warrior name, an OAuth callback's
+ * `#access_token=…` — is not an invitation. The handle is NOT validated here:
+ * accepting it goes through `findRival`, which checks it exactly like a typed
+ * one (well-formed, not yourself, somebody actually there).
+ */
+export function parseRivalHash(hash: string): string | null {
+  const raw = hash.startsWith('#') ? hash.slice(1) : hash;
+  if (!raw) return null;
+  let value: string | null;
+  try {
+    value = new URLSearchParams(raw).get(RIVAL_HASH_KEY);
+  } catch {
+    return null;
+  }
+  const handle = (value ?? '').trim();
+  return handle.length > 0 && handle.length <= 40 ? handle : null;
+}
+
+/** The link that invites somebody to race `handle`: this app's own address + `#rival=`. */
+export function inviteLink(origin: string, pathname: string, handle: string): string {
+  return `${origin}${pathname}#${RIVAL_HASH_KEY}=${encodeURIComponent(handle)}`;
+}
+
+/** The slice of `window` the invitation wiring needs — a test passes a fake. */
+export interface InviteWindow {
+  location: { hash: string; pathname: string; search: string };
+  history: { replaceState(data: unknown, unused: string, url?: string): void };
+}
+
+/**
+ * The app was opened with an invitation: remember it in the store, route to
+ * 🏆 ליגה, and take the hash out of the address bar (`history.replaceState`, so
+ * neither a reload nor the back button replays it). The invitation is kept in
+ * `UiState.invite` rather than in the URL so it survives a sign-in redirect;
+ * the league screen asks before anything is decided. Returns whether there was
+ * one.
+ */
+export function captureRivalInvite(store: DataStore, win: InviteWindow): boolean {
+  const handle = parseRivalHash(win.location.hash);
+  if (!handle) return false;
+  store.update((d) => {
+    d.ui.invite = handle;
+    d.ui.view = 'LG';
+  });
+  try {
+    win.history.replaceState(null, '', `${win.location.pathname}${win.location.search}`);
+  } catch {
+    /* a host without history: the invitation is in the store either way */
+  }
+  return true;
+}
+
+/** The prize mode the shop is showing on this device. */
+function modeOf(store: DataStore): PrizeMode {
+  return prizeModeOf(store.getState());
 }
 
 /* ------------------------------------------------------------------- copy */
@@ -433,6 +529,36 @@ function leaderHe(mine: number, theirs: number, name: string): string {
   return mine > theirs ? m.mine(fmtScore(diff)) : m.theirs(name, fmtScore(diff));
 }
 
+/** An invitation that opened the app, waiting for a yes or a no. */
+function inviteAsk(handle: string): string {
+  const m = tr(M).invite;
+  return `
+    <div class="lg-invite-ask" data-invite-ask="${esc(handle)}" role="group" aria-label="${esc(m.received)}">
+      <p class="lg-invite-k">${m.received}</p>
+      <p class="lg-invite-q">${m.ask(esc(handle))}</p>
+      <div class="ls-actions">
+        <button class="lg-btn buy" type="button" data-invite-accept="1">${m.accept}</button>
+        <button class="lg-btn off" type="button" data-invite-decline="1">${m.decline}</button>
+      </div>
+    </div>`;
+}
+
+/** The empty race's invitation: one button, and the text by hand when needed. */
+function inviteCall(): string {
+  const m = tr(M).invite;
+  return `
+    <div class="lg-invite" data-invite="1">
+      <p class="lg-note">${m.lead}</p>
+      <button class="lg-btn buy lg-invite-btn" id="lgInvite" type="button">${m.button}</button>
+      ${
+        inviteText !== null
+          ? `<label class="lg-label lg-invite-label" for="lgInviteText">${m.fallbackLabel}</label>
+      <textarea class="lg-input lg-invite-text" id="lgInviteText" rows="3" readonly>${esc(inviteText)}</textarea>`
+          : ''
+      }
+    </div>`;
+}
+
 /**
  * המרוץ החודשי — my month against the rival's, week by week.
  *
@@ -453,9 +579,19 @@ function raceCard(
   game: GameState,
   month: string,
   progress: { liveWeek: WeekScore; closed: number; live: number },
+  invite: string,
   cloud?: LeagueCloudDeps,
 ): string {
-  if (!cloud || !cloud.signedIn()) return '';
+  if (!cloud) return '';
+  // Signed out, the race stays ABSENT — except for an invitation somebody
+  // opened: it cannot be accepted without an account, so say exactly that.
+  if (!cloud.signedIn()) {
+    return invite
+      ? `<section class="lg-card lg-race" data-state="signed-out" aria-label="${esc(tr(M).race.title)}">
+      <p class="lg-note lg-invite-signin" data-invite-signin="1">${esc(tr(M).invite.signIn(invite))}</p>
+    </section>`
+      : '';
+  }
   const m = tr(M).race;
   const live = progress.liveWeek;
   const mineTotal = progress.closed;
@@ -463,14 +599,18 @@ function raceCard(
   const view = rival.month;
   const theirWeeks = view?.month.weeks ?? {};
   const theirTotal = view?.month.monthlyScore ?? 0;
+  // Recent duel opponents are SUGGESTIONS for the field — never a rival.
   const list = cloud.recent().map((h) => `<option value="${esc(h)}"></option>`).join('');
   const myHandle = cloud.myHandle();
 
   // The month is already on the title; the head answers the other question a
-  // person has here — "what name do I read out to them".
-  const head = myHandle
-    ? `<div class="lg-race-head"><span class="lg-chip">${m.you(esc(myHandle))}</span></div>`
-    : '';
+  // person has here — "what name do I read out to them". An invitation that
+  // is waiting for an answer comes first of all.
+  const head = `${invite ? inviteAsk(invite) : ''}${
+    myHandle ? `<div class="lg-race-head"><span class="lg-chip">${m.you(esc(myHandle))}</span></div>` : ''
+  }`;
+  /** The empty state's call to action: invite somebody, by link. */
+  const call = myHandle ? inviteCall() : '';
 
   const search = `
     <div class="lg-search">
@@ -490,7 +630,7 @@ function raceCard(
     return `
     <section class="lg-card lg-race" data-state="missing" aria-label="${esc(m.title)}">
       <h3 class="lg-title">${m.title} <span class="lg-sub">${esc(monthHe(month))}</span></h3>
-      ${head}${search}
+      ${head}${call}${search}
       <p class="lg-note warn">${esc(rivalErrorText(rival.error))}</p>
     </section>`;
   }
@@ -499,7 +639,7 @@ function raceCard(
     return `
     <section class="lg-card lg-race" data-state="idle" aria-label="${esc(m.title)}">
       <h3 class="lg-title">${m.title} <span class="lg-sub">${esc(monthHe(month))}</span></h3>
-      ${head}${search}
+      ${head}${call}${search}
       <p class="lg-note">${m.invite}</p>
     </section>`;
   }
@@ -572,8 +712,8 @@ function itemCard(item: LeagueItem, opts: { claimedOn: string | null; action: 'r
   return `
     <div class="lg-item" data-item="${esc(item.id)}" data-kind="${item.kind}"
       data-state="${claimed ? 'claimed' : 'open'}">
-      <div class="li-head"><span class="li-emoji" aria-hidden="true">${item.emoji}</span><b>${esc(item.he)}</b></div>
-      <p class="li-detail">${esc(item.detail)}</p>
+      <div class="li-head"><span class="li-emoji" aria-hidden="true">${item.emoji}</span><b>${esc(leagueItemName(item))}</b></div>
+      <p class="li-detail">${esc(leagueItemDetail(item))}</p>
       <div class="li-foot">
         <span class="li-price">🔵 ${price}${item.bonus > 0 ? m.bonus(item.bonus) : ''}</span>
         ${
@@ -590,25 +730,26 @@ function itemCard(item: LeagueItem, opts: { claimedOn: string | null; action: 'r
 }
 
 /** The confirmation sheet — nothing is written until it is confirmed. */
-function spendSheet(game: GameState, month: string): string {
+function spendSheet(game: GameState, month: string, mode: PrizeMode): string {
   if (!pending) return '';
-  const pool = poolOfMonth(month);
+  const pool = poolOfMonth(month, mode);
   const item = [...pool.rewards, ...pool.challenges].find((i) => i.id === pending?.id);
   if (!item) return '';
   const cost = priceOf(item.kind);
   const coins = game.league.coins;
   const missing = Math.max(0, cost - coins);
   const m = tr(M);
+  const contract = mode === 'couple' ? m.honor : m.selfReward;
   return `
     <div class="lg-sheet" id="lgSheet" role="group" aria-label="${esc(m.sheet.aria)}">
-      <div class="ls-head"><b>${item.emoji} ${esc(item.he)}</b><span>${esc(item.detail)}</span></div>
+      <div class="ls-head"><b>${item.emoji} ${esc(leagueItemName(item))}</b><span>${esc(leagueItemDetail(item))}</span></div>
       <p class="ls-price">${m.sheet.price(cost, coins)}${
         missing > 0 ? ` · <span class="warn">${m.sheet.missing(missing)}</span>` : ''
       }</p>
       ${
         item.kind === 'challenge'
           ? `<p class="lg-note dim">${m.sheet.stakeNote(cost, item.bonus)}</p>`
-          : `<p class="lg-note dim">${m.sheet.redeemNote(esc(m.honor))}</p>`
+          : `<p class="lg-note dim">${m.sheet.redeemNote(esc(contract))}</p>`
       }
       ${pending.error ? `<p class="lg-error" data-error="1">${esc(m.errors[pending.error])}</p>` : ''}
       <div class="ls-actions">
@@ -621,9 +762,31 @@ function spendSheet(game: GameState, month: string): string {
 }
 
 /** חנות החודש — the pool, the purse and the two spending flows. */
-function shopCard(game: GameState, month: string, behind: boolean, dates: Map<string, string>): string {
+/**
+ * פרסים: אישיים / זוגיים — the device's prize mode, as two pressed-or-not
+ * buttons. Switching writes `UiState.prizes` and nothing else: no event, and
+ * every item already redeemed stays redeemed (the ledger keys by id).
+ */
+function prizeToggle(mode: PrizeMode): string {
+  const m = tr(M).prizes;
+  const seg = (value: PrizeMode, label: string): string => `
+      <button class="lg-seg${mode === value ? ' on' : ''}" type="button" data-prizes="${value}"
+        aria-pressed="${mode === value ? 'true' : 'false'}">${label}</button>`;
+  return `
+    <div class="lg-prizes" role="group" aria-label="${esc(m.aria)}" data-mode="${mode}">
+      <span class="lg-prizes-k">${m.label}</span>${seg('personal', m.personal)}${seg('couple', m.couple)}
+    </div>`;
+}
+
+function shopCard(
+  game: GameState,
+  month: string,
+  behind: boolean,
+  dates: Map<string, string>,
+  mode: PrizeMode,
+): string {
   const m = tr(M);
-  const pool = poolOfMonth(month);
+  const pool = poolOfMonth(month, mode);
   const league = game.league;
   const stake = league.challenges[month] ?? null;
   // By id, not by "is it in this month's pool": the ledger is the truth about
@@ -645,8 +808,8 @@ function shopCard(game: GameState, month: string, behind: boolean, dates: Map<st
     ? `
       <div class="lg-item staked" data-item="${esc(staked.id)}" data-kind="challenge"
         data-state="${completed === undefined ? 'staked' : 'done'}">
-        <div class="li-head"><span class="li-emoji" aria-hidden="true">⚔️</span><b>${esc(staked.he)}</b></div>
-        <p class="li-detail">${esc(staked.detail)}</p>
+        <div class="li-head"><span class="li-emoji" aria-hidden="true">⚔️</span><b>${esc(leagueItemName(staked))}</b></div>
+        <p class="li-detail">${esc(leagueItemDetail(staked))}</p>
         <div class="li-foot">
           <span class="li-price">${m.shop.stakedPrice(stake?.cost ?? priceOf('challenge'), staked.bonus)}</span>
           ${
@@ -664,13 +827,18 @@ function shopCard(game: GameState, month: string, behind: boolean, dates: Map<st
   <section class="lg-card lg-shop ${behind ? 'behind' : ''}" data-behind="${behind ? '1' : '0'}"
     aria-label="${esc(m.shop.title)}">
     <h3 class="lg-title">${m.shop.title} <span class="lg-sub">${esc(monthHe(month))}</span></h3>
+    ${prizeToggle(mode)}
     <div class="lg-purse">
       <b data-purse="1">🔵 ${league.coins}</b>
       <span>${m.shop.purse(league.coinsEarned, league.coinsSpent)}</span>
     </div>
-    <p class="lg-honor" data-honor="1">${esc(m.honor)}</p>
+    ${
+      mode === 'couple'
+        ? `<p class="lg-honor" data-honor="1">${esc(m.honor)}</p>`
+        : `<p class="lg-honor self" data-self-reward="1">${esc(m.selfReward)}</p>`
+    }
     ${behind ? `<p class="lg-note warn" data-behind-note="1">${esc(m.behind)}</p>` : ''}
-    ${spendSheet(game, month)}
+    ${spendSheet(game, month, mode)}
     <h4 class="lg-sub-title">${m.shop.rewards}</h4>
     <div class="lg-pool">${rewards}</div>
     <h4 class="lg-sub-title">${m.shop.challenge} <span class="lg-sub">${
@@ -719,16 +887,19 @@ export function leagueHtml(deps: LeagueDeps, today: string): string {
   const month = monthKeyOf(today);
   const dates = redemptionDates(deps.store.getEvents());
   const theirTotal = rival.month?.month.monthlyScore ?? 0;
+  const mode = modeOf(deps.store);
   // "Behind" is only knowable with a rival on screen; without one nothing is
   // de-emphasised, because nobody has been beaten. It is the SAME comparison the
   // race's leader line makes — closed weeks against closed weeks — so the shop
-  // can never dim on a lead the totals row does not show.
-  const behind = rival.month !== null && theirTotal > progress.closed;
+  // can never dim on a lead the totals row does not show. And it is the
+  // COUPLE's rule: personal prizes are not owed to anybody.
+  const behind = mode === 'couple' && rival.month !== null && theirTotal > progress.closed;
+  const invite = deps.store.getState().ui.invite ?? '';
 
   return `
   ${liveCard(progress.liveWeek)}
-  ${raceCard(game, month, progress, deps.cloud)}
-  ${shopCard(game, month, behind, dates)}
+  ${raceCard(game, month, progress, invite, deps.cloud)}
+  ${shopCard(game, month, behind, dates, mode)}
   ${historyCard(game, month)}`;
 }
 
@@ -766,6 +937,40 @@ function wire(main: HTMLElement, deps: LeagueDeps, today: string): void {
     void findRival(main, deps, input?.value ?? rival.query, month);
   });
 
+  /* ---- an invitation that opened the app: yes goes through findRival ---- */
+  main.querySelector<HTMLButtonElement>('[data-invite-accept]')?.addEventListener('click', () => {
+    const handle = deps.store.getState().ui.invite;
+    clearInvite(deps.store);
+    if (handle) void findRival(main, deps, handle, month);
+    else again();
+  });
+  main.querySelector<HTMLButtonElement>('[data-invite-decline]')?.addEventListener('click', () => {
+    clearInvite(deps.store);
+    again();
+  });
+
+  /* ---- 📨 invite somebody: share sheet, else clipboard, else by hand ---- */
+  main.querySelector<HTMLButtonElement>('#lgInvite')?.addEventListener('click', () => {
+    void sendInvite(main, deps);
+  });
+  main.querySelector<HTMLTextAreaElement>('#lgInviteText')?.addEventListener('focus', (e) => {
+    (e.currentTarget as HTMLTextAreaElement).select();
+  });
+
+  /* ---- the prize mode: a device preference, never an event ---- */
+  main.querySelectorAll<HTMLButtonElement>('[data-prizes]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const next = btn.dataset['prizes'];
+      if (!isPrizeMode(next) || next === modeOf(deps.store)) return;
+      deps.store.update((d) => {
+        d.ui.prizes = next;
+      });
+      // An open sheet belongs to the other shop's item.
+      pending = null;
+      again();
+    });
+  });
+
   /* ---- the shop: open a sheet, never spend on the first tap ---- */
   main.querySelectorAll<HTMLButtonElement>('[data-redeem]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -790,10 +995,11 @@ function wire(main: HTMLElement, deps: LeagueDeps, today: string): void {
   main.querySelector<HTMLButtonElement>('[data-confirm]')?.addEventListener('click', () => {
     const p = pending;
     if (!p) return;
+    const mode = modeOf(deps.store);
     const result =
       p.kind === 'reward'
-        ? redeemLeagueReward(deps.store, month, p.id)
-        : setLeagueChallenge(deps.store, month, p.id);
+        ? redeemLeagueReward(deps.store, month, p.id, new Date(), mode)
+        : setLeagueChallenge(deps.store, month, p.id, new Date(), mode);
     if (!result.ok) {
       // A refusal never reached the log (`core/league.ts` decides first), so the
       // only thing to do is say why — inside the sheet, and once as a toast.
@@ -822,24 +1028,101 @@ function wire(main: HTMLElement, deps: LeagueDeps, today: string): void {
 
 /* ------------------------------------------------------------- the rival */
 
+/** The invitation was answered (either way): forget it. */
+function clearInvite(store: DataStore): void {
+  if (store.getState().ui.invite === undefined) return;
+  store.update((d) => {
+    delete d.ui.invite;
+  });
+}
+
+/** Remember the rival this device chose, so the screen reopens on them. */
+function rememberRival(store: DataStore, handle: string): void {
+  if (store.getState().ui.rival === handle) return;
+  store.update((d) => {
+    d.ui.rival = handle;
+  });
+}
+
 /**
- * Open on the rival we already know, and refresh them from the network ONCE per
- * (handle, month) per mount.
+ * The rival this device CHOSE — and nobody else.
+ *
+ * `UiState.rival` is the choice. Without one, the single migration (see the
+ * header): the newest name on the shared recent list counts only if this
+ * device has already RACED them — their league rows for this month are in the
+ * local cache. Somebody who was merely duelled has no cached league month, so
+ * they stay a suggestion in the datalist and the card stays an invitation.
+ */
+function chosenRival(store: DataStore, cloud: LeagueCloudDeps, month: string): string {
+  const mine = cloud.myHandle();
+  const chosen = store.getState().ui.rival;
+  if (chosen !== undefined) return chosen && chosen !== mine ? chosen : '';
+  const first = cloud.recent()[0];
+  if (!first || first === mine) return '';
+  const cached = cloud.cached(first, month);
+  const raced =
+    Object.keys(cached.month.weeks).length > 0 || cached.month.monthlyScore > 0 || cached.fetchedAt !== null;
+  return raced ? first : '';
+}
+
+/**
+ * 📨 — hand the invitation to the platform's share sheet; without one, copy it
+ * to the clipboard; and whenever the share sheet was not used, put the text in
+ * a selectable field as well, so a refused or absent clipboard can never leave
+ * the person with nothing to send.
+ */
+async function sendInvite(main: HTMLElement, deps: LeagueDeps): Promise<void> {
+  const cloud = deps.cloud;
+  const handle = cloud?.myHandle() ?? '';
+  if (!handle) return;
+  const m = tr(M).invite;
+  const url = inviteLink(location.origin, location.pathname, handle);
+  const text = m.message(handle);
+  const nav = navigator as Navigator & {
+    share?: (data: { title?: string; text?: string; url?: string }) => Promise<void>;
+  };
+  if (typeof nav.share === 'function') {
+    try {
+      await nav.share({ title: m.title, text, url });
+      return;
+    } catch (e) {
+      // The person closed the sheet: that is an answer, not a failure.
+      if (e instanceof Error && e.name === 'AbortError') return;
+    }
+  }
+  inviteText = `${text}\n${url}`;
+  let copied = false;
+  try {
+    if (nav.clipboard && typeof nav.clipboard.writeText === 'function') {
+      await nav.clipboard.writeText(inviteText);
+      copied = true;
+    }
+  } catch {
+    /* no permission — the field below is the fallback */
+  }
+  toast(copied ? m.copied : m.copyManually);
+  refresh(main, deps);
+}
+
+/**
+ * Open on the rival this device chose, and refresh them from the network ONCE
+ * per (handle, month) per mount.
  *
  * The cached copy is painted first and without a request (`cached`), so the
  * table is on screen before anything touches the wire; the refresh then either
  * confirms it (`stale: false`) or leaves the cached rows with their "נכון ל…"
  * line. `asked` is set BEFORE the await, which is what stops a repaint from
- * re-entering this function for ever.
+ * re-entering this function for ever. With no chosen rival nothing is fetched
+ * at all: the card is an invitation.
  */
 async function ensureRival(main: HTMLElement, deps: LeagueDeps, month: string): Promise<void> {
   const cloud = deps.cloud;
   if (!cloud || !cloud.signedIn() || rival.error) return;
 
   if (!rival.handle) {
-    const first = cloud.recent()[0];
-    if (!first) return;
-    rival = { ...rival, handle: first, query: rival.query || first, month: cloud.cached(first, month) };
+    const chosen = chosenRival(deps.store, cloud, month);
+    if (!chosen) return;
+    rival = { ...rival, handle: chosen, query: rival.query || chosen, month: cloud.cached(chosen, month) };
   }
   const key = `${rival.handle}|${month}`;
   if (rival.asked === key || rival.loading) return;
@@ -854,6 +1137,8 @@ async function ensureRival(main: HTMLElement, deps: LeagueDeps, month: string): 
   // somebody's name over it.
   const known = Object.keys(view.month.weeks).length > 0 || view.fetchedAt !== null;
   rival = { ...rival, loading: false, month: known ? view : null };
+  // The migrated rival becomes a recorded choice once there is a race to show.
+  if (known) rememberRival(deps.store, handle);
   await loadDev(cloud, handle);
   refresh(main, deps);
 }
@@ -915,6 +1200,8 @@ async function findRival(main: HTMLElement, deps: LeagueDeps, raw: string, month
     return;
   }
   cloud.remember(check.handle);
+  rememberRival(deps.store, check.handle);
+  inviteText = null;
   rival = { ...rival, loading: false, month: view };
   await loadDev(cloud, check.handle);
   refresh(main, deps);

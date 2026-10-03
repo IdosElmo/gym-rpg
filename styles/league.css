@@ -150,6 +150,24 @@
 .lg-leader.warn{color:var(--warn)}
 .lg-stale{margin:4px 0 0; font-size:11.5px; color:var(--dim)}
 
+/* ---------- invitations (the empty race, and one that opened the app) ---------- */
+.lg-invite{display:grid; gap:8px; margin:0 0 12px}
+.lg-invite .lg-note{margin:0}
+.lg-invite-btn{justify-self:start}
+.lg-invite-label{margin:2px 0 0}
+.lg-invite-text{
+  width:100%; box-sizing:border-box; min-height:88px; padding:8px 10px; resize:none;
+  font-size:13px; font-weight:600; line-height:1.45;
+}
+.lg-invite-ask{
+  background:var(--accent-soft); border:1px solid var(--accent-line); border-radius:12px;
+  padding:11px 12px; margin:0 0 12px;
+}
+.lg-invite-k{margin:0; font-size:12px; font-weight:800; color:var(--accent-ink)}
+.lg-invite-q{margin:4px 0 0; font-size:15px; font-weight:800; color:var(--text)}
+.lg-invite-q b{font-weight:900}
+.lg-invite-signin{margin:0; color:var(--text-2)}
+
 /* The rival's bars are tighter than mine — two columns of them must fit a phone. */
 .lg-week .lg-bar{grid-template-columns:44px 1fr; font-size:10px; gap:6px}
 .lg-week .lb-v{grid-column:1 / -1; font-size:10px}
@@ -165,6 +183,19 @@
 .lg-honor{
   margin:0 0 4px; font-size:13px; font-weight:800; color:var(--warn);
 }
+/* Personal prizes: the same line's place, owed to nobody — so not a warning. */
+.lg-honor.self{color:var(--ok)}
+
+/* פרסים: אישיים / זוגיים — two pressed-or-not pills, ≥44px each. */
+.lg-prizes{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:0 0 10px}
+.lg-prizes-k{font-size:12px; font-weight:800; color:var(--muted); margin-inline-end:2px}
+.lg-seg{
+  min-height:44px; min-width:44px; padding:0 14px; cursor:pointer; font-family:inherit;
+  font-size:13px; font-weight:800; color:var(--accent-ink);
+  background:var(--card-2); border:1px solid var(--accent-line); border-radius:99px;
+}
+.lg-seg.on{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
+.lg-seg:focus-visible{outline:2px solid var(--accent-ink); outline-offset:2px}
 
 /* BEHIND: dimmed, never disabled. The rule is social, so the weight is visual
    — every button below still works, and still writes a real event. */

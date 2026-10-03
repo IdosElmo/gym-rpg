@@ -80,7 +80,15 @@
  */
 
 import { BUILTIN_PROGRAM, type DayKey, type ExerciseResolver, type ResolvedProgram } from '../data/program.ts';
-import { leagueItemById, poolOfMonth, priceOf, type LeagueItemKind } from '../data/leaguePools.ts';
+import {
+  isPrizeMode,
+  leagueItemById,
+  poolOfMonth,
+  prizeModeOfItem,
+  priceOf,
+  type LeagueItemKind,
+  type PrizeMode,
+} from '../data/leaguePools.ts';
 import type { PlanDoc } from '../data/planTypes.ts';
 import type {
   AppEvent,
@@ -683,6 +691,11 @@ export function redemptionKey(month: string, itemId: string): string {
  * cross-account fact — it depends on the opponent's scores, which are not in
  * this log — so it belongs to the UI + social-contract layer (stages 3/4), not
  * to a fold that has to converge from the event set alone.
+ *
+ * `mode` is the prize mode the screen is showing (`prizeModeOf`): the item must
+ * be in THAT mode's pool for the month. It is a check on the way in only — the
+ * payload carries the item id and nothing about the mode, and the reducer keys
+ * by id exactly as before.
  */
 export function buildLeagueRedemption(
   game: GameState,
@@ -690,11 +703,12 @@ export function buildLeagueRedemption(
   itemId: string,
   date: string,
   ts: number,
+  mode: PrizeMode = 'couple',
 ): LeagueSpendPlan {
   if (!isMonthKey(month)) return REFUSED('wrong_month');
   const item = leagueItemById(itemId);
   if (!item || item.kind === 'challenge') return REFUSED('unknown_item');
-  const pool = poolOfMonth(month);
+  const pool = poolOfMonth(month, mode);
   if (!pool.rewards.some((i) => i.id === itemId)) return REFUSED('wrong_month');
   if (game.league.redemptions[redemptionKey(month, itemId)]) return REFUSED('already_redeemed');
   const cost = priceOf(item.kind);
@@ -714,11 +728,12 @@ export function buildLeagueChallengeSet(
   challengeId: string,
   date: string,
   ts: number,
+  mode: PrizeMode = 'couple',
 ): LeagueSpendPlan {
   if (!isMonthKey(month)) return REFUSED('wrong_month');
   const item = leagueItemById(challengeId);
   if (!item || item.kind !== 'challenge') return REFUSED('unknown_item');
-  if (!poolOfMonth(month).challenges.some((i) => i.id === challengeId)) return REFUSED('wrong_month');
+  if (!poolOfMonth(month, mode).challenges.some((i) => i.id === challengeId)) return REFUSED('wrong_month');
   if (game.league.challenges[month]) return REFUSED('challenge_already_set');
   const cost = priceOf('challenge');
   if (game.league.coins < cost) return REFUSED('insufficient_coins');
@@ -762,4 +777,43 @@ export function completionKey(month: string, challengeId: string): string {
 /** The 🔵 price of a pool item kind — re-exported so the UI needs one import. */
 export function leaguePrice(kind: LeagueItemKind): number {
   return priceOf(kind);
+}
+
+/* ------------------------------------------------------- the prize mode */
+
+/**
+ * Whose prizes this device's shop shows — `UiState.prizes` when it was set, and
+ * otherwise the answer that keeps an existing league exactly as it was.
+ *
+ * Until prize modes existed every install was shown the COUPLE's pools, so an
+ * install that already holds a league past keeps them: a redemption or a stake
+ * of a couple item, a closed league week, or any logged training at all (the
+ * league grades every session, and an install that trained was shown nothing
+ * but the couple's shop). A fresh install has none of that and gets the
+ * PERSONAL pools. A spend of a personal item answers 'personal' outright, so a
+ * person who chose that shop is never flipped back by the history it built.
+ *
+ * Pure and read-only, and the answer never enters an event: the ledger keys by
+ * item id, and every id resolves in both modes. `ui/app.ts` pins this answer
+ * into `UiState.prizes` on boot, so a fresh install that starts training does
+ * not drift into the couple's shop as its history grows.
+ */
+export function prizeModeOf(state: {
+  readonly ui: { readonly prizes?: unknown };
+  readonly game: GameState | null;
+  readonly sessions: Readonly<Record<string, unknown>>;
+}): PrizeMode {
+  if (isPrizeMode(state.ui.prizes)) return state.ui.prizes;
+  const league = state.game?.league;
+  if (league) {
+    const spent = [
+      ...Object.values(league.redemptions).map((r) => r.itemId),
+      ...Object.values(league.challenges).map((c) => c.challengeId),
+    ];
+    const modes = spent.map((id) => prizeModeOfItem(id));
+    if (modes.includes('couple')) return 'couple';
+    if (modes.includes('personal')) return 'personal';
+    if (Object.keys(league.weeks).length > 0) return 'couple';
+  }
+  return Object.keys(state.sessions).length > 0 ? 'couple' : 'personal';
 }

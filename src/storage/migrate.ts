@@ -20,6 +20,7 @@ import { BODY_PARTS, isDayKey, isReservedViewKey, type BodyPart, type DayKey } f
 import { isLocale } from '../i18n/locale.ts';
 import { isUnitSystem } from '../i18n/units.ts';
 import { isTheme } from '../ui/theme.ts';
+import { isPrizeMode } from '../data/leaguePools.ts';
 import { characterById, resolveCharacterId, skinOf, type SkinDef } from '../data/characters.ts';
 import { EQUIPMENT_SLOTS, bossById, equipmentById } from '../data/gameContent.ts';
 import {
@@ -144,6 +145,11 @@ export interface StorageLike {
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/** A non-empty string no longer than a warrior name could ever be. */
+function isHandleish(v: unknown): v is string {
+  return typeof v === 'string' && v.trim().length > 0 && v.length <= 40;
 }
 
 /** Preserve meaning of a legacy value that may be a string or a number. */
@@ -655,6 +661,11 @@ function normalizeUi(raw: unknown, now: Date = new Date(), plan: PlanDoc | null 
   if (isLocale(raw['locale'])) ui.locale = raw['locale'];
   if (isUnitSystem(raw['units'])) ui.units = raw['units'];
   if (isTheme(raw['theme'])) ui.theme = raw['theme'];
+  if (isPrizeMode(raw['prizes'])) ui.prizes = raw['prizes'];
+  // League bookkeeping: a handle-sized string or nothing. Its real validation
+  // (`checkHandle`, not-yourself, exists) runs when it is used, not here.
+  if (isHandleish(raw['rival'])) ui.rival = raw['rival'];
+  if (isHandleish(raw['invite'])) ui.invite = raw['invite'];
   return ui;
 }
 
