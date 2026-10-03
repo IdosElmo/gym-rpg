@@ -25,14 +25,16 @@ import { pruneOrphanBlobs } from './core/photos.ts';
 import { browserCamera } from './nutrition/camera.ts';
 import { closeDueWeeks, gameOf, refreshStreak } from './core/game.ts';
 import { buildGhost, ghostHash } from './core/ghost.ts';
-import { defaultHandle } from './core/handle.ts';
+import { DEFAULT_HANDLE_PREFIX, defaultHandle } from './core/handle.ts';
 import { publishableWeeks } from './core/leagueSync.ts';
 import { todayISO } from './core/workout.ts';
 import { defaultDay } from './core/plan.ts';
 import { createDevApi } from './dev/actions.ts';
 import { createEdgeAiPort } from './nutrition/edgePort.ts';
+import { aiAccessOpen } from './nutrition/aiAccess.ts';
 import { browserPushSeams, createWebPushPort, type PushPort } from './nutrition/push.ts';
 import { reminderSchedule } from './core/reminders.ts';
+import { myFixedMeals } from './core/catalog.ts';
 import { devGateOpen } from './dev/gate.ts';
 import { attachDevApi, detachDevApi } from './dev/window.ts';
 import { devResetCooldowns } from './ui/battle.ts';
@@ -48,7 +50,12 @@ import { initImportInput } from './ui/settings.ts';
 import { createRestTimer } from './ui/timer.ts';
 import { initToast } from './ui/toast.ts';
 import { must } from './ui/dom.ts';
-import { detectLocale } from './i18n/locale.ts';
+import { detectLocale, locale } from './i18n/locale.ts';
+
+/** The default warrior name's first word, in the language on screen. */
+function handlePrefix(): string {
+  return DEFAULT_HANDLE_PREFIX[locale()];
+}
 import { detectUnits } from './i18n/units.ts';
 
 /**
@@ -225,7 +232,7 @@ function wireSync(store: DataStore): SyncWiring {
         const payload = buildGhost(gameOf(store), handle);
         return { payload: payload as unknown as Record<string, unknown>, hash: ghostHash(payload) };
       },
-      defaultHandle: (id: string) => defaultHandle(email, id),
+      defaultHandle: (id: string) => defaultHandle(id, handlePrefix()),
     },
     /**
      * THE LEAGUE PUBLISHER. Same division of labour as the ghost's: the engine
@@ -246,7 +253,7 @@ function wireSync(store: DataStore): SyncWiring {
    */
   const ghost: GhostDuelDeps = {
     signedIn: () => isSignedIn(status),
-    myHandle: () => engine.getGhostHandle() || (userId ? defaultHandle(email, userId) : ''),
+    myHandle: () => engine.getGhostHandle() || (userId ? defaultHandle(userId, handlePrefix()) : ''),
     recent: () => engine.getRecentOpponents(),
     remember: (handle: string) => engine.rememberOpponent(handle),
     fetch: (handle: string): Promise<GhostLookupRow | null> => supabase.backend.fetchGhost(handle),
@@ -350,7 +357,9 @@ function wireSync(store: DataStore): SyncWiring {
         ...browserPushSeams(),
         vapidPublicKey: PUSH_VAPID_PUBLIC_KEY,
         isSignedIn: () => isSignedIn(status),
-        schedule: () => reminderSchedule(),
+        // Suggestions name the user's OWN fixed meals ("הארוחות שלי") — a
+        // stranger's reminders never suggest the owners' breakfast.
+        schedule: () => reminderSchedule(myFixedMeals(store.getState().nutrition)),
         save: (row) => supabase.savePushSubscription(row),
         remove: (endpoint) => supabase.deletePushSubscription(endpoint),
       })
@@ -366,8 +375,15 @@ function wireSync(store: DataStore): SyncWiring {
     onChange: () => app?.render(),
   });
   let devOpen = false;
+  /** ✨ allowlist (nutrition/aiAccess.ts) — re-checked with the dev gate on every auth change. */
+  let aiOpen = false;
 
   async function refreshDevMode(): Promise<void> {
+    const ai = await aiAccessOpen({ email, protocol: location.protocol });
+    if (ai !== aiOpen) {
+      aiOpen = ai;
+      app?.render();
+    }
     const open = await devGateOpen({ email, protocol: location.protocol });
     if (open === devOpen) return;
     devOpen = open;
@@ -393,6 +409,7 @@ function wireSync(store: DataStore): SyncWiring {
         ai: createEdgeAiPort({
           invoke: (body) => supabase.invokeEstimate(body),
           isSignedIn: () => isSignedIn(status),
+          isAllowed: () => aiOpen,
         }),
         ...(push ? { push } : {}),
       },

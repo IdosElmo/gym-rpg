@@ -58,20 +58,24 @@ export function checkHandle(raw: unknown): HandleCheck {
   return { ok: true, handle: normalizeHandle(trimmed) };
 }
 
+/** The word a default handle starts with, per the language the account was set up in. */
+export const DEFAULT_HANDLE_PREFIX = { he: 'לוחם', en: 'warrior' } as const;
+
 /**
- * A handle to start from, derived from the account.
+ * A handle to start from: `לוחם-<6 chars of the user id>` (or `warrior-…`).
  *
- * The email's LOCAL PART when it survives the character rules (that is the name
- * a household already calls each other by), and `לוחם-<short id>` otherwise. The
- * address itself never appears: only the part before the `@`, stripped of
- * everything a handle may not contain — and the user can rename it anyway.
+ * NOTHING about the email. The handle is public — any signed-in account can
+ * look it up — so an address-derived default (it used to be the email's local
+ * part) published part of a stranger's email the first time they synced. The
+ * user renames it from the account card whenever they like.
+ *
+ * It is a default only until the first successful publish: the sync engine then
+ * stores it as the account's chosen handle (`meta.ghostHandle`), so a later
+ * change of language — or of this function — never renames anybody.
  */
-export function defaultHandle(email: string | null | undefined, userId = ''): string {
-  const local = typeof email === 'string' ? (email.split('@')[0] ?? '') : '';
-  const cleaned = normalizeHandle(local.replace(/[^א-תA-Za-z0-9_.-]/g, ''));
-  if (checkHandle(cleaned).ok) return cleaned;
+export function defaultHandle(userId = '', prefix: string = DEFAULT_HANDLE_PREFIX.he): string {
   const short = userId.replace(/[^A-Za-z0-9]/g, '').slice(0, 6).toLowerCase();
-  return normalizeHandle(`לוחם-${short || '000000'}`);
+  return normalizeHandle(`${prefix}-${short || '000000'}`);
 }
 
 /**

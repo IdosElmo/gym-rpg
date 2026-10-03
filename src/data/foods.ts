@@ -1,11 +1,12 @@
 /**
  * data/foods.ts — the built-in food catalog of the 🍽️ tracker.
  *
- * PROVISIONAL. This is a starter catalog — the owner's two fixed meals plus
- * common deficit-friendly staples — to be replaced by the owner's own list.
- * The catalog ships IN THE BUNDLE, so both partners' devices carry the same
- * one after an update; nothing about it is stored in the event log (a logged
- * pick freezes its numbers into its own `meal_logged` payload).
+ * A starter catalog of common deficit-friendly staples, plus the original
+ * owners' fixed meals. Those fixed meals are offered only to an account that
+ * has eaten them before ("הארוחות שלי", `core/catalog.ts#myFixedMeals`) — a new
+ * user never sees somebody else's breakfast. The catalog ships IN THE BUNDLE;
+ * nothing about it is stored in the event log (a logged pick freezes its
+ * numbers into its own `meal_logged` payload).
  *
  * THE ONE BASIS: every food is priced per 100 g AS EATEN (`kcal100`,
  * `protein100`), and every unit is a weight in grams — "כוס" of oats is 80 g,

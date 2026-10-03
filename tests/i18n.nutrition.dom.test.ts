@@ -177,7 +177,11 @@ describe('the 🍽️ hub in English', () => {
   });
 
   it('the catalog picker reads the English overlay; a logged pick keeps its stored name', () => {
-    const { store } = mount();
+    const { store, render } = mount();
+    // "My meals" are the fixed meals this user has eaten before (core/catalog.ts#myFixedMeals).
+    const seed = catalogMealInput({ id: 'oatmeal', unit: 'portion', qty: 1, date: '2025-01-01', slot: 'breakfast', time: '08:00' });
+    if (seed) logMeal(store, seed, 'seed-oatmeal');
+    render();
     open('NT');
     click('[data-slot="breakfast"]');
     const select = document.querySelector<HTMLSelectElement>('#ntCatItem');

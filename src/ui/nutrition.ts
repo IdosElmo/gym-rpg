@@ -38,6 +38,7 @@ import {
   catalogHints,
   catalogMealInput,
   entriesForSlot,
+  myFixedMeals,
   parseQty,
   priceCatalog,
   unitsOf,
@@ -65,7 +66,7 @@ import {
   type SafetyMargin,
 } from '../core/nutrition.ts';
 import { fmtDate, todayISO } from '../core/workout.ts';
-import { FIXED_MEALS, FOODS, type CatalogEntry } from '../data/foods.ts';
+import { FOODS, type CatalogEntry, type CatalogMeal } from '../data/foods.ts';
 import type { EstimateError, EstimateItem, MealEstimate, NutritionAiPort } from '../nutrition/aiPort.ts';
 import { downscalePhoto } from '../nutrition/photo.ts';
 import type { PushPort, PushResult } from '../nutrition/push.ts';
@@ -162,6 +163,8 @@ let catPick = '';
 let catUnit = '';
 let catQty = '1';
 let catAll = false;
+/** "הארוחות שלי" — the fixed meals this user has logged before (`myFixedMeals`), refreshed every render. */
+let myMeals: readonly CatalogMeal[] = [];
 /** What is typed in the form, kept across re-renders (a chip tap re-renders). */
 let draft = { name: '', cal: '', prot: '', time: '' };
 
@@ -452,7 +455,7 @@ export function catalogPreviewHtml(id: string, unit: string, qtyRaw: string): st
 /** The catalog pick: what, how much, when — priced live, in code. */
 function catalogFormHtml(slot: MealSlot | null): string {
   // No meal chosen yet (a past day): the whole catalog, nothing presumed.
-  const { fits, rest } = slot ? entriesForSlot(slot, catAll) : { fits: [...FIXED_MEALS, ...FOODS], rest: [] };
+  const { fits, rest } = slot ? entriesForSlot(slot, catAll, myMeals) : { fits: [...myMeals, ...FOODS], rest: [] };
   const listed = [...fits, ...rest];
   if (!listed.some((e) => e.id === catPick)) catPick = '';
   const entry = catPick ? catalogEntry(catPick) : null;
@@ -850,6 +853,7 @@ export function nutritionHtml(
 /* ----------------------------------------------------------------- render */
 
 export function renderNutrition(main: HTMLElement, deps: NutritionDeps): void {
+  myMeals = myFixedMeals(deps.store.getState().nutrition);
   const today = deps.today ?? todayISO();
   if (viewDate !== null && viewDate > today) viewDate = null;
   const date = viewDate ?? today;
@@ -1194,7 +1198,7 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
         breakdown.innerHTML = '';
       }
       void ai
-        .estimate({ text, ...(photo ? { photo } : {}), catalog: catalogHints() })
+        .estimate({ text, ...(photo ? { photo } : {}), catalog: catalogHints(myMeals) })
         .then((result) => {
           if (!result.ok) {
             if (estMsg) estMsg.textContent = tr(M).estimateError[result.error];

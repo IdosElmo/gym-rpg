@@ -14,8 +14,8 @@
  * clearly is that food, and prices everything else on its own.
  */
 
-import { FIXED_MEALS, FOODS, type CatalogEntry, type CatalogFood, type FoodUnit } from '../data/foods.ts';
-import type { MealAiItem, MealSlot } from '../storage/DataStore.ts';
+import { FIXED_MEALS, FOODS, type CatalogEntry, type CatalogFood, type CatalogMeal, type FoodUnit } from '../data/foods.ts';
+import type { MealAiItem, MealSlot, NutritionState } from '../storage/DataStore.ts';
 import { CATALOG_MAX_QTY, MEAL_SLOTS, type MealInput } from './nutrition.ts';
 
 /** A fixed meal's one unit. */
@@ -34,11 +34,36 @@ export function unitsOf(entry: CatalogEntry): readonly FoodUnit[] {
 }
 
 /**
- * What the add form lists for a meal: fixed meals first, then foods, each in
- * catalog order. With `all`, the rest of the catalog follows the fitting ones.
+ * "הארוחות שלי" — the fixed meals THIS user has: the ones they have logged
+ * from the catalog at least once.
+ *
+ * The fixed meals in `data/foods.ts` are the original owners' own breakfasts
+ * (oats with soy milk and whey, eggs with salad). Shown to everyone, they read
+ * as somebody else's diary; shown to nobody, the two people who eat them every
+ * morning lose a one-tap pick. Deriving them from the log does both without a
+ * migration or a new event: whoever has eaten one keeps it, a stranger never
+ * sees it. (Saving your OWN meals is the food-catalog stage's feature.)
+ * Order: catalog order. Deleted meals still count — having eaten it is enough.
  */
-export function entriesForSlot(slot: MealSlot, all: boolean): { fits: CatalogEntry[]; rest: CatalogEntry[] } {
-  const every: CatalogEntry[] = [...FIXED_MEALS, ...FOODS];
+export function myFixedMeals(nutrition: Pick<NutritionState, 'meals'>): CatalogMeal[] {
+  const logged = new Set<string>();
+  for (const rec of Object.values(nutrition.meals)) {
+    if (rec.source === 'catalog' && rec.catalog) logged.add(rec.catalog.id);
+  }
+  return FIXED_MEALS.filter((m) => logged.has(m.id));
+}
+
+/**
+ * What the add form lists for a meal: the user's fixed meals first, then
+ * foods, each in catalog order. With `all`, the rest of the catalog follows
+ * the fitting ones. `mine` defaults to every fixed meal (the catalog as data).
+ */
+export function entriesForSlot(
+  slot: MealSlot,
+  all: boolean,
+  mine: readonly CatalogMeal[] = FIXED_MEALS,
+): { fits: CatalogEntry[]; rest: CatalogEntry[] } {
+  const every: CatalogEntry[] = [...mine, ...FOODS];
   const fits = every.filter((e) => e.slots.includes(slot));
   const rest = all ? every.filter((e) => !e.slots.includes(slot)) : [];
   return { fits, rest };
@@ -226,12 +251,12 @@ function num(v: number): string {
  * estimate-meal function treats them as HINTS: a clear match uses them, no
  * match is priced as usual.
  */
-export function catalogHints(): string[] {
+export function catalogHints(mine: readonly CatalogMeal[] = FIXED_MEALS): string[] {
   const foods = FOODS.map((f) => {
     const units = f.units.map((u) => `${u.label}=${num(u.grams)} ג׳`).join(', ');
     return `${f.name}: ${units}; ${num(f.kcal100)} קק״ל ו-${num(f.protein100)} ג׳ חלבון ל-100 ג׳`;
   });
-  const meals = FIXED_MEALS.map((m) => {
+  const meals = mine.map((m) => {
     const parts = m.components
       .map((c) => {
         const food = catalogEntry(c.food);

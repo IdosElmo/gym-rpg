@@ -18,8 +18,18 @@ The same flow as running `schema.sql` in the SQL editor, one screen over:
    Via Editor**: name it exactly `estimate-meal`, paste the whole of
    `estimate-meal/index.ts` from this folder, and deploy.
 3. **JWT verification** — in the function's *Details* page, leave
-   **Enforce JWT verification** ON (the default): only signed-in users of this
-   project may spend the key.
+   **Enforce JWT verification** ON (the default).
+4. **Who may use it** — Dashboard → **Edge Functions → Secrets** → add
+   `AI_ALLOWED_EMAIL_HASHES`: the SHA-256 digests (lowercase hex, comma-separated)
+   of the emails allowed to spend the key — the same digests as
+   `src/nutrition/aiAccess.ts`. The function verifies the caller with Supabase
+   Auth and refuses everyone else (403), including the public anon key (401).
+   **Without this secret nobody can use the estimator** (fails closed). Compute a
+   digest with:
+
+   ```bash
+   node -e "console.log(require('crypto').createHash('sha256').update('ADDRESS@example.com'.trim().toLowerCase(),'utf8').digest('hex'))"
+   ```
 
 Redeploying after a code change is the same editor, edit → deploy. Changing the
 secret takes effect without redeploying.
@@ -29,6 +39,7 @@ secret takes effect without redeploying.
 ```bash
 supabase link --project-ref omiqettlrjbcafnmomrm
 supabase secrets set GEMINI_API_KEY=<your key from Google AI Studio>
+supabase secrets set AI_ALLOWED_EMAIL_HASHES=<digest1>,<digest2>
 supabase functions deploy estimate-meal
 ```
 

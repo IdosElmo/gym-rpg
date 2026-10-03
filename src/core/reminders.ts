@@ -13,7 +13,7 @@
  * (oil, spray, tahini…), which is not a meal on its own.
  */
 
-import { FIXED_MEALS, FOODS } from '../data/foods.ts';
+import { FIXED_MEALS, FOODS, type CatalogMeal } from '../data/foods.ts';
 import type { MealSlot } from '../storage/DataStore.ts';
 import { MEAL_SLOTS } from './nutrition.ts';
 
@@ -29,18 +29,18 @@ export interface ReminderWindow {
 }
 
 /** What the catalog suggests for one meal of the day. */
-export function suggestionsFor(slot: MealSlot): string[] {
-  const meals = FIXED_MEALS.filter((m) => m.slots.includes(slot)).map((m) => m.name);
+export function suggestionsFor(slot: MealSlot, mine: readonly CatalogMeal[] = FIXED_MEALS): string[] {
+  const meals = mine.filter((m) => m.slots.includes(slot)).map((m) => m.name);
   if (meals.length > 0) return meals;
   return FOODS.filter((f) => f.slots.includes(slot) && !f.addOn).map((f) => f.name);
 }
 
 /** Every windowed meal (not נשנושים / אחר) with its suggestions. */
-export function reminderSchedule(): ReminderWindow[] {
+export function reminderSchedule(mine: readonly CatalogMeal[] = FIXED_MEALS): ReminderWindow[] {
   const out: ReminderWindow[] = [];
   for (const s of MEAL_SLOTS) {
     if (s.from === null || s.to === null) continue;
-    out.push({ slot: s.key, label: s.label, from: s.from, to: s.to, suggestions: suggestionsFor(s.key) });
+    out.push({ slot: s.key, label: s.label, from: s.from, to: s.to, suggestions: suggestionsFor(s.key, mine) });
   }
   return out;
 }
