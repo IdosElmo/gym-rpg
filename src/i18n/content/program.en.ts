@@ -670,6 +670,150 @@ export const EXERCISE_EN: Readonly<Record<string, ExerciseCopy>> = {
 
   // ════════════════ LIBRARY · HOME (dumbbells, bands) — ids h1… ════════════════
   // (append this group's entries below this line, in id order)
+  h1: {
+    name: 'Dumbbell Floor Press',
+    muscle: 'Chest · triceps',
+    steps: [
+      'Lie on your back on a mat, knees bent and feet flat on the floor, a dumbbell in each hand over your chest.',
+      'Lower the dumbbells slowly (2–3 seconds) until your upper arms touch the floor, elbows at about 45° from your body.',
+      'Pause for a second with your elbows on the floor — no bouncing off it.',
+      'Press the dumbbells straight up over your chest to just short of lockout.',
+    ],
+    cue: 'The floor ends the range before your shoulder is stretched — that is how you press heavy at home, without a bench.',
+    mistake: 'Common mistake: bouncing your elbows off the floor, or flaring them out to 90° and loading the shoulder.',
+  },
+  h2: {
+    name: 'Dumbbell Arnold Press',
+    muscle: 'Front & side delts',
+    steps: [
+      'Sit on a bench or chair with a backrest, dumbbells in front of your face at chin height, palms facing you and elbows in front.',
+      'Start pressing up, and on the way open your elbows out to the sides and rotate your palms outward.',
+      'Finish with a full press overhead, palms facing forward, without locking your elbows.',
+      'Lower slowly (2–3 seconds) along the same path in reverse, until the dumbbells are back in front of your face.',
+    ],
+    cue: "The rotation and the press are one continuous movement — you don't rotate first and then press.",
+    mistake: 'Common mistake: arching your lower back to push a heavy weight, or cutting the rotation short and turning it into a regular shoulder press.',
+  },
+  h3: {
+    name: 'Dumbbell Reverse Lunge',
+    muscle: 'Quads · glutes',
+    steps: [
+      'Stand tall with your feet hip-width apart, a dumbbell in each hand at your sides.',
+      'Take a big step back and land on the ball of your back foot.',
+      'Drop straight down until your back knee almost touches the floor and your front shin is vertical.',
+      'Drive through your front heel and bring the back leg back in; finish all the reps, then switch legs.',
+    ],
+    cue: "Most of your weight stays on the front leg — the back leg only lowers you, it doesn't push.",
+    mistake: 'Common mistake: a step that is too short and drives the front knee far forward, or leaning your torso forward on the way down.',
+  },
+  h4: {
+    name: 'Dumbbell Step-Up',
+    muscle: 'Quads · glutes',
+    steps: [
+      "Stand facing a sturdy bench or chair that won't move, about knee height, a dumbbell in each hand at your sides.",
+      'Place one whole foot on the bench, so your knee is over your ankle.',
+      'Drive through the heel of the top leg and rise to standing tall on the bench; the other leg joins you up there.',
+      'Step down slowly and under control with the other leg back to the floor; finish all the reps, then switch legs.',
+    ],
+    cue: "The top leg does all the work — the leg on the floor doesn't jump or push.",
+    mistake: 'Common mistake: hopping up by pushing off the bottom leg, or a bench so high that it forces a big forward lean.',
+  },
+  h5: {
+    name: 'Dumbbell Glute Bridge',
+    muscle: 'Glutes · hamstrings',
+    steps: [
+      'Lie on your back on a mat, knees bent and feet flat on the floor hip-width apart, close to your glutes.',
+      'Lay a dumbbell across your hip crease and hold it in place with both hands.',
+      'Drive through your heels and lift your hips until there is a straight line from your knees to your shoulders.',
+      'Squeeze your glutes for a second at the top, then lower slowly until your hips almost touch the floor.',
+    ],
+    cue: "Ribs down and glutes squeezed at the top — your lower back doesn't arch.",
+    mistake: 'Common mistake: lifting your hips too high by arching your lower back instead of squeezing your glutes.',
+  },
+  h6: {
+    name: 'Dumbbell Sumo Squat',
+    muscle: 'Adductors · glutes · quads',
+    steps: [
+      'Take a wide stance, about twice shoulder width, toes turned out about 45°.',
+      'Hold one dumbbell vertically with both hands by its top end, arms straight between your legs.',
+      'Sit down with an upright torso until your thighs are parallel to the floor, knees opening in the direction of your toes.',
+      'Drive back up through your heels and squeeze your glutes at the top.',
+    ],
+    cue: 'Push your knees out throughout the movement — they track over your toes.',
+    mistake: 'Common mistake: knees caving inward, or leaning forward and shifting the load to your lower back.',
+  },
+  h7: {
+    name: 'Bent-Over Dumbbell Rear-Delt Fly',
+    muscle: 'Rear delts · mid traps',
+    steps: [
+      'Stand hip-width apart with light dumbbells, knees soft, and hinge forward from the hips to 45° or more, back flat.',
+      'Let your arms hang under your shoulders, elbows slightly bent and palms facing each other.',
+      'Raise your arms out to the sides in a wide arc up to shoulder height, and draw your shoulder blades together at the end.',
+      'Lower slowly and under control, without rocking your torso.',
+    ],
+    cue: 'Lead with your elbows out, not your hands — the bend in your elbows stays fixed throughout the movement.',
+    mistake: 'Common mistake: a weight so heavy that your torso swings up for momentum and the work moves to your back instead of the rear delts.',
+  },
+  h8: {
+    name: 'Lying Dumbbell Triceps Extension',
+    muscle: 'Triceps',
+    steps: [
+      'Lie on a bench or on the floor, a dumbbell in each hand over your shoulders, palms facing each other.',
+      'Tilt your upper arms slightly toward your head and lock them in place.',
+      'Bend your elbows slowly and lower the dumbbells beside your forehead.',
+      'Extend your elbows back up to just short of lockout — only your forearms move.',
+    ],
+    cue: "Your elbows point at the ceiling and don't flare out — your upper arms are frozen in place.",
+    mistake: 'Common mistake: moving your upper arms and turning it into a press, or lowering too fast next to your face.',
+  },
+  h9: {
+    name: 'Standing Dumbbell Calf Raise',
+    muscle: 'Calves',
+    steps: [
+      'Stand with the balls of your feet on the edge of a sturdy step (or on the floor), a dumbbell in each hand at your sides.',
+      'Lower your heels slowly below the line of the step until your calves are fully stretched.',
+      'Rise up onto your toes as high as you can, knees straight.',
+      'Pause for a second at the top, then lower slowly (2–3 seconds).',
+    ],
+    cue: "Rise through your big toe — your ankles don't roll outward.",
+    mistake: 'Common mistake: fast, bouncy half reps, with no pause at the top and no stretch at the bottom.',
+  },
+  h10: {
+    name: 'Resistance Band Pull-Apart',
+    muscle: 'Rear delts · upper back',
+    steps: [
+      'Stand tall and hold a band at shoulder width, arms straight out in front of you at shoulder height.',
+      'Stretch the band out to the sides with straight arms until it touches your chest.',
+      'Squeeze your shoulder blades together for a second at the end of the movement.',
+      'Return slowly to the start without letting the tension out of the band.',
+    ],
+    cue: 'Shoulders down, away from your ears — the movement comes from your shoulder blades, not your neck.',
+    mistake: 'Common mistake: bending your elbows, arching your lower back, or shrugging your shoulders up to your ears.',
+  },
+  h11: {
+    name: 'Resistance Band Row',
+    muscle: 'Back thickness · mid traps',
+    steps: [
+      'Anchor the band at chest height to something sturdy — a post, or a closed and locked door with a door anchor — and hold the ends in both hands.',
+      'Step back until the band is taut with your arms straight out in front; stand tall, knees soft.',
+      'Pull your hands to your lower ribs, elbows close to your body and driving back, and squeeze your shoulder blades.',
+      "Return slowly until your arms are straight, without letting the band pull you forward.",
+    ],
+    cue: "Your torso doesn't move — only your elbows travel back.",
+    mistake: 'Common mistake: leaning back with your whole body to stretch the band, or pulling with your shoulders shrugged.',
+  },
+  h12: {
+    name: 'Band Lateral Walk',
+    muscle: 'Glute medius · hip abductors',
+    steps: [
+      'Place a small loop band just above your knees and stand hip-width apart.',
+      'Sink into a half squat: hips back, knees bent, hands on your hips.',
+      'Take a medium step sideways with the leading leg and bring the other leg after it — the band stays taut the whole time.',
+      'Complete the steps to one side, then come back the same way to the other side.',
+    ],
+    cue: 'Push your knees out against the band on every step; your hips stay at the same height.',
+    mistake: 'Common mistake: rocking your torso side to side, standing up out of the half squat, or letting your knees cave in.',
+  },
 
   // ──────────────── end of HOME (dumbbells, bands) ────────────────
 
@@ -763,4 +907,11 @@ export const MUSCLE_EN: Readonly<Record<string, string>> = {
   'ליבה עמוקה · בטן': 'Deep core · abs',
   'ליבה · כתפיים': 'Core · shoulders',
   'חזה פנימי · יד אחורית': 'Inner chest · triceps',
+  // home library
+  'חזה · יד אחורית': 'Chest · triceps',
+  'ישבן · ירך אחורית': 'Glutes · hamstrings',
+  'מקרבים · ישבן · ארבע־ראשי': 'Adductors · glutes · quads',
+  'שוקיים': 'Calves',
+  'כתף אחורית · גב עליון': 'Rear delts · upper back',
+  'ישבן אמצעי · מרחיקי ירך': 'Glute medius · hip abductors',
 };

@@ -1423,6 +1423,249 @@ const X35: ExerciseDemo = one('x35', {
 // ════════════════ LIBRARY · HOME demos — ids H1… ════════════════
 // (append this group's entries below this line, in id order)
 
+/**
+ * THE HOME LIBRARY: a pair of dumbbells, a band, a mat, and whatever chair or
+ * step the flat has. Two floor lifts share one body — on the back on the mat,
+ * head to the right, knees bent and feet flat — so the floor press and the
+ * bridge are told apart by what moves (the arms; the pelvis), not by a new pose.
+ */
+const H_FLOOR = { x: 76, y: 95, torso: 0, head: 0 } as const;
+const H_FEET_FLAT = [-129, 117.2, 160] as const;
+const homeMat = (): string => matProp(36, 126, 100) + floorProp(26, 136, 103.4);
+
+const H1: ExerciseDemo = one('h1', {
+  view: 'side',
+  loopMs: 2600,
+  forwardShare: 0.42,
+  // FLOOR PRESS: x12's press with the bench taken away, which is the whole
+  // point of it — the bottom is where the UPPER ARM lands on the floor (the
+  // elbow at shoulder height, beside the ribs), not a stretch below the chest.
+  // From there the bells go straight up over the shoulder; the middle keyframe
+  // is solved by IK on the chord between the two ends, so the press is a line
+  // and not an arc. The knees are bent and the feet planted, all three frames.
+  frames: [
+    { ...H_FLOOR, arm: [-183.6, -73.2], armF: [-183.6, -73.2], leg: [...H_FEET_FLAT], legF: [...H_FEET_FLAT] },
+    { ...H_FLOOR, arm: [-148.5, -64.1], armF: [-148.5, -64.1], leg: [...H_FEET_FLAT], legF: [...H_FEET_FLAT] },
+    { ...H_FLOOR, arm: [-107.2, -77], armF: [-107.2, -77], leg: [...H_FEET_FLAT], legF: [...H_FEET_FLAT] },
+  ],
+  props: homeMat,
+  hold: { k: 'db' },
+});
+
+/** c3's seat: the upright bench (or a chair with a back), feet flat. */
+const H2_SEAT = { x: 74, y: 80, torso: -80, head: -80, leg: [13.3, 88.4, 15], legF: [13.3, 89.8, 15] } as const;
+
+const H2: ExerciseDemo = one('h2', {
+  view: 'side',
+  loopMs: 3000,
+  forwardShare: 0.45,
+  // ARNOLD PRESS, from the side — because what makes it an Arnold is the START,
+  // and only the side camera shows it: the elbows tucked low IN FRONT of the
+  // ribs, the forearms folded straight up and the bells in front of the chin.
+  // (Square-on, those arms lie over the torso in the body's own colour and
+  // vanish.) From there the elbows swing up and out to c3's press position —
+  // which is where the palms have turned to face forward — and the last third
+  // is c3's own press to overhead.
+  frames: [
+    { ...H2_SEAT, arm: [62, -92], armF: [64, -94] },
+    { ...H2_SEAT, arm: [26.2, -98.4], armF: [27, -88.5] },
+    { ...H2_SEAT, arm: [-63.1, -98.5], armF: [-61.5, -90] },
+  ],
+  props: () => uprightBench() + floorProp(36, 124),
+  hold: { k: 'db' },
+});
+
+const H3: ExerciseDemo = one('h3', {
+  view: 'side',
+  loopMs: 3000,
+  forwardShare: 0.55,
+  // REVERSE LUNGE: the FRONT (near) foot is the one that never moves — its
+  // ankle is the same point in all three keyframes, and every front-leg angle
+  // was solved by IK from it — while the far leg steps BACK, lands on the ball
+  // of the foot and drops its knee to a hand above the floor. At the bottom
+  // the front shin is vertical and the rear knee sits under the hip, both at
+  // right angles. The pelvis travels back and down; the bells hang.
+  frames: [
+    { x: 70, y: 66, torso: -90, head: -90, arm: [90, 90], armF: [92, 90], leg: [90, 90, 25], legF: [92, 88, 25] },
+    { x: 62, y: 73, torso: -87, head: -87, arm: [90, 90], armF: [92, 90], leg: [39.6, 108.6, 25], legF: [106, 150, 40] },
+    { x: 54, y: 80, torso: -84, head: -84, arm: [90, 90], armF: [92, 90], leg: [10.2, 92.6, 25], legF: [90, 180, 55] },
+  ],
+  props: () => floorProp(22, 116),
+  hold: { k: 'db' },
+});
+
+const H4: ExerciseDemo = one('h4', {
+  view: 'side',
+  loopMs: 3000,
+  forwardShare: 0.45,
+  // STEP-UP: the near foot is planted flat on a knee-height bench in all three
+  // keyframes (its leg solved from that ankle each time), and it does the
+  // lifting: from a forward lean with the trailing foot on the floor, through
+  // the trailing foot leaving it, to standing tall on the bench with both feet
+  // on the pad. The hips rise along one line — no hop, no swing.
+  frames: [
+    { x: 70, y: 69, torso: -75, head: -75, arm: [90, 90], armF: [92, 90], leg: [-0.7, 100.8, 15], legF: [78.4, 123.5, 25] },
+    { x: 77, y: 60, torso: -82, head: -82, arm: [90, 90], armF: [92, 90], leg: [36, 115, 15], legF: [80.2, 117.1, 60] },
+    { x: 83, y: 52, torso: -90, head: -90, arm: [90, 90], armF: [92, 90], leg: [78.7, 98.4, 15], legF: [78.7, 98.4, 15] },
+  ],
+  props: () => benchProp({ x: 74, y: 90, len: 32, floorY: FLOOR }) + floorProp(36, 124),
+  hold: { k: 'db' },
+});
+
+const H5: ExerciseDemo = one('h5', {
+  view: 'side',
+  loopMs: 2600,
+  forwardShare: 0.42,
+  // GLUTE BRIDGE: the SHOULDERS and the FEET are the two fixed points — the
+  // spine pivots about the first (torso 0 → 20, the shoulder exactly where it
+  // was) and the legs were solved from the second, so the heels stay planted
+  // while the hips rise to one straight line from knee to shoulder, shin
+  // vertical. The dumbbell lies across the hip crease, which seen from the side
+  // is its end plate: a disc held by both hands, upper arms flat on the floor
+  // and only the forearms rising with it.
+  frames: [
+    { ...H_FLOOR, arm: [169.1, 221.2], armF: [169.1, 221.2], leg: [-127.6, 104.9, 180], legF: [-127.6, 104.9, 180] },
+    { x: 77.4, y: 86.8, torso: 20, head: 0, arm: [169.3, 250.1], armF: [169.3, 250.1], leg: [-160.1, 89.9, 180], legF: [-160.1, 89.9, 180] },
+  ],
+  props: homeMat,
+  hold: { k: 'plate', r: 5 },
+});
+
+const H6: ExerciseDemo = one('h6', {
+  view: 'front',
+  loopMs: 2800,
+  forwardShare: 0.58,
+  // SUMO SQUAT, square-on — the stance IS the exercise, and only the front
+  // camera shows a stance's width and which way the knees go. Feet wide and
+  // planted (the ankle is one point in both frames, the legs solved from it),
+  // toes turned out, and the knees travel OUT over them as the hips drop 14.
+  // One bell hangs from both hands between the legs, the arms unchanged.
+  frames: [
+    { x: 80, y: 67, torso: -90, head: -90, arm: [95.4, 114.9], armF: [95.4, 114.9], leg: [64.2, 78.9, 30], legF: [64.2, 78.9, 30] },
+    { x: 80, y: 81, torso: -90, head: -90, arm: [95.4, 114.9], armF: [95.4, 114.9], leg: [7.8, 113.4, 30], legF: [7.8, 113.4, 30] },
+  ],
+  props: () => floorProp(40, 120),
+  hold: { k: 'plate', r: 5 },
+});
+
+const H7: ExerciseDemo = one('h7', {
+  view: 'threeQuarter',
+  loopMs: 2400,
+  forwardShare: 0.42,
+  // REAR-DELT FLY, AT THREE QUARTERS. The arms open to the SIDES of a hinged
+  // body, and neither square camera can say that: from the side they swing
+  // straight at the lens, and from the front a torso bent towards the camera
+  // would have to be drawn short, which this rig cannot do. Turned, the
+  // shoulder line runs across the picture (`roll: -10`) while the spine climbs
+  // to the head at 50° from vertical — so the hanging arms drop straight down
+  // and the raised ones spread level along the shoulder line, near one to the
+  // right and far one to the left: two wings, at shoulder height.
+  //
+  // The elbows keep ONE soft bend the whole way (37°, both arms), and both bow
+  // UP — towards the ceiling, which is the cue. That is the other IK branch on
+  // each side, so the far arm is authored explicitly, as a4's is.
+  frames: [
+    { x: 62, y: 66, torso: -40, head: -45, roll: -10, arm: [68.2, 105], armF: [67.8, 104.6], leg: [70.5, 97.3, 20], legF: [110.6, 87, 160] },
+    { x: 62, y: 66, torso: -40, head: -45, roll: -10, arm: [-7.9, 29.2], armF: [-31.9, 5.2], leg: [70.5, 97.3, 20], legF: [110.6, 87, 160] },
+  ],
+  props: () => floorProp(30, 130),
+  hold: { k: 'db' },
+});
+
+const H8: ExerciseDemo = one('h8', {
+  view: 'side',
+  loopMs: 2400,
+  forwardShare: 0.42,
+  // LYING TRICEPS EXTENSION on x12's bench: the upper arm is frozen at -75 in
+  // BOTH frames — tipped back towards the head, as the steps ask — and only the
+  // forearm moves, from the bells just above and past the forehead to all but
+  // straight over the shoulder.
+  frames: [
+    { x: 74, y: 78, torso: 0, head: 0, arm: [-75, 20], armF: [-75, 20], leg: [166.4, 88.1, 155], legF: [166.4, 89.6, 155] },
+    { x: 74, y: 78, torso: 0, head: 0, arm: [-75, -82], armF: [-75, -82], leg: [166.4, 88.1, 155], legF: [166.4, 89.6, 155] },
+  ],
+  props: () => flatBench(44, 74) + floorProp(28, 140),
+  hold: { k: 'db' },
+});
+
+const H9: ExerciseDemo = one('h9', {
+  view: 'side',
+  loopMs: 2000,
+  forwardShare: 0.4,
+  // CALF RAISE off a step: the balls of the feet are one fixed point on the
+  // step's edge (the toe is the same in both frames) and the whole straight
+  // body rotates up about it — heels dropped below the step's line, then high
+  // on the toes. The legs never bend; only the ankle does.
+  frames: [
+    { x: 80.4, y: 54, torso: -90, head: -90, arm: [90, 90], armF: [92, 90], leg: [90, 90, -20], legF: [90, 90, -20] },
+    { x: 84, y: 46.4, torso: -90, head: -90, arm: [90, 90], armF: [92, 90], leg: [90, 90, 70], legF: [90, 90, 70] },
+  ],
+  props: () =>
+    padProp({ x: 84.5, y: 90 }, { x: 104, y: 90 }) +
+    frameProp(85, 90, FLOOR) +
+    frameProp(103.5, 90, FLOOR) +
+    floorProp(40, 124),
+  hold: { k: 'db' },
+});
+
+const H10: ExerciseDemo = one('h10', {
+  view: 'front',
+  loopMs: 2400,
+  forwardShare: 0.45,
+  // BAND PULL-APART, square-on: the finish — arms straight out to the sides,
+  // the band across the chest — is a frontal-plane picture. The START is arms
+  // straight out IN FRONT at shoulder height, i.e. pointing at the camera, and
+  // that is what `reach` is for: the arms are drawn foreshortened (a quarter of
+  // their length) rather than hung down to the belly, so the band sits at chest
+  // height, shoulder-width, from the first frame to the last. The middle
+  // keyframe is the arms at 45°, reach and angle both, which keeps the band
+  // within a few units of one height as it stretches.
+  frames: [
+    { x: 80, y: 66, torso: -90, head: -90, arm: [91, 89], armF: [91, 89], leg: [85, 88, 20], legF: [85, 88, 20], reach: 0.24 },
+    { x: 80, y: 66, torso: -90, head: -90, arm: [27, 29], armF: [27, 29], leg: [85, 88, 20], legF: [85, 88, 20], reach: 0.6 },
+    { x: 80, y: 66, torso: -90, head: -90, arm: [9, 11], armF: [9, 11], leg: [85, 88, 20], legF: [85, 88, 20], reach: 1 },
+  ],
+  props: () => floorProp(40, 120),
+  hold: { k: 'band' },
+});
+
+const H11: ExerciseDemo = one('h11', {
+  view: 'side',
+  loopMs: 2600,
+  forwardShare: 0.44,
+  // BAND ROW: x15's row stood up. The band is tied round a post at chest height
+  // and runs to the hands; the torso is byte-identical in all three frames, and
+  // the elbow travels from all but straight out front to driven back past the
+  // ribs. The middle keyframe is solved on the chord, so the hands come in
+  // along the band's own line instead of dipping under it.
+  frames: [
+    { x: 62, y: 66, torso: -86, head: -86, arm: [22.7, -8.2], armF: [22.7, -8.2], leg: [92, 88, 25], legF: [88, 92, 25] },
+    { x: 62, y: 66, torso: -86, head: -86, arm: [74.9, -20.9], armF: [74.9, -20.9], leg: [92, 88, 25], legF: [88, 92, 25] },
+    { x: 62, y: 66, torso: -86, head: -86, arm: [123.7, 2.8], armF: [123.7, 2.8], leg: [92, 88, 25], legF: [88, 92, 25] },
+  ],
+  // the anchor: an upright with the band's strap wrapped round it
+  props: () => frameProp(134, 10, FLOOR) + padProp({ x: 131.5, y: 46 }, { x: 136.5, y: 46 }) + floorProp(34, 140),
+  hold: { k: 'bandAnchored', from: [134, 46] },
+});
+
+const H12: ExerciseDemo = one('h12', {
+  view: 'front',
+  loopMs: 2400,
+  forwardShare: 0.5,
+  // LATERAL WALK, square-on: a half squat with the hands on the hips and a
+  // mini-band round both legs at the knees. One step and its return: the far
+  // foot stays planted (the same ankle in both frames — its leg is authored
+  // explicitly once the stance stops being symmetric) while the near foot steps
+  // out wide and the hips shift a little after it, at the same height. The
+  // knees are pushed OUT against the band in both frames.
+  frames: [
+    { x: 80, y: 72, torso: -90, head: -90, arm: [48.2, 135.2], armF: [48.2, 135.2], leg: [42.6, 104.5, 30], legF: [42.6, 104.5, 30] },
+    { x: 83, y: 72, torso: -90, head: -90, arm: [48.2, 135.2], armF: [48.2, 135.2], leg: [44.6, 70.3, 30], legF: [40.6, 95.1, 30] },
+  ],
+  props: () => floorProp(40, 124),
+  hold: { k: 'bandLoop' },
+});
+
 // ──────────────── end of HOME demos ────────────────
 
 // ════════════════ LIBRARY · BODYWEIGHT demos — ids W1… ════════════════
@@ -1442,6 +1685,7 @@ export const EXERCISE_DEMOS: readonly ExerciseDemo[] = [
   // gym library (G…)
 
   // home library (H…)
+  H1, H2, H3, H4, H5, H6, H7, H8, H9, H10, H11, H12,
 
   // bodyweight library (W…)
 
