@@ -98,7 +98,7 @@ const he = {
     options: {
       gym: { title: 'חדר כושר', desc: 'מכשירים, כבלים ומשקולות חופשיות' },
       home_dumbbells: { title: 'בבית, עם משקולות', desc: 'משקולות יד וספסל או כיסא יציב' },
-      home_none: { title: 'בבית, בלי ציוד', desc: 'משקל גוף בלבד' },
+      home_none: { title: 'בבית או בחוץ, בלי ציוד', desc: 'משקל גוף בלבד — בסלון, בפארק או במתקני כושר' },
     },
   },
   activity: {
@@ -274,7 +274,7 @@ const en: typeof he = {
     options: {
       gym: { title: 'At the gym', desc: 'Machines, cables and free weights' },
       home_dumbbells: { title: 'At home, with dumbbells', desc: 'Dumbbells and a bench or a sturdy chair' },
-      home_none: { title: 'At home, no equipment', desc: 'Bodyweight only' },
+      home_none: { title: 'At home or outdoors, no equipment', desc: 'Bodyweight only — living room, park or street workout' },
     },
   },
   activity: {
