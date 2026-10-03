@@ -607,6 +607,35 @@ export function frameProp(x: number, y1: number, y2: number): string {
   return `<path class="cd-frame" d="${line({ x, y: y1 }, { x, y: y2 })}"/>`;
 }
 
+/**
+ * A LOW BAR SEEN END-ON, on its upright — a rack (or a Smith bar) set at hip
+ * height for an inverted row. A bar that runs across the lifter's body points
+ * straight at the side camera, so it is a disc, not a line: drawn as a line it
+ * would cut through the torso hanging beneath it. The upright drops from the
+ * bar to the floor and sits behind the figure, which is where a rack's posts
+ * are.
+ */
+export function barEndProp(x: number, y: number, floorY: number = STAGE.floorY): string {
+  return (
+    `<path class="cd-frame" d="${line({ x, y }, { x, y: floorY })}"/>` +
+    `<circle class="cd-iron-fill cd-bar-end" cx="${n(x)}" cy="${n(y)}" r="2.8"/>`
+  );
+}
+
+/**
+ * A WALL, seen edge-on: the face the body leans on at `x`, from `top` down to
+ * the floor, with the wall itself as a slab behind it on the `side` it extends
+ * to (−1 = to the left of the face, +1 = to the right).
+ */
+export function wallProp(x: number, top: number, side: 1 | -1 = -1, floorY: number = STAGE.floorY): string {
+  const w = 8;
+  const x0 = side < 0 ? x - w : x;
+  return (
+    `<rect class="cd-slab" x="${n(x0)}" y="${n(top)}" width="${w}" height="${n(floorY - top)}"/>` +
+    `<path class="cd-frame cd-wall" d="${line({ x, y: top }, { x, y: floorY })}"/>`
+  );
+}
+
 /** One weight plate seen edge-on — how a loaded bar reads from the side. */
 function plateSvg(p: Vec, r = 5.6): string {
   return (
