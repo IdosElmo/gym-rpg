@@ -11,5 +11,8 @@
   "compatibility_date": "2026-10-01",
   "assets": {
     "directory": "./dist"
-  }
+  },
+  // Non-production branches build with `wrangler preview`, which refuses to run
+  // without this block (it may stay empty: assets live at the top level).
+  "previews": {}
 }
