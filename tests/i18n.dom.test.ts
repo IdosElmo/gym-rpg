@@ -89,6 +89,7 @@ describe('the language switch', () => {
     expect(document.documentElement.getAttribute('dir')).toBe('ltr');
     expect(document.documentElement.getAttribute('lang')).toBe('en');
     expect(document.getElementById('timerBar')?.getAttribute('dir')).toBe('ltr');
+    expect(document.getElementById('tPause')?.textContent).toBe('Resume');
     expect(hubLabels()).toEqual(['Train', 'Nutrition', 'Quest', 'Progress', 'Profile']);
     expect(document.querySelector('#header .app-title')?.textContent).toBe('Settings');
     // the offline line lives on the settings screen now (the shell has no footer)
@@ -99,6 +100,7 @@ describe('the language switch', () => {
     click('#prefsCard [data-locale="he"]');
     expect(document.documentElement.getAttribute('dir')).toBe('rtl');
     expect(document.getElementById('header')?.innerHTML).toBe(hebrewHeader);
+    expect(document.getElementById('tPause')?.textContent).toBe('המשך');
     expect(hubLabels()).toEqual(['אימון', 'תזונה', 'הרפתקה', 'התקדמות', 'פרופיל']);
   });
 

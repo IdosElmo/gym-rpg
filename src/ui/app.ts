@@ -726,6 +726,7 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
 
   function render(): void {
     applyPrefs(store);
+    timer.relabel();
     // Battles run ONLY while the קרב tab is on screen — every render tears the
     // previous loop down before the new screen is mounted.
     stopBattle();

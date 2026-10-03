@@ -186,6 +186,15 @@ export class RestTimer {
     this.updateUI();
   }
 
+  /**
+   * Re-print the pause/resume label in the current language. It is written on
+   * every tick, but a bar that is idle (or paused) is not ticking, so a language
+   * switch would leave the other language's word on it until the next rest.
+   */
+  relabel(): void {
+    this.updateUI();
+  }
+
   add(seconds: number): void {
     this.cancelAutoHide();
     this.left += seconds;
