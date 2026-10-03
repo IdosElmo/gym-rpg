@@ -90,7 +90,7 @@ describe('who is greeted', () => {
     expect(document.body.classList.contains('onb-open')).toBe(true);
     expect(q('#main').innerHTML).toBe('');
     expect(q('#tabs').innerHTML).toBe('');
-    expect(title()).toBe('Gym RPG');
+    expect(title()).toBe('Ori');
   });
 
   it('without the flag: never — the app exactly as before', () => {

@@ -13,7 +13,7 @@ import type { Catalog } from '../locale.ts';
 
 const he = {
   doc: {
-    title: 'היפרטרופיה 3 ימים · חזה וליבה',
+    title: 'Ori · אימונים שהופכים למשחק',
   },
   timer: {
     title: 'מנוחה',
@@ -113,7 +113,7 @@ const he = {
 
 const en: typeof he = {
   doc: {
-    title: 'Gym RPG',
+    title: 'Ori',
   },
   timer: {
     title: 'Rest',

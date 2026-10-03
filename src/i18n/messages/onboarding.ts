@@ -19,7 +19,7 @@ const he = {
     progress: (i: number, n: number) => `שלב ${i} מתוך ${n}`,
   },
   welcome: {
-    appName: 'Gym RPG',
+    appName: 'Ori',
     tagline: 'כל סט שתתעדו הופך לכוח, לרמות ולקרבות במשחק.',
     intro: 'כמה שאלות קצרות — ונבנה לכם תוכנית ויעד יומי.',
     editIntro: 'עוברים שוב על התשובות. שום דבר לא נשמר עד הסוף.',
@@ -195,7 +195,7 @@ const en: typeof he = {
     progress: (i: number, n: number) => `Step ${i} of ${n}`,
   },
   welcome: {
-    appName: 'Gym RPG',
+    appName: 'Ori',
     tagline: 'Every set you log turns into strength, levels and battles.',
     intro: 'A few quick questions and we’ll build your plan and daily target.',
     editIntro: 'Going over your answers again. Nothing is saved until the end.',

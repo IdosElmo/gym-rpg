@@ -21,7 +21,7 @@ const he = {
     clear: '🗑 מחיקה',
   },
   info: (version: string) =>
-    `Gym RPG · גרסה ${version}<br>💪 האפליקציה עובדת 100% אופליין · הנתונים נשמרים במכשיר בלבד`,
+    `Ori · גרסה ${version}<br>💪 האפליקציה עובדת 100% אופליין · הנתונים נשמרים במכשיר בלבד`,
   clearConfirmLocal: 'למחוק את כל היסטוריית האימונים? פעולה זו אינה הפיכה.',
   clearConfirmAccount: 'למחוק את כל הנתונים מהחשבון ומכל המכשירים? פעולה זו אינה הפיכה.',
   toast: {
@@ -49,7 +49,7 @@ const en: typeof he = {
     import: '⬆ Import JSON',
     clear: '🗑 Delete',
   },
-  info: (version: string) => `Gym RPG · version ${version}<br>💪 Works 100% offline · your data stays on this device`,
+  info: (version: string) => `Ori · version ${version}<br>💪 Works 100% offline · your data stays on this device`,
   clearConfirmLocal: 'Delete your entire workout history? This cannot be undone.',
   clearConfirmAccount: 'Delete all data from your account and every device? This cannot be undone.',
   toast: {

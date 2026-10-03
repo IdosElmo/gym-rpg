@@ -93,7 +93,7 @@ describe('the language switch', () => {
     expect(document.querySelector('#header .app-title')?.textContent).toBe('Settings');
     // the offline line lives on the settings screen now (the shell has no footer)
     expect(document.querySelector('#main .app-info')?.textContent).toContain('offline');
-    expect(document.title).toBe('Gym RPG');
+    expect(document.title).toBe('Ori');
     expect(document.querySelector('#main .data-card')?.textContent).toContain('My data');
 
     click('#prefsCard [data-locale="he"]');

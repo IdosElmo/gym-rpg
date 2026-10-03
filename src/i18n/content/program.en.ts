@@ -64,7 +64,7 @@ export const EXERCISE_EN: Readonly<Record<string, ExerciseCopy>> = {
       'Squeeze your chest and bring the weights back along the arc.',
     ],
     cue: 'Imagine hugging a wide tree trunk; a deep stretch with no pain in your shoulders.',
-    mistake: 'Common mistake: straightening your elbows and turning the exercise into a press.',
+    mistake: 'Common mistake: bending your elbows and turning the exercise into a press.',
   },
   a5: {
     name: 'Dumbbell Biceps Curl',
@@ -111,7 +111,7 @@ export const EXERCISE_EN: Readonly<Record<string, ExerciseCopy>> = {
       'Take a wide grip on the bar.',
       'Pull the bar to your upper chest.',
       'Drive your elbows down and back.',
-      'Return slowly to a full stretch.',
+      'Return slowly, under control, until your arms are straight and your back fully stretched.',
     ],
     cue: 'Lead with your elbows; your chest rises to meet the bar.',
     mistake: 'Common mistake: pulling with your biceps and leaning back too far.',
@@ -132,7 +132,7 @@ export const EXERCISE_EN: Readonly<Record<string, ExerciseCopy>> = {
     name: 'Bent-Over Row (Smith / Dumbbell)',
     muscle: 'Upper-back thickness',
     steps: [
-      'Bend your knees slightly and hinge your hips back to a 45° angle.',
+      'Bend your knees slightly and hinge forward from your hips until your torso is at about 45°.',
       'Keep your back completely straight.',
       'Pull the bar/dumbbells to the bottom of your sternum, elbows at 45° from your body.',
       'Lower slowly, under control.',
@@ -183,8 +183,8 @@ export const EXERCISE_EN: Readonly<Record<string, ExerciseCopy>> = {
     muscle: 'Hamstrings · glutes · spinal erectors',
     steps: [
       'Keep a slight, fixed bend in your knees.',
-      'Hinge your hips back, back completely flat.',
-      'Keep the dumbbells close to your shins all the way down.',
+      'Push your hips back, back completely flat.',
+      'Keep the bar/dumbbells close to your legs all the way down.',
       'Drive your hips forward to stand tall.',
     ],
     cue: 'Push your glutes back toward the wall behind you; a completely neutral spine.',

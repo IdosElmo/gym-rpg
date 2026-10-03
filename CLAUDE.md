@@ -1,6 +1,6 @@
 # CLAUDE.md — working on gym-rpg
 
-Hebrew-first (RTL) offline workout RPG PWA, also in English (LTR) — see `docs/i18n.md`. Vite + strict TypeScript, no framework,
+**Ori** — a Hebrew-first (RTL) offline workout RPG PWA, also in English (LTR) — see `docs/i18n.md`. Vite + strict TypeScript, no framework,
 single-file build. Real logged training is the only source of progress (XP, energy,
 levels); the game cannot be advanced without it.
 
