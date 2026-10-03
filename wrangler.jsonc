@@ -1,0 +1,15 @@
+// Cloudflare Workers (static assets) — serves the single-file build at ori-fit.com.
+//
+// There is no Worker script: `npm run build` produces dist/ (index.html + the PWA
+// files from public/) and `wrangler deploy` uploads it as static assets. This file
+// must exist: without it, `wrangler deploy` auto-configures the project as a Vite
+// app and tries to add @cloudflare/vite-plugin, which needs Vite 6+.
+// `name` must match the Worker's name in the Cloudflare dashboard.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gym-rpg",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./dist"
+  }
+}

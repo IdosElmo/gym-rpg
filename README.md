@@ -59,16 +59,48 @@ npm run verify     # מוודא ש-dist/index.html ללא הפניות חיצו�
 
 **`base: './'`** — מכיוון שהכול מוטמע, לא נשארות כתובות נכסים; ההפניות היחסיות
 היחידות הן קבצי ה‑PWA (`manifest.webmanifest`, `sw.js`, `icon.svg`) שיושבים ליד
-`index.html`. `base` יחסי עובד גם ב‑GitHub Project Pages (תחת `/gym-rpg/`) וגם
-ב‑`file://`; `'/gym-rpg/'` היה שובר את `file://` ו‑`'/'` היה שובר את Pages.
+`index.html`. `base` יחסי עובד בשורש הדומיין (`ori-fit.com`), ב‑GitHub Project Pages (תחת
+`/gym-rpg/`) וגם ב‑`file://`; `'/gym-rpg/'` היה שובר את `file://` ו‑`'/'` היה שובר את Pages.
 
-### פריסה ל‑GitHub Pages
+### פריסה: `ori-fit.com` (Cloudflare Workers)
+
+הכתובת הראשית היא **https://ori-fit.com**. הדומיין והאחסון נמצאים ב‑Cloudflare:
+Worker בלי קוד, שמגיש את `dist/` כקבצים סטטיים.
+
+* `wrangler.jsonc` — שם ה‑Worker ותיקיית הנכסים (`./dist`). **הקובץ חובה**: בלעדיו
+  `wrangler deploy` מזהה פרויקט Vite ומנסה להגדיר אותו אוטומטית עם
+  `@cloudflare/vite-plugin`, ונכשל בשגיאה *"Please update the Vite version to at
+  least 6.0.0"*. ה‑`name` בקובץ חייב להיות זהה לשם ה‑Worker בלוח הבקרה.
+* `public/_headers` — Vite מעתיק אותו ל‑`dist/`, ו‑Cloudflare מחיל ממנו כותרות:
+  `Cache-Control: no-cache` ל‑`index.html`, `sw.js` ו‑`manifest.webmanifest`
+  (טלפון לא נשאר עם בנייה ישנה; ה‑Service Worker עדיין מגיש אותם אופליין),
+  וכותרות אבטחה בסיסיות לכל השאר (`nosniff`, `Referrer-Policy`, `X-Frame-Options`).
+
+הגדרה חד‑פעמית בלוח הבקרה של Cloudflare:
+
+1. **Workers & Pages → Create → Import a repository** → `IdosElmo/gym-rpg`.
+2. **Build command**: `npm run build` · **Deploy command**: `npx wrangler deploy` ·
+   **Production branch**: `main`. משתנה סביבה לבנייה: `NODE_VERSION` = `22`.
+3. **Settings → Domains & Routes → Add → Custom domain**: `ori-fit.com`
+   (ואם רוצים גם `www.ori-fit.com`). ה‑DNS וה‑SSL מוגדרים לבד.
+4. **Supabase → Authentication → URL Configuration**: Site URL =
+   `https://ori-fit.com`, ולהוסיף `https://ori-fit.com/` ל‑Redirect URLs
+   (פירוט בסעיף "הפעלת הספק וכתובות החזרה ב‑Supabase" למטה).
+
+בדיקה מקומית של מה שיועלה, בלי להעלות:
+`npm run build && npx wrangler deploy --dry-run`.
+
+**מעבר מהכתובת הישנה.** הדפדפן שומר נתונים לפי כתובת האתר, כך שב‑`ori-fit.com`
+האפליקציה נפתחת ריקה גם באותו טלפון. לפני המעבר: התחברות לסנכרון (מחזירה את היומן
+בכתובת החדשה), **גיבוי תמונות** (תמונות ההתקדמות לא עולות לשרת) וייצוא JSON ליתר
+ביטחון; בכתובת החדשה — התחברות, ייבוא הגיבוי של התמונות.
+
+#### GitHub Pages (הכתובת הישנה, לתקופת המעבר)
 
 `.github/workflows/deploy.yml` רץ על כל push ל‑`main`:
 typecheck → tests → build → verify → `configure-pages` → `upload-pages-artifact`
-→ `deploy-pages`.
-
-בהגדרות המאגר: **Settings → Pages → Source: GitHub Actions**.
+→ `deploy-pages`. בהגדרות המאגר: **Settings → Pages → Source: GitHub Actions**.
+זה גם השער של הבדיקות: Cloudflare רק בונה ומעלה.
 
 ### PWA
 
@@ -2944,9 +2976,9 @@ Supabase ו‑Google הן קונסולות של מישהו אחר.
 1. **Authentication → Providers → Google** → Enable, להדביק Client ID + Secret
    → Save.
 2. **Authentication → URL Configuration**:
-   * **Site URL**: `https://<user>.github.io/gym-rpg/`
-   * **Redirect URLs**: להוסיף גם `https://<user>.github.io/gym-rpg/` וגם
-     `http://localhost:5173/`.
+   * **Site URL**: `https://ori-fit.com`
+   * **Redirect URLs**: להוסיף `https://ori-fit.com/`, `http://localhost:5173/`,
+     ובתקופת המעבר גם את הכתובת הישנה `https://<user>.github.io/gym-rpg/`.
 
    האפליקציה מבקשת חזרה בדיוק אל `origin + pathname` של העמוד שממנו התחברתם
    (`defaultRedirect()` ב‑`sync/supabaseBackend.ts`) — בלי query ובלי hash.
