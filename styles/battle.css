@@ -1,11 +1,13 @@
 /* ---------- Battle screen (קרב) ----------
    Extends the palette with per-world accents (--w-accent / --w-bg1 / --w-bg2,
    set inline from data/gameContent.ts) but keeps the app's card language:
-   #1E2638 cards, #2C3A55 lines, 14px radius, ≥40px touch targets.           */
+   --card cards, --line lines, 14px radius, ≥40px touch targets. The ARENA
+   itself is a stage (tokens.css): it keeps the dark palette in both themes,
+   so its art, glows and floating numbers are painted for night only.        */
 
 .bt-card{
   background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
-  padding:10px 12px 12px; margin-bottom:14px;
+  box-shadow:var(--card-shadow); padding:12px 14px 14px; margin-bottom:14px;
 }
 
 .bt-worldbar{display:flex; align-items:center; gap:10px; margin-bottom:8px}
@@ -19,7 +21,7 @@
   flex:0 0 auto; text-align:center; background:var(--card-2);
   border:1px solid var(--line); border-radius:12px; padding:4px 12px; min-width:56px;
 }
-.bt-wave b{display:block; font-size:19px; font-weight:900; color:var(--accent); line-height:1.1}
+.bt-wave b{display:block; font-size:19px; font-weight:900; color:var(--accent-ink); line-height:1.1}
 .bt-wave span{display:block; font-size:10px; color:var(--muted)}
 
 /* ---------- world progress strip ----------
@@ -60,23 +62,23 @@
   font-size:10px; font-weight:800; line-height:1.15; text-align:center;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%;
 }
-.wp-meta{font-size:9.5px; font-weight:700; color:var(--dim); direction:rtl}
+.wp-meta{font-size:9.5px; font-weight:700; color:var(--dim)}
 .wp-bar{
   display:block; width:82%; height:3px; margin-top:3px;
-  background:#0B0F1999; border-radius:99px; overflow:hidden;
+  background:var(--track); border-radius:99px; overflow:hidden;
 }
 .wp-bar span{display:block; height:100%; background:var(--w-accent,var(--accent)); border-radius:99px}
 
 .wp-node.locked .wp-btn{opacity:.55; border-style:dashed}
-.wp-node.done .wp-btn{border-color:#FBBF2455}
+.wp-node.done .wp-btn{border-color:var(--gold-line)}
 .wp-node.done .wp-meta{color:var(--warn)}
-.wp-node.current .wp-btn{border-color:var(--accent); background:#3B82F61A}
-.wp-node.current .wp-meta{color:var(--accent)}
-.wp-node.current.gated .wp-btn{border-color:#A78BFA88}
-.wp-node.current.gated .wp-meta{color:#A78BFA}
+.wp-node.current .wp-btn{border-color:var(--accent-ink); background:var(--accent-soft)}
+.wp-node.current .wp-meta{color:var(--accent-ink)}
+.wp-node.current.gated .wp-btn{border-color:var(--ss-strong)}
+.wp-node.current.gated .wp-meta{color:var(--ss)}
 .wp-node.current.ready .wp-btn{border-color:var(--ok)}
 .wp-node.current.ready .wp-meta{color:var(--ok)}
-.wp-node.champion .wp-btn{border-color:#FBBF2488; background:#F59E0B14}
+.wp-node.champion .wp-btn{border-color:var(--gold-strong); background:var(--warn-soft)}
 .wp-node.champion .wp-meta{color:var(--warn)}
 
 /* ---------- arena ---------- */
@@ -110,15 +112,15 @@
 .bt-sprite.enemy.mini-boss .en-svg{width:min(36vw,132px); filter:drop-shadow(0 0 10px #F59E0B77)}
 
 .bt-bar{
-  width:86%; height:9px; background:#0B0F1999; border:1px solid var(--line);
+  width:86%; height:9px; background:var(--track); border:1px solid var(--line);
   border-radius:99px; overflow:hidden;
 }
 .bt-bar span{display:block; height:100%; border-radius:99px; transition:width .15s linear}
-.bt-bar.hp span{background:linear-gradient(90deg,var(--ok),#34D399)}
-.bt-bar.hp span.low{background:linear-gradient(90deg,var(--danger),#F87171)}
-.bt-bar.foe span{background:linear-gradient(90deg,var(--danger),#FB923C)}
-.bt-bar.energy span{background:linear-gradient(90deg,var(--warn),#FBBF24)}
-.bt-bar.super span{background:linear-gradient(90deg,#A78BFA,#F472B6)}
+.bt-bar.hp span{background:linear-gradient(var(--grad-to-start),var(--ok),#34D399)}
+.bt-bar.hp span.low{background:linear-gradient(var(--grad-to-start),var(--danger),#F87171)}
+.bt-bar.foe span{background:linear-gradient(var(--grad-to-start),var(--danger),#FB923C)}
+.bt-bar.energy span{background:linear-gradient(var(--grad-to-start),var(--warn),#FBBF24)}
+.bt-bar.super span{background:linear-gradient(var(--grad-to-start),#A78BFA,#F472B6)}
 .bt-hp-txt{font-size:10.5px; color:var(--muted); direction:ltr; font-variant-numeric:tabular-nums}
 .bt-foe-name{font-size:12px; font-weight:800; color:var(--text); text-align:center}
 
@@ -159,8 +161,8 @@
 }
 .bt-status.rest{color:var(--warn); font-weight:700}
 .bt-status.warn{color:var(--warn)}
-.bt-status.down{color:#FCA5A5}
-.bt-status.gate{color:#A78BFA; font-weight:700}
+.bt-status.down{color:var(--danger-ink)}
+.bt-status.gate{color:var(--ss); font-weight:700}
 
 /* ---------- meters ---------- */
 .bt-meters{display:flex; gap:8px; margin-top:10px}
@@ -185,17 +187,17 @@
    it is what starts the fight. */
 .bt-boss-btn{
   width:100%; min-height:44px; margin-top:10px;
-  background:linear-gradient(90deg,#B91C1C,#EF4444); border:1px solid #FCA5A5AA;
+  background:linear-gradient(var(--grad-to-start),#B91C1C,#EF4444); border:1px solid #FCA5A5AA;
   color:#fff; border-radius:12px; font-size:14px; font-weight:800; transition:.15s;
   box-shadow:0 0 14px #EF444444;
 }
 .bt-boss-btn:active{transform:scale(.98)}
 .bt-boss-btn.early{
-  background:linear-gradient(90deg,#B45309,#F59E0B); border:1px solid #FCD34DAA;
+  background:linear-gradient(var(--grad-to-start),#B45309,#F59E0B); border:1px solid #FCD34DAA;
   color:#1B1408; box-shadow:0 0 14px #F59E0B44;
 }
 .bt-super-btn.ready{
-  background:linear-gradient(90deg,#7C3AED,#DB2777); border-color:#A78BFA; color:#fff;
+  background:linear-gradient(var(--grad-to-start),#7C3AED,#DB2777); border-color:#A78BFA; color:#fff;
 }
 .bt-super-btn:disabled{cursor:default}
 
@@ -212,13 +214,8 @@
   border:1px solid var(--line); border-radius:10px; padding:6px 10px;
 }
 .bt-reqs li span{font-weight:600; color:var(--dim); font-size:11px}
-.bt-reqs li.met{color:var(--ok); border-color:#10B98155}
+.bt-reqs li.met{color:var(--ok); border-color:var(--ok-line)}
 .bt-reqs li.unmet{color:var(--muted)}
-
-/* ---------- nav tab ---------- */
-/* The arena keeps its warm accent inside the 🎮 hub's inner row — the one place
-   in the nav that is not `--accent` blue, exactly as the flat bar had it. */
-.sub-row .tab[data-view="BT"].active{border-color:var(--warn); color:var(--warn)}
 
 /* ---------- world-boss fight ---------- */
 .bt-sprite.enemy.world-boss .en-svg{
@@ -229,13 +226,13 @@
   box-shadow:inset 0 0 44px #EF444422;
 }
 .bt-arena.boss-fight::after{background:linear-gradient(90deg,transparent,var(--danger),transparent); opacity:.7}
-.bt-status.boss{color:#FCA5A5; font-weight:800}
+.bt-status.boss{color:var(--danger-ink); font-weight:800}
 
 /* The coaching under an unmet gate: sets/week the plan gives each missing part,
    what to add, and the ETA at the recent pace. */
 .bt-coach{margin-top:10px; padding-top:10px; border-top:1px dashed var(--line)}
 .bt-coach-eta{margin:0 0 8px; font-size:12px; color:var(--muted); line-height:1.5}
-.bt-coach-eta b{color:var(--accent)}
+.bt-coach-eta b{color:var(--accent-ink)}
 .bt-coach-list{margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:8px}
 .bt-coach-list li{font-size:12px; line-height:1.5; color:var(--muted); display:flex; flex-wrap:wrap; gap:4px 8px; align-items:baseline}
 .bt-coach-list li b{color:var(--text)}
@@ -245,8 +242,8 @@
   margin-top:10px; min-height:44px; width:100%; border-radius:12px;
   background:var(--card-2); border:1px solid var(--line); color:var(--text); font-weight:700; font-size:13px;
 }
-.bt-gate.open{border-color:#10B98155}
-.bt-gate.champion{border-color:#FBBF2455; background:linear-gradient(180deg,#F59E0B12,transparent)}
+.bt-gate.open{border-color:var(--ok-line)}
+.bt-gate.champion{border-color:var(--gold-line); background:linear-gradient(180deg,var(--warn-soft),transparent)}
 .bt-gate.champion .bt-gate-body{align-items:flex-start}
 .bt-gate-sprite.defeated{filter:grayscale(.55) brightness(.85); opacity:.8}
 
@@ -277,20 +274,20 @@
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%;
 }
 .sk-sub{
-  font-size:9px; font-weight:700; color:var(--dim); direction:rtl;
+  font-size:9px; font-weight:700; color:var(--dim);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%;
 }
 /* the cooldown sweep: a dark wedge that unwinds as `--cd` falls to 0 */
 .sk-sweep{
   position:absolute; inset:0; pointer-events:none; opacity:0; border-radius:inherit;
-  background:conic-gradient(#0B0F19CC calc(var(--cd,0) * 360deg), transparent 0);
+  background:conic-gradient(var(--overlay) calc(var(--cd,0) * 360deg), transparent 0);
   transition:opacity .12s linear;
 }
 .bt-skill.cooling .sk-sweep{opacity:1}
 .bt-skill.cooling .sk-sub{color:var(--muted); direction:ltr}
-.bt-skill.ready{border-color:var(--warn); background:#F59E0B14}
+.bt-skill.ready{border-color:var(--warn); background:var(--warn-soft)}
 .bt-skill.ready .sk-sub{color:var(--warn)}
-.bt-skill.live{border-color:var(--ok); background:#10B98118}
+.bt-skill.live{border-color:var(--ok); background:var(--ok-soft)}
 .bt-skill.live .sk-sub{color:var(--ok)}
 .bt-skill.locked{opacity:.6; border-style:dashed; background:var(--card)}
 .bt-skill.locked .sk-name{color:var(--muted)}
@@ -321,17 +318,17 @@
    so the stylesheet and the tests read the same word. Every touch target is
    ≥44px, like everything else on this screen.                               */
 .dc{
-  background:var(--card-2); border:1px solid #F59E0B44; border-radius:12px;
+  background:var(--card-2); border:1px solid var(--warn-line); border-radius:12px;
   padding:8px 10px 10px; margin-bottom:8px;
 }
 .dc[data-state="locked"]{border-color:var(--line); opacity:.85}
-.dc[data-state="done"]{border-color:#10B98155}
-.dc[data-state="live"]{border-color:var(--warn); background:#F59E0B14}
+.dc[data-state="done"]{border-color:var(--ok-line)}
+.dc[data-state="live"]{border-color:var(--warn); background:var(--warn-soft)}
 
 .dc-head{display:flex; align-items:center; gap:6px; flex-wrap:wrap}
 .dc-chip{
   font-size:11px; font-weight:900; color:var(--warn);
-  background:#F59E0B1F; border:1px solid #F59E0B55; border-radius:99px; padding:2px 8px;
+  background:var(--warn-soft); border:1px solid var(--warn-line); border-radius:99px; padding:2px 8px;
 }
 .dc-date{font-size:10.5px; color:var(--dim); direction:ltr; font-variant-numeric:tabular-nums}
 .dc-stats{
@@ -343,14 +340,14 @@
 .dc-foes{display:flex; gap:4px; align-items:center; justify-content:center; margin:6px 0}
 .dc-foe{
   flex:0 0 auto; width:30px; height:30px; display:flex; align-items:center; justify-content:center;
-  background:#0B0F1966; border:1px solid var(--line); border-radius:9px; overflow:hidden;
+  background:var(--well); border:1px solid var(--line); border-radius:9px; overflow:hidden;
 }
 .dc-foe .en-svg{width:26px; height:26px; display:block}
-.dc-foe.mini{border-color:#F59E0B88; background:#F59E0B1A}
+.dc-foe.mini{border-color:var(--warn-strong); background:var(--warn-soft)}
 
 .dc-go{
   width:100%; min-height:44px; margin-top:2px; cursor:pointer;
-  background:linear-gradient(90deg,#B45309,#F59E0B); border:1px solid #FBBF24; color:#141A26;
+  background:linear-gradient(var(--grad-to-start),#B45309,#F59E0B); border:1px solid #FBBF24; color:#141A26;
   border-radius:12px; font-size:14px; font-weight:900;
 }
 .dc-go.locked{background:var(--card); border-color:var(--line); color:var(--muted)}
@@ -358,16 +355,16 @@
 
 .dc-live{display:flex; align-items:center; gap:8px; min-height:44px}
 .dc-count{flex:0 0 auto; font-size:14px; font-weight:900; color:var(--warn)}
-.dc-bar{flex:1; height:7px; background:#0B0F1999; border-radius:99px; overflow:hidden}
-.dc-bar span{display:block; height:100%; background:linear-gradient(90deg,var(--warn),#FBBF24)}
+.dc-bar{flex:1; height:7px; background:var(--track); border-radius:99px; overflow:hidden}
+.dc-bar span{display:block; height:100%; background:linear-gradient(var(--grad-to-start),var(--warn),var(--gold))}
 
 .dc-result{display:flex; align-items:baseline; gap:8px; min-height:44px}
 .dc-score{font-size:18px; font-weight:900; color:var(--ok); direction:ltr}
 .dc-result span{font-size:12px; color:var(--muted)}
 
 /* The arena while a challenge run is on: an amber frame, nothing that moves. */
-.bt-card.challenge{border-color:#F59E0B88; box-shadow:0 0 0 1px #F59E0B33}
-.bt-arena.challenge{border-color:#F59E0B88}
+.bt-card.challenge{border-color:var(--warn-strong); box-shadow:0 0 0 1px var(--warn-line)}
+.bt-arena.challenge{border-color:var(--warn-strong)}
 .bt-status.daily{color:var(--warn); font-weight:700}
 
 /* ---------- ghost duel card (⚔️ דו־קרב רפאים) ----------
@@ -377,18 +374,18 @@
    stylesheet and the tests read the same word. Every touch target is ≥44px.
    The whole card is absent — not disabled — when there is no account.        */
 .gd{
-  background:var(--card-2); border:1px solid #8B5CF644; border-radius:12px;
+  background:var(--card-2); border:1px solid var(--ss-line); border-radius:12px;
   padding:8px 10px 10px; margin-bottom:8px;
 }
 .gd[data-state="locked"]{border-color:var(--line); opacity:.85}
-.gd[data-state="done"]{border-color:#10B98155}
-.gd[data-state="missing"]{border-color:#EF444455}
-.gd[data-state="live"]{border-color:#A78BFA; background:#8B5CF614}
+.gd[data-state="done"]{border-color:var(--ok-line)}
+.gd[data-state="missing"]{border-color:var(--danger-line)}
+.gd[data-state="live"]{border-color:var(--ss); background:var(--ss-tint)}
 
 .gd-head{display:flex; align-items:center; gap:6px; flex-wrap:wrap}
 .gd-chip{
-  font-size:11px; font-weight:900; color:#C4B5FD;
-  background:#8B5CF61F; border:1px solid #8B5CF655; border-radius:99px; padding:2px 8px;
+  font-size:11px; font-weight:900; color:var(--ss-soft);
+  background:var(--ss-tint); border:1px solid var(--ss-line); border-radius:99px; padding:2px 8px;
 }
 .gd-stats{font-size:10px; color:var(--muted)}
 .gd-me{
@@ -403,14 +400,14 @@
 .gd-row{display:flex; gap:6px}
 .gd-input{
   flex:1; min-width:0; min-height:44px; padding:0 10px;
-  background:#0B0F1999; border:1px solid var(--line); border-radius:10px;
+  background:var(--input); border:1px solid var(--line); border-radius:var(--radius-sm);
   color:var(--text); font-size:14px; font-family:inherit;
 }
-.gd-input:focus{outline:2px solid #8B5CF6; outline-offset:1px}
+.gd-input:focus{outline:2px solid var(--ss); outline-offset:1px}
 .gd-find{
   flex:0 0 auto; min-height:44px; min-width:44px; padding:0 12px; cursor:pointer;
-  background:var(--card); border:1px solid #8B5CF666; border-radius:10px;
-  color:#C4B5FD; font-size:13px; font-weight:800; font-family:inherit;
+  background:var(--card); border:1px solid var(--ss-line); border-radius:10px;
+  color:var(--ss-soft); font-size:13px; font-weight:800; font-family:inherit;
 }
 .gd-find:disabled{opacity:.6; cursor:default}
 
@@ -418,18 +415,18 @@
 .gd-foe{display:flex; align-items:center; gap:10px; margin-top:8px}
 .gd-figure{
   flex:0 0 auto; width:56px; height:76px; display:flex; align-items:center; justify-content:center;
-  background:#0B0F1966; border:1px solid #8B5CF644; border-radius:10px; overflow:hidden;
+  background:var(--well); border:1px solid var(--ss-line); border-radius:10px; overflow:hidden;
 }
 .gd-figure svg{width:100%; height:100%; display:block; transform:scaleX(-1)}
 .gd-meta{display:flex; flex-direction:column; gap:2px; min-width:0}
 .gd-name{font-size:15px; font-weight:900; color:var(--text)}
 .gd-level{font-size:11px; color:var(--muted)}
 .gd-record{font-size:11px; color:var(--dim)}
-.gd-record b{color:#C4B5FD; direction:ltr; display:inline-block}
+.gd-record b{color:var(--ss-soft); direction:ltr; display:inline-block}
 
 .gd-go{
   width:100%; min-height:44px; margin-top:8px; cursor:pointer;
-  background:linear-gradient(90deg,#6D28D9,#8B5CF6); border:1px solid #A78BFA; color:#F5F3FF;
+  background:linear-gradient(var(--grad-to-start),#6D28D9,#8B5CF6); border:1px solid #A78BFA; color:#F5F3FF;
   border-radius:12px; font-size:14px; font-weight:900; font-family:inherit;
 }
 .gd-go.locked{background:var(--card); border-color:var(--line); color:var(--muted)}
@@ -438,7 +435,7 @@
 .gd-foot{margin:6px 0 0; font-size:10px; line-height:1.5; color:var(--dim)}
 
 .gd-live{display:flex; align-items:baseline; gap:8px; min-height:44px}
-.gd-count{font-size:14px; font-weight:900; color:#C4B5FD}
+.gd-count{font-size:14px; font-weight:900; color:var(--ss-soft)}
 .gd-live span{font-size:12px; color:var(--muted)}
 
 .gd-result{display:flex; align-items:baseline; gap:8px; min-height:44px; margin-top:8px}
@@ -449,20 +446,20 @@
 
 /* The arena while a DUEL is on: a violet frame, and both bars named. The
    opponent's sprite is a CHARACTER, so it is mirrored to face the hero. */
-.bt-card.duel{border-color:#8B5CF688; box-shadow:0 0 0 1px #8B5CF633}
-.bt-arena.duel{border-color:#8B5CF688}
-.bt-status.duel{color:#C4B5FD; font-weight:700}
+.bt-card.duel{border-color:var(--ss-strong); box-shadow:0 0 0 1px var(--ss-line)}
+.bt-arena.duel{border-color:var(--ss-strong)}
+.bt-status.duel{color:var(--ss-soft); font-weight:700}
 .bt-sprite.enemy.ghost svg{transform:scaleX(-1)}
-.bt-hero-name{margin-top:2px; font-size:11px; font-weight:800; color:#C4B5FD; min-height:0}
-.bt-arena.duel .bt-foe-name{color:#C4B5FD}
+.bt-hero-name{margin-top:2px; font-size:11px; font-weight:800; color:var(--ss-soft); min-height:0}
+.bt-arena.duel .bt-foe-name{color:var(--ss-soft)}
 
 /* ---------- the שם לוחם editor in the account card ---------- */
 .handle-editor{margin-top:10px}
 .handle-row{display:flex; gap:6px; margin-top:4px}
 .handle-input{
   flex:1; min-width:0; min-height:44px; padding:0 10px;
-  background:#0B0F1999; border:1px solid var(--line); border-radius:10px;
+  background:var(--input); border:1px solid var(--line); border-radius:var(--radius-sm);
   color:var(--text); font-size:14px; font-family:inherit;
 }
-.handle-input:focus{outline:2px solid var(--accent); outline-offset:1px}
+.handle-input:focus{outline:2px solid var(--accent-ink); outline-offset:1px}
 .handle-row .action-btn{flex:0 0 auto; width:auto; min-width:88px; margin:0}

@@ -4,19 +4,19 @@
    the add-sheet slides up from the bottom where the thumb already is. */
 
 /* Entry points ---------------------------------------------------------- */
-.plan-edit-btn{
-  margin-top:8px; min-height:40px;
+/* The header's two plan buttons: "edit plan" on a workout (beside the "last
+   logged" line) and "back" in the editor (in the header's end column). */
+.plan-edit-btn, .plan-back{
+  min-height:44px; flex:0 0 auto;
   display:inline-flex; align-items:center; gap:6px;
-  background:var(--card); border:1px solid var(--line); color:var(--accent);
-  border-radius:99px; padding:8px 15px; font-size:12.5px; font-weight:700;
+  background:var(--card); border:1px solid var(--line); color:var(--accent-ink);
+  box-shadow:var(--card-shadow);
+  border-radius:var(--radius-pill); padding:6px 14px; font-size:13px; font-weight:700;
 }
+.plan-edit-btn .ic, .plan-back .ic{inline-size:16px; block-size:16px}
+.plan-edit-btn:focus-visible, .plan-back:focus-visible{outline:2px solid var(--accent-ink); outline-offset:2px}
 .plan-card .gc-note{margin-bottom:10px}
 .plan-card-btn{width:100%; min-height:44px}
-.plan-back{
-  position:absolute; top:18px; inset-inline-end:16px; min-height:40px;
-  background:var(--card); border:1px solid var(--line); color:var(--accent);
-  border-radius:99px; padding:8px 15px; font-size:13px; font-weight:700;
-}
 
 /* Day sub-tabs ---------------------------------------------------------- */
 .pl-days{display:flex; gap:6px; margin:2px 0 14px}
@@ -26,8 +26,8 @@
 }
 .pl-day-name{display:block; font-weight:800; font-size:13.5px}
 .pl-day-sub{display:block; font-size:10.5px; margin-top:1px}
-.pl-day.active{background:var(--accent); border-color:var(--accent); color:#fff}
-.pl-day.active .pl-day-sub{color:#DBEAFE}
+.pl-day.active{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
+.pl-day.active .pl-day-sub{color:var(--on-accent-2)}
 
 /* Day management -------------------------------------------------------- */
 .pl-days-row{display:flex; align-items:stretch; gap:6px; margin:2px 0 12px}
@@ -36,14 +36,14 @@
 .pl-days-row .pl-day{min-width:96px}
 .pl-day-add{
   flex:0 0 auto; width:46px; min-height:46px; border-radius:12px;
-  background:var(--card); border:1px dashed var(--accent); color:var(--accent);
+  background:var(--card); border:1px dashed var(--accent-ink); color:var(--accent-ink);
   font-size:19px; font-weight:800; line-height:1;
 }
 .pl-day-add:disabled{opacity:.35; border-style:solid; color:var(--dim)}
 
 .pl-day-card{
   background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
-  padding:11px 12px 9px; margin-bottom:12px;
+  box-shadow:var(--card-shadow); padding:12px 14px 10px; margin-bottom:12px;
 }
 .pl-day-head{display:flex; align-items:flex-end; gap:8px}
 .pl-day-name-field{flex:1; min-width:0}
@@ -55,12 +55,12 @@
   border:1px solid var(--line); background:var(--card-2); color:var(--muted);
   font-size:14px; font-weight:800; line-height:1; transition:.15s;
 }
-.pl-wd.on{background:var(--accent); border-color:var(--accent); color:#fff}
+.pl-wd.on{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
 .pl-wd-caption{margin:9px 0 0}
 .pl-wd-hint{margin:4px 0 0; color:var(--warn)}
 .pl-target{
   margin:9px 0 0; padding-top:8px; border-top:1px solid var(--line);
-  color:var(--accent); font-weight:700;
+  color:var(--accent-ink); font-weight:700;
 }
 .pl-empty{margin:12px 0 0; text-align:center}
 
@@ -75,9 +75,10 @@
 .pl-names{flex:1; min-width:0}
 .pl-names b{display:block; font-size:14.5px; font-weight:800; line-height:1.35}
 .pl-en{display:block; font-size:11px; color:var(--dim); direction:ltr; text-align:right}
+:root[dir="ltr"] .pl-en{text-align:left}
 .pl-badge{
   display:inline-block; margin-top:3px; font-size:10px; font-weight:700;
-  color:var(--warn); border:1px solid #F59E0B44; border-radius:99px; padding:1px 7px;
+  color:var(--warn); border:1px solid var(--warn-line); border-radius:99px; padding:1px 7px;
 }
 .pl-move{flex:0 0 auto; display:flex; gap:4px}
 .pl-mini{
@@ -93,11 +94,11 @@
 .pl-field.block{width:100%}
 .pl-field>span{font-size:10.5px; color:var(--dim); font-weight:700}
 .pl-field input,.pl-field select{
-  width:100%; min-height:42px; background:var(--card-2); border:1px solid var(--line);
-  color:var(--text); border-radius:10px; padding:8px 10px; font-size:15px; text-align:center;
+  width:100%; min-height:42px; background:var(--input); border:1px solid var(--line);
+  color:var(--text); border-radius:var(--radius-sm); padding:8px 10px; font-size:15px; text-align:center;
 }
 .pl-field.block input,.pl-field.block select{text-align:start}
-.pl-field input:focus,.pl-field select:focus{outline:2px solid var(--accent); outline-offset:1px}
+.pl-field input:focus,.pl-field select:focus{outline:2px solid var(--accent-ink); outline-offset:1px}
 
 /* Supersets -------------------------------------------------------------
    The link control lives BETWEEN the two rows it would join, so the gesture
@@ -113,12 +114,12 @@
 }
 .pl-sslink button:disabled{opacity:.4}
 .pl-sslink.on{margin:0}
-.pl-sslink.on button{border:1px solid var(--ss); color:var(--ss-soft); background:#8B5CF61A}
+.pl-sslink.on button{border:1px solid var(--ss); color:var(--ss-soft); background:var(--ss-tint)}
 
 .pl-ss-pair{
   position:relative; display:flex; flex-direction:column; gap:0; padding:5px;
   border:1.5px solid var(--ss); border-radius:calc(var(--radius) + 4px);
-  background:#8B5CF60A;
+  background:var(--ss-faint);
 }
 /* the floating tag hangs above the rail — the list's own gap makes room for
    it everywhere except at the very top of the list */
@@ -126,32 +127,33 @@
 .pl-ss-pair .pl-row{border-color:transparent; background:var(--card)}
 .pl-ss-tag{
   position:absolute; top:-11px; inset-inline-start:14px;
-  background:var(--ss); color:#fff; font-size:10.5px; font-weight:900;
+  background:var(--ss); color:var(--on-ss); font-size:10.5px; font-weight:900;
   border-radius:99px; padding:3px 11px; letter-spacing:.04em;
 }
-.pl-ss-pair .pl-field.rest-shared input{border-color:#8B5CF666; color:var(--ss-soft)}
+.pl-ss-pair .pl-field.rest-shared input{border-color:var(--ss-line); color:var(--ss-soft)}
 .pl-ss-rest-note{font-size:10.5px; color:var(--ss-soft); text-align:center; padding:4px 0 2px}
 
 /* Actions --------------------------------------------------------------- */
 .pl-add{
   width:100%; min-height:46px; margin-top:12px;
-  background:var(--card); border:1px dashed var(--accent); color:var(--accent);
+  background:var(--card); border:1px dashed var(--accent-ink); color:var(--accent-ink);
   border-radius:12px; font-size:14px; font-weight:800;
 }
 .pl-actions{display:flex; gap:10px; margin-top:14px}
 .pl-actions .action-btn{min-height:46px}
-.pl-save.dirty{background:var(--accent); border-color:var(--accent); color:#fff}
+.pl-save.dirty{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
 .pl-hint{margin:10px 0 4px}
 .pl-presets{width:100%; min-height:44px; margin-top:4px; margin-bottom:8px}
 .pl-reset{width:100%; min-height:44px; margin-top:4px}
 .gc-note.dim{color:var(--dim)}
 
 /* Add-exercise bottom sheet --------------------------------------------- */
-.pl-backdrop{position:fixed; inset:0; background:#0009; z-index:70}
+.pl-backdrop{position:fixed; inset:0; background:var(--overlay); z-index:70}
 .pl-sheet{
   position:fixed; inset-inline:0; bottom:0; z-index:71; max-height:82vh; overflow-y:auto;
   background:var(--card); border-top:1px solid var(--line);
   border-radius:18px 18px 0 0; padding:14px 16px 26px;
+  box-shadow:0 -8px 28px var(--shadow);
   animation:plSheetUp .18s ease-out;
 }
 @keyframes plSheetUp{from{transform:translateY(14px); opacity:.6} to{transform:none; opacity:1}}
@@ -169,9 +171,9 @@
 /* The preview card: a tapped row opens under itself — the coach demo, the
    equipment · muscle · scheme line, the cue — and ONE ➕ that actually adds.
    The row and its card share one accent outline so they read as one thing. */
-.pl-lib[aria-expanded="true"]{border-color:var(--accent); border-radius:12px 12px 0 0}
+.pl-lib[aria-expanded="true"]{border-color:var(--accent-ink); border-radius:12px 12px 0 0}
 .pl-preview{
-  border:1px solid var(--accent); border-top:0; border-radius:0 0 12px 12px;
+  border:1px solid var(--accent-ink); border-top:0; border-radius:0 0 12px 12px;
   background:var(--card-2); padding:8px 12px 12px;
 }
 .pl-preview .ex-demo{margin:4px auto 8px}
@@ -183,6 +185,30 @@
 .pl-unpick{min-width:44px; min-height:44px}
 .pl-preset{min-height:64px}
 .pl-preset span{line-height:1.45; margin-top:2px}
+
+.pl-group-head{margin:2px 0 8px; font-size:13px; font-weight:800; color:var(--muted)}
+
+/* The plan library in the presets sheet: one collapsible group per location
+   ("plans for you" first and open). The summary row is a full-width,
+   thumb-sized toggle; the chevron turns with the group. */
+.pl-group{margin:0 0 10px; border:1px solid var(--line); border-radius:12px; background:var(--card)}
+.pl-group-sum{
+  display:flex; align-items:center; gap:8px; min-height:44px; padding:8px 12px;
+  cursor:pointer; list-style:none; font-size:13.5px; font-weight:800; color:var(--text);
+}
+.pl-group-sum::-webkit-details-marker{display:none}
+.pl-group-sum::after{content:'▾'; flex:none; font-size:14px; color:var(--muted); transition:transform .15s ease}
+.pl-group[open] > .pl-group-sum::after{transform:rotate(180deg)}
+.pl-group-title{flex:1; min-width:0}
+.pl-group-count{font-size:11px; font-weight:700; color:var(--muted)}
+.pl-group-note{margin:0 12px 8px; font-size:11.5px; line-height:1.45; color:var(--muted)}
+.pl-group > .pl-lib-list{padding:0 8px 8px; margin:0}
+.pl-preset-rec{
+  display:inline-block; margin-inline-start:6px; padding:1px 7px; border-radius:999px;
+  font-style:normal; font-size:10.5px; font-weight:800; vertical-align:middle;
+  background:var(--accent); color:var(--on-accent);
+}
+@media (prefers-reduced-motion: reduce){.pl-group-sum::after{transition:none}}
 
 /* The user's own saved presets ("התוכניות שלי") -------------------------- */
 .pl-mine-title{margin:2px 0 8px; font-size:13px; font-weight:800; color:var(--muted)}
@@ -198,13 +224,13 @@
 .pl-two .pl-field{flex:1}
 .pl-chips{border:1px solid var(--line); border-radius:12px; padding:8px 10px 10px; margin:0}
 .pl-chips legend{font-size:11px; color:var(--dim); font-weight:700; padding:0 4px}
-.pl-chip{display:inline-flex; align-items:center; gap:6px; margin:4px 4px 0 0; min-height:40px}
-.pl-chip input{width:20px; height:20px; accent-color:var(--accent)}
+.pl-chip{display:inline-flex; align-items:center; gap:6px; margin-block:4px 0; margin-inline:4px 0; min-height:40px}
+.pl-chip input{width:20px; height:20px; accent-color:var(--accent-ink)}
 .pl-chip span{
   border:1px solid var(--line); background:var(--card-2); border-radius:99px;
   padding:8px 12px; font-size:12.5px;
 }
-.pl-chip input:checked + span{border-color:var(--accent); color:var(--accent)}
+.pl-chip input:checked + span{border-color:var(--accent-ink); color:var(--accent-ink)}
 .pl-new-actions{display:flex; gap:10px; margin-top:2px}
 .pl-new-actions .action-btn{min-height:46px}
 

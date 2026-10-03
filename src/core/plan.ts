@@ -53,7 +53,6 @@ import {
   MAX_WEEKLY_TARGET,
   MIN_WEEKLY_TARGET,
   PROGRAM,
-  WEEKDAY_HE,
   builtInExercises,
   defaultDayOf,
   findExercise,
@@ -99,6 +98,12 @@ import type {
   PlanPresetSavedPayload,
   PlanUpdatedPayload,
 } from '../storage/DataStore.ts';
+// User-facing strings only (see docs/i18n.md): nothing below reads the locale
+// to decide anything — it only picks the words a screen shows.
+import { locale, tr } from '../i18n/locale.ts';
+import { weekdayName } from '../i18n/format.ts';
+import { exMuscle, exName, localizeDay } from '../i18n/content.ts';
+import { plan as P } from '../i18n/messages/plan.ts';
 
 /* ----------------------------------------------------------------- limits */
 
@@ -138,6 +143,9 @@ export const EQUIPMENT_KEYS: readonly EquipmentKey[] = [
   'Dumbbells',
   'Bodyweight',
   'Machine',
+  'Barbell',
+  'Cable',
+  'Bands',
 ] as const;
 
 /* ---------------------------------------------------------------- helpers */
@@ -739,7 +747,7 @@ function estimateDuration(exercises: readonly Exercise[]): string {
   let seconds = 0;
   for (const ex of exercises) seconds += isCardio(ex) ? ex.sets * ex.rest : ex.sets * (ex.rest + 60);
   const minutes = Math.max(5, Math.round(seconds / 60 / 5) * 5);
-  return `~${minutes} דק׳`;
+  return tr(P).day.duration(minutes);
 }
 
 /**
@@ -752,12 +760,12 @@ const FOCUS_MAX = 5;
 function focusOf(exercises: readonly Exercise[], fallback: string): string {
   const seen: string[] = [];
   for (const ex of exercises) {
-    const m = ex.muscle.trim();
+    const m = exMuscle(ex).trim();
     if (m && !seen.includes(m)) seen.push(m);
   }
   if (seen.length === 0) return fallback;
   const head = seen.slice(0, FOCUS_MAX).join(' · ');
-  return seen.length > FOCUS_MAX ? `${head} ועוד` : head;
+  return seen.length > FOCUS_MAX ? tr(P).day.more(head) : head;
 }
 
 function sameAsBuiltIn(rows: readonly PlanExercise[], base: Day): boolean {
@@ -779,6 +787,70 @@ function isUntouchedBuiltInDay(pd: PlanDay, base: Day): boolean {
   return sameAsBuiltIn(pd.exercises, base);
 }
 
+/* ------------------------------------------- the built-in days, localized */
+
+/**
+ * The built-in days in the reader's language, memoized per locale. Hebrew
+ * never reaches the memo: there the answer is the `PROGRAM` object itself.
+ */
+const localizedDays = new Map<string, Day>();
+const localizedPrograms = new Map<string, ResolvedProgram>();
+
+/**
+ * Built-in day `k` as the screens show it: the `PROGRAM` object ITSELF in
+ * Hebrew (the identity every zero-change test relies on), and in any other
+ * language a memoized copy whose header lines come from the content overlay
+ * (`localizeDay`) — falling back, line by line, to what can be derived without
+ * one (the weekday caption, "~50 min", "Workout A") rather than to Hebrew. The
+ * exercises are the very same objects either way; only words differ.
+ */
+export function builtInDay(k: BuiltInDayKey): Day {
+  const base = PROGRAM[k];
+  const loc = locale();
+  if (loc === 'he') return base;
+  const memoKey = `${loc}:${k}`;
+  const hit = localizedDays.get(memoKey);
+  if (hit) return hit;
+  const l = localizeDay(k, base);
+  const minutes = /\d+/.exec(base.dur)?.[0];
+  const day: Day = {
+    ...l,
+    day: l.day !== base.day ? l.day : weekdayCaption(BUILTIN_WEEKDAYS[k], base.day),
+    label: l.label !== base.label ? l.label : tr(P).builtInLabel(k),
+    dur: l.dur !== base.dur || minutes === undefined ? l.dur : tr(P).day.duration(Number(minutes)),
+  };
+  localizedDays.set(memoKey, day);
+  return day;
+}
+
+/**
+ * A plan day's NAME as the screens show it. A day label is user content, shown
+ * as it was typed — except the built-in day's own untouched name ("אימון A"),
+ * which every plan inherits from `defaultPlanDoc` and which is the program's
+ * word, not the user's: that one follows the reader's language.
+ */
+export function displayDayLabel(key: DayKey, label: string): string {
+  if (locale() === 'he' || !isBuiltInDayKey(key) || label !== PROGRAM[key].label) return label;
+  return builtInDay(key).label;
+}
+
+/** `BUILTIN_PROGRAM` in the reader's language — itself in Hebrew. */
+function builtInProgram(): ResolvedProgram {
+  const loc = locale();
+  if (loc === 'he') return BUILTIN_PROGRAM;
+  const hit = localizedPrograms.get(loc);
+  if (hit) return hit;
+  const program: ResolvedProgram = {
+    days: DAY_ORDER.map((k) => {
+      const day = builtInDay(k);
+      return { key: k, label: day.label, weekdays: BUILTIN_WEEKDAYS[k], day };
+    }),
+    weeklyTarget: BUILTIN_PROGRAM.weeklyTarget,
+  };
+  localizedPrograms.set(loc, program);
+  return program;
+}
+
 /**
  * A plan document as the ordered `ResolvedProgram` every screen renders.
  *
@@ -786,29 +858,35 @@ function isUntouchedBuiltInDay(pd: PlanDay, base: Day): boolean {
  * are the `PROGRAM` objects themselves — the zero-change guarantee. An
  * unmodified day inside a real plan likewise hands back the built-in `Day`
  * object, so only genuinely edited days differ from today's app.
+ *
+ * In a language other than Hebrew the built-in days are memoized localized
+ * copies (`builtInDay`) — same exercises, same keys, the header lines in the
+ * reader's language. Nothing below the UI reads those lines.
  */
 export function resolveProgram(plan: PlanDoc | null): ResolvedProgram {
-  if (!plan) return BUILTIN_PROGRAM;
+  if (!plan) return builtInProgram();
 
   const customById = new Map(plan.customExercises.map((c) => [c.id, customToExercise(c)] as const));
   const days: ProgramDay[] = plan.days.map((pd) => {
     const base = isBuiltInDayKey(pd.key) ? PROGRAM[pd.key] : null;
     const weekdays = pd.weekdays ?? [];
-    if (base && isUntouchedBuiltInDay(pd, base)) {
-      return { key: pd.key, label: base.label, weekdays, day: base };
+    if (base && isUntouchedBuiltInDay(pd, base) && isBuiltInDayKey(pd.key)) {
+      const day = builtInDay(pd.key);
+      return { key: pd.key, label: day.label, weekdays, day };
     }
+    const shown = base && isBuiltInDayKey(pd.key) ? builtInDay(pd.key) : null;
     const exercises: Exercise[] = [];
     for (const row of pd.exercises) {
       const def = findExercise(row.id) ?? customById.get(row.id) ?? null;
       if (!def) continue; // unknown id — skip, never render a blank card
       exercises.push({ ...def, sets: row.sets, reps: row.reps, rest: row.rest });
     }
-    const label = pd.label || base?.label || pd.key;
+    const label = displayDayLabel(pd.key, pd.label || base?.label || pd.key);
     const day: Day = {
-      day: weekdayCaption(weekdays, base?.day ?? label),
+      day: weekdayCaption(weekdays, shown?.day ?? label),
       label,
       dur: estimateDuration(exercises),
-      focus: focusOf(exercises, base?.focus ?? label),
+      focus: focusOf(exercises, shown?.focus ?? label),
       exercises,
     };
     return { key: pd.key, label, weekdays, day };
@@ -899,7 +977,7 @@ export function scheduleTabs(program: ResolvedProgram): ScheduleTab[] {
         viewId: expands ? `${d.key}${VIEW_OCCURRENCE_SEP}${w}` : d.key,
         dayKey: d.key,
         weekday: w,
-        title: WEEKDAY_HE[w] ?? d.day.day,
+        title: weekdayName(w) || d.day.day,
         subtitle: d.label,
       });
     }
@@ -989,66 +1067,68 @@ export function makeResolver(plan: PlanDoc | null): ExerciseResolver {
 /* ---------------------------------------------------------- validation */
 
 /**
- * Validate a document the user is trying to save. Returns Hebrew messages —
- * the editor shows the first one in a toast. An empty array means "saveable".
+ * Validate a document the user is trying to save. Returns messages in the
+ * reader's language (Hebrew by default) — the editor shows the first one in a
+ * toast. An empty array means "saveable".
  */
 export function validatePlanDoc(doc: PlanDoc): string[] {
   const errors: string[] = [];
   const resolve = makeResolver(doc);
+  const V = tr(P).validate;
 
   for (const c of doc.customExercises) {
-    if (!c.he.trim()) errors.push('לתרגיל מותאם אישית חייב להיות שם בעברית');
-    if (c.he.length > PLAN_LIMITS.maxNameLength) errors.push(`שם התרגיל ארוך מדי (עד ${PLAN_LIMITS.maxNameLength} תווים)`);
+    if (!c.he.trim()) errors.push(V.customName);
+    if (c.he.length > PLAN_LIMITS.maxNameLength) errors.push(V.nameTooLong(PLAN_LIMITS.maxNameLength));
   }
 
-  if (doc.days.length < PLAN_LIMITS.minDays) errors.push('התוכנית חייבת לכלול לפחות יום אימון אחד');
-  if (doc.days.length > PLAN_LIMITS.maxDays) errors.push(`עד ${PLAN_LIMITS.maxDays} ימי אימון בתוכנית`);
+  if (doc.days.length < PLAN_LIMITS.minDays) errors.push(V.minDays);
+  if (doc.days.length > PLAN_LIMITS.maxDays) errors.push(V.maxDays(PLAN_LIMITS.maxDays));
   if (
     !Number.isInteger(doc.weeklyTarget) ||
     doc.weeklyTarget < MIN_WEEKLY_TARGET ||
     doc.weeklyTarget > MAX_WEEKLY_TARGET
   ) {
-    errors.push(`יעד האימונים השבועי חייב להיות בין ${MIN_WEEKLY_TARGET} ל־${MAX_WEEKLY_TARGET}`);
+    errors.push(V.target(MIN_WEEKLY_TARGET, MAX_WEEKLY_TARGET));
   }
 
   const seenKeys = new Set<string>();
   for (const day of doc.days) {
     const rows = day.exercises;
-    const label = day.label || day.key;
-    if (!isPlanDayKey(day.key)) errors.push(`${label}: מזהה יום לא תקין`);
-    else if (seenKeys.has(day.key)) errors.push(`${label}: מזהה היום מופיע פעמיים`);
+    const label = displayDayLabel(day.key, day.label || day.key);
+    if (!isPlanDayKey(day.key)) errors.push(V.dayKey(label));
+    else if (seenKeys.has(day.key)) errors.push(V.dayKeyTwice(label));
     seenKeys.add(day.key);
-    if (!day.label.trim()) errors.push('לכל יום אימון חייב להיות שם');
+    if (!day.label.trim()) errors.push(V.dayName);
     if (day.label.length > PLAN_LIMITS.maxNameLength) {
-      errors.push(`שם היום ארוך מדי (עד ${PLAN_LIMITS.maxNameLength} תווים)`);
+      errors.push(V.dayNameTooLong(PLAN_LIMITS.maxNameLength));
     }
     for (const w of day.weekdays ?? []) {
-      if (!Number.isInteger(w) || w < 0 || w > 6) errors.push(`${label}: יום בשבוע לא תקין`);
+      if (!Number.isInteger(w) || w < 0 || w > 6) errors.push(V.weekday(label));
     }
     if (rows.length === 0) {
-      errors.push(`${label}: יש להשאיר לפחות תרגיל אחד ביום`);
+      errors.push(V.emptyDay(label));
       continue;
     }
     if (rows.length > PLAN_LIMITS.maxExercisesPerDay) {
-      errors.push(`${label}: עד ${PLAN_LIMITS.maxExercisesPerDay} תרגילים ליום`);
+      errors.push(V.maxExercises(label, PLAN_LIMITS.maxExercisesPerDay));
     }
     const seen = new Set<string>();
     for (const row of rows) {
       const def = resolve(row.id);
-      const name = def ? def.he : row.id;
+      const name = def ? exName(def) : row.id;
       if (!def) {
-        errors.push(`${label}: תרגיל לא מוכר (${row.id})`);
+        errors.push(V.unknown(label, row.id));
         continue;
       }
-      if (seen.has(row.id)) errors.push(`${label}: ${name} מופיע פעמיים`);
+      if (seen.has(row.id)) errors.push(V.twice(label, name));
       seen.add(row.id);
       const maxSets = maxSetsOf(def);
       if (!Number.isInteger(row.sets) || row.sets < PLAN_LIMITS.minSets || row.sets > maxSets) {
-        errors.push(`${name}: מספר ${isCardio(def) ? 'השלבים' : 'הסטים'} חייב להיות בין ${PLAN_LIMITS.minSets} ל־${maxSets}`);
+        errors.push(V.sets(name, isCardio(def), PLAN_LIMITS.minSets, maxSets));
       }
-      if (!row.reps.trim()) errors.push(`${name}: יש למלא טווח חזרות`);
+      if (!row.reps.trim()) errors.push(V.reps(name));
       if (!Number.isFinite(row.rest) || row.rest < PLAN_LIMITS.minRest || row.rest > PLAN_LIMITS.maxRest) {
-        errors.push(`${name}: זמן המנוחה חייב להיות בין ${PLAN_LIMITS.minRest} ל־${PLAN_LIMITS.maxRest} שניות`);
+        errors.push(V.rest(name, PLAN_LIMITS.minRest, PLAN_LIMITS.maxRest));
       }
     }
     errors.push(...supersetErrors(day, resolve));
@@ -1057,7 +1137,7 @@ export function validatePlanDoc(doc: PlanDoc): string[] {
 }
 
 /**
- * The superset half of `validatePlanDoc`, in Hebrew: a pair must name two
+ * The superset half of `validatePlanDoc`, in the reader's language: a pair must name two
  * exercises OF THIS DAY that stand next to each other, and no exercise may be
  * linked twice. `normalizePlanDoc` silently drops such pairs (a document from
  * elsewhere still has to open); a save from the editor is refused instead, so a
@@ -1065,8 +1145,12 @@ export function validatePlanDoc(doc: PlanDoc): string[] {
  */
 function supersetErrors(day: PlanDay, resolve: ExerciseResolver): string[] {
   const errors: string[] = [];
-  const label = day.label || day.key;
-  const named = (id: string): string => resolve(id)?.he ?? id;
+  const V = tr(P).validate;
+  const label = displayDayLabel(day.key, day.label || day.key);
+  const named = (id: string): string => {
+    const def = resolve(id);
+    return def ? exName(def) : id;
+  };
   const index = new Map<string, number>();
   day.exercises.forEach((r, i) => index.set(r.id, i));
   const claimed = new Set<string>();
@@ -1075,15 +1159,15 @@ function supersetErrors(day: PlanDay, resolve: ExerciseResolver): string[] {
     const ia = index.get(a);
     const ib = index.get(b);
     if (ia === undefined || ib === undefined) {
-      errors.push(`${label}: סופר־סט מפנה לתרגיל שאינו ביום הזה`);
+      errors.push(V.ssMissing(label));
       continue;
     }
     if (ib !== ia + 1) {
-      errors.push(`${label}: סופר־סט אפשרי רק בין שני תרגילים סמוכים (${named(a)} ו${named(b)})`);
+      errors.push(V.ssAdjacent(label, named(a), named(b)));
       continue;
     }
     if (claimed.has(a) || claimed.has(b)) {
-      errors.push(`${label}: תרגיל יכול להשתתף רק בסופר־סט אחד`);
+      errors.push(V.ssOnce(label));
       continue;
     }
     claimed.add(a);
@@ -1172,7 +1256,7 @@ export function savePlan(store: DataStore, doc: PlanDoc | null, now: number = Da
   if (errors.length > 0) return { ok: false, errors };
 
   const normalized = normalizePlanDoc(planToRecord(doc));
-  if (!normalized) return { ok: false, errors: ['התוכנית אינה תקינה'] };
+  if (!normalized) return { ok: false, errors: [tr(P).validate.invalid] };
   normalized.rev = Math.max(doc.rev, current?.rev ?? 0) + 1;
 
   const payload: PlanUpdatedPayload = { plan: planToRecord(normalized), revision: normalized.rev, date };
@@ -1320,14 +1404,15 @@ export function saveUserPreset(
   now: number = Date.now(),
 ): SaveUserPresetResult {
   const trimmed = name.trim().slice(0, PLAN_LIMITS.maxNameLength);
-  if (!trimmed) return { ok: false, error: 'לתוכנית שמורה צריך שם. ✏️' };
+  const V = tr(P).validate;
+  if (!trimmed) return { ok: false, error: V.presetName };
   if (Object.keys(store.getState().planPresets).length >= MAX_USER_PRESETS) {
-    return { ok: false, error: `אפשר לשמור עד ${MAX_USER_PRESETS} תוכניות — מחקו אחת ישנה קודם.` };
+    return { ok: false, error: V.presetMax(MAX_USER_PRESETS) };
   }
   const errors = validatePlanDoc(doc);
-  if (errors.length > 0) return { ok: false, error: errors[0] ?? 'התוכנית אינה תקינה' };
+  if (errors.length > 0) return { ok: false, error: errors[0] ?? V.invalid };
   const normalized = normalizePlanDoc(planToRecord(doc));
-  if (!normalized) return { ok: false, error: 'התוכנית אינה תקינה' };
+  if (!normalized) return { ok: false, error: V.invalid };
   normalized.rev = 0;
 
   const payload: PlanPresetSavedPayload = {

@@ -19,6 +19,8 @@
 import { checkHandle, type HandleError } from '../core/handle.ts';
 import { esc } from '../ui/dom.ts';
 import type { SyncStatus } from './engine.ts';
+import { tr } from '../i18n/locale.ts';
+import { account as M } from '../i18n/messages/account.ts';
 
 export const ACCOUNT_CARD_ID = 'accountCard';
 
@@ -57,34 +59,35 @@ export function isSignedIn(status: SyncStatus): boolean {
 /* ----------------------------------------------------------------- copy */
 
 function fmtAgo(then: number | null, now: number): string {
-  if (then === null) return 'עדיין לא סונכרן';
+  const m = tr(M).ago;
+  if (then === null) return m.never;
   const secs = Math.max(0, Math.floor((now - then) / 1000));
-  if (secs < 60) return 'סונכרן זה עתה';
+  if (secs < 60) return m.now;
   const mins = Math.floor(secs / 60);
-  if (mins < 60) return `סונכרן לפני ${mins} דקות`;
+  if (mins < 60) return m.minutes(mins);
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `סונכרן לפני ${hours} שעות`;
+  if (hours < 24) return m.hours(hours);
   const days = Math.floor(hours / 24);
-  return `סונכרן לפני ${days} ימים`;
+  return m.days(days);
 }
 
 /** One short line describing what the engine is doing right now. */
 function stateLine(status: SyncStatus, now: number): string {
   switch (status.kind) {
     case 'syncing':
-      return 'מסנכרן…';
+      return tr(M).syncing;
     case 'offline':
-      return 'אין חיבור — הנתונים יסונכרנו כשהחיבור יחזור';
+      return tr(M).offline;
     case 'error':
-      return 'הסנכרון נכשל — ננסה שוב אוטומטית';
+      return tr(M).error;
     default:
       return fmtAgo(status.lastSyncAt, now);
   }
 }
 
 function pendingLine(status: SyncStatus): string {
-  if (status.pending <= 0) return 'הכל מגובה ✓';
-  return `${status.pending} פעולות ממתינות לגיבוי`;
+  if (status.pending <= 0) return tr(M).allBackedUp;
+  return tr(M).pending(status.pending);
 }
 
 /* --------------------------------------------------------------- render */
@@ -101,48 +104,46 @@ export function renderAccountCard(deps: AccountDeps): string {
   const status = deps.getStatus();
   if (status.kind === 'disabled') return '';
   const now = deps.now ? deps.now() : Date.now();
+  const m = tr(M);
 
   if (status.kind === 'reauth') {
     return `
   <section class="game-card account-card" id="${ACCOUNT_CARD_ID}">
-    <h3 class="gc-title">☁️ סנכרון בענן <span class="gc-sub warn">נדרשת פעולה</span></h3>
-    <p class="gc-note">פג תוקף החיבור — נדרשת התחברות מחדש. הנתונים במכשיר לא נפגעו.</p>
-    <button class="action-btn" id="btnSignIn">התחברות עם Google</button>
+    <h3 class="gc-title">${m.title} <span class="gc-sub warn">${m.actionNeeded}</span></h3>
+    <p class="gc-note">${m.reauth}</p>
+    <button class="action-btn" id="btnSignIn">${m.signIn}</button>
   </section>`;
   }
 
   if (!isSignedIn(status)) {
     return `
   <section class="game-card account-card" id="${ACCOUNT_CARD_ID}">
-    <h3 class="gc-title">☁️ סנכרון בענן <span class="gc-sub">אופציונלי</span></h3>
-    <p class="gc-note">התחברו כדי לגבות את האימונים ולסנכרן בין מכשירים. בלי התחברות הכל ממשיך לעבוד מקומית, בדיוק כמו היום.</p>
-    <button class="action-btn" id="btnSignIn">התחברות עם Google</button>
+    <h3 class="gc-title">${m.title} <span class="gc-sub">${m.optional}</span></h3>
+    <p class="gc-note">${m.invite}</p>
+    <button class="action-btn" id="btnSignIn">${m.signIn}</button>
   </section>`;
   }
 
   const email = deps.getEmail();
   return `
   <section class="game-card account-card" id="${ACCOUNT_CARD_ID}">
-    <h3 class="gc-title">☁️ סנכרון בענן <span class="gc-sub">${esc(pendingLine(status))}</span></h3>
-    <p class="gc-note">מחובר כ־<b>${esc(email ?? 'משתמש Google')}</b></p>
+    <h3 class="gc-title">${m.title} <span class="gc-sub">${esc(pendingLine(status))}</span></h3>
+    <p class="gc-note">${m.signedInAs(esc(email ?? m.googleUser))}</p>
     <p class="gc-note dim">${esc(stateLine(status, now))}</p>
     ${handleEditor(deps)}
-    <button class="action-btn" id="btnSignOut">התנתקות</button>
+    <button class="action-btn" id="btnSignOut">${m.signOut}</button>
   </section>`;
 }
 
 /* ---------------------------------------------------------- שם לוחם */
 
-/** Hebrew for every way a typed handle can be refused. */
-const HANDLE_ERROR_HE: Readonly<Record<HandleError, string>> = {
-  empty: 'צריך שם.',
-  too_short: 'לפחות 3 תווים.',
-  too_long: 'עד 20 תווים.',
-  bad_chars: 'אותיות בעברית או באנגלית, ספרות ו־ _ . - בלבד.',
-};
+/** Every way a typed handle can be refused, in the reader's language. */
+function handleError(code: HandleError): string {
+  return tr(M).handle.errors[code];
+}
 
 /** Hebrew for "somebody else got there first" — the only server-side refusal. */
-export const HANDLE_TAKEN_HE = 'השם הזה כבר תפוס — נסו שם אחר.';
+export const HANDLE_TAKEN_HE = M.he.handle.taken;
 
 /**
  * The שם לוחם editor, or `''` on a build without ghost duels.
@@ -155,13 +156,14 @@ export const HANDLE_TAKEN_HE = 'השם הזה כבר תפוס — נסו שם א
 function handleEditor(deps: AccountDeps): string {
   if (!deps.getHandle || !deps.setHandle) return '';
   const handle = deps.getHandle();
+  const m = tr(M).handle;
   return `
     <div class="handle-editor">
-      <label class="gc-note" for="ghostHandle">שם לוחם <span class="dim">— השם שיריבים מקלידים כדי להילחם בכם</span></label>
+      <label class="gc-note" for="ghostHandle">${m.label} <span class="dim">${m.hint}</span></label>
       <div class="handle-row">
         <input class="handle-input" id="ghostHandle" type="text" maxlength="20" autocomplete="off"
-          value="${esc(handle)}" placeholder="לדוגמה: יוסי" aria-label="שם לוחם">
-        <button class="action-btn" id="btnSaveHandle" type="button">שמירה</button>
+          value="${esc(handle)}" placeholder="${esc(m.placeholder)}" aria-label="${esc(m.label)}">
+        <button class="action-btn" id="btnSaveHandle" type="button">${m.save}</button>
       </div>
       <p class="gc-note dim" id="handleMsg" role="status"></p>
     </div>`;
@@ -177,7 +179,7 @@ export function bindAccountCard(root: ParentNode, deps: AccountDeps): void {
     // The wording is the whole point of the confirm: people expect "sign out"
     // to mean "delete my stuff off this phone", and here it emphatically does
     // not. Saying so is cheaper than an undo.
-    if (confirm('להתנתק מהחשבון? הנתונים יישארו במכשיר; הסנכרון ייפסק.')) deps.signOut();
+    if (confirm(tr(M).signOutConfirm)) deps.signOut();
   });
 }
 
@@ -196,20 +198,21 @@ function bindHandleEditor(root: ParentNode, deps: AccountDeps): void {
   btn.addEventListener('click', () => {
     const check = checkHandle(input.value);
     if (!check.ok) {
-      if (msg) msg.textContent = HANDLE_ERROR_HE[check.error ?? 'empty'];
+      if (msg) msg.textContent = handleError(check.error ?? 'empty');
       return;
     }
     btn.disabled = true;
-    if (msg) msg.textContent = 'שומר…';
+    const m = tr(M).handle;
+    if (msg) msg.textContent = m.saving;
     void save(check.handle).then(
       (ok) => {
         btn.disabled = false;
-        if (msg) msg.textContent = ok ? `נשמר ✓ יריבים יכולים להילחם ב"${check.handle}"` : HANDLE_TAKEN_HE;
+        if (msg) msg.textContent = ok ? m.saved(check.handle) : m.taken;
         if (ok) deps.refresh?.();
       },
       () => {
         btn.disabled = false;
-        if (msg) msg.textContent = HANDLE_TAKEN_HE;
+        if (msg) msg.textContent = m.taken;
       },
     );
   });

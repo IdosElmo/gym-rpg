@@ -1,6 +1,6 @@
 # CLAUDE.md — working on gym-rpg
 
-Hebrew-first (RTL) offline workout RPG PWA. Vite + strict TypeScript, no framework,
+**Ori** — a Hebrew-first (RTL) offline workout RPG PWA, also in English (LTR) — see `docs/i18n.md`. Vite + strict TypeScript, no framework,
 single-file build. Real logged training is the only source of progress (XP, energy,
 levels); the game cannot be advanced without it.
 
@@ -29,10 +29,20 @@ npm run verify          # zero external references (allowlist in scripts/verify-
   `legacy/index.html`, guarded byte-for-byte by `tests/program.test.ts`. Deliberate
   changes go through its `POST_LEGACY_IDS` (appended exercises) / `AMENDED_FIELDS`
   (coaching-copy amendments) allowlists — never silently.
-- **Hebrew RTL UI**, design tokens (`--bg:#121824`, `--card:#1E2638`, `--accent:#3B82F6`,
-  `--ok:#10B981`, `--warn:#F59E0B`), touch targets ≥44px, `prefers-reduced-motion`
-  respected, `color-scheme: dark` declared (forced-dark defense), `text-size-adjust`
-  pinned (Android font boosting).
+- **Bilingual UI** (Hebrew RTL is the original, English LTR). Every user-visible string lives
+  in a typed catalog under `src/i18n/messages/` (`en: typeof he`), read with `tr()` at render
+  time; Hebrew output stays byte-identical when copy moves. Data files stay Hebrew; English
+  content is an overlay beside them (`src/i18n/content/*.en.ts`). Language and units are
+  device preferences in `UiState`, never in an event; storage is always metric
+  (`src/i18n/units.ts`). CSS uses logical properties only. Full rules: `docs/i18n.md`.
+- **UI design**: two themes, every colour a token in `styles/tokens.css` defined for both —
+  DARK (default: navy `--bg:#0d1b36` + sky `--accent:#5cc8ff`) and LIGHT
+  (`<html data-theme="light">`: `--bg:#eceef2`, white cards, same sky). Accent as a FILL is
+  `--accent` with `--on-accent` text; accent as TEXT/icon/stroke is `--accent-ink` (deep sky
+  in light — #5cc8ff is unreadable on white). Game stages (arena, character, photo viewer)
+  stay dark in both. The theme is a device preference (`UiState.theme`, `ui/theme.ts`).
+  Touch targets ≥44px, `prefers-reduced-motion` respected, `color-scheme` declared
+  (forced-dark defense), `text-size-adjust` pinned (Android font boosting).
 - **All storage through `DataStore`** (`src/storage/`). UI never touches `localStorage`.
   Auth/sync bookkeeping lives in `src/sync/` (Supabase; ships dark unless configured).
   Bytes too big for the log (📸 progress photos) go through `BlobStore` (`IdbBlobStore`
@@ -98,6 +108,22 @@ way (a spec, a demo, a `tests/cardio.dom.test.ts`-style check of the ladder).
   `tests/catalog.test.ts` pins the fixed meals' prices — re-pin deliberately. A pick is
   priced in code (`core/catalog.ts`) and frozen into its `meal_logged` payload, so editing
   the catalog never rewrites history. The same catalog rides to the ✨ estimator as hints.
+- **Exercise library groups**: new built-ins go in their group's marked section of
+  `EXTRA_EXERCISES` (`program.ts`), `exercisePoses.ts` and `i18n/content/program.en.ts` —
+  GYM `g*` (barbell/cable/machine), HOME `h*` (dumbbells/bands), BODYWEIGHT `w*` (home or
+  outdoors, no equipment). Re-pin the counts in `tests/exercisePoses.test.ts` and
+  `tests/i18n.content.test.ts` deliberately.
+- **Plan library** (`src/data/planLibrary.ts`, built by `src/core/planLibrary.ts`): 30 templates,
+  days 2–6 × location (`gym` / `home_dumbbells` / `home_none`) × men's/women's variation, each
+  obeying its location's equipment rule (tests enforce it). The questionnaire's goal,
+  experience, session length and injuries are applied when a plan is BUILT
+  (`buildLibraryPlan`), never stored on the template. `recommendPreset` (core/profile.ts) maps
+  a profile to a template. `builtin3` / `ab4` (`PLAN_PRESETS`) stay byte-identical.
+- **Ready meals & menus**: `READY_MEALS` (everyone) are separate from the owners' `FIXED_MEALS`
+  (shown only to an account that ate them, `myFixedMeals`). Daily sample menus are data over
+  ready meals; a user's own saved meals are `meal_template_saved` / `meal_template_deleted`
+  events folded into `NutritionState`. Carbs/fat are optional on meals and targets — unknown
+  is never 0.
 - **Equipment** (seven slots, helmet to cape): `EQUIPMENT` in `gameContent.ts`; a new slot needs a
   layer + anchor + flair spot in `ui/characterSvg.ts` (the artwork sweeps cover it); stats flow through `equippedBonus`/
   `deriveStats` (the single stat seam). Art anchors to `characterAnchors`; upgrade flair

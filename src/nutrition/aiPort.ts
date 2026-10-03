@@ -52,12 +52,22 @@ export interface EstimateItem {
   proteinG: number | null;
   /** The description gave no usable quantity — the model picked a standard portion. */
   assumed: boolean;
+  /** Grams of carbs / fat on the line, when the function sent them (absent = unknown). */
+  carbsG?: number;
+  fatG?: number;
 }
 
 /** What the estimator answers with — totals, breakdown, and an honest confidence. */
 export interface MealEstimate {
   calories: number;
   proteinG: number;
+  /**
+   * Carbs / fat (grams) — present only when the function returned them (the
+   * sum of the lines when every line has one, else its own totals). Absent =
+   * unknown: the meal is logged without them, never with a guessed 0.
+   */
+  carbsG?: number;
+  fatG?: number;
   items: EstimateItem[];
   confidence: Confidence;
   /** Why the confidence is not high (Hebrew, one sentence). Absent when it is. */
@@ -93,6 +103,8 @@ const MAX_ITEM_LEN = 60;
 const MAX_REASON_LEN = 200;
 const MAX_CALORIES = 10000;
 const MAX_PROTEIN = 500;
+const MAX_CARBS = 1000;
+const MAX_FAT = 500;
 /** Per-line sanity: nobody eats 2 kg of one ingredient, and nothing beats pure fat. */
 const MAX_ITEM_GRAMS = 2000;
 const MAX_ITEM_KCAL = 2000;
@@ -121,6 +133,8 @@ function itemOf(raw: unknown): EstimateItem | null {
   if (!isRecord(raw)) return null;
   const name = str(raw['name'], MAX_ITEM_LEN);
   if (!name) return null;
+  const carbsG = clampNum(raw['carbs_g'], MAX_ITEM_GRAMS);
+  const fatG = clampNum(raw['fat_g'], MAX_ITEM_GRAMS);
   return {
     name,
     quantity: str(raw['quantity'], MAX_ITEM_LEN),
@@ -128,7 +142,25 @@ function itemOf(raw: unknown): EstimateItem | null {
     kcal: clampNum(raw['kcal'], MAX_ITEM_KCAL),
     proteinG: clampNum(raw['protein_g'], MAX_ITEM_PROTEIN),
     assumed: raw['assumed'] === true,
+    ...(carbsG !== null ? { carbsG } : {}),
+    ...(fatG !== null ? { fatG } : {}),
   };
+}
+
+/**
+ * One optional macro of an answer: the lines' sum when EVERY line carries it,
+ * else the answer's own total, else unknown (`null`).
+ */
+function macroOf(
+  items: readonly EstimateItem[],
+  pick: (it: EstimateItem) => number | undefined,
+  total: unknown,
+  max: number,
+): number | null {
+  if (items.length > 0 && items.every((it) => pick(it) !== undefined)) {
+    return Math.min(max, items.reduce((s, it) => s + (pick(it) ?? 0), 0));
+  }
+  return clampNum(total, max);
 }
 
 /**
@@ -192,7 +224,17 @@ export function parseEstimate(raw: unknown): MealEstimate | null {
     : 'low';
   const confidence = capConfidence(items, claimed);
   const reason = str(raw['reason'], MAX_REASON_LEN);
-  return { calories, proteinG, items, confidence, ...(reason ? { reason } : {}) };
+  const carbsG = macroOf(items, (it) => it.carbsG, raw['carbs_g'], MAX_CARBS);
+  const fatG = macroOf(items, (it) => it.fatG, raw['fat_g'], MAX_FAT);
+  return {
+    calories,
+    proteinG,
+    ...(carbsG !== null ? { carbsG } : {}),
+    ...(fatG !== null ? { fatG } : {}),
+    items,
+    confidence,
+    ...(reason ? { reason } : {}),
+  };
 }
 
 /** Classify a failed invoke by its HTTP status. */

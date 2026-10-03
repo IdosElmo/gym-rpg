@@ -31,7 +31,7 @@
 .stats-hero .hero-eq{margin:6px 0 0; font-size:14.5px; font-weight:700; color:var(--ok)}
 .stats-hero .hero-eq b{font-weight:900}
 
-.eq-list{
+.stats-hero .eq-list{
   list-style:none; margin:12px 0 0; padding:0;
   display:grid; grid-template-columns:repeat(auto-fit,minmax(88px,1fr)); gap:6px;
 }
@@ -39,7 +39,7 @@
   background:var(--card-2); border:1px solid var(--line); border-radius:11px;
   padding:7px 4px; text-align:center; opacity:.5;
 }
-.eq.on{opacity:1; border-color:#3B82F644}
+.eq.on{opacity:1; border-color:var(--accent-line)}
 .eq-emoji{display:block; font-size:15px; line-height:1.2}
 .eq-count{display:block; font-size:14px; font-weight:800; direction:ltr}
 .eq-name{display:block; font-size:9.5px; color:var(--muted); line-height:1.25}
@@ -63,16 +63,16 @@
 .chart-legend b{color:var(--text); font-weight:800}
 .cl-item{display:inline-flex; align-items:center; gap:5px}
 .cl-item.dim{color:var(--dim)}
-.cl-item .dot{width:8px; height:8px; border-radius:50%; background:var(--accent); display:inline-block}
+.cl-item .dot{width:8px; height:8px; border-radius:50%; background:var(--accent-ink); display:inline-block}
 
 /* ---------- 📈 weekly tonnage sparkline ---------- */
 .spark{margin-top:2px}
 .sp-base{stroke:var(--line); stroke-width:1}
 .sp-area{fill:var(--accent); fill-opacity:.12; animation:sparkIn .5s ease both}
-.sp-line{fill:none; stroke:var(--accent); stroke-width:2; stroke-linejoin:round; stroke-linecap:round}
+.sp-line{fill:none; stroke:var(--accent-ink); stroke-width:2; stroke-linejoin:round; stroke-linecap:round}
 /* The live week's end marker: ringed in the card colour so it stays legible
    wherever the line puts it. */
-.sp-dot{fill:var(--accent); stroke:var(--card); stroke-width:2}
+.sp-dot{fill:var(--accent-ink); stroke:var(--card); stroke-width:2}
 /* Invisible per-week targets that carry the <title> tooltip. */
 .sp-hit{fill:transparent}
 @keyframes sparkIn{from{opacity:0}to{opacity:1}}
@@ -94,9 +94,9 @@
 /* The same three steps, pre-blended over --card: the swatches are HTML, where
    `fill-opacity` does not exist, and a hard-coded blend keeps them identical to
    the cells on every engine (no `color-mix` support needed). */
-.hm-legend .hm-key.l1{background:#274271}
-.hm-legend .hm-key.l2{background:#2D569B}
-.hm-legend .hm-key.l3{background:#346CC8}
+.hm-legend .hm-key.l1{background:color-mix(in srgb, var(--accent) 30%, var(--card))}
+.hm-legend .hm-key.l2{background:color-mix(in srgb, var(--accent) 52%, var(--card))}
+.hm-legend .hm-key.l3{background:color-mix(in srgb, var(--accent) 76%, var(--card))}
 .hm-legend .hm-key.l4{background:var(--accent)}
 
 /* ---------- ⚖️ body-part balance ---------- */
@@ -107,15 +107,15 @@
   margin-inline-start:6px; padding:1px 7px; border-radius:99px;
   font-size:10px; font-weight:800; vertical-align:middle;
 }
-.bal-tag.most{background:#10B98122; color:var(--ok)}
-.bal-tag.least{background:#F59E0B22; color:var(--warn)}
+.bal-tag.most{background:var(--ok-soft); color:var(--ok)}
+.bal-tag.least{background:var(--warn-soft); color:var(--warn)}
 
 /* ---------- 🥇 per-exercise bests ---------- */
 .table-wrap{overflow-x:auto; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch}
 .stats-table{width:100%; border-collapse:collapse; font-size:12px}
 .stats-table th{
   text-align:start; font-size:10.5px; font-weight:700; color:var(--dim);
-  padding:0 6px 6px 0; white-space:nowrap;
+  padding-block:0 6px; padding-inline:6px 0; white-space:nowrap;
 }
 .stats-table td{padding:7px 0; border-top:1px dashed var(--line); vertical-align:top}
 .stats-table td:not(:first-child){padding-inline-start:8px}

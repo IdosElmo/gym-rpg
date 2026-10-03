@@ -72,10 +72,14 @@ const POST_LEGACY_IDS = new Set(['b6', 'c6']);
  */
 const AMENDED_FIELDS: Readonly<Record<string, readonly string[]>> = {
   a1: ['steps'],
+  a4: ['mistake'], // the flye's mistake is BENDING the elbows into a press, not straightening them
   a5: ['steps'],
   b1: ['steps'],
+  b2: ['steps'], // the return covers both the pulldown and the pull-up
   b4: ['steps', 'mistake'],
   b5: ['steps'],
+  c2: ['steps'], // the Smith variant has a bar, not dumbbells
+  c5: ['he', 'en'], // the steps describe a DECLINE bench, not an incline one
 };
 
 interface ComparableExercise {

@@ -36,7 +36,7 @@ describe('the schedule the app uploads', () => {
     ]);
   });
 
-  it('suggests the fixed meals where there are some, else foods — never an add-on, never nothing', () => {
+  it('suggests the fixed meals where there are some, else ready meals — never an add-on, never nothing', () => {
     expect(suggestionsFor('breakfast')).toEqual(['שיבולת שועל', 'ביצים עם סלט', 'חביתה עם סלט']);
     expect(suggestionsFor('dinner')).toEqual(['שיבולת שועל', 'ביצים עם סלט', 'חביתה עם סלט']);
     const addOns = FOODS.filter((f) => f.addOn).map((f) => f.name);
@@ -45,8 +45,8 @@ describe('the schedule the app uploads', () => {
       expect(w.suggestions.length).toBeGreaterThan(0);
       for (const a of addOns) expect(w.suggestions).not.toContain(a);
     }
-    expect(suggestionsFor('lunch')).toContain('חזה עוף צלוי');
-    expect(suggestionsFor('snack_pm')).toContain('תפוח');
+    expect(suggestionsFor('lunch')).toContain('חזה עוף, אורז וסלט');
+    expect(suggestionsFor('snack_pm')).toContain('תפוח עם חמאת בוטנים');
   });
 
   it('passes through the server\'s reader unchanged — the upload contract', () => {

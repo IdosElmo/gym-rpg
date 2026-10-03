@@ -40,6 +40,11 @@ import { makeResolver, resolveProgram } from '../core/plan.ts';
 import type { AppState, DataStore } from '../storage/DataStore.ts';
 import { esc } from './dom.ts';
 import { renderFeed } from './feed.ts';
+import { locale, tr } from '../i18n/locale.ts';
+import { toDisplayLoad, units, weightUnit } from '../i18n/units.ts';
+import { exLoadUnit, exName } from '../i18n/content.ts';
+import { fmtDayMonth } from '../i18n/format.ts';
+import { history as HISTORY } from '../i18n/messages/history.ts';
 
 export interface HistoryDeps {
   store: DataStore;
@@ -67,8 +72,12 @@ interface LoggedDay {
  */
 let openDate: string | null = null;
 
-/** "2025-01-05" → "5.1" (an unparsable date is left exactly as it came). */
+/**
+ * "2025-01-05" → "5.1" (an unparsable date is left exactly as it came); in
+ * English "Jan 5", which reads the same way to everyone.
+ */
 function shortDate(iso: string): string {
+  if (locale() !== 'he' && /^\d{4}-\d{2}-\d{2}$/.test(iso)) return fmtDayMonth(iso);
   const parts = iso.split('-');
   const m = Number(parts[1]);
   const d = Number(parts[2]);
@@ -108,6 +117,7 @@ function dayCard(
   program: ResolvedProgram,
   resolve: ExerciseResolver,
 ): string {
+  const M = tr(HISTORY);
   const s = state.sessions[date];
   if (!s) return '';
   const p = dayOf(program, s.day);
@@ -117,17 +127,21 @@ function dayCard(
       const exDef = resolve(exId);
       const sets = (s.ex[exId] ?? []).filter((x) => isSetFilled(x));
       if (!sets.length) return '';
-      // a cardio stage reads "3%×5 דק׳" — the load in its own unit, never kg
-      const load = exDef?.cardio ? esc(exDef.cardio.loadUnit) : 'kg';
-      const tail = exDef?.cardio ? ' דק׳' : '';
+      // a cardio stage reads "3%×5 דק׳" — the load in its own unit, never kg,
+      // and never converted; a lift's stored kilograms show in pounds when
+      // the reader asked for them
+      const cardio = !!exDef?.cardio;
+      const load = exDef && cardio ? esc(exLoadUnit(exDef)) : units() === 'imperial' ? weightUnit() : 'kg';
+      const tail = cardio ? M.minSuffix : '';
+      const w = (v: string): string => esc(cardio ? v : toDisplayLoad(v));
       const setsTxt = sets
-        .map((x) => `${x && x.w !== '' ? esc(x.w) : '–'}${load}×${x && x.r !== '' ? esc(x.r) : '–'}${tail}${x && x.done ? '✓' : ''}`)
+        .map((x) => `${x && x.w !== '' ? w(x.w) : '–'}${load}×${x && x.r !== '' ? esc(x.r) : '–'}${tail}${x && x.done ? '✓' : ''}`)
         .join('  |  ');
-      return `<div class="hist-ex"><b>${esc(exDef ? exDef.he : exId)}</b><br><span class="hist-sets">${setsTxt}</span></div>`;
+      return `<div class="hist-ex"><b>${esc(exDef ? exName(exDef) : exId)}</b><br><span class="hist-sets">${setsTxt}</span></div>`;
     })
     .join('');
   if (!exHtml) return '';
-  const title = ` · ${esc(label)}${p ? ` (יום ${esc(p.day)})` : ''}`;
+  const title = ` · ${esc(label)}${p ? M.dayOf(esc(p.day)) : ''}`;
   return `<div class="hist-day">
         <h3>${fmtDate(date)}${title}</h3>
         <div class="sub">${p ? esc(p.focus) : ''}</div>
@@ -160,7 +174,7 @@ function loggedDays(state: AppState, program: ResolvedProgram, resolve: Exercise
 }
 
 function bubbleHtml(d: LoggedDay): string {
-  const name = `${fmtDate(d.date)} · ${d.label}${d.done ? ' · הושלם' : ''}`;
+  const name = `${fmtDate(d.date)} · ${d.label}${d.done ? tr(HISTORY).done : ''}`;
   return `<button type="button" class="day-bubble${d.done ? ' done' : ''}" data-date="${esc(d.date)}"
       aria-expanded="false" aria-controls="histDayPanel" aria-label="${esc(name)}" title="${esc(name)}">
       ${d.done ? `<span class="db-tick" aria-hidden="true">✓</span>` : ''}
@@ -178,18 +192,19 @@ export function renderHistory(main: HTMLElement, deps: HistoryDeps): void {
   const resolve = makeResolver(state.plan);
   const days = loggedDays(state, program, resolve);
   openDate = null;
+  const M = tr(HISTORY);
 
   const log =
     days.length === 0
-      ? `<div class="empty">עדיין אין אימונים מתועדים.<br>סמנו סטים באחד מימי האימון והם יופיעו כאן. 💪</div>`
+      ? `<div class="empty">${M.empty}</div>`
       : `<div class="scroll-pane log-scroll">
-      <div class="day-bubbles" aria-label="ימי אימון מתועדים">${days.map(bubbleHtml).join('')}</div>
-      <div class="day-panel" id="histDayPanel" role="region" aria-label="פירוט האימון"></div>
+      <div class="day-bubbles" aria-label="${esc(M.bubblesLabel)}">${days.map(bubbleHtml).join('')}</div>
+      <div class="day-panel" id="histDayPanel" role="region" aria-label="${esc(M.panelLabel)}"></div>
     </div>`;
 
   main.innerHTML = `
   ${renderFeed(deps.store.getEvents(), 40, resolve, (key) => dayLabelOf(program, key))}
-  <h2 class="hist-heading">אימונים מתועדים <span class="hist-hint">בחרו תאריך</span></h2>
+  <h2 class="hist-heading">${M.heading} <span class="hist-hint">${M.hint}</span></h2>
   ${log}`;
 
   bindBubbles(main, days);

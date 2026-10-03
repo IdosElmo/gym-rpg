@@ -94,6 +94,14 @@ export interface Pose {
   readonly hipRoll?: number;
   /** Shoulder elevation along the spine (a shrug). Positive = shoulders up. */
   readonly shrug?: number;
+  /**
+   * FRONT (and three-quarter) view only: how much of each ARM's length survives
+   * the projection. 1 (the default) is an arm in the picture plane; less is an
+   * arm reaching AT the camera, which a front view can only draw short — a band
+   * pull-apart starts with both arms straight out in front at shoulder height,
+   * and a full-length arm there would have to hang down to the belly instead.
+   */
+  readonly reach?: number;
 }
 
 export interface SideJoints {
@@ -225,8 +233,8 @@ function legChain(hip: Vec, l: LegAngles, mirror: 1 | -1, k: number): Pick<SideJ
   return { hip, knee, ankle, toe: step(ankle, f, RIG.foot * k) };
 }
 
-function side(shoulder: Vec, hip: Vec, a: ArmAngles, l: LegAngles, mirror: 1 | -1, k = 1): SideJoints {
-  return { ...armChain(shoulder, a, mirror, k), ...legChain(hip, l, mirror, k) };
+function side(shoulder: Vec, hip: Vec, a: ArmAngles, l: LegAngles, mirror: 1 | -1, k = 1, armK = k): SideJoints {
+  return { ...armChain(shoulder, a, mirror, armK), ...legChain(hip, l, mirror, k) };
 }
 
 /** Pose → every joint position. The one place the skeleton is assembled. */
@@ -248,6 +256,7 @@ export function forwardKinematics(pose: Pose, view: View = 'side'): Joints {
     const spread = q ? Q.spread : 1;
     const scale = q ? Q.foreshorten : 1;
     const on = (p: Vec, d: Vec): Vec => (q ? { x: p.x + d.x, y: p.y + d.y } : p);
+    const reach = pose.reach ?? 1;
     return {
       pelvis,
       neck,
@@ -259,6 +268,8 @@ export function forwardKinematics(pose: Pose, view: View = 'side'): Joints {
         pose.arm,
         pose.leg,
         1,
+        1,
+        reach,
       ),
       far: side(
         on(step(shoulders, roll + 180, RIG.shoulderHalf * spread), Q.far),
@@ -267,6 +278,7 @@ export function forwardKinematics(pose: Pose, view: View = 'side'): Joints {
         pose.legF,
         -1,
         scale,
+        scale * reach,
       ),
     };
   }
@@ -314,6 +326,7 @@ export function lerpPose(a: Pose, b: Pose, t: number): Pose {
     roll: mix(a.roll ?? 0, b.roll ?? 0, t),
     hipRoll: mix(a.hipRoll ?? 0, b.hipRoll ?? 0, t),
     shrug: mix(a.shrug ?? 0, b.shrug ?? 0, t),
+    reach: mix(a.reach ?? 1, b.reach ?? 1, t),
   };
 }
 
@@ -607,6 +620,43 @@ export function frameProp(x: number, y1: number, y2: number): string {
   return `<path class="cd-frame" d="${line({ x, y: y1 }, { x, y: y2 })}"/>`;
 }
 
+/**
+ * A machine member at ANY angle — `frameProp` is the upright, this is the rest:
+ * the 45° track a leg-press sled rides on, a brace from a frame to the floor.
+ */
+export function strutProp(a: Vec, b: Vec): string {
+  return `<path class="cd-frame" d="${line(a, b)}"/>`;
+}
+
+/**
+ * A LOW BAR SEEN END-ON, on its upright — a rack (or a Smith bar) set at hip
+ * height for an inverted row. A bar that runs across the lifter's body points
+ * straight at the side camera, so it is a disc, not a line: drawn as a line it
+ * would cut through the torso hanging beneath it. The upright drops from the
+ * bar to the floor and sits behind the figure, which is where a rack's posts
+ * are.
+ */
+export function barEndProp(x: number, y: number, floorY: number = STAGE.floorY): string {
+  return (
+    `<path class="cd-frame" d="${line({ x, y }, { x, y: floorY })}"/>` +
+    `<circle class="cd-iron-fill cd-bar-end" cx="${n(x)}" cy="${n(y)}" r="2.8"/>`
+  );
+}
+
+/**
+ * A WALL, seen edge-on: the face the body leans on at `x`, from `top` down to
+ * the floor, with the wall itself as a slab behind it on the `side` it extends
+ * to (−1 = to the left of the face, +1 = to the right).
+ */
+export function wallProp(x: number, top: number, side: 1 | -1 = -1, floorY: number = STAGE.floorY): string {
+  const w = 8;
+  const x0 = side < 0 ? x - w : x;
+  return (
+    `<rect class="cd-slab" x="${n(x0)}" y="${n(top)}" width="${w}" height="${n(floorY - top)}"/>` +
+    `<path class="cd-frame cd-wall" d="${line({ x, y: top }, { x, y: floorY })}"/>`
+  );
+}
+
 /** One weight plate seen edge-on — how a loaded bar reads from the side. */
 function plateSvg(p: Vec, r = 5.6): string {
   return (
@@ -654,8 +704,10 @@ export type Hold =
   | { readonly k: 'plate'; readonly r?: number }
   /** A loaded bar seen end-on: the plate disc at the hands. */
   | { readonly k: 'bar' }
-  /** A bar resting across the shoulders (a squat). */
-  | { readonly k: 'barBack' }
+  /** A bar resting across the shoulders (a squat). `traps` seats it BEHIND the
+   *  neck on the upper back — a free back squat, side view — instead of on the
+   *  shoulder point itself. */
+  | { readonly k: 'barBack'; readonly traps?: boolean }
   /** A rope on a cable from `from` — the two ends splay out of the fists. */
   | { readonly k: 'rope'; readonly from: readonly [number, number] }
   /** A handle on a cable from `from`; `wide` draws a lat bar, else a close grip. */
@@ -667,7 +719,21 @@ export type Hold =
   /** A padded roller riding a joint of the near leg. */
   | { readonly k: 'roller'; readonly joint: 'ankle' | 'knee' }
   /** A pedal under each foot, on a crank arm from `crank` (a bike). */
-  | { readonly k: 'pedals'; readonly crank: readonly [number, number] };
+  | { readonly k: 'pedals'; readonly crank: readonly [number, number] }
+  /** A leg-press SLED: the footplate under the near sole, and the loaded carriage behind it. */
+  | { readonly k: 'sled' }
+  /** A machine's SHOULDER PADS (a standing calf raise), on a lever running back to the guide at `post`. */
+  | { readonly k: 'yoke'; readonly post: number }
+  /** An abduction machine's pads, one outside each knee (front view). */
+  | { readonly k: 'kneePads' }
+  /** A cable from `from` to a cuff on the near ANKLE (a cable kickback). */
+  | { readonly k: 'ankleCable'; readonly from: readonly [number, number] }
+  /** A resistance band stretched between the two fists (a pull-apart). */
+  | { readonly k: 'band' }
+  /** A band from a fixed anchor `from` (a door, a post) to both fists (a band row). */
+  | { readonly k: 'bandAnchored'; readonly from: readonly [number, number] }
+  /** A mini-band loop around both legs at the knees (a lateral walk). */
+  | { readonly k: 'bandLoop' };
 
 function mid(a: Vec, b: Vec): Vec {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -711,6 +777,25 @@ export function holdAnchors(hold: Hold, j: Joints): Vec[] {
     // there are two of them, one per side
     case 'pedals':
       return [j.near.toe, j.far.toe];
+    // the footplate is wherever the sole is — the ball of the near foot
+    case 'sled':
+      return [j.near.toe];
+    case 'yoke':
+      return [j.near.shoulder];
+    // both pads ride their knees; the near one is the anchor the pose tests
+    // pin, and the far one is its mirror on the other knee (see `holdSvg`)
+    case 'kneePads':
+      return [j.near.knee];
+    case 'ankleCable':
+      return [j.near.ankle];
+    // a band is held in two fists, so both of them anchor it
+    case 'band':
+      return [j.near.grip, j.far.grip];
+    case 'bandAnchored':
+      return [mid(j.near.grip, j.far.grip)];
+    // the loop runs knee to knee; the near knee is the one the eye follows
+    case 'bandLoop':
+      return [j.near.knee];
   }
 }
 
@@ -776,6 +861,13 @@ export function holdSvg(hold: Hold, j: Joints): string {
     case 'bar':
       return plateSvg(j.near.grip);
     case 'barBack': {
+      if (hold.traps) {
+        // on the traps: a touch down the spine from its top and out on the
+        // BACK side of it (this figure faces +x, so the back is the spine's
+        // direction turned -90°) — where a high-bar squat carries the bar
+        const u = angleOf(j.pelvis, j.shoulders);
+        return plateSvg(step(step(j.near.shoulder, u + 180, 0.5), u - 90, 4.5), 5);
+      }
       const a = angleOf(j.far.shoulder, j.near.shoulder);
       return plateSvg(step(j.near.shoulder, a, 1.5), 5);
     }
@@ -834,5 +926,78 @@ export function holdSvg(hold: Hold, j: Joints): string {
     // `holdBackSvg`
     case 'pedals':
       return pedalSvg(hold, j.near.toe);
+    case 'sled': {
+      // the footplate lies ALONG the foot, on the sole's side of it — the side
+      // away from the knee — and the loaded carriage sits behind the plate on
+      // the line the legs push along, so the whole sled rides the feet
+      const s = j.near;
+      const f = angleOf(s.ankle, s.toe);
+      const away = (deg: number): boolean => {
+        const o = step(s.ankle, deg, 1);
+        return (o.x - s.ankle.x) * (s.knee.x - s.ankle.x) + (o.y - s.ankle.y) * (s.knee.y - s.ankle.y) < 0;
+      };
+      const out = away(f + 90) ? f + 90 : f - 90;
+      const plate = step(mid(s.ankle, s.toe), out, 2.8);
+      const carriage = step(plate, out, 7);
+      return (
+        `<path class="cd-iron" d="${line(plate, carriage)}"/>` +
+        `<path class="cd-iron cd-bar" d="${line(step(plate, f + 180, 6.5), step(plate, f, 6.5))}"/>` +
+        plateSvg(carriage, 4.6)
+      );
+    }
+    case 'yoke': {
+      // the pad sits ON the shoulder, seen end-on, and its lever runs straight
+      // back to the guide — so the load rises and sinks exactly with the body
+      const u = angleOf(j.pelvis, j.shoulders);
+      const c = step(j.near.shoulder, u, 3.2);
+      const end: Vec = { x: hold.post, y: c.y };
+      return (
+        `<path class="cd-frame" d="${line(c, end)}"/>` +
+        padProp(step(c, u + 90, 3), step(c, u - 90, 3)) +
+        plateSvg(end, 4.4)
+      );
+    }
+    case 'kneePads': {
+      // one pad OUTSIDE each knee — the outside being away from the pelvis —
+      // which is the whole point: the knees push them apart
+      const pad = (s: SideJoints): string => {
+        const out = s.knee.x >= j.pelvis.x ? 1 : -1;
+        return rollerSvg({ x: s.knee.x + out * 3.6, y: s.knee.y });
+      };
+      return pad(j.far) + pad(j.near);
+    }
+    case 'ankleCable': {
+      // the cable ends in a cuff strapped round the shin just above the ankle
+      const from: Vec = { x: hold.from[0] ?? 0, y: hold.from[1] ?? 0 };
+      const s = j.near;
+      const a = angleOf(s.knee, s.ankle);
+      const cuff = step(s.knee, a, RIG.shin - 2.5);
+      return (
+        cableSvg(from, s.ankle) +
+        `<path class="cd-iron cd-bar" d="${line(step(cuff, a + 90, 3), step(cuff, a - 90, 3))}"/>`
+      );
+    }
+    // A BAND is the load, so it takes the iron's colour — but it is drawn as
+    // what it is: one elastic strand, never a bar. Between the fists for a
+    // pull-apart; from its anchor to the fists, with a short handle across
+    // them, for a band row; knee to knee for a mini-band loop.
+    case 'band':
+      return bandSvg(j.far.grip, j.near.grip);
+    case 'bandAnchored': {
+      const from: Vec = { x: hold.from[0] ?? 0, y: hold.from[1] ?? 0 };
+      const hands = mid(j.near.grip, j.far.grip);
+      const a = angleOf(from, hands);
+      return (
+        bandSvg(from, hands) +
+        `<path class="cd-iron cd-bar" d="${line(step(hands, a + 90, 4), step(hands, a - 90, 4))}"/>`
+      );
+    }
+    case 'bandLoop':
+      return bandSvg(j.far.knee, j.near.knee);
   }
+}
+
+/** One resistance band: an elastic strand in the load's colour. */
+function bandSvg(a: Vec, b: Vec): string {
+  return `<path class="cd-iron cd-band" d="${line(a, b)}"/>`;
 }

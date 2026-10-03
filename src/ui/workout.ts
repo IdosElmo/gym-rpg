@@ -5,6 +5,11 @@
  * / scheme / equipment badges, a collapsible "הסבר ודגשי ביצוע" panel with the
  * numbered steps + cue + common-mistake blocks, the 3-column log table with
  * previous-performance hints, the rest hint, and the green `done-all` state.
+ * Dressed since in the app's card design: a progress strip over the day (one
+ * segment per exercise), an eyebrow + big name + the demo's still on the end
+ * side of each head, accent chips, a "scheme · rest" target line, and set rows
+ * whose numbered badge marks the done sets (--ok) and the one you are on
+ * (--accent, `.log-row.current`) — all kept in step by the ✓ handler.
  *
  * All writes go through the `DataStore` — this module never touches storage.
  *
@@ -60,9 +65,7 @@
  */
 
 import {
-  BODY_PART_HE,
   dayOf,
-  equipHe,
   isCardio,
   stageLoad,
   stageMinutes,
@@ -84,10 +87,28 @@ import { closeDueWeeks, onSetCompleted, onWorkoutFinished, type GrantResult } fr
 import type { AppState, DataStore } from '../storage/DataStore.ts';
 import { fmtClock, type RestTimer } from './timer.ts';
 import { queuePartPulse } from './character.ts';
-import { esc } from './dom.ts';
-import { mountExerciseDemo, type DemoHandle } from './exerciseDemo.ts';
+import { esc, escBidi } from './dom.ts';
+import { demoSvg, mountExerciseDemo, stillPose, type DemoHandle } from './exerciseDemo.ts';
+import { demoFor } from '../data/exercisePoses.ts';
 import { toast } from './toast.ts';
 import { flyXp, fmtXp } from './xpfx.ts';
+import { tr } from '../i18n/locale.ts';
+import { fromInputLoad, toDisplayLoad, units, weightUnit } from '../i18n/units.ts';
+import {
+  bodyPartName,
+  equipName,
+  exCue,
+  exLoadLabel,
+  exLoadUnit,
+  exMistake,
+  exMuscle,
+  exName,
+  exSteps,
+  exSubName,
+  exUnit,
+  repsText,
+} from '../i18n/content.ts';
+import { workout as W } from '../i18n/messages/workout.ts';
 
 /**
  * THE LIVE DEMONSTRATIONS, by exercise id.
@@ -111,7 +132,7 @@ function openDemo(card: Element | null, ex: Exercise): void {
   if (!card || demos.has(ex.id)) return;
   const panel = card.querySelector<HTMLElement>('.form-panel');
   if (!panel) return;
-  const handle = mountExerciseDemo(panel, ex.id, { label: `הדגמת ביצוע: ${ex.he}` });
+  const handle = mountExerciseDemo(panel, ex.id, { label: tr(W).demo.labelOf(exName(ex)) });
   if (!handle) return;
   // The demo leads the drawer: picture first, then the numbered steps.
   panel.insertBefore(handle.el, panel.firstChild);
@@ -178,11 +199,12 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
   const program = resolveProgram(state.plan);
   const p = dayOf(program, view);
   const today = todayISO();
+  const M = tr(W);
 
   // A day key the plan does not (or no longer) has: say so instead of throwing.
   // Reachable when a day is deleted on another device while this tab is open.
   if (!p) {
-    main.innerHTML = `<div class="empty">יום האימון הזה כבר לא קיים בתוכנית. בחרו יום אחר או ערכו את התוכנית. 🛠</div>`;
+    main.innerHTML = `<div class="empty">${M.missingDay}</div>`;
     return;
   }
 
@@ -197,24 +219,30 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
     /** What each row visibly shows in its second column — the hold timer reads it. */
     const shownR: string[] = [];
     let done = 0;
+    /** The first set not yet ✓'d — the row whose badge says "you are here". */
+    let current = -1;
     const cardio = ex.cardio ?? null;
     // a hold: logged in seconds, and not a cardio ladder (which has its own clock)
     const hold = !cardio && isTimed(ex);
-    // the load column: kilograms for a lift, the stage's own unit for cardio
-    const loadUnit = cardio ? cardio.loadUnit : 'ק"ג';
+    // the load column: kilograms (or pounds) for a lift, the stage's own unit
+    // for cardio — which is never a weight, so it is never converted
+    const loadUnit = cardio ? exLoadUnit(ex) : weightUnit();
+    /** Stored load -> what the row shows (pounds in imperial; cardio as-is). */
+    const showW = (w: string): string => (cardio ? w : toDisplayLoad(w));
     for (let i = 0; i < ex.sets; i++) {
       const d = getSetData(state, view, ex.id, i, false, today) ?? { w: '', r: '', done: false };
       if (d.done) done++;
+      else if (current < 0) current = i;
       let prevTxt = '';
       const ps = prev?.sets[i];
       if (ps && (ps.w !== '' || ps.r !== '')) {
         const pw = ps.w;
         const pr = ps.r;
         prevTxt =
-          'אימון קודם: ' +
-          (pw !== '' ? esc(pw) + (cardio ? esc(loadUnit) : ' ' + loadUnit) : '') +
+          M.prev +
+          (pw !== '' ? esc(showW(pw)) + (cardio ? esc(loadUnit) : ' ' + loadUnit) : '') +
           (pw !== '' && pr !== '' ? ' × ' : '') +
-          (pr !== '' ? esc(pr) + (cardio ? ' דק׳' : '') : '');
+          (pr !== '' ? esc(pr) + (cardio ? M.minSuffix : '') : '');
       }
       // PREFILL FROM LAST TIME. A set the user has not touched today (nothing
       // typed, not checked) starts out showing the same set's numbers from the
@@ -232,68 +260,89 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
       const hint = ps ?? (cardio ? { w: fmtNum(stageLoad(ex, i)), r: fmtNum(stageMinutes(ex)) } : null);
       const fillW = untouched && hint ? hint.w : d.w;
       const fillR = untouched && hint ? hint.r : d.r;
+      // A pound suggestion carries the kilograms it shows, so ✓ adopts THOSE
+      // (see the ✓ handler). Metric shows the stored string itself: no attribute.
+      const kgAttr = !cardio && units() === 'imperial' && fillW !== d.w ? ` data-kg="${esc(fillW)}"` : '';
       shownR.push(fillR);
       rows.push(`
-    <div class="log-row ${d.done ? 'checked' : ''}">
+    <div class="log-row ${d.done ? 'checked' : ''} ${current === i ? 'current' : ''}">
       <div class="set-num">${i + 1}</div>
       <div class="inp-wrap">
-        <input class="inp ${fillW !== d.w ? 'prefill' : ''}" type="number" inputmode="decimal" step="0.5" min="0" placeholder='${cardio ? esc(loadUnit) : 'ק"ג'}'
-          value="${esc(fillW)}" data-ex="${esc(ex.id)}" data-set="${i}" data-f="w">
+        <input class="inp ${fillW !== d.w ? 'prefill' : ''}" type="number" inputmode="decimal" step="0.5" min="0" placeholder='${cardio ? esc(loadUnit) : weightUnit()}'
+          value="${esc(showW(fillW))}"${kgAttr} data-ex="${esc(ex.id)}" data-set="${i}" data-f="w">
         <span class="prev">${prevTxt}</span>
       </div>
       <div class="inp-wrap">
-        <input class="inp ${fillR !== d.r ? 'prefill' : ''}" type="number" inputmode="${cardio ? 'decimal' : 'numeric'}" ${cardio ? 'step="0.5"' : ''} min="0" placeholder="${esc(ex.unit)}"
+        <input class="inp ${fillR !== d.r ? 'prefill' : ''}" type="number" inputmode="${cardio ? 'decimal' : 'numeric'}" ${cardio ? 'step="0.5"' : ''} min="0" placeholder="${esc(exUnit(ex))}"
           value="${esc(fillR)}" data-ex="${esc(ex.id)}" data-set="${i}" data-f="r">
         <span class="prev"></span>
       </div>
-      <button class="chk ${d.done ? 'on' : ''}" data-ex="${esc(ex.id)}" data-set="${i}" aria-label="סמן סט ${i + 1} כהושלם">✓</button>
+      <button class="chk ${d.done ? 'on' : ''}" data-ex="${esc(ex.id)}" data-set="${i}" aria-label="${esc(M.checkSet(i + 1))}">✓</button>
     </div>`);
     }
     const open = state.ui.open[ex.id] ? 'open' : '';
     const allDone = done === ex.sets ? 'done-all' : '';
     // A custom exercise has no coaching copy, so it gets no toggle and no
     // panel at all — an empty "הסבר ודגשי ביצוע" drawer would just be a lie.
-    const hasGuide = ex.steps.length > 0 || ex.cue !== '' || ex.mistake !== '';
+    const steps = exSteps(ex);
+    const cue = exCue(ex);
+    const mistake = exMistake(ex);
+    const hasGuide = steps.length > 0 || cue !== '' || mistake !== '';
     const guide = hasGuide
       ? `<button class="form-toggle" data-toggle="${esc(ex.id)}">
-      <span>הסבר ודגשי ביצוע</span><span class="chev">▾</span>
+      <span>${M.guide.toggle}</span><span class="chev">▾</span>
     </button>
     <div class="form-panel">
-      ${ex.steps.length > 0 ? `<h4>שלבי ביצוע</h4><ol>${ex.steps.map((s) => `<li>${s}</li>`).join('')}</ol>` : ''}
-      ${ex.cue ? `<div class="cue">💡 <b>דגש:</b> ${ex.cue}</div>` : ''}
-      ${ex.mistake ? `<div class="mistake">⚠️ ${ex.mistake}</div>` : ''}
+      ${steps.length > 0 ? `<h4>${M.guide.steps}</h4><ol>${steps.map((s) => `<li>${s}</li>`).join('')}</ol>` : ''}
+      ${cue ? `<div class="cue">💡 <b>${M.guide.cue}</b> ${cue}</div>` : ''}
+      ${mistake ? `<div class="mistake">⚠️ ${mistake}</div>` : ''}
     </div>`
       : '';
     // 📝 The note drawer: open when there is something to read, else a toggle.
     const note = exerciseNote(state, ex.id);
+    const sub = exSubName(ex);
     const notes = `<div class="ex-notes ${note ? 'has-note open' : ''}" data-notes-of="${esc(ex.id)}">
       <button class="notes-toggle" data-notes="${esc(ex.id)}" aria-expanded="${note ? 'true' : 'false'}">
-        <span>📝 הערות לתרגיל</span><span class="chev">▾</span>
+        <span>${M.notes.toggle}</span><span class="chev">▾</span>
       </button>
       <div class="notes-body">
         <textarea class="notes-inp" rows="2" maxlength="${MAX_EXERCISE_NOTE_LENGTH}" data-note="${esc(ex.id)}"
-          placeholder="למשל: גובה מושב 4, אחיזה רחבה, להתחיל קל יותר…" aria-label="הערות לתרגיל ${esc(ex.he)}">${esc(note)}</textarea>
-        <div class="notes-hint">נשמר אוטומטית · ההערה נשארת עם התרגיל בכל אימון</div>
+          placeholder="${esc(M.notes.placeholder)}" aria-label="${esc(M.notes.label(exName(ex)))}">${esc(note)}</textarea>
+        <div class="notes-hint">${M.notes.hint}</div>
       </div>
     </div>`;
+    // 🎬 The demo's thumbnail on the end side of the head: a shortcut to the
+    // drawer (the full, moving demo lives there), so it exists only where the
+    // drawer does.
+    const thumb = hasGuide ? thumbHtml(ex) : '';
     return `
   <section class="ex-card ${open} ${allDone}" id="card-${esc(ex.id)}">
     <div class="ex-head">
-      <div class="ex-order">תרגיל ${idx + 1} / ${p.exercises.length}</div>
-      <h2 class="ex-title">${esc(ex.he)}</h2>
-      <div class="ex-title-en">${esc(ex.en)}</div>
-      <div class="badges">
-        ${partner ? `<span class="badge superset">🔗 סופר־סט עם ${esc(partner.he)}</span>` : ''}
-        <span class="badge muscle">🎯 ${esc(ex.muscle)}</span>
-        <span class="badge scheme">${ex.sets} ${cardio ? 'שלבים' : 'סטים'} × ${esc(ex.reps)}</span>
-        ${ex.equip.map((e) => `<span class="badge equip">${esc(equipHe(e))}</span>`).join('')}
+      <div class="ex-head-tx">
+        <div class="ex-order">${M.order(idx + 1, p.exercises.length)}</div>
+        <h2 class="ex-title">${escBidi(exName(ex))}</h2>
+        ${sub ? `<div class="ex-title-en">${esc(sub)}</div>` : ''}
       </div>
+      ${thumb}
+    </div>
+    <div class="badges">
+      ${partner ? `<span class="badge superset">${esc(M.supersetWith(exName(partner)))}</span>` : ''}
+      <span class="badge muscle">${esc(exMuscle(ex))}</span>
+      ${ex.equip.map((e) => `<span class="badge equip">${esc(equipName(e))}</span>`).join('')}
+    </div>
+    <div class="ex-target">
+      <span class="badge scheme">${ex.sets} ${cardio ? M.stages : M.sets} × ${esc(repsText(ex.reps))}</span>
+      ${
+        // A superset's rest belongs to the pair (its group says it once); a
+        // cardio card's "rest" is the stage length, which its own hint names.
+        partner || cardio ? '' : `<span class="ex-rest">${M.restShort(fmtClock(ex.rest))}</span>`
+      }
     </div>
     ${guide}
     <div class="log">
       <div class="log-row head">
-        <div style="text-align:center">${cardio ? 'שלב' : 'סט'}</div><div style="text-align:center">${cardio ? `${esc(cardio.loadLabel)} (${esc(loadUnit)})` : 'משקל (ק"ג)'}</div>
-        <div style="text-align:center">${esc(ex.unit)}</div><div style="text-align:center">✓</div>
+        <div style="text-align:center">${cardio ? M.stage : M.set}</div><div style="text-align:center">${cardio ? `${esc(exLoadLabel(ex))} (${esc(loadUnit)})` : M.weightCol(weightUnit())}</div>
+        <div style="text-align:center">${esc(exUnit(ex))}</div><div style="text-align:center">✓</div>
       </div>
       ${rows.join('')}
       ${
@@ -302,9 +351,9 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
         partner
           ? ''
           : cardio
-            ? `<div class="rest-hint">⏱ כל שלב ${fmtClock(ex.rest)} דק׳ · סימון ✓ בסוף שלב מפעיל את הטיימר של השלב הבא</div>
+            ? `<div class="rest-hint">${M.stageHint(fmtClock(ex.rest))}</div>
       <button class="stage-start" data-stage="${esc(ex.id)}" ${done >= ex.sets ? 'hidden' : ''}>${stageButtonText(ex, done)}</button>`
-            : `<div class="rest-hint">⏱ מנוחה מומלצת: ${ex.rest} שניות (מתחיל אוטומטית בסימון סט)</div>`
+            : `<div class="rest-hint">${M.restHint(ex.rest)}</div>`
       }
       ${
         // A hold gets its own clock: the button times the next set not yet
@@ -332,7 +381,7 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
       i += 1;
     } else break;
   }
-  main.innerHTML = blocks.join('');
+  main.innerHTML = stripHtml(state, p.exercises, today) + blocks.join('');
 
   bind(main, view, deps, today, program, pairs);
 }
@@ -352,6 +401,65 @@ function livePairs(exercises: readonly Exercise[], pairs: readonly SupersetPair[
   return out;
 }
 
+/**
+ * THE DAY AT A GLANCE: one segment per exercise, in card order — done (every
+ * set ✓'d), current (the first exercise that is not) and the rest still ahead.
+ * Painted from the same `doneCount` the cards use, and kept in step by the ✓
+ * handler (`syncStrip`) without a re-render.
+ */
+function stripHtml(state: AppState, exercises: readonly Exercise[], date: string): string {
+  const segs = stripStates(state, exercises, date);
+  const done = segs.filter((s) => s === 'done').length;
+  return `<div class="wk-strip" role="img" aria-label="${esc(tr(W).strip(done, exercises.length))}">${exercises
+    .map((e, i) => `<i class="wk-seg ${segs[i] ?? ''}" data-seg="${esc(e.id)}"></i>`)
+    .join('')}</div>`;
+}
+
+function stripStates(state: AppState, exercises: readonly Exercise[], date: string): ('done' | 'cur' | '')[] {
+  let cur = false;
+  return exercises.map((e) => {
+    if (doneCount(state, e.id, date) >= e.sets) return 'done';
+    if (cur) return '';
+    cur = true;
+    return 'cur';
+  });
+}
+
+function syncStrip(main: HTMLElement, state: AppState, exercises: readonly Exercise[], date: string): void {
+  const strip = main.querySelector<HTMLElement>('.wk-strip');
+  if (!strip) return;
+  const segs = stripStates(state, exercises, date);
+  exercises.forEach((e, i) => {
+    const seg = strip.querySelector(`.wk-seg[data-seg="${cssId(e.id)}"]`);
+    seg?.classList.toggle('done', segs[i] === 'done');
+    seg?.classList.toggle('cur', segs[i] === 'cur');
+  });
+  strip.setAttribute('aria-label', tr(W).strip(segs.filter((s) => s === 'done').length, exercises.length));
+}
+
+/** Move a card's "you are here" badge to its first set not yet ✓'d. */
+function syncCurrent(exId: string): void {
+  let found = false;
+  document.getElementById('card-' + exId)?.querySelectorAll('.log-row:not(.head)').forEach((row) => {
+    const here = !found && !row.classList.contains('checked');
+    if (here) found = true;
+    row.classList.toggle('current', here);
+  });
+}
+
+/**
+ * The still on the end side of a card's head: the first variant's mid-rep
+ * pose (the same still a reduced-motion user gets in the drawer). Tapping it
+ * opens — or closes — the drawer with the moving demo, exactly as the "how to
+ * do it" toggle does. No poses (a custom exercise): no thumbnail.
+ */
+function thumbHtml(ex: Exercise): string {
+  const v = demoFor(ex.id)?.variants[0];
+  if (!v) return '';
+  const label = tr(W).demo.labelOf(exName(ex));
+  return `<button class="ex-thumb" type="button" data-thumb="${esc(ex.id)}" aria-label="${esc(label)}">${demoSvg(v, stillPose(v), label)}</button>`;
+}
+
 /** True when every set of BOTH halves of a superset is checked (group done-all). */
 function bothDone(state: AppState, a: Exercise, b: Exercise, date: string): boolean {
   return doneCount(state, a.id, date) >= a.sets && doneCount(state, b.id, date) >= b.sets;
@@ -359,16 +467,17 @@ function bothDone(state: AppState, a: Exercise, b: Exercise, date: string): bool
 
 /** Two cards welded into one superset: chip, joint, and ONE shared rest line. */
 function groupHtml(a: Exercise, b: Exercise, cardA: string, cardB: string, done: boolean): string {
+  const S = tr(W).superset;
   return `
     <div class="ss-group ${done ? 'done-all' : ''}" id="ss-${esc(a.id)}" data-ss-a="${esc(a.id)}" data-ss-b="${esc(b.id)}">
       <div class="ss-head">
-        <span class="ss-chip">🔗 סופר־סט</span>
-        <span class="ss-sub">שני התרגילים — ✓ אחד · מנוחה אחת</span>
+        <span class="ss-chip">${S.chip}</span>
+        <span class="ss-sub">${S.sub}</span>
       </div>
       ${cardA}
-      <div class="ss-joint"><span>🔗 בלי מנוחה — ישר לתרגיל הבא</span></div>
+      <div class="ss-joint"><span>${S.joint}</span></div>
       ${cardB}
-      <div class="ss-rest">⏱ מנוחה משותפת: ${sharedRest(a, b)} שניות — טיימר אחד, מתחיל בסימון הזוג</div>
+      <div class="ss-rest">${S.rest(sharedRest(a, b))}</div>
     </div>`;
 }
 
@@ -389,7 +498,7 @@ function fmtNum(v: number): string {
 /** The ▶ button's caption: the stage it would time, out of the ladder. */
 function stageButtonText(ex: Exercise, done: number): string {
   const n = Math.min(done, ex.sets - 1) + 1;
-  return `▶ טיימר לשלב ${n} מתוך ${ex.sets}`;
+  return tr(W).stageTimer.button(n, ex.sets);
 }
 
 /**
@@ -400,14 +509,15 @@ function stageButtonText(ex: Exercise, done: number): string {
 function startStage(timer: RestTimer, ex: Exercise, n: number, load: string): void {
   if (!isCardio(ex)) return;
   const c = ex.cardio;
+  const T = tr(W).stageTimer;
   const last = n + 1 >= ex.sets;
-  const at = load !== '' ? ` · ${c.loadLabel} ${load}${c.loadUnit}` : '';
+  const at = load !== '' ? T.at(exLoadLabel(ex), load, exLoadUnit(ex)) : '';
   // a ladder climbs ("raise the incline"); a steady ride or an interval set
   // keeps its load from stage to stage, and the chime says so
-  const next = c.loadStep > 0 ? `והעלו ${c.loadLabel}!` : 'והמשיכו לשלב הבא!';
-  timer.start(ex.rest, `🏃 שלב ${n + 1}/${ex.sets}${at}`, {
-    sub: 'טיימר שלב',
-    doneLabel: last ? 'השלב האחרון הסתיים — סמנו ✓ 🏁' : `שלב ${n + 1} הסתיים — סמנו ✓ ${next} 💪`,
+  const next = c.loadStep > 0 ? T.raise(exLoadLabel(ex)) : T.keep;
+  timer.start(ex.rest, T.label(n + 1, ex.sets, at), {
+    sub: T.sub,
+    doneLabel: last ? T.lastDone : T.done(n + 1, next),
   });
 }
 
@@ -443,7 +553,7 @@ export function holdSeconds(ex: Exercise, shown: string): number {
 /** The hold button's caption: the set it would time, and for how long. */
 function holdButtonText(ex: Exercise, done: number, shown: string): string {
   const n = Math.min(done, ex.sets - 1) + 1;
-  return `▶ טיימר החזקה לסט ${n} מתוך ${ex.sets} · ${fmtClock(holdSeconds(ex, shown))}`;
+  return tr(W).holdTimer.button(n, ex.sets, fmtClock(holdSeconds(ex, shown)));
 }
 
 /**
@@ -452,9 +562,10 @@ function holdButtonText(ex: Exercise, done: number, shown: string): string {
  * than "back to the bar": the rest is the ✓'s job, not this timer's.
  */
 function startHold(timer: RestTimer, ex: Exercise, n: number, shown: string): void {
-  timer.start(holdSeconds(ex, shown), `⏱ ${ex.he} · סט ${n + 1}/${ex.sets}`, {
-    sub: 'טיימר החזקה',
-    doneLabel: `סט ${n + 1} הסתיים — סמנו ✓ 💪`,
+  const T = tr(W).holdTimer;
+  timer.start(holdSeconds(ex, shown), T.label(exName(ex), n + 1, ex.sets), {
+    sub: T.sub,
+    doneLabel: T.done(n + 1),
   });
 }
 
@@ -501,6 +612,13 @@ function bind(
       const ex = findEx(program, view, id);
       if (ex && card?.classList.contains('open')) openDemo(card, ex);
       else closeDemo(id);
+    });
+  });
+
+  // 🎬 The thumbnail is a second handle on the same drawer.
+  main.querySelectorAll<HTMLButtonElement>('.ex-thumb').forEach((b) => {
+    b.addEventListener('click', () => {
+      b.closest('.ex-card')?.querySelector<HTMLButtonElement>('.form-toggle')?.click();
     });
   });
 
@@ -561,12 +679,15 @@ function bind(
       if (!exId || (field !== 'w' && field !== 'r') || !Number.isInteger(i)) return;
       // Whatever is in the box is the user's number now, not a suggestion.
       inp.classList.remove('prefill');
+      // A lift's load is STORED in kilograms whatever the screen shows; a
+      // cardio load (incline %, watts) is not a weight and is never converted.
+      const value = field === 'w' && !isCardio(findEx(program, view, exId)) ? fromInputLoad(inp.value) : inp.value;
       let w = '';
       let r = '';
       store.update((draft) => {
         const d = getSetData(draft, view, exId, i, true, today);
         if (!d) return;
-        d[field] = inp.value;
+        d[field] = value;
         w = d.w;
         r = d.r;
       });
@@ -646,7 +767,15 @@ function bind(
           // typed (or cleared) already matches its input, so this is a no-op
           // for it, and the store stays the single source of what was lifted.
           if (nowDone) {
-            if (d.w === '') d.w = inputOf(target.id, i, 'w')?.value ?? '';
+            if (d.w === '') {
+              const inp = inputOf(target.id, i, 'w');
+              const shown = inp?.value ?? '';
+              // An untouched pound suggestion adopts the kilograms it was
+              // drawn from (`data-kg`), not a round trip through one decimal
+              // of a pound — last week's 100 kg stays 100, never 100.017.
+              const kg = inp?.classList.contains('prefill') ? inp.dataset['kg'] : undefined;
+              d.w = isCardio(target) ? shown : (kg ?? fromInputLoad(shown));
+            }
             if (d.r === '') d.r = inputOf(target.id, i, 'r')?.value ?? '';
           }
           d.done = nowDone;
@@ -682,7 +811,9 @@ function bind(
         document
           .getElementById('card-' + l.ex.id)
           ?.classList.toggle('done-all', doneCount(state, l.ex.id, today) === l.ex.sets);
+        syncCurrent(l.ex.id);
       }
+      syncStrip(main, state, dayOf(program, view)?.exercises ?? [], today);
       if (pair) {
         const a = findEx(program, view, pair[0]);
         const b = findEx(program, view, pair[1]);
@@ -699,12 +830,12 @@ function bind(
         // ONE timer for the pair: the whole point of a superset is that the
         // rest comes after both exercises, not between them.
         const lead = logged[0]?.ex ?? ex;
-        if (pair && logged.length > 1) timer.start(lead.rest, `🔗 סופר־סט · סט ${i + 1} הושלם`);
+        if (pair && logged.length > 1) timer.start(lead.rest, tr(W).superset.timer(i + 1));
         // A cardio ✓ closes stage i, so the clock that starts is the NEXT
         // stage's — with its new incline on the label — and none after the last.
         else if (isCardio(ex)) {
           if (i + 1 < ex.sets) startStage(timer, ex, i + 1, inputOf(ex.id, i + 1, 'w')?.value ?? '');
-        } else timer.start(ex.rest, `${ex.he} · סט ${i + 1} הושלם`);
+        } else timer.start(ex.rest, tr(W).setDoneTimer(exName(ex), i + 1));
 
         const grants = logged.map((l) => ({
           ex: l.ex,
@@ -765,17 +896,18 @@ function celebrateSet(
   tappedId: string,
   grants: readonly { ex: Exercise; grant: GrantResult }[],
 ): void {
+  const X = tr(W).xp;
   const lines: { text: string; cls?: string }[] = [];
   const notes: string[] = [];
   for (const { ex, grant } of grants) {
     if (grant.xp <= 0) continue; // already granted (re-check) — never pay twice
     for (const p of grant.parts) {
-      const text = `+${fmtXp(p.amount)} XP ${BODY_PART_HE[p.part]}!`;
+      const text = X.part(fmtXp(p.amount), bodyPartName(p.part));
       lines.push(ex.id === tappedId ? { text } : { text, cls: 'ss' });
     }
-    if (grant.pr) notes.push(`🏆 שיא חדש ב${ex.he} · XP כפול!`);
+    if (grant.pr) notes.push(X.pr(exName(ex)));
     for (const lu of grant.levelUps) {
-      notes.push(`🎉 ${BODY_PART_HE[lu.part]} עלה לרמה ${lu.to}!`);
+      notes.push(X.levelUp(bodyPartName(lu.part), lu.to));
       queuePartPulse(lu.part);
     }
   }
@@ -805,7 +937,8 @@ function maybeFinishWorkout(
   const grant = onWorkoutFinished(store, { date, day: view });
   if (grant.xp <= 0) return;
   const perPart = grant.parts[0]?.amount ?? 0;
-  flyXp(anchor, [`אימון הושלם! +${fmtXp(perPart)} XP לכל הגוף`]);
-  toast(`💪 אימון הושלם! +${fmtXp(perPart)} XP לכל חלקי הגוף · +${fmtXp(grant.energy)} ⚡ אנרגיית קרב`);
+  const X = tr(W).xp;
+  flyXp(anchor, [X.finishedFly(fmtXp(perPart))]);
+  toast(X.finishedToast(fmtXp(perPart), fmtXp(grant.energy)));
   for (const lu of grant.levelUps) queuePartPulse(lu.part);
 }

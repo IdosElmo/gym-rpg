@@ -14,11 +14,10 @@
  * Everything the screen writes goes through `core/game.ts`, i.e. through events.
  */
 
-import { BODY_PARTS, BODY_PART_HE, type BodyPart } from '../data/program.ts';
+import { BODY_PARTS, type BodyPart } from '../data/program.ts';
 import {
   BODY_EMOJI,
   BODY_GEOMETRIES,
-  BODY_HE,
   SKINS,
   characterById,
   characterId,
@@ -29,8 +28,6 @@ import {
 import {
   EQUIPMENT_SLOTS,
   SLOT_EMOJI,
-  SLOT_HE,
-  bonusHe,
   bossById,
   equipmentById,
   equipmentForSlot,
@@ -61,6 +58,21 @@ import { characterSvg, trophyMedallion } from './characterSvg.ts';
 import { esc } from './dom.ts';
 import { toast } from './toast.ts';
 import { fmtXp } from './xpfx.ts';
+import { tr } from '../i18n/locale.ts';
+import { character as M } from '../i18n/messages/character.ts';
+import { bodyPartName } from '../i18n/content.ts';
+import {
+  bodyName,
+  bonusText,
+  characterName,
+  enemyName,
+  itemName,
+  itemNote,
+  skinName,
+  skinNote,
+  slotName,
+  worldName,
+} from '../i18n/gameText.ts';
 
 export interface CharacterDeps {
   store: DataStore;
@@ -112,15 +124,6 @@ export function exitCharacterPreview(): void {
   previewCharacter = null;
 }
 
-const PART_ROLE_HE: Readonly<Record<BodyPart, string>> = {
-  chest: 'כוח התקפה',
-  back: 'הגנה',
-  legs: 'נקודות חיים',
-  shoulders: 'מהירות התקפה',
-  arms: 'מכה קריטית',
-  core: 'התאוששות',
-};
-
 const PART_EMOJI: Readonly<Record<BodyPart, string>> = {
   chest: '🛡',
   back: '🪖',
@@ -142,18 +145,20 @@ const PART_EMOJI: Readonly<Record<BodyPart, string>> = {
  * silently on tap — the same courtesy the character purchase sheet extends.
  */
 function upgradeControl(game: GameState, itemId: string, level: number): string {
+  const T = tr(M).shop;
   if (level >= MAX_UPGRADE_LEVEL) {
-    return `<span class="eq-max" data-maxed="${itemId}">⭐ מקסימלי</span>`;
+    return `<span class="eq-max" data-maxed="${itemId}">${T.max}</span>`;
   }
   const cost = nextUpgradeCost(itemId, level);
   const missing = Math.max(0, cost - game.battle.coins);
   return `<button class="eq-btn up" data-upgrade="${itemId}" ${missing > 0 ? 'disabled' : ''}
-    aria-label="שדרוג ל־${upgradeLabel(level + 1)}">
-    ${missing > 0 ? `חסרים 🪙 ${missing}` : `⬆ שדרוג · 🪙 ${cost}`}
+    aria-label="${esc(T.upgradeLabel(upgradeLabel(level + 1)))}">
+    ${missing > 0 ? T.missing(missing) : T.upgrade(cost)}
   </button>`;
 }
 
 function slotCard(game: GameState, slot: EquipmentSlot): string {
+  const T = tr(M).shop;
   const wornId = game.equipment.equipped[slot];
   const worn = wornId ? equipmentById(wornId) : undefined;
   const wornLevel = wornId ? upgradeLevelOf(game.equipment, wornId) : 0;
@@ -165,9 +170,9 @@ function slotCard(game: GameState, slot: EquipmentSlot): string {
       const affordable = game.battle.coins >= item.cost;
       const level = upgradeLevelOf(game.equipment, item.id);
       const action = equipped
-        ? `<button class="eq-btn off" data-unequip="${slot}">הסר</button>`
+        ? `<button class="eq-btn off" data-unequip="${slot}">${T.unequip}</button>`
         : owned
-          ? `<button class="eq-btn on" data-equip="${item.id}">הצטייד</button>`
+          ? `<button class="eq-btn on" data-equip="${item.id}">${T.equip}</button>`
           : `<button class="eq-btn buy" data-buy="${item.id}" ${affordable ? '' : 'disabled'}>
                🪙 ${item.cost}
              </button>`;
@@ -184,9 +189,9 @@ function slotCard(game: GameState, slot: EquipmentSlot): string {
       }" data-item="${item.id}">
         <span class="eq-art" aria-hidden="true">${item.icon}</span>
         <span class="eq-body">
-          <b>${esc(item.he)} <span class="eq-tier">דרגה ${item.tier}</span> ${badge}</b>
-          <span class="eq-bonus">${esc(bonusHe(upgradedBonus(item, level)))}</span>
-          <span class="eq-note">${esc(item.note)}</span>
+          <b>${esc(itemName(item))} <span class="eq-tier">${T.tier(item.tier)}</span> ${badge}</b>
+          <span class="eq-bonus">${esc(bonusText(upgradedBonus(item, level)))}</span>
+          <span class="eq-note">${esc(itemNote(item))}</span>
         </span>
         <span class="eq-actions">${action}${owned ? upgradeControl(game, item.id, level) : ''}</span>
       </li>`;
@@ -195,8 +200,8 @@ function slotCard(game: GameState, slot: EquipmentSlot): string {
 
   return `<section class="eq-slot ${open ? 'open' : ''}">
     <button class="eq-head" data-slot-toggle="${slot}" aria-expanded="${open}">
-      <span class="eq-slot-name">${SLOT_EMOJI[slot]} ${SLOT_HE[slot]}</span>
-      <span class="eq-worn">${worn ? `${esc(worn.he)}${wornLevel > 0 ? ` ${upgradeLabel(wornLevel)}` : ''}` : 'ריק'}</span>
+      <span class="eq-slot-name">${SLOT_EMOJI[slot]} ${slotName(slot)}</span>
+      <span class="eq-worn">${worn ? `${esc(itemName(worn))}${wornLevel > 0 ? ` ${upgradeLabel(wornLevel)}` : ''}` : T.empty}</span>
       <span class="eq-caret" aria-hidden="true">${open ? '▲' : '▼'}</span>
     </button>
     ${open ? `<ul class="eq-list">${items}</ul>` : ''}
@@ -204,13 +209,14 @@ function slotCard(game: GameState, slot: EquipmentSlot): string {
 }
 
 function shopCard(game: GameState): string {
+  const T = tr(M).shop;
   const worn = EQUIPMENT_SLOTS.filter((s) => game.equipment.equipped[s]).length;
   return `
   <section class="game-card" id="shopCard">
-    <h3 class="gc-title">חנות הציוד <span class="gc-sub">🪙 ${fmtXp(game.battle.coins)} · ${worn}/${EQUIPMENT_SLOTS.length} מצויד</span></h3>
+    <h3 class="gc-title">${T.title} <span class="gc-sub">${T.sub(fmtXp(game.battle.coins), worn, EQUIPMENT_SLOTS.length)}</span></h3>
     <div class="eq-slots">${EQUIPMENT_SLOTS.map((s) => slotCard(game, s)).join('')}</div>
-    <p class="gc-note">מטבעות נצברים מגלים, ממיני־בוסים ובעיקר מבוסי עולם. הציוד מתווסף לסטטיסטיקות לפני בונוס הרצף — כך שגם הרצף מגביר אותו.</p>
-    <p class="gc-note dim">כל פריט שבבעלותכם ניתן לשדרוג עד <b>${upgradeLabel(MAX_UPGRADE_LEVEL)}</b>: כל דרגת שדרוג מכפילה את בונוס הפריט עצמו (עד ×${upgradeMultiplier(MAX_UPGRADE_LEVEL)}) ומוסיפה לו נצנוץ, זוהר וכוכב על הדמות.</p>
+    <p class="gc-note">${T.note}</p>
+    <p class="gc-note dim">${T.upgradeNote(upgradeLabel(MAX_UPGRADE_LEVEL), upgradeMultiplier(MAX_UPGRADE_LEVEL))}</p>
   </section>`;
 }
 
@@ -237,12 +243,13 @@ function rosterCard(game: GameState): string {
   const currentSkin = selectedCharacter(game).skin;
   const unlocked = SKINS.filter((s) => ownsSkin(game, s.id)).length;
   const preview = previewDefOf(game);
+  const T = tr(M).roster;
 
   const bodies = BODY_GEOMETRIES.map((b) => {
     const on = b === body;
     return `<button class="chr-body ${on ? 'on' : ''}" type="button" data-body-select="${b}"
       aria-pressed="${on ? 'true' : 'false'}">
-      <span aria-hidden="true">${BODY_EMOJI[b]}</span> ${BODY_HE[b]}
+      <span aria-hidden="true">${BODY_EMOJI[b]}</span> ${bodyName(b)}
     </button>`;
   }).join('');
 
@@ -253,17 +260,17 @@ function rosterCard(game: GameState): string {
     const previewing = preview?.id === s.id;
     const id = characterId(s.id, body);
     const def = characterById(id);
-    const tag = previewing ? '👁 בתצוגה' : isSelected ? '● נבחרה' : owned ? '✓ נפתחה' : `🪙 ${s.cost}`;
+    const tag = previewing ? T.previewing : isSelected ? T.selected : owned ? T.unlocked : `🪙 ${s.cost}`;
     const state =
       (isSelected ? 'selected' : owned ? 'owned' : affordable ? 'locked' : 'locked poor') +
       (previewing ? ' previewing' : '');
-    const he = def ? def.he : s.he;
+    const he = def ? characterName(def) : skinName(s);
     return `<li class="chr-item">
       <button class="chr-card ${state}" type="button" data-skin="${s.id}" data-character="${id}"
         aria-pressed="${isSelected ? 'true' : 'false'}"
-        aria-label="${esc(he)}${owned ? '' : ` · ${s.cost} מטבעות`}">
+        aria-label="${esc(he)}${owned ? '' : T.costAria(s.cost)}">
         <span class="chr-art" aria-hidden="true">${characterSvg(game.parts, { character: id, label: he })}</span>
-        <b class="chr-name">${esc(s.he)}</b>
+        <b class="chr-name">${esc(skinName(s))}</b>
         <span class="chr-tag">${tag}</span>
       </button>
     </li>`;
@@ -271,13 +278,11 @@ function rosterCard(game: GameState): string {
 
   return `
   <section class="game-card" id="charRoster">
-    <h3 class="gc-title">דמויות <span class="gc-sub">${unlocked}/${SKINS.length} נפתחו · 🪙 ${fmtXp(coins)}</span></h3>
-    <div class="chr-bodies" id="chrBodies" role="group" aria-label="בחירת גוף">${bodies}</div>
+    <h3 class="gc-title">${T.title} <span class="gc-sub">${T.sub(unlocked, SKINS.length, fmtXp(coins))}</span></h3>
+    <div class="chr-bodies" id="chrBodies" role="group" aria-label="${esc(T.bodiesLabel)}">${bodies}</div>
     <ul class="chr-row">${cards}</ul>
     ${buySheet(game)}
-    <p class="gc-note">שני הגופים פתוחים תמיד וללא עלות, ו<b>כל מראה שנרכש נפתח בשניהם</b>.
-    כל הדמויות הן <b>קוסמטיקה בלבד</b> — הן לא משנות אף סטטיסטיקה, רק את המראה.
-    כל דמות גדלה מאותן שש רמות גוף ולובשת את אותו ציוד.</p>
+    <p class="gc-note">${T.note}</p>
   </section>`;
 }
 
@@ -307,31 +312,32 @@ function buySheet(game: GameState): string {
   const coins = game.battle.coins;
   const missing = Math.max(0, skin.cost - coins);
   const affordable = missing === 0;
+  const T = tr(M).sheet;
   return `
-    <div class="chr-buy" id="chrBuy" role="group" aria-label="אישור רכישת דמות">
+    <div class="chr-buy" id="chrBuy" role="group" aria-label="${esc(T.label)}">
       <div class="chr-buy-head">
-        <b>${esc(skin.he)}</b>
-        <span>${esc(skin.note)}</span>
+        <b>${esc(skinName(skin))}</b>
+        <span>${esc(skinNote(skin))}</span>
       </div>
-      <p class="chr-buy-price">מחיר: <b>🪙 ${skin.cost}</b> · יש לכם: <b>🪙 ${fmtXp(coins)}</b></p>
+      <p class="chr-buy-price">${T.price(skin.cost, fmtXp(coins))}</p>
       <div class="chr-buy-try">
         ${
           previewing
-            ? '<button class="eq-btn on" data-exit-preview="1">↩ חזרה לדמות שלי</button>'
-            : `<button class="eq-btn" data-preview-character="${skin.id}">👁 תצוגה מקדימה</button>`
+            ? `<button class="eq-btn on" data-exit-preview="1">${T.back}</button>`
+            : `<button class="eq-btn" data-preview-character="${skin.id}">${T.preview}</button>`
         }
       </div>
-      <p class="gc-note dim">התצוגה המקדימה מלבישה את המראה הזה על הגוף, הרמות והציוד שלכם — בלי לרכוש ובלי לשנות דבר.</p>
+      <p class="gc-note dim">${T.previewNote}</p>
       <div class="chr-buy-actions">
         <button class="eq-btn buy" data-buy-character="${skin.id}" ${affordable ? '' : 'disabled'}>
-          ${affordable ? `🪙 ${skin.cost} · קנייה` : `חסרים 🪙 ${missing}`}
+          ${affordable ? T.buy(skin.cost) : T.missing(missing)}
         </button>
-        <button class="eq-btn off" data-cancel-character="1">ביטול</button>
+        <button class="eq-btn off" data-cancel-character="1">${T.cancel}</button>
       </div>
       ${
         affordable
-          ? '<p class="gc-note dim">המראה ייפתח לתמיד — בשני הגופים — וייבחר מיד. אין לכך שום השפעה על הסטטיסטיקות.</p>'
-          : `<p class="gc-note dim">חסרים ${missing} 🪙 — נצחו עוד גלים או בוס עולם ותחזרו.</p>`
+          ? `<p class="gc-note dim">${T.buyNote}</p>`
+          : `<p class="gc-note dim">${T.missingNote(missing)}</p>`
       }
     </div>`;
 }
@@ -346,25 +352,26 @@ function trophiesCard(game: GameState): string {
       if (!boss) return '';
       const world = worldById(boss.world);
       return `<li class="trophy">
-        ${trophyMedallion(boss, world.he)}
-        <b>${esc(boss.he)}</b>
-        <span>${esc(world.he)}</span>
+        ${trophyMedallion(boss, worldName(world))}
+        <b>${esc(enemyName(boss))}</b>
+        <span>${esc(worldName(world))}</span>
       </li>`;
     })
     .join('');
 
+  const T = tr(M).trophies;
   return `
   <section class="game-card">
-    <h3 class="gc-title">גביעים <span class="gc-sub">${ids.length} בוסי עולם · ${game.battle.miniBossesCleared} מיני־בוסים</span></h3>
+    <h3 class="gc-title">${T.title} <span class="gc-sub">${T.sub(ids.length, game.battle.miniBossesCleared)}</span></h3>
     ${
       medals
         ? `<ul class="trophy-shelf">${medals}</ul>`
-        : '<p class="gc-note">עדיין לא הפלתם בוס עולם. כל בוס שתפילו ישאיר כאן גביע קבוע — ומדליה על החזה של הדמות. 🏆</p>'
+        : `<p class="gc-note">${T.empty}</p>`
     }
     <div class="char-meta trophy-meta">
-      <div class="cm-item"><b>👑 ${game.battle.miniBossesCleared}</b><span>מיני־בוסים</span></div>
-      <div class="cm-item"><b>⚔️ ${game.battle.wavesCleared}</b><span>גלים</span></div>
-      <div class="cm-item"><b>🏛 ${ids.length}</b><span>בוסי עולם</span></div>
+      <div class="cm-item"><b>👑 ${game.battle.miniBossesCleared}</b><span>${T.minis}</span></div>
+      <div class="cm-item"><b>⚔️ ${game.battle.wavesCleared}</b><span>${T.waves}</span></div>
+      <div class="cm-item"><b>🏛 ${ids.length}</b><span>${T.bosses}</span></div>
     </div>
   </section>`;
 }
@@ -376,6 +383,7 @@ export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
   const stats = statsOfGame(game);
   const pulse = [...pendingPulse];
   pendingPulse.clear();
+  const T = tr(M);
 
   const bars = BODY_PARTS.map((part) => {
     const p = levelProgress(game.parts[part].xp);
@@ -383,12 +391,12 @@ export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
     return `
       <div class="part-row" data-part="${part}">
         <div class="part-head">
-          <span class="part-name">${PART_EMOJI[part]} ${BODY_PART_HE[part]}</span>
-          <span class="part-level">רמה ${p.level}</span>
+          <span class="part-name">${PART_EMOJI[part]} ${bodyPartName(part)}</span>
+          <span class="part-level">${T.parts.level(p.level)}</span>
         </div>
         <div class="part-bar"><span style="width:${pct}%"></span></div>
         <div class="part-foot">
-          <span class="part-role">${PART_ROLE_HE[part]}</span>
+          <span class="part-role">${T.partRole[part]}</span>
           <span class="part-xp">${fmtXp(p.into)} / ${fmtXp(p.need)} XP</span>
         </div>
       </div>`;
@@ -405,7 +413,8 @@ export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
   // real choice.
   const preview = previewDefOf(game);
   const previewId = preview ? characterId(preview.id, selectedBody(game)) : '';
-  const previewHe = previewId ? (characterById(previewId)?.he ?? preview?.he ?? '') : '';
+  const previewDef = previewId ? characterById(previewId) : undefined;
+  const previewHe = previewId ? (previewDef ? characterName(previewDef) : preview ? skinName(preview) : '') : '';
 
   main.innerHTML = `
   <section class="char-card">
@@ -415,64 +424,63 @@ export function renderCharacter(main: HTMLElement, deps: CharacterDeps): void {
         equipment: game.equipment,
         trophies,
         character: preview ? previewId : game.characters.selected,
-        ...(preview ? { label: `תצוגה מקדימה: ${previewHe}` } : {}),
+        ...(preview ? { label: T.stage.previewLabel(previewHe) } : {}),
       })}
-      <div class="char-level" aria-label="רמת דמות">
-        <span class="cl-num">${game.level}</span><span class="cl-lbl">רמה</span>
+      <div class="char-level" aria-label="${esc(T.stage.levelLabel)}">
+        <span class="cl-num">${game.level}</span><span class="cl-lbl">${T.stage.level}</span>
       </div>
-      ${tier > 0 && !preview ? `<div class="char-streak-chip">🔥 דרגה ${tier} · +${tier * 10}%</div>` : ''}
+      ${tier > 0 && !preview ? `<div class="char-streak-chip">${T.stage.streakChip(tier, tier * 10)}</div>` : ''}
       ${
         preview
           ? `<div class="char-preview" id="chrPreview">
-              <span class="cp-chip">👁 תצוגה מקדימה — לא נרכש</span>
-              <button class="eq-btn on cp-back" type="button" data-exit-preview="1">↩ חזרה לדמות שלי</button>
+              <span class="cp-chip">${T.stage.previewChip}</span>
+              <button class="eq-btn on cp-back" type="button" data-exit-preview="1">${T.sheet.back}</button>
             </div>`
           : ''
       }
     </div>
     <div class="char-meta">
-      <div class="cm-item"><b>${fmtXp(game.totalXp)}</b><span>סה״כ XP</span></div>
-      <div class="cm-item"><b>⚡ ${fmtXp(game.energy)}</b><span>אנרגיית קרב</span></div>
-      <div class="cm-item"><b>🪙 ${fmtXp(game.battle.coins)}</b><span>מטבעות</span></div>
-      <div class="cm-item"><b>🏆 ${game.prCount}</b><span>שיאים אישיים</span></div>
+      <div class="cm-item"><b>${fmtXp(game.totalXp)}</b><span>${T.stage.totalXp}</span></div>
+      <div class="cm-item"><b>⚡ ${fmtXp(game.energy)}</b><span>${T.stage.energy}</span></div>
+      <div class="cm-item"><b>🪙 ${fmtXp(game.battle.coins)}</b><span>${T.stage.coins}</span></div>
+      <div class="cm-item"><b>🏆 ${game.prCount}</b><span>${T.stage.prs}</span></div>
     </div>
   </section>
 
   ${rosterCard(game)}
 
   <section class="game-card">
-    <h3 class="gc-title">כוח לחימה <span class="gc-sub">רמות גוף + ציוד + רצף</span></h3>
+    <h3 class="gc-title">${T.power.title} <span class="gc-sub">${T.power.sub}</span></h3>
     <div class="stat-grid">
-      <div class="stat"><span class="s-k">התקפה</span><b>${stats.atk}</b></div>
-      <div class="stat"><span class="s-k">הגנה</span><b>${stats.def}</b></div>
-      <div class="stat"><span class="s-k">חיים</span><b>${stats.maxHp}</b></div>
-      <div class="stat"><span class="s-k">מהירות</span><b>${(stats.attackIntervalMs / 1000).toFixed(2)}s</b></div>
-      <div class="stat"><span class="s-k">קריטי</span><b>${Math.round(stats.critChance * 100)}%</b></div>
-      <div class="stat"><span class="s-k">התאוששות</span><b>${stats.regen}</b></div>
+      <div class="stat"><span class="s-k">${T.stats.atk}</span><b>${stats.atk}</b></div>
+      <div class="stat"><span class="s-k">${T.stats.def}</span><b>${stats.def}</b></div>
+      <div class="stat"><span class="s-k">${T.stats.hp}</span><b>${stats.maxHp}</b></div>
+      <div class="stat"><span class="s-k">${T.stats.speed}</span><b>${(stats.attackIntervalMs / 1000).toFixed(2)}s</b></div>
+      <div class="stat"><span class="s-k">${T.stats.crit}</span><b>${Math.round(stats.critChance * 100)}%</b></div>
+      <div class="stat"><span class="s-k">${T.stats.regen}</span><b>${stats.regen}</b></div>
     </div>
     <p class="gc-note">
-      אלה הסטטיסטיקות שמפעילות את לשונית 🎮 קרב · ${esc(worldById(game.battle.world).he)} · גל ${game.battle.wave} · ${game.battle.wavesCleared} גלים נוצחו
+      ${T.power.note(esc(worldName(worldById(game.battle.world))), game.battle.wave, game.battle.wavesCleared)}
     </p>
   </section>
 
   <section class="game-card">
-    <h3 class="gc-title">חלקי גוף <span class="gc-sub">כל תרגיל מזין חלק אחר</span></h3>
+    <h3 class="gc-title">${T.parts.title} <span class="gc-sub">${T.parts.sub}</span></h3>
     <div class="parts">${bars}</div>
   </section>
 
   <section class="game-card">
-    <h3 class="gc-title">רצף שבועי <span class="gc-sub">${game.streak.needed} ימי אימון בשבוע</span></h3>
+    <h3 class="gc-title">${T.streak.title} <span class="gc-sub">${T.streak.sub(game.streak.needed)}</span></h3>
     <div class="streak-row">
       <div class="streak-tier">
-        <b>${tier}</b><span>דרגת רצף</span>
+        <b>${tier}</b><span>${T.streak.tier}</span>
       </div>
       <div class="streak-body">
         <div class="part-bar streak"><span style="width:${streakPct}%"></span></div>
         <p class="gc-note">
-          השבוע: <b>${game.streak.daysThisWeek}/${game.streak.needed}</b> ימי אימון ·
-          בונוס קבוע: <b>+${tier * 10}%</b> לכל הסטטיסטיקות
+          ${T.streak.week(game.streak.daysThisWeek, game.streak.needed, tier * 10)}
         </p>
-        <p class="gc-note dim">שבוע מושלם מוסיף דרגה · שבוע עם פחות מ־${game.streak.needed} אימונים מוריד דרגה אחת (אף פעם לא מתחת ל־0, ורמות לעולם לא נלקחות).</p>
+        <p class="gc-note dim">${T.streak.rule(game.streak.needed)}</p>
       </div>
     </div>
   </section>
@@ -523,7 +531,10 @@ function wireRoster(main: HTMLElement, deps: CharacterDeps): void {
         pendingCharacter = null;
         previewCharacter = null; // an owned skin is worn for real, not tried on
         const id = characterId(skinId, selectedBody(game));
-        if (selectCharacter(deps.store, id)) toast(`${characterById(id)?.he ?? 'הדמות'} נכנסה לזירה! ✨`);
+        if (selectCharacter(deps.store, id)) {
+          const def = characterById(id);
+          toast(tr(M).toast.selected(def ? characterName(def) : tr(M).toast.heroFallback));
+        }
         refresh();
         return;
       }
@@ -563,14 +574,15 @@ function wireRoster(main: HTMLElement, deps: CharacterDeps): void {
       if (!res.ok) {
         toast(
           res.error === 'insufficient_coins'
-            ? 'אין מספיק מטבעות — נצחו עוד גלים או בוס עולם. 🪙'
-            : 'לא ניתן לרכוש את הדמות הזו.',
+            ? tr(M).toast.noCoins
+            : tr(M).toast.cannotBuyCharacter,
         );
         return;
       }
       pendingCharacter = null;
       previewCharacter = null; // bought: the drawing is the real character now
-      toast(`${skinById(skinId)?.he ?? 'הדמות'} נרכשה — בשני הגופים! 🎭`);
+      const skin = skinById(skinId);
+      toast(tr(M).toast.boughtCharacter(skin ? skinName(skin) : tr(M).toast.heroFallback));
       refresh();
     });
   });
@@ -585,6 +597,12 @@ function wireRoster(main: HTMLElement, deps: CharacterDeps): void {
 }
 
 /* ----------------------------------------------------------------- wiring */
+
+/** An item's name for a toast, or "the item" when the id is unknown. */
+function itemLabel(id: string): string {
+  const def = equipmentById(id);
+  return def ? itemName(def) : tr(M).toast.itemFallback;
+}
 
 function wireShop(main: HTMLElement, deps: CharacterDeps): void {
   const refresh = (): void => {
@@ -609,12 +627,12 @@ function wireShop(main: HTMLElement, deps: CharacterDeps): void {
       if (!res.ok) {
         toast(
           res.error === 'insufficient_coins'
-            ? 'אין מספיק מטבעות — נצחו עוד גלים או בוס עולם. 🪙'
-            : 'לא ניתן לקנות את הפריט הזה.',
+            ? tr(M).toast.noCoins
+            : tr(M).toast.cannotBuyItem,
         );
         return;
       }
-      toast(`${equipmentById(id)?.he ?? 'הפריט'} נרכש והוצמד! ✨`);
+      toast(tr(M).toast.boughtItem(itemLabel(id)));
       refresh();
     });
   });
@@ -630,14 +648,14 @@ function wireShop(main: HTMLElement, deps: CharacterDeps): void {
       if (!res.ok) {
         toast(
           res.error === 'insufficient_coins'
-            ? 'אין מספיק מטבעות לשדרוג — נצחו עוד גלים או בוס עולם. 🪙'
+            ? tr(M).toast.noCoinsUpgrade
             : res.error === 'max_level'
-              ? 'הפריט כבר בשדרוג המקסימלי. ⭐'
-              : 'לא ניתן לשדרג את הפריט הזה.',
+              ? tr(M).toast.maxed
+              : tr(M).toast.cannotUpgrade,
         );
         return;
       }
-      toast(`${equipmentById(id)?.he ?? 'הפריט'} שודרג ל־${upgradeLabel(res.toLevel)}! ⬆`);
+      toast(tr(M).toast.upgraded(itemLabel(id), upgradeLabel(res.toLevel)));
       refresh();
     });
   });

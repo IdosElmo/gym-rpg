@@ -3,15 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#121824">
-<!-- The app is already dark: this opts out of forced dark mode (Samsung Internet
-     "dark pages", Chrome auto-dark). Also declared in styles/base.css. -->
+<meta name="theme-color" content="#0d1b36">
+<!-- The default theme is dark: this opts out of forced dark mode (Samsung Internet
+     "dark pages", Chrome auto-dark) before any CSS lands. The light theme
+     (<html data-theme="light">) overrides it with `color-scheme:only light` in
+     styles/base.css, which also keeps those engines from darkening it. -->
 <meta name="color-scheme" content="dark">
-<meta name="description" content="אפליקציית אימוני היפרטרופיה 3 ימים — עובדת 100% אופליין">
+<meta name="description" content="Ori — אפליקציית אימונים שהופכת כל סט למשחק · עובדת 100% אופליין">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Gym RPG">
-<title>היפרטרופיה 3 ימים · חזה וליבה</title>
+<meta name="apple-mobile-web-app-title" content="Ori">
+<title>Ori · אימונים שהופכים למשחק</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <!-- Favicon is an inline data: URI so the single-file build has zero external refs. -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23121824'/%3E%3Cg stroke='%233B82F6' stroke-width='6' stroke-linecap='round'%3E%3Cpath d='M16 32h32'/%3E%3Cpath d='M14 22v20M50 22v20'/%3E%3C/g%3E%3Cg stroke='%2310B981' stroke-width='5' stroke-linecap='round'%3E%3Cpath d='M8 26v12M56 26v12'/%3E%3C/g%3E%3C/svg%3E">
@@ -19,15 +21,14 @@
 </head>
 <body>
 
-<nav class="tabs" id="tabs"></nav>
-
 <header id="header"></header>
+
+<!-- The hub's inner pill row (in flow, under the header) + the bottom bar (docked) -->
+<nav class="tabs" id="tabs"></nav>
 
 <main id="main"></main>
 
-<footer>💪 האפליקציה עובדת 100% אופליין · הנתונים נשמרים במכשיר בלבד</footer>
-
-<!-- Floating rest timer -->
+<!-- Rest timer: docked directly above the bottom bar -->
 <div id="timerBar" dir="rtl">
   <div class="t-progress" id="tProg"></div>
   <div class="t-inner">
@@ -41,7 +42,7 @@
       <button class="t-btn" id="tPlus">‎+15s</button>
       <button class="t-btn warn" id="tPause">השהה</button>
       <button class="t-btn" id="tReset">איפוס</button>
-      <button class="t-btn close" id="tClose">✕</button>
+      <button class="t-btn close" id="tClose" aria-label="סגירה"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
   </div>
 </div>

@@ -11,6 +11,7 @@
 
 import { BUILTIN_PROGRAM, dayOf, type DayKey, type ResolvedProgram } from '../data/program.ts';
 import type { AppState, Session, SetEntry } from '../storage/DataStore.ts';
+import { fmtDateISO } from '../i18n/format.ts';
 
 export function todayISO(d: Date = new Date()): string {
   return (
@@ -22,10 +23,12 @@ export function todayISO(d: Date = new Date()): string {
   );
 }
 
-/** "2025-03-07" -> "07.03.2025" (legacy `fmtDate`). */
+/**
+ * "2025-03-07" -> "07.03.2025" (legacy `fmtDate`) in Hebrew, "Mar 7, 2025" in
+ * English — see `i18n/format.ts#fmtDateISO`.
+ */
 export function fmtDate(iso: string): string {
-  const [y, m, d] = iso.split('-');
-  return `${d}.${m}.${y}`;
+  return fmtDateISO(iso);
 }
 
 export const EMPTY_SET: Readonly<SetEntry> = { w: '', r: '', done: false };

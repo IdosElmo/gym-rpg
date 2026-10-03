@@ -10,6 +10,7 @@ import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { logMeal } from '../src/core/nutrition.ts';
+import { catalogMealInput } from '../src/core/catalog.ts';
 import { LocalStore } from '../src/storage/LocalStore.ts';
 import type { StorageLike } from '../src/storage/migrate.ts';
 import type { EstimateItem, EstimateResult, NutritionAiPort } from '../src/nutrition/aiPort.ts';
@@ -54,6 +55,19 @@ function mount(hooks: AppHooks = {}): { store: LocalStore; render: () => void } 
   const app = createApp(store, timer, hooks);
   app.render();
   return { store, render: app.render };
+}
+
+/**
+ * "הארוחות שלי": the fixed meals are offered only to someone who has eaten them
+ * before (core/catalog.ts#myFixedMeals) — this seeds that history, the way the
+ * app's original owners have it.
+ */
+function haveEatenFixedMeals(store: LocalStore, render: () => void): void {
+  for (const id of ['oatmeal', 'eggs_salad', 'omelette_salad']) {
+    const input = catalogMealInput({ id, unit: 'portion', qty: 1, date: '2025-01-01', slot: 'breakfast', time: '08:00' });
+    if (input) logMeal(store, input, `seed-${id}`);
+  }
+  render();
 }
 
 function click(sel: string): void {
@@ -155,8 +169,8 @@ describe('the תזונה screen', () => {
   it('saves daily targets and the rings start filling toward them', () => {
     const { store } = mount();
     openNutrition();
-    // no targets: the two main rings and the two margin rings, none can fill
-    expect(document.querySelectorAll('.nt-ring.no-target')).toHaveLength(4);
+    // no targets: the calorie ring, the three macro bars and the two margin rings — none can fill
+    expect(document.querySelectorAll('.nt-ring.no-target')).toHaveLength(6);
     expect(document.querySelectorAll('.nt-ring.margin')).toHaveLength(2);
     expect(document.querySelectorAll('.nt-ring-fill')).toHaveLength(0);
 
@@ -165,8 +179,8 @@ describe('the תזונה screen', () => {
     click('#ntTgtSave');
     expect(store.getState().nutrition.targets).toEqual({ calories: 2000, protein: 150 });
     expect(store.getEvents().filter((e) => e.type === 'nutrition_targets_set')).toHaveLength(1);
-    expect(document.querySelectorAll('.nt-ring.has-target')).toHaveLength(4);
-    expect(document.querySelectorAll('.nt-ring-fill')).toHaveLength(4);
+    expect(document.querySelectorAll('.nt-ring.has-target')).toHaveLength(6);
+    expect(document.querySelectorAll('.nt-ring-fill')).toHaveLength(6);
 
     // half the calories: the ring is half way round, and says what is left
     type('#ntName', 'צהריים');
@@ -625,8 +639,18 @@ describe('the meals of the day and the catalog', () => {
     expect(document.querySelectorAll('.nt-slot-chip.active')).toHaveLength(1);
   });
 
+  it('a stranger is not offered the original owners\' fixed meals', () => {
+    mount();
+    openCatalog();
+    click('[data-slot="breakfast"]');
+    const ids = [...document.querySelectorAll<HTMLOptionElement>('#ntCatItem option')].map((o) => o.value);
+    expect(ids).not.toContain('oatmeal');
+    expect(ids).toContain('oats_fine');
+  });
+
   it('logs a fixed meal priced in code: preview, fraction, slot, frozen lines', () => {
-    const { store } = mount();
+    const { store, render } = mount();
+    haveEatenFixedMeals(store, render);
     openCatalog();
     click('[data-slot="breakfast"]');
     choose('#ntCatItem', 'oatmeal');
@@ -638,7 +662,7 @@ describe('the meals of the day and the catalog', () => {
     expect(document.querySelector('#ntCatPreview')?.textContent).toContain('192');
     click('#ntCatAdd');
 
-    const evs = store.getEvents().filter((e) => e.type === 'meal_logged');
+    const evs = store.getEvents().filter((e) => e.type === 'meal_logged' && e.payload['date'] !== '2025-01-01');
     expect(evs).toHaveLength(1);
     expect(evs[0]?.payload).toMatchObject({
       name: '½ מנה · שיבולת שועל',
@@ -675,7 +699,8 @@ describe('the meals of the day and the catalog', () => {
   });
 
   it('lists what fits the meal, and the whole catalog on request', () => {
-    mount();
+    const { store, render } = mount();
+    haveEatenFixedMeals(store, render);
     openCatalog();
     click('[data-slot="breakfast"]');
     const ids = (): string[] => [...document.querySelectorAll<HTMLOptionElement>('#ntCatItem option')].map((o) => o.value);
@@ -722,7 +747,8 @@ describe('the meals of the day and the catalog', () => {
         return Promise.resolve({ ok: false, error: 'http' });
       },
     };
-    mount({ nutrition: { ai: port } });
+    const { store, render } = mount({ nutrition: { ai: port } });
+    haveEatenFixedMeals(store, render);
     openCatalog();
     click('[data-mode="text"]');
     type('#ntName', 'שיבולת שועל עם בננה');

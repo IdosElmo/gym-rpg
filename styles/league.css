@@ -29,10 +29,10 @@
 /* ---------- the card ---------- */
 .lg-card{
   background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
-  padding:14px 13px; margin:0 0 12px;
+  box-shadow:var(--card-shadow); padding:14px 16px; margin:0 0 12px;
 }
 .lg-title{
-  margin:0 0 10px; font-size:16px; font-weight:900; color:var(--text);
+  margin:0 0 10px; font-size:16px; font-weight:700; letter-spacing:-.01em; color:var(--text);
   display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;
 }
 .lg-sub-title{
@@ -45,7 +45,7 @@
 .lg-note.warn, .warn{color:var(--warn)}
 .lg-error{
   margin:8px 0 0; font-size:13px; font-weight:800; color:var(--danger);
-  background:#EF444416; border:1px solid #EF444444; border-radius:10px; padding:8px 10px;
+  background:var(--danger-soft); border:1px solid var(--danger-line); border-radius:10px; padding:8px 10px;
 }
 
 /* ---------- השבוע שלי ---------- */
@@ -79,8 +79,8 @@
   background:var(--card-2); border:1px solid var(--line); min-height:44px;
   display:flex; align-items:center;
 }
-.lg-coin.ok{color:var(--ok); border-color:#10B98144; background:#10B98114}
-.lg-coin.warn{color:var(--warn); border-color:#F59E0B44; background:#F59E0B14}
+.lg-coin.ok{color:var(--ok); border-color:var(--ok-line); background:var(--ok-soft)}
+.lg-coin.warn{color:var(--warn); border-color:var(--warn-line); background:var(--warn-soft)}
 
 /* ---------- המרוץ החודשי ---------- */
 .lg-race-head{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 9px}
@@ -96,10 +96,10 @@
 .lg-row{display:flex; gap:7px}
 .lg-input{
   flex:1; min-width:0; min-height:44px; padding:0 10px;
-  background:var(--card-2); border:1px solid var(--line); border-radius:11px;
+  background:var(--input); border:1px solid var(--line); border-radius:var(--radius-sm);
   color:var(--text); font-size:14px; font-weight:700; font-family:inherit;
 }
-.lg-input:focus{outline:2px solid var(--accent); outline-offset:1px}
+.lg-input:focus{outline:2px solid var(--accent-ink); outline-offset:1px}
 .lg-find{
   flex:0 0 auto; min-height:44px; min-width:44px; padding:0 12px; cursor:pointer;
   background:var(--card-2); border:1px solid var(--line); border-radius:11px;
@@ -130,8 +130,8 @@
   direction:ltr; unicode-bidi:isolate; text-align:start; margin:0 0 5px;
 }
 .lg-livechip{
-  display:inline-block; font-size:10px; font-weight:800; color:var(--accent);
-  background:#3B82F618; border:1px solid #3B82F644; border-radius:99px;
+  display:inline-block; font-size:10px; font-weight:800; color:var(--accent-ink);
+  background:var(--accent-soft); border:1px solid var(--accent-line); border-radius:99px;
   padding:1px 7px; margin:0 0 5px;
 }
 .lg-empty{color:var(--dim); font-weight:800}
@@ -140,7 +140,7 @@
    compared score is closed weeks only, on both sides (see ui/league.ts). */
 .lg-total-live{
   display:block; margin:2px 0 0; font-size:10.5px; font-weight:800;
-  color:var(--accent); direction:ltr; unicode-bidi:isolate; text-align:start;
+  color:var(--accent-ink); direction:ltr; unicode-bidi:isolate; text-align:start;
 }
 .lg-leader{
   margin:11px 0 0; font-size:13.5px; font-weight:800; min-height:44px;
@@ -149,6 +149,24 @@
 .lg-leader.ok{color:var(--ok)}
 .lg-leader.warn{color:var(--warn)}
 .lg-stale{margin:4px 0 0; font-size:11.5px; color:var(--dim)}
+
+/* ---------- invitations (the empty race, and one that opened the app) ---------- */
+.lg-invite{display:grid; gap:8px; margin:0 0 12px}
+.lg-invite .lg-note{margin:0}
+.lg-invite-btn{justify-self:start}
+.lg-invite-label{margin:2px 0 0}
+.lg-invite-text{
+  width:100%; box-sizing:border-box; min-height:88px; padding:8px 10px; resize:none;
+  font-size:13px; font-weight:600; line-height:1.45;
+}
+.lg-invite-ask{
+  background:var(--accent-soft); border:1px solid var(--accent-line); border-radius:12px;
+  padding:11px 12px; margin:0 0 12px;
+}
+.lg-invite-k{margin:0; font-size:12px; font-weight:800; color:var(--accent-ink)}
+.lg-invite-q{margin:4px 0 0; font-size:15px; font-weight:800; color:var(--text)}
+.lg-invite-q b{font-weight:900}
+.lg-invite-signin{margin:0; color:var(--text-2)}
 
 /* The rival's bars are tighter than mine — two columns of them must fit a phone. */
 .lg-week .lg-bar{grid-template-columns:44px 1fr; font-size:10px; gap:6px}
@@ -165,6 +183,19 @@
 .lg-honor{
   margin:0 0 4px; font-size:13px; font-weight:800; color:var(--warn);
 }
+/* Personal prizes: the same line's place, owed to nobody — so not a warning. */
+.lg-honor.self{color:var(--ok)}
+
+/* פרסים: אישיים / זוגיים — two pressed-or-not pills, ≥44px each. */
+.lg-prizes{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:0 0 10px}
+.lg-prizes-k{font-size:12px; font-weight:800; color:var(--muted); margin-inline-end:2px}
+.lg-seg{
+  min-height:44px; min-width:44px; padding:0 14px; cursor:pointer; font-family:inherit;
+  font-size:13px; font-weight:800; color:var(--accent-ink);
+  background:var(--card-2); border:1px solid var(--accent-line); border-radius:99px;
+}
+.lg-seg.on{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
+.lg-seg:focus-visible{outline:2px solid var(--accent-ink); outline-offset:2px}
 
 /* BEHIND: dimmed, never disabled. The rule is social, so the weight is visual
    — every button below still works, and still writes a real event. */
@@ -175,8 +206,8 @@
 .lg-item{
   background:var(--card-2); border:1px solid var(--line); border-radius:12px; padding:10px;
 }
-.lg-item[data-state="claimed"], .lg-item[data-state="done"]{border-color:#10B98144; background:#10B98110}
-.lg-item.staked{border-color:#F59E0B44; background:#F59E0B10}
+.lg-item[data-state="claimed"], .lg-item[data-state="done"]{border-color:var(--ok-line); background:var(--ok-soft)}
+.lg-item.staked{border-color:var(--warn-line); background:var(--warn-soft)}
 .li-head{display:flex; align-items:baseline; gap:7px}
 .li-head b{font-size:14px; font-weight:900; color:var(--text)}
 .li-emoji{font-size:15px}
@@ -195,13 +226,13 @@
   color:var(--text); font-size:13px; font-weight:800;
 }
 .lg-btn:disabled{opacity:.5; cursor:default}
-.lg-btn.buy{background:var(--accent); border-color:var(--accent); color:#fff}
-.lg-btn.done{background:var(--ok); border-color:var(--ok); color:#06281C}
+.lg-btn.buy{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
+.lg-btn.done{background:var(--ok); border-color:var(--ok); color:var(--on-ok)}
 .lg-btn.off{background:var(--card-2)}
 .li-btn{flex:0 0 auto}
 
 .lg-sheet{
-  background:var(--card-2); border:1px solid var(--accent); border-radius:12px;
+  background:var(--card-2); border:1px solid var(--accent-ink); border-radius:12px;
   padding:12px; margin:0 0 10px;
 }
 .ls-head{display:flex; flex-direction:column; gap:3px}

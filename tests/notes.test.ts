@@ -146,7 +146,7 @@ describe('setExerciseNote — the driver', () => {
 });
 
 describe('state migration', () => {
-  it('a v7 state blob migrates to v8 with an empty notes map', () => {
+  it('a v7 state blob migrates to the current version with an empty notes map', () => {
     const v7 = {
       schemaVersion: 7,
       sessions: {},
@@ -158,9 +158,10 @@ describe('state migration', () => {
       meta: { legacyImported: false, createdAt: NOW, updatedAt: NOW },
     };
     const s = migrateState(v7, NOW);
-    expect(CURRENT_STATE_VERSION).toBe(8);
-    expect(s.schemaVersion).toBe(8);
+    expect(CURRENT_STATE_VERSION).toBe(10);
+    expect(s.schemaVersion).toBe(10);
     expect(s.exerciseNotes).toEqual({});
+    expect(s.profile).toBeNull();
     expect(s.ui.view).toBe('A');
   });
 

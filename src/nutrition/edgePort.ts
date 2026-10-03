@@ -19,15 +19,21 @@ export interface EdgeAiDeps {
   invoke(body: Record<string, unknown>): Promise<{ ok: true; data: unknown } | { ok: false; status: number }>;
   /** Live sign-in state — re-read on every call, sessions come and go. */
   isSignedIn(): boolean;
+  /**
+   * Whether this account is on the estimator's allowlist (`aiAccess.ts`).
+   * Absent = allowed (tests, and builds that predate the allowlist).
+   */
+  isAllowed?(): boolean;
 }
 
 export function createEdgeAiPort(deps: EdgeAiDeps): NutritionAiPort {
   return {
-    configured: () => deps.isSignedIn(),
+    configured: () => deps.isSignedIn() && (deps.isAllowed?.() ?? true),
 
     async estimate(req: MealEstimateRequest): Promise<EstimateResult> {
-      // Signed out is knowable locally — never spend a request to find out.
-      if (!deps.isSignedIn()) return { ok: false, error: 'signed_out' };
+      // Signed out (or not on the allowlist) is knowable locally — never spend
+      // a request to find out; the server would refuse it anyway.
+      if (!deps.isSignedIn() || !(deps.isAllowed?.() ?? true)) return { ok: false, error: 'signed_out' };
       const res = await deps.invoke({
         text: req.text,
         ...(req.photo ? { photo: req.photo } : {}),

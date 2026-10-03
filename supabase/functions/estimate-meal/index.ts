@@ -29,8 +29,18 @@
  * priced exactly as before. Capped and sanitized — it is client input.
  * Response (200,  JSON): { calories, protein_g, confidence: 'low'|'medium'|'high', reason,
  *                          items: [{ name, quantity, grams, kcal, protein_g, assumed }] }
- * Errors: 400 bad input · 413 photo too large · 429 rate limited (Gemini said
- * so) · 500 key missing · 502 Gemini unreachable/unreadable.
+ * Errors: 400 bad input · 401 not a signed-in user · 403 not on the allowlist ·
+ * 413 photo too large · 429 rate limited (Gemini said so) · 500 key missing ·
+ * 502 Gemini unreachable/unreadable.
+ *
+ * WHO MAY SPEND THE KEY. "Enforce JWT verification" alone is not enough: the
+ * project's public anon key is itself a valid JWT, and any stranger who signs
+ * in is a valid user. So the function asks Supabase Auth who the caller is
+ * (`/auth/v1/user` with the caller's token — the anon key gets no user back),
+ * hashes the account's email (SHA-256 of the trimmed, lower-cased address — the
+ * same digest as the app's `src/dev/ownerHashes.ts`) and serves only digests
+ * listed in the `AI_ALLOWED_EMAIL_HASHES` secret (comma-separated lowercase
+ * hex). No secret set = nobody is allowed: a deploy that forgot it fails closed.
  *
  * This file is DENO code, deployed from the Supabase dashboard editor — it is
  * not part of the Vite bundle, not typechecked by the app's tsconfig and never
@@ -240,9 +250,44 @@ function capConfidence(lines: Line[], claimed: Confidence): Confidence {
 
 /* ----------------------------------------------------------------- server */
 
+/** The caller's email, verified by Supabase Auth — `null` for the anon key or a bad token. */
+async function callerEmail(req: Request): Promise<string | null> {
+  const auth = req.headers.get('authorization') ?? '';
+  const url = Deno.env.get('SUPABASE_URL');
+  const anon = Deno.env.get('SUPABASE_ANON_KEY');
+  if (!auth.toLowerCase().startsWith('bearer ') || !url || !anon) return null;
+  try {
+    const res = await fetch(`${url}/auth/v1/user`, { headers: { authorization: auth, apikey: anon } });
+    if (!res.ok) return null;
+    const user = (await res.json()) as { email?: unknown };
+    return typeof user.email === 'string' && user.email ? user.email : null;
+  } catch {
+    return null;
+  }
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** True when the verified caller's email digest is on the `AI_ALLOWED_EMAIL_HASHES` list. */
+async function callerAllowed(email: string): Promise<boolean> {
+  const list = (Deno.env.get('AI_ALLOWED_EMAIL_HASHES') ?? '')
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter((h) => /^[0-9a-f]{64}$/.test(h));
+  if (list.length === 0) return false;
+  return list.includes(await sha256Hex(email.trim().toLowerCase()));
+}
+
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
   if (req.method !== 'POST') return json(405, { error: 'method not allowed' });
+
+  const email = await callerEmail(req);
+  if (!email) return json(401, { error: 'sign in required' });
+  if (!(await callerAllowed(email))) return json(403, { error: 'not enabled for this account' });
 
   const apiKey = Deno.env.get('GEMINI_API_KEY');
   if (!apiKey) return json(500, { error: 'GEMINI_API_KEY is not set' });

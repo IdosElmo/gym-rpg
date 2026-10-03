@@ -40,22 +40,22 @@
   display:block; width:100%; padding:0; border:none; background:none; position:relative;
   border-radius:10px; text-align:inherit;
 }
-.ph-tile:active .ph-thumb{border-color:var(--accent)}
+.ph-tile:active .ph-thumb{border-color:var(--accent-ink)}
 .ph-pose{
   position:absolute; top:5px; inset-inline-start:5px; font-size:11px; line-height:1;
-  padding:3px 5px; border-radius:99px; background:#121824CC;
+  padding:3px 5px; border-radius:99px; background:var(--media-scrim);
 }
 /* The ◯ pick badge, in the tile's other top corner from the pose mark (which
    sits at inline-start — the right, in RTL). Filled with the pick's number
    once picked. */
 .ph-pick{
   position:absolute; top:5px; inset-inline-end:5px; width:26px; height:26px; padding:0;
-  border-radius:50%; border:2px solid #E8EDF5CC; background:#121824AA; color:var(--text);
+  border-radius:50%; border:2px solid color-mix(in srgb, var(--on-media) 80%, transparent); background:var(--media-scrim); color:var(--on-media);
   font-size:12px; font-weight:800; line-height:1;
 }
-.ph-pick.on{background:var(--accent); border-color:var(--accent)}
+.ph-pick.on{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
 .ph-item{position:relative}
-.ph-item.picked .ph-thumb{border-color:var(--accent); box-shadow:0 0 0 2px #3B82F655}
+.ph-item.picked .ph-thumb{border-color:var(--accent-ink); box-shadow:0 0 0 2px var(--accent-line)}
 /* The badge's hit target: 44px, larger than it looks. */
 .ph-pick::before{content:''; position:absolute; inset:-9px}
 
@@ -66,19 +66,23 @@
 .ph-cmp-fig{flex:1 1 0; min-width:0; margin:0}
 .ph-cmp-cap{display:flex; flex-direction:column; gap:1px; margin-top:5px; font-size:11.5px; color:var(--muted)}
 .ph-cmp-when{font-weight:800; color:var(--text); font-variant-numeric:tabular-nums}
-.ph-cmp-cap.after .ph-cmp-when{color:var(--accent)}
-/* One box for the wipe and the overlay: portrait 3:4, LTR inside so the
-   percentages are geometry, not reading direction. */
+.ph-cmp-cap.after .ph-cmp-when{color:var(--accent-ink)}
+/* One box for the wipe and the overlay: portrait 3:4. The wipe follows the
+   reading direction like the side-by-side view: the older photo at the inline
+   start (the right in Hebrew, the left in English), the newer one revealed from
+   the inline end, `--pos` wide. `clip-path` has no logical form, so it is the
+   one rule with a per-direction variant. */
 .ph-cmp-box{
-  position:relative; width:100%; aspect-ratio:3/4; overflow:hidden; direction:ltr;
+  position:relative; width:100%; aspect-ratio:3/4; overflow:hidden;
   border-radius:10px; background:var(--card-2); border:1px solid var(--line); margin-top:2px;
 }
 .ph-cmp-box img{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0}
 .ph-cmp-box img.ready{opacity:1}
 .ph-cmp-wipe .ph-cmp-over.ready{clip-path:inset(0 calc(100% - var(--pos)) 0 0)}
+:root[dir="ltr"] .ph-cmp-wipe .ph-cmp-over.ready{clip-path:inset(0 0 0 calc(100% - var(--pos)))}
 .ph-cmp-handle{
-  position:absolute; top:0; bottom:0; left:var(--pos); width:2px; margin-left:-1px;
-  background:var(--text); box-shadow:0 0 0 1px #12182466; pointer-events:none;
+  position:absolute; top:0; bottom:0; inset-inline-end:var(--pos); width:2px; margin-inline-end:-1px;
+  background:var(--on-media); box-shadow:0 0 0 1px var(--media-scrim); pointer-events:none;
 }
 .ph-cmp-handle::after{
   content:'⇔'; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
@@ -87,13 +91,13 @@
 }
 .ph-cmp-tag{
   position:absolute; top:6px; padding:2px 8px; border-radius:99px; font-size:11px; font-weight:800;
-  background:#121824CC; color:var(--text); direction:rtl;
+  background:var(--media-scrim); color:var(--on-media);
 }
-.ph-cmp-tag.after{left:6px; color:var(--accent)}
-.ph-cmp-tag.before{right:6px}
+.ph-cmp-tag.after{inset-inline-end:6px; color:var(--accent)} /* the bright sky: it sits on the dark scrim */
+.ph-cmp-tag.before{inset-inline-start:6px}
 .ph-cmp-overlay .ph-cmp-over.ready{opacity:var(--alpha)}
 .ph-cmp-range{display:block; margin-top:10px; font-size:12.5px; color:var(--muted)}
-.ph-cmp-range input[type=range]{display:block; width:100%; margin-top:6px; min-height:44px; accent-color:var(--accent)}
+.ph-cmp-range input[type=range]{display:block; width:100%; margin-top:6px; min-height:44px; accent-color:var(--accent-ink)}
 .ph-cmp-legend{margin-top:10px}
 
 .ph-cap{display:flex; flex-direction:column; gap:1px; margin-top:4px; font-size:11px; color:var(--muted); min-width:0}
@@ -109,7 +113,7 @@
 /* The viewer: a full-screen dark sheet, the image fitted, a bar above and the
    caption below. Above the timer bar and the toast. */
 .ph-viewer{
-  position:fixed; inset:0; z-index:90; background:#121824F2;
+  position:fixed; inset:0; z-index:90; background:color-mix(in srgb, var(--bg) 95%, transparent);
   display:flex; flex-direction:column; padding:env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0);
 }
 .ph-viewer-bar{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px}
@@ -155,11 +159,11 @@
 /* A thin centre line: the one landmark that survives every framing. */
 .ph-cam-guide{
   position:absolute; top:0; bottom:0; left:50%; width:1px; margin-left:-.5px;
-  background:#E8EDF555; pointer-events:none;
+  background:color-mix(in srgb, var(--on-media) 33%, transparent); pointer-events:none;
 }
 .ph-cam-msg{
   position:absolute; inset:auto 16px; text-align:center; font-size:14px; line-height:1.6;
-  color:var(--text); background:#121824CC; padding:12px 14px; border-radius:12px;
+  color:var(--on-media); background:var(--media-scrim); padding:12px 14px; border-radius:12px;
 }
 .ph-cam-count{
   position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
@@ -172,7 +176,7 @@
 .ph-cam-actions{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px 16px}
 .ph-cam-actions .action-btn{flex:1; margin:0; min-height:48px}
 .ph-cam-actions .action-btn.ghost{color:var(--muted)}
-.ph-cam-actions .ph-vbtn.on{border-color:var(--accent); color:var(--accent)}
+.ph-cam-actions .ph-vbtn.on{border-color:var(--accent-ink); color:var(--accent-ink)}
 .ph-cam-spacer{width:44px; flex:0 0 auto}
 .ph-shutter{
   width:72px; height:72px; border-radius:50%; border:4px solid var(--text); background:var(--card);

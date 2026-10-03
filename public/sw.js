@@ -1,6 +1,6 @@
 /* eslint-disable no-undef */
 /**
- * Gym RPG service worker — precache + offline.
+ * Ori service worker — precache + offline.
  *
  * The whole app is ONE self-contained index.html (vite-plugin-singlefile), so
  * the precache list is tiny: the document itself plus the PWA metadata.

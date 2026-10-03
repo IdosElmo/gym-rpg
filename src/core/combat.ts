@@ -645,29 +645,77 @@ export function skillViews(state: BattleState, levels: PartLevels): SkillView[] 
 }
 
 /**
- * The Hebrew sentence for a skill, with its numbers resolved at `power`.
- * Lives here (not in `data/`) because every number in it comes from BALANCE.
+ * The NUMBERS a skill's sentence quotes, resolved at `power` — every one of
+ * them from BALANCE. Shared by the Hebrew sentence below and the English one
+ * (`i18n/gameText.ts#skillSummary`), so the two languages can never quote
+ * different numbers. A field the skill's sentence does not use is `0` / `''`;
+ * `secs` is pre-formatted ("1.5", never "1.50" or "6.0").
  */
-export function skillSummaryHe(skill: SkillDef | SkillId, power = 1): string {
+export interface SkillFigures {
+  readonly id: SkillId;
+  /** Damage multiplier of the blow (smash, quake). */
+  readonly mult: number;
+  /** A duration in seconds, as text (guard, quake, flurry, breath). */
+  readonly secs: string;
+  /** A percentage (guard's cut, focus's crit bonus, breath's heal). */
+  readonly pct: number;
+}
+
+export function skillFigures(skill: SkillDef | SkillId, power = 1): SkillFigures | null {
   const def = skillDef(skill);
-  if (!def) return '';
+  if (!def) return null;
   const B = BALANCE.skills;
   const secs = (ms: number): string => `${Math.round(ms / 100) / 10}`.replace(/\.0$/, '');
   switch (def.id) {
     case 'smash':
-      return `נזק פי ${Math.round(B.smash.atkMult * power * 10) / 10} מההתקפה, מכה אחת.`;
+      return { id: def.id, mult: Math.round(B.smash.atkMult * power * 10) / 10, secs: '', pct: 0 };
     case 'guard': {
       const taken = Math.max(B.guard.minDamageTaken, 1 - (1 - B.guard.damageTaken) * power);
-      return `${secs(B.guard.durationMs)} שניות של הגנה — הנזק הנכנס יורד ב־${Math.round((1 - taken) * 100)}%.`;
+      return { id: def.id, mult: 0, secs: secs(B.guard.durationMs), pct: Math.round((1 - taken) * 100) };
     }
     case 'quake':
-      return `נזק פי ${Math.round(B.quake.atkMult * power * 10) / 10} ועצירת האויב ל־${secs(B.quake.stunMs * power)} שניות.`;
+      return {
+        id: def.id,
+        mult: Math.round(B.quake.atkMult * power * 10) / 10,
+        secs: secs(B.quake.stunMs * power),
+        pct: 0,
+      };
     case 'flurry':
-      return `${secs(B.flurry.durationMs * power)} שניות של קצב התקפה כפול.`;
+      return { id: def.id, mult: 0, secs: secs(B.flurry.durationMs * power), pct: 0 };
     case 'focus':
-      return `ההתקפה הבאה קריטית מובטחת, עם +${Math.round(B.focus.critMultiplierBonus * power * 100)}% נזק קריטי.`;
+      return { id: def.id, mult: 0, secs: '', pct: Math.round(B.focus.critMultiplierBonus * power * 100) };
     case 'breath':
-      return `ריפוי מיידי של ${Math.round(B.breath.healPct * power * 100)}% מהחיים ועוד ${secs(B.breath.durationMs)} שניות של התאוששות מוגברת.`;
+      return {
+        id: def.id,
+        mult: 0,
+        secs: secs(B.breath.durationMs),
+        pct: Math.round(B.breath.healPct * power * 100),
+      };
+  }
+}
+
+/**
+ * The Hebrew sentence for a skill, with its numbers resolved at `power`.
+ * Lives here (not in `data/`) because every number in it comes from BALANCE.
+ * Screens read it through `i18n/gameText.ts#skillSummary`, which builds the
+ * English sentence from the same `skillFigures`.
+ */
+export function skillSummaryHe(skill: SkillDef | SkillId, power = 1): string {
+  const f = skillFigures(skill, power);
+  if (!f) return '';
+  switch (f.id) {
+    case 'smash':
+      return `נזק פי ${f.mult} מההתקפה, מכה אחת.`;
+    case 'guard':
+      return `${f.secs} שניות של הגנה — הנזק הנכנס יורד ב־${f.pct}%.`;
+    case 'quake':
+      return `נזק פי ${f.mult} ועצירת האויב ל־${f.secs} שניות.`;
+    case 'flurry':
+      return `${f.secs} שניות של קצב התקפה כפול.`;
+    case 'focus':
+      return `ההתקפה הבאה קריטית מובטחת, עם +${f.pct}% נזק קריטי.`;
+    case 'breath':
+      return `ריפוי מיידי של ${f.pct}% מהחיים ועוד ${f.secs} שניות של התאוששות מוגברת.`;
   }
 }
 

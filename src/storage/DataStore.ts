@@ -13,7 +13,11 @@
  */
 
 import type { EquipmentSlot } from '../data/gameContent.ts';
-import type { LeagueItemKind } from '../data/leaguePools.ts';
+import type { Locale } from '../i18n/locale.ts';
+import type { Profile } from '../core/profile.ts';
+import type { UnitSystem } from '../i18n/units.ts';
+import type { Theme } from '../ui/theme.ts';
+import type { LeagueItemKind, PrizeMode } from '../data/leaguePools.ts';
 import type { PlanDoc, UserPreset } from '../data/planTypes.ts';
 import type { BodyPart, DayKey } from '../data/program.ts';
 
@@ -70,6 +74,38 @@ export type ViewKey = DayKey | 'CH' | 'BT' | 'H' | 'PL' | 'ST' | 'SS' | 'LG' | '
 export interface UiState {
   view: ViewKey;
   open: Record<string, boolean>;
+  /**
+   * The language this DEVICE reads the app in. Absent = never chosen, which
+   * renders Hebrew (the app's original language); `main.ts` picks one for a
+   * fresh install from the browser's languages. Device-local like the rest of
+   * `ui`: merges and sync keep it (`mergeIntoStore` carries `ui` over), and no
+   * event ever records it — language is presentation, never data.
+   */
+  locale?: Locale;
+  /** Kilograms or pounds on screen. Absent = metric. Storage is always metric. */
+  units?: UnitSystem;
+  /** Dark (navy, the default) or light. Absent = dark. A device preference like `locale`. */
+  theme?: Theme;
+  /**
+   * 🏆 Whose prizes the league shop shows: rewards you give YOURSELF, or the
+   * couple's winner-is-treated pools. A device preference like `locale` — never
+   * in an event, kept by `clear()` and `replaceAll()`. Absent = resolved by
+   * `prizeModeOf` (core/league.ts), and pinned on boot (ui/app.ts).
+   */
+  prizes?: PrizeMode;
+  /**
+   * 🏆 The league rival this device CHOSE (typed, or accepted from an invite
+   * link). Device-local bookkeeping, never an event: the race is drawn from
+   * the rival's published rows, not from anything in the log. Absent = none
+   * chosen; the screen never picks one on its own.
+   */
+  rival?: string;
+  /**
+   * 🏆 A `#rival=<handle>` invitation that opened the app and has not been
+   * answered yet. Kept in the store (not in the URL) so it survives a
+   * sign-in redirect; cleared once accepted or declined.
+   */
+  invite?: string;
 }
 
 /* -------------------------------------------------------------- game state */
@@ -517,6 +553,13 @@ export interface AppState {
    */
   plan: PlanDoc | null;
   /**
+   * Who the user is — the onboarding answers (core/profile.ts), or `null` for
+   * an install that never answered (everybody from before onboarding existed).
+   * A CACHE of the log like `plan`: folded from `profile_set` (LWW), reset by
+   * `data_cleared`.
+   */
+  profile: Profile | null;
+  /**
    * Presets the USER saved ("התוכניות שלי") — their own plans, frozen under a
    * name, offered in the editor's presets sheet beside the built-in ones.
    *
@@ -621,6 +664,11 @@ export type EventType =
   // so the intake chart can average over whole days only. LWW per date (close,
   // reopen, close again); folds into `state.nutrition.closedDays`.
   | 'nutrition_day_closed'
+  // Stage ז — "שמירת ארוחה משלי": the user's own reusable meals. The WHOLE
+  // template per event, LWW per template id; deletion is a tombstone (the
+  // `meal_deleted` rule). Folded into `state.nutrition.templates`.
+  | 'meal_template_saved'
+  | 'meal_template_deleted'
   // Phase 14 — the ⚖️ weight log, the nutrition hub's second inner tab. The
   // same three laws as meals: one weigh-in per event, idempotent per entry ID;
   // deletion is a tombstone; the goal weight is LWW. Folded into
@@ -628,6 +676,9 @@ export type EventType =
   | 'weight_logged'
   | 'weight_deleted'
   | 'weight_target_set'
+  // Onboarding — the questionnaire's answers, the WHOLE profile per event
+  // (last-writer-wins like the plan). Grants nothing; see core/profile.ts.
+  | 'profile_set'
   // Phase 15 — 📸 progress photos. The EVENT carries only the metadata (id,
   // date, pose, dimensions, byte size); the pixels live in the `BlobStore`
   // under the same id and never enter the log. Same three laws: one photo per
@@ -1337,6 +1388,13 @@ export interface MealLoggedPayload extends Record<string, unknown> {
   calories: number;
   /** grams */
   protein: number;
+  /**
+   * Grams of carbohydrate / fat. OPTIONAL: meals logged before full macros,
+   * and manual meals the user did not break down, have none — UNKNOWN, never
+   * read as 0 (the day's totals say "≥" while any meal lacks one).
+   */
+  carbs?: number;
+  fat?: number;
   /** 'HH:MM' for display, or ''. */
   time: string;
   source: MealSource;
@@ -1363,6 +1421,9 @@ export interface MealDeletedPayload extends Record<string, unknown> {
 export interface NutritionTargetsPayload extends Record<string, unknown> {
   calories: number | null;
   protein: number | null;
+  /** Explicit carbs / fat targets (grams); absent or `null` = the default split (core/macros.ts). */
+  carbs?: number | null;
+  fat?: number | null;
 }
 
 /**
@@ -1379,6 +1440,9 @@ export interface NutritionDayClosedPayload extends Record<string, unknown> {
 export interface NutritionTargets {
   calories: number | null;
   protein: number | null;
+  /** Present only when set explicitly; absent = derived from calories + protein (core/macros.ts). */
+  carbs?: number;
+  fat?: number;
 }
 
 /** The stored shape of one meal (the payload minus its id, post-validation). */
@@ -1387,11 +1451,55 @@ export interface MealRecord {
   name: string;
   calories: number;
   protein: number;
+  carbs?: number;
+  fat?: number;
   time: string;
   source: MealSource;
   ai?: MealAiInfo;
   slot?: MealSlot;
   catalog?: MealCatalogInfo;
+}
+
+/* --------------------------------------- stage ז: the user's own meals */
+
+/** A saved catalog pick: logging the template re-prices it from the catalog. */
+export interface MealTemplatePick {
+  /** A catalog entry id (food, fixed or ready meal). */
+  id: string;
+  unit: string;
+  qty: number;
+}
+
+/**
+ * "שמירת ארוחה משלי" — one reusable meal, carried WHOLE. `id` is a uuid minted
+ * at save time; the last `meal_template_saved` per id in the `(ts, id)` order
+ * wins. The numbers are what the meal was when saved; a template with a
+ * `pick` is re-priced from the catalog when it is logged (the catalog is the
+ * truth for catalog foods), one without is logged with its own numbers.
+ */
+export interface MealTemplateSavedPayload extends Record<string, unknown> {
+  id: string;
+  name: string;
+  calories: number;
+  protein: number;
+  carbs?: number;
+  fat?: number;
+  pick?: MealTemplatePick;
+}
+
+/** Deletion is a TOMBSTONE — the `meal_deleted` rule, verbatim. */
+export interface MealTemplateDeletedPayload extends Record<string, unknown> {
+  id: string;
+}
+
+/** The stored shape of one template (the payload minus its id, post-validation). */
+export interface MealTemplateRecord {
+  name: string;
+  calories: number;
+  protein: number;
+  carbs?: number;
+  fat?: number;
+  pick?: MealTemplatePick;
 }
 
 /* ---------------------------------------------- Phase 14 weight payloads */
@@ -1503,6 +1611,10 @@ export interface NutritionState {
   photoDeleted: Record<string, true>;
   /** The custom pose's name (LWW); '' when unnamed. */
   customPoseName: string;
+  /** "הארוחות שלי" — the user's saved meals by template id (LWW per id). */
+  templates: Record<string, MealTemplateRecord>;
+  /** Template tombstones — union-monotone, never pruned. */
+  templateDeleted: Record<string, true>;
 }
 
 /* -------------------------------------------------------------- blobs */

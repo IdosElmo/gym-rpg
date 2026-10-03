@@ -56,7 +56,6 @@ import {
   namePose,
   photoBytes,
   photoEntries,
-  poseLabel,
   recordPhoto,
   suggestedPair,
   weightForDate,
@@ -69,7 +68,9 @@ import { buildZip, readZip } from '../storage/zip.ts';
 import type { BlobStore, DataStore, NutritionState, PhotoPose } from '../storage/DataStore.ts';
 import { esc } from './dom.ts';
 import { toast } from './toast.ts';
-import { fmtDelta, fmtKg } from './weight.ts';
+import { fmtDelta, fmtWeight, wUnit } from './weight.ts';
+import { isRtl, tr } from '../i18n/locale.ts';
+import { photos as M } from '../i18n/messages/photos.ts';
 
 export interface PhotosDeps {
   store: DataStore;
@@ -143,11 +144,8 @@ function closeCamera(): void {
   cam = null;
 }
 
-export const CAMERA_ERROR_HE: Readonly<Record<CameraError, string>> = {
-  denied: 'הגישה למצלמה נדחתה — אפשרו אותה בהגדרות הדפדפן, או בחרו תמונה מהגלריה.',
-  none: 'לא נמצאה מצלמה במכשיר — אפשר לבחור תמונה מהגלריה.',
-  unavailable: 'המצלמה לא זמינה כאן — אפשר לבחור תמונה מהגלריה.',
-};
+/** The Hebrew lines (kept for importers); the sheet reads the current locale's. */
+export const CAMERA_ERROR_HE: Readonly<Record<CameraError, string>> = M.he.cameraError;
 /** Object URLs by photo id — created once, revoked on reset or delete. */
 const urls = new Map<string, string>();
 
@@ -187,23 +185,31 @@ export function fmtBytes(bytes: number): string {
 /** The header's one line under the title. */
 export function photosHeadline(n: NutritionState): string {
   const rows = photoEntries(n);
-  if (rows.length === 0) return 'עוד אין תמונות התקדמות — הראשונה נרשמת במסך הזה';
+  const m = tr(M);
+  if (rows.length === 0) return m.headlineEmpty;
   const last = rows[rows.length - 1];
-  return `${rows.length} תמונות · האחרונה ${last ? fmtDate(last.date) : ''} · נשמרות במכשיר בלבד`;
+  return m.headline(rows.length, last ? fmtDate(last.date) : '');
 }
 
-/** The fixed pose's how-to, shown before its first photo. */
-const FRONT_HOWTO = 'עמידה רגועה מול המצלמה, ידיים לצדי הגוף, כל הגוף בפריים, אותו מקום ואותה תאורה בכל פעם.';
+/**
+ * A pose's name on screen: the user's own name for the custom pose (content,
+ * shown as typed), otherwise the locale's name — core/photos.ts `poseLabel`
+ * with the fallback translated.
+ */
+function poseLabel(n: NutritionState, pose: PhotoPose): string {
+  return pose === 'custom' && n.customPoseName ? n.customPoseName : tr(M).pose[pose];
+}
 
 /* ------------------------------------------------------------------- html */
 
 function poseSeg(n: NutritionState, active: PhotoPose | PoseFilter, attr: 'pose' | 'filter', withAll: boolean): string {
+  const m = tr(M);
   const items: { key: PoseFilter; label: string }[] = [
-    ...(withAll ? [{ key: 'all' as const, label: 'הכל' }] : []),
+    ...(withAll ? [{ key: 'all' as const, label: m.all }] : []),
     { key: 'front', label: `🧍 ${poseLabel(n, 'front')}` },
     { key: 'custom', label: `⭐ ${poseLabel(n, 'custom')}` },
   ];
-  return `<div class="nt-seg-row" role="group" aria-label="${attr === 'pose' ? 'הפוזה' : 'סינון לפי פוזה'}">${items
+  return `<div class="nt-seg-row" role="group" aria-label="${attr === 'pose' ? m.poseAria : m.filterAria}">${items
     .map(
       (it) =>
         `<button class="nt-seg ${it.key === active ? 'active' : ''}" type="button" data-${attr}="${it.key}"
@@ -216,43 +222,44 @@ function poseSeg(n: NutritionState, active: PhotoPose | PoseFilter, attr: 'pose'
 function caption(n: NutritionState, p: PhotoRow): string {
   const kg = weightForDate(n, p.date);
   return `<span class="ph-cap-date">${esc(fmtDate(p.date))}${p.time ? ` <span class="dim">${esc(p.time)}</span>` : ''}</span>
-    ${kg !== null ? `<span class="ph-cap-kg">${fmtKg(kg)} ק״ג</span>` : ''}`;
+    ${kg !== null ? `<span class="ph-cap-kg">${fmtWeight(kg)} ${wUnit()}</span>` : ''}`;
 }
 
 function shootCard(n: NutritionState, today: string, live: boolean): string {
   const ghost = latestPhoto(n, shootPose);
+  const all = tr(M);
+  const m = all.shoot;
   const ghostHtml = ghost
     ? `
     <div class="ph-ghost">
       <div class="ph-thumb ph-ghost-img"><img alt="" data-blob="${esc(ghost.id)}"></div>
-      <p class="gc-note">התמונה האחרונה ב${esc(poseLabel(n, shootPose))} — מ־${esc(fmtDate(ghost.date))}.
-        צלמו באותו מקום, באותה עמידה ובאותו מרחק, כדי שההשוואה תהיה הוגנת.</p>
+      <p class="gc-note">${m.ghostNote(esc(poseLabel(n, shootPose)), esc(fmtDate(ghost.date)))}</p>
     </div>`
-    : `<p class="gc-note">${shootPose === 'front' ? `זו התמונה הראשונה בפוזה הזו. ${FRONT_HOWTO}` : 'זו התמונה הראשונה בפוזה שלכם — בחרו עמידה שתוכלו לחזור עליה, והתמונה הזו תהיה הרוח לבאות אחריה.'}</p>`;
+    : `<p class="gc-note">${shootPose === 'front' ? m.firstFront(all.frontHowTo) : m.firstCustom}</p>`;
   return `
   <section class="game-card ph-shoot">
-    <div class="gc-title">תמונה חדשה</div>
+    <div class="gc-title">${m.title}</div>
     ${poseSeg(n, shootPose, 'pose', false)}
     ${ghostHtml}
     <div class="nt-field-row">
-      <label class="nt-field">תאריך
+      <label class="nt-field">${m.date}
         <input class="inp" id="phDate" type="date" value="${today}" max="${today}">
       </label>
-      <label class="nt-field ph-note-field">הערה <span class="gc-sub">לא חובה</span>
+      <label class="nt-field ph-note-field">${m.note} <span class="gc-sub">${m.optional}</span>
         <input class="inp wt-note-inp" id="phNote" type="text" maxlength="${PHOTO_MAX_NOTE_LEN}" autocomplete="off"
-          placeholder="למשל: בוקר, אחרי חופשה">
+          placeholder="${esc(m.notePlaceholder)}">
       </label>
     </div>
     ${
       live
-        ? `<button class="action-btn" id="phLive" type="button">📷 צילום חי${ghost ? ' עם הרוח' : ''}</button>
+        ? `<button class="action-btn" id="phLive" type="button">${m.live(ghost !== null)}</button>
     <div class="ph-btn-row">
-      <button class="action-btn ghost" id="phShoot" type="button">📸 מצלמת המכשיר</button>
-      <button class="action-btn ghost" id="phPick" type="button">🖼️ מהגלריה</button>
+      <button class="action-btn ghost" id="phShoot" type="button">${m.deviceCamera}</button>
+      <button class="action-btn ghost" id="phPick" type="button">${m.gallery}</button>
     </div>`
         : `<div class="ph-btn-row">
-      <button class="action-btn" id="phShoot" type="button">📸 צילום</button>
-      <button class="action-btn" id="phPick" type="button">🖼️ מהגלריה</button>
+      <button class="action-btn" id="phShoot" type="button">${m.shoot}</button>
+      <button class="action-btn" id="phPick" type="button">${m.gallery}</button>
     </div>`
     }
     <!-- Two pickers, not one: without \`capture\` Android opens ONLY the gallery,
@@ -260,36 +267,34 @@ function shootCard(n: NutritionState, today: string, live: boolean): string {
     <input type="file" id="phFile" accept="image/*" hidden>
     <input type="file" id="phShot" accept="image/*" capture hidden>
     <p class="gc-note" id="phMsg" role="status"></p>
-    <p class="gc-note dim">🔒 התמונות נשמרות במכשיר הזה בלבד — לא נשלחות לחשבון ולא לשום שרת.</p>
+    <p class="gc-note dim">${m.privacy}</p>
   </section>`;
 }
 
 function tile(n: NutritionState, p: PhotoRow): string {
   const idx = picked.indexOf(p.id);
   const on = idx >= 0;
+  const m = tr(M).tile;
   return `
     <li class="ph-item ${on ? 'picked' : ''}">
-      <button class="ph-tile" type="button" data-open="${esc(p.id)}" aria-label="פתיחת התמונה מ־${esc(fmtDate(p.date))}">
+      <button class="ph-tile" type="button" data-open="${esc(p.id)}" aria-label="${esc(m.openAria(fmtDate(p.date)))}">
         <span class="ph-thumb"><img alt="" data-blob="${esc(p.id)}"></span>
         <span class="ph-pose ${p.pose}">${p.pose === 'front' ? '🧍' : '⭐'}</span>
       </button>
       <button class="ph-pick ${on ? 'on' : ''}" type="button" data-pick="${esc(p.id)}" aria-pressed="${on ? 'true' : 'false'}"
-        aria-label="${on ? 'הסרה מההשוואה' : 'בחירה להשוואה'}">${on ? idx + 1 : ''}</button>
+        aria-label="${on ? m.unpick : m.pick}">${on ? idx + 1 : ''}</button>
       <div class="ph-cap">${caption(n, p)}</div>
     </li>`;
 }
 
 /* ------------------------------------------------------------ comparison */
 
-const COMPARE_MODES: readonly { key: CompareMode; label: string }[] = [
-  { key: 'side', label: 'זו לצד זו' },
-  { key: 'wipe', label: 'סליידר' },
-  { key: 'overlay', label: 'שכבות' },
-] as const;
+const COMPARE_MODES: readonly CompareMode[] = ['side', 'wipe', 'overlay'] as const;
 
 function compareCaption(n: NutritionState, p: PhotoRow, which: 'before' | 'after'): string {
+  const m = tr(M).compare;
   return `<div class="ph-cmp-cap ${which}">
-      <span class="ph-cmp-when">${which === 'before' ? 'לפני' : 'אחרי'} · ${esc(fmtDate(p.date))}</span>
+      <span class="ph-cmp-when">${which === 'before' ? m.before : m.after} · ${esc(fmtDate(p.date))}</span>
       ${caption(n, p).replace(/<span class="ph-cap-date">[\s\S]*?<\/span>\s*/, '')}
     </div>`;
 }
@@ -297,35 +302,56 @@ function compareCaption(n: NutritionState, p: PhotoRow, which: 'before' | 'after
 function comparePane(s: CompareSummary, n: NutritionState): string {
   const a = s.before;
   const b = s.after;
+  const m = tr(M).compare;
+  const beforeAlt = esc(m.beforeAlt(fmtDate(a.date)));
+  const afterAlt = esc(m.afterAlt(fmtDate(b.date)));
   if (compareMode === 'side') {
-    // Reading order: the older on the right, the newer on the left.
+    // Reading order: the older at the reading start (the right in Hebrew, the
+    // left in English), the newer after it — the flex row follows `dir`.
     return `
     <div class="ph-cmp-side">
-      <figure class="ph-cmp-fig"><span class="ph-thumb"><img alt="לפני, ${esc(fmtDate(a.date))}" data-blob="${esc(a.id)}"></span>${compareCaption(n, a, 'before')}</figure>
-      <figure class="ph-cmp-fig"><span class="ph-thumb"><img alt="אחרי, ${esc(fmtDate(b.date))}" data-blob="${esc(b.id)}"></span>${compareCaption(n, b, 'after')}</figure>
+      <figure class="ph-cmp-fig"><span class="ph-thumb"><img alt="${beforeAlt}" data-blob="${esc(a.id)}"></span>${compareCaption(n, a, 'before')}</figure>
+      <figure class="ph-cmp-fig"><span class="ph-thumb"><img alt="${afterAlt}" data-blob="${esc(b.id)}"></span>${compareCaption(n, b, 'after')}</figure>
     </div>`;
   }
   if (compareMode === 'wipe') {
+    if (!isRtl()) {
+      // English reads left to right, so the OLDER photo takes the left: it is
+      // the clipped layer, the handle sits at the slider's value, and the
+      // value is how much of the older photo shows (`wipePos` stays "how much
+      // of the newer", the mirror of it).
+      const pos = 100 - wipePos;
+      return `
+    <div class="ph-cmp-box ph-cmp-wipe" style="--pos:${pos}%">
+      <img class="ph-cmp-under" alt="${afterAlt}" data-blob="${esc(b.id)}">
+      <img class="ph-cmp-over" alt="${beforeAlt}" data-blob="${esc(a.id)}">
+      <span class="ph-cmp-handle" aria-hidden="true"></span>
+      <span class="ph-cmp-tag before" style="left:6px;right:auto">${m.before}</span><span class="ph-cmp-tag after" style="right:6px;left:auto">${m.after}</span>
+    </div>
+    <label class="ph-cmp-range">${m.wipeLabel}
+      <input type="range" id="phWipe" min="0" max="100" value="${pos}" aria-label="${esc(m.wipeAria)}">
+    </label>`;
+    }
     // One box, LTR inside so the handle's percentage is the newer photo's width
     // from the LEFT edge — the newer on the left, the older on the right, as beside.
     return `
     <div class="ph-cmp-box ph-cmp-wipe" style="--pos:${wipePos}%">
-      <img class="ph-cmp-under" alt="לפני, ${esc(fmtDate(a.date))}" data-blob="${esc(a.id)}">
-      <img class="ph-cmp-over" alt="אחרי, ${esc(fmtDate(b.date))}" data-blob="${esc(b.id)}">
+      <img class="ph-cmp-under" alt="${beforeAlt}" data-blob="${esc(a.id)}">
+      <img class="ph-cmp-over" alt="${afterAlt}" data-blob="${esc(b.id)}">
       <span class="ph-cmp-handle" aria-hidden="true"></span>
-      <span class="ph-cmp-tag after">אחרי</span><span class="ph-cmp-tag before">לפני</span>
+      <span class="ph-cmp-tag after">${m.after}</span><span class="ph-cmp-tag before">${m.before}</span>
     </div>
-    <label class="ph-cmp-range">מיקום הסליידר
-      <input type="range" id="phWipe" min="0" max="100" value="${wipePos}" aria-label="כמה מהתמונה החדשה מוצג">
+    <label class="ph-cmp-range">${m.wipeLabel}
+      <input type="range" id="phWipe" min="0" max="100" value="${wipePos}" aria-label="${esc(m.wipeAria)}">
     </label>`;
   }
   return `
     <div class="ph-cmp-box ph-cmp-overlay" style="--alpha:${overlayAlpha / 100}">
-      <img class="ph-cmp-under" alt="לפני, ${esc(fmtDate(a.date))}" data-blob="${esc(a.id)}">
-      <img class="ph-cmp-over" alt="אחרי, ${esc(fmtDate(b.date))}" data-blob="${esc(b.id)}">
+      <img class="ph-cmp-under" alt="${beforeAlt}" data-blob="${esc(a.id)}">
+      <img class="ph-cmp-over" alt="${afterAlt}" data-blob="${esc(b.id)}">
     </div>
-    <label class="ph-cmp-range">שקיפות התמונה החדשה <span class="dim" id="phAlphaVal">${overlayAlpha}%</span>
-      <input type="range" id="phAlpha" min="0" max="100" value="${overlayAlpha}" aria-label="שקיפות התמונה החדשה">
+    <label class="ph-cmp-range">${m.alphaLabel} <span class="dim" id="phAlphaVal">${overlayAlpha}%</span>
+      <input type="range" id="phAlpha" min="0" max="100" value="${overlayAlpha}" aria-label="${esc(m.alphaLabel)}">
     </label>`;
 }
 
@@ -335,20 +361,18 @@ function compareCard(n: NutritionState): string {
   const a = picked[0];
   const b = picked[1];
   const s = a !== undefined && b !== undefined ? compareSummary(n, a, b) : null;
+  const m = tr(M).compare;
   if (!s) {
     const pose: PhotoPose = filter === 'custom' ? 'custom' : 'front';
     const pair = suggestedPair(n, pose) ?? suggestedPair(n, pose === 'front' ? 'custom' : 'front');
-    const hint =
-      picked.length === 1
-        ? 'נבחרה תמונה אחת — סמנו עוד אחת בגלריה (ה־◯ בפינת התמונה).'
-        : 'סמנו שתי תמונות בגלריה (ה־◯ בפינת כל תמונה), או התחילו מהמסע כולו:';
+    const hint = picked.length === 1 ? m.oneHint : m.twoHint;
     return `
   <section class="game-card ph-compare">
-    <div class="gc-title">השוואה</div>
+    <div class="gc-title">${m.title}</div>
     <p class="gc-note">${hint}</p>
     ${
       pair && picked.length === 0
-        ? `<button class="action-btn" id="phSuggest" type="button" data-a="${esc(pair[0])}" data-b="${esc(pair[1])}">↔ הראשונה מול האחרונה</button>`
+        ? `<button class="action-btn" id="phSuggest" type="button" data-a="${esc(pair[0])}" data-b="${esc(pair[1])}">${m.suggest}</button>`
         : ''
     }
   </section>`;
@@ -356,65 +380,68 @@ function compareCard(n: NutritionState): string {
   const delta =
     s.deltaKg === null
       ? ''
-      : `<span class="cl-item">משקל <b>${fmtDelta(s.deltaKg)} ק״ג</b></span>`;
+      : `<span class="cl-item">${m.delta(fmtDelta(s.deltaKg), wUnit())}</span>`;
   return `
   <section class="game-card ph-compare">
-    <div class="gc-title">השוואה <span class="gc-sub">${s.days === 0 ? 'אותו יום' : `${s.days} ימים`}</span></div>
-    <div class="nt-seg-row" role="group" aria-label="אופן ההשוואה">${COMPARE_MODES.map(
-      (m) =>
-        `<button class="nt-seg ${m.key === compareMode ? 'active' : ''}" type="button" data-mode="${m.key}"
-        aria-pressed="${m.key === compareMode ? 'true' : 'false'}">${m.label}</button>`,
+    <div class="gc-title">${m.title} <span class="gc-sub">${s.days === 0 ? m.sameDay : m.days(s.days)}</span></div>
+    <div class="nt-seg-row" role="group" aria-label="${m.modeAria}">${COMPARE_MODES.map(
+      (key) =>
+        `<button class="nt-seg ${key === compareMode ? 'active' : ''}" type="button" data-mode="${key}"
+        aria-pressed="${key === compareMode ? 'true' : 'false'}">${m.modes[key]}</button>`,
     ).join('')}</div>
     ${comparePane(s, n)}
     <div class="chart-legend ph-cmp-legend">
-      <span class="cl-item">מ־${esc(fmtDate(s.before.date))} עד ${esc(fmtDate(s.after.date))}</span>
-      ${s.kgBefore !== null && s.kgAfter !== null ? `<span class="cl-item">מ־${fmtKg(s.kgBefore)} ל־${fmtKg(s.kgAfter)} ק״ג</span>` : ''}
+      <span class="cl-item">${m.span(esc(fmtDate(s.before.date)), esc(fmtDate(s.after.date)))}</span>
+      ${s.kgBefore !== null && s.kgAfter !== null ? `<span class="cl-item">${m.kgSpan(fmtWeight(s.kgBefore), fmtWeight(s.kgAfter), wUnit())}</span>` : ''}
       ${delta}
     </div>
-    <button class="action-btn ghost ph-cmp-clear" id="phClearPick" type="button">ניקוי הבחירה</button>
+    <button class="action-btn ghost ph-cmp-clear" id="phClearPick" type="button">${m.clear}</button>
   </section>`;
 }
 
 function galleryCard(n: NutritionState): string {
   const all = photoEntries(n);
   const shown = (filter === 'all' ? all : all.filter((p) => p.pose === filter)).slice().reverse();
+  const m = tr(M).gallery;
   const body =
     all.length === 0
-      ? `<p class="empty">עוד אין תמונות — הראשונה נרשמת למעלה 👆</p>`
+      ? `<p class="empty">${m.empty}</p>`
       : shown.length === 0
-        ? `<p class="empty">אין תמונות בפוזה הזו עדיין.</p>`
+        ? `<p class="empty">${m.emptyPose}</p>`
         : `<ul class="ph-grid">${shown.map((p) => tile(n, p)).join('')}</ul>`;
   return `
   <section class="game-card ph-gallery">
-    <div class="gc-title">הגלריה <span class="gc-sub">${all.length === 0 ? '' : `${all.length} תמונות · ${fmtBytes(photoBytes(n))}`}</span></div>
+    <div class="gc-title">${m.title} <span class="gc-sub">${all.length === 0 ? '' : m.sub(all.length, fmtBytes(photoBytes(n)))}</span></div>
     ${all.length > 0 ? poseSeg(n, filter, 'filter', true) : ''}
     ${body}
-    ${all.length > 0 ? `<p class="gc-note dim">החדשה ביותר ראשונה. לחיצה על תמונה פותחת אותה בגדול; ה־◯ בפינה בוחר אותה להשוואה.</p>` : ''}
+    ${all.length > 0 ? `<p class="gc-note dim">${m.note}</p>` : ''}
   </section>`;
 }
 
 function poseNameCard(n: NutritionState): string {
+  const m = tr(M).poseName;
   return `
   <section class="game-card ph-pose-card">
-    <div class="gc-title">הפוזה המותאמת <span class="gc-sub">לא חובה</span></div>
-    <label class="nt-field">שם לפוזה השנייה
+    <div class="gc-title">${m.title} <span class="gc-sub">${m.optional}</span></div>
+    <label class="nt-field">${m.field}
       <input class="inp wt-note-inp" id="phPoseName" type="text" maxlength="${POSE_NAME_MAX_LEN}" autocomplete="off"
-        value="${esc(n.customPoseName)}" placeholder="למשל: צד ימין, גב, דאבל בייספס">
+        value="${esc(n.customPoseName)}" placeholder="${esc(m.placeholder)}">
     </label>
-    <button class="action-btn" id="phPoseSave" type="button">שמירת השם</button>
-    <p class="gc-note dim">🧍 חזית היא הפוזה הקבועה; ⭐ היא שלכם. בלי שם היא נקראת "הפוזה שלי".</p>
+    <button class="action-btn" id="phPoseSave" type="button">${m.save}</button>
+    <p class="gc-note dim">${m.note}</p>
   </section>`;
 }
 
 function backupCard(n: NutritionState): string {
   const count = photoEntries(n).length;
+  const m = tr(M).backup;
   return `
   <section class="game-card ph-backup">
-    <div class="gc-title">גיבוי התמונות <span class="gc-sub">קובץ ZIP</span></div>
-    <p class="gc-note">התמונות נשמרות רק במכשיר הזה ולא נכללות בגיבוי ה־JSON. הורידו קובץ ZIP מדי פעם ושמרו אותו במקום בטוח — ייבוא מוסיף את מה שחסר ולא מוחק דבר.</p>
+    <div class="gc-title">${m.title} <span class="gc-sub">${m.sub}</span></div>
+    <p class="gc-note">${m.note}</p>
     <div class="ph-btn-row">
-      <button class="action-btn" id="phExport" type="button" ${count === 0 ? 'disabled' : ''}>⬇ ייצוא ZIP${count > 0 ? ` (${count})` : ''}</button>
-      <button class="action-btn" id="phImport" type="button">⬆ ייבוא ZIP</button>
+      <button class="action-btn" id="phExport" type="button" ${count === 0 ? 'disabled' : ''}>${m.export(count)}</button>
+      <button class="action-btn" id="phImport" type="button">${m.import}</button>
     </div>
     <input type="file" id="phZip" accept=".zip,application/zip" hidden>
     <p class="gc-note" id="phBackupMsg" role="status"></p>
@@ -425,14 +452,15 @@ function viewer(n: NutritionState): string {
   if (viewerId === null) return '';
   const p = photoEntries(n).find((r) => r.id === viewerId);
   if (!p) return '';
+  const m = tr(M).viewer;
   return `
-  <div class="ph-viewer" role="dialog" aria-modal="true" aria-label="תמונה מ־${esc(fmtDate(p.date))}">
+  <div class="ph-viewer" role="dialog" aria-modal="true" aria-label="${esc(m.aria(fmtDate(p.date)))}">
     <div class="ph-viewer-bar">
-      <button class="ph-vbtn" type="button" id="phClose" aria-label="סגירה">✕</button>
+      <button class="ph-vbtn" type="button" id="phClose" aria-label="${m.close}">✕</button>
       <span class="ph-viewer-title">${esc(poseLabel(n, p.pose))}</span>
-      <button class="ph-vbtn danger" type="button" data-del="${esc(p.id)}" aria-label="מחיקת התמונה">🗑</button>
+      <button class="ph-vbtn danger" type="button" data-del="${esc(p.id)}" aria-label="${m.delete}">🗑</button>
     </div>
-    <div class="ph-viewer-img"><img alt="תמונת התקדמות מ־${esc(fmtDate(p.date))}" data-blob="${esc(p.id)}"></div>
+    <div class="ph-viewer-img"><img alt="${esc(m.alt(fmtDate(p.date)))}" data-blob="${esc(p.id)}"></div>
     <div class="ph-viewer-cap">
       ${caption(n, p)}
       ${p.note ? `<span class="ph-cap-note">${esc(p.note)}</span>` : ''}
@@ -447,52 +475,54 @@ function cameraSheet(n: NutritionState): string {
   if (!cam) return '';
   const ghost = latestPhoto(n, shootPose);
   const mirrored = cam.facing === 'user';
+  const all = tr(M);
+  const m = all.camera;
   if (cam.error) {
     return `
-  <div class="ph-cam" role="dialog" aria-modal="true" aria-label="מצלמה">
-    <div class="ph-cam-bar"><button class="ph-vbtn" type="button" id="phCamClose" aria-label="סגירה">✕</button><span class="ph-viewer-title">מצלמה</span><span></span></div>
-    <div class="ph-cam-stage"><p class="ph-cam-msg" role="alert">${CAMERA_ERROR_HE[cam.error]}</p></div>
+  <div class="ph-cam" role="dialog" aria-modal="true" aria-label="${m.aria}">
+    <div class="ph-cam-bar"><button class="ph-vbtn" type="button" id="phCamClose" aria-label="${all.viewer.close}">✕</button><span class="ph-viewer-title">${m.title}</span><span></span></div>
+    <div class="ph-cam-stage"><p class="ph-cam-msg" role="alert">${all.cameraError[cam.error]}</p></div>
     <div class="ph-cam-actions">
-      <button class="action-btn" id="phCamShot" type="button">📸 מצלמת המכשיר</button>
-      <button class="action-btn ghost" id="phCamPick" type="button">🖼️ מהגלריה</button>
+      <button class="action-btn" id="phCamShot" type="button">${all.shoot.deviceCamera}</button>
+      <button class="action-btn ghost" id="phCamPick" type="button">${all.shoot.gallery}</button>
     </div>
   </div>`;
   }
   if (cam.shot) {
     return `
-  <div class="ph-cam" role="dialog" aria-modal="true" aria-label="התמונה שצולמה">
-    <div class="ph-cam-bar"><button class="ph-vbtn" type="button" id="phCamClose" aria-label="סגירה">✕</button><span class="ph-viewer-title">${esc(poseLabel(n, shootPose))}</span><span></span></div>
-    <div class="ph-cam-stage"><img class="ph-cam-shot" alt="התמונה שצולמה" data-shot></div>
+  <div class="ph-cam" role="dialog" aria-modal="true" aria-label="${m.shotAria}">
+    <div class="ph-cam-bar"><button class="ph-vbtn" type="button" id="phCamClose" aria-label="${all.viewer.close}">✕</button><span class="ph-viewer-title">${esc(poseLabel(n, shootPose))}</span><span></span></div>
+    <div class="ph-cam-stage"><img class="ph-cam-shot" alt="${m.shotAria}" data-shot></div>
     <div class="ph-cam-actions">
-      <button class="action-btn ghost" id="phCamRetake" type="button">↺ צילום מחדש</button>
-      <button class="action-btn" id="phCamSave" type="button">✓ שמירה</button>
+      <button class="action-btn ghost" id="phCamRetake" type="button">${m.retake}</button>
+      <button class="action-btn" id="phCamSave" type="button">${m.save}</button>
     </div>
   </div>`;
   }
   return `
-  <div class="ph-cam" role="dialog" aria-modal="true" aria-label="מצלמה">
+  <div class="ph-cam" role="dialog" aria-modal="true" aria-label="${m.aria}">
     <div class="ph-cam-bar">
-      <button class="ph-vbtn" type="button" id="phCamClose" aria-label="סגירה">✕</button>
+      <button class="ph-vbtn" type="button" id="phCamClose" aria-label="${all.viewer.close}">✕</button>
       <span class="ph-viewer-title">${esc(poseLabel(n, shootPose))}</span>
-      <button class="ph-vbtn" type="button" id="phCamFlip" aria-label="החלפת מצלמה">🔄</button>
+      <button class="ph-vbtn" type="button" id="phCamFlip" aria-label="${m.flip}">🔄</button>
     </div>
     <div class="ph-cam-stage ${mirrored ? 'mirrored' : ''}" style="--ghost:${cam.ghostAlpha / 100}">
       <video class="ph-cam-video" id="phCamVideo" autoplay muted playsinline></video>
       ${ghost ? `<img class="ph-cam-ghost" alt="" data-blob="${esc(ghost.id)}">` : ''}
-      ${cam.opening ? `<p class="ph-cam-msg">פותח את המצלמה…</p>` : ''}
+      ${cam.opening ? `<p class="ph-cam-msg">${m.opening}</p>` : ''}
       ${cam.countdown > 0 ? `<span class="ph-cam-count" aria-live="assertive">${cam.countdown}</span>` : ''}
       <span class="ph-cam-guide" aria-hidden="true"></span>
     </div>
     ${
       ghost
-        ? `<label class="ph-cmp-range ph-cam-range">שקיפות הרוח <span class="dim" id="phGhostVal">${cam.ghostAlpha}%</span>
-      <input type="range" id="phGhostAlpha" min="0" max="100" value="${cam.ghostAlpha}" aria-label="שקיפות הרוח">
+        ? `<label class="ph-cmp-range ph-cam-range">${m.ghostAlpha} <span class="dim" id="phGhostVal">${cam.ghostAlpha}%</span>
+      <input type="range" id="phGhostAlpha" min="0" max="100" value="${cam.ghostAlpha}" aria-label="${m.ghostAlpha}">
     </label>`
-        : `<p class="gc-note ph-cam-note">אין עדיין תמונה בפוזה הזו — התמונה הזו תהיה הרוח לבאות אחריה.</p>`
+        : `<p class="gc-note ph-cam-note">${m.noGhost}</p>`
     }
     <div class="ph-cam-actions">
-      <button class="ph-vbtn ${cam.timer ? 'on' : ''}" type="button" id="phCamTimer" aria-pressed="${cam.timer ? 'true' : 'false'}" aria-label="טיימר 3 שניות">⏱ 3</button>
-      <button class="ph-shutter" type="button" id="phCamShoot" aria-label="צילום" ${cam.opening || cam.countdown > 0 ? 'disabled' : ''}></button>
+      <button class="ph-vbtn ${cam.timer ? 'on' : ''}" type="button" id="phCamTimer" aria-pressed="${cam.timer ? 'true' : 'false'}" aria-label="${m.timer}">⏱ 3</button>
+      <button class="ph-shutter" type="button" id="phCamShoot" aria-label="${m.shutter}" ${cam.opening || cam.countdown > 0 ? 'disabled' : ''}></button>
       <span class="ph-cam-spacer"></span>
     </div>
   </div>`;
@@ -587,7 +617,7 @@ function wire(main: HTMLElement, deps: PhotosDeps, today: string): void {
   const formFields = (): { date: string; note: string } | null => {
     const date = (main.querySelector<HTMLInputElement>('#phDate')?.value ?? '').trim() || today;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today) {
-      if (msg) msg.textContent = 'התאריך לא תקין — ותמונה לא יכולה להיות מהעתיד.';
+      if (msg) msg.textContent = tr(M).msg.badDate;
       return null;
     }
     return { date, note: (main.querySelector<HTMLInputElement>('#phNote')?.value ?? '').trim() };
@@ -627,21 +657,21 @@ function wire(main: HTMLElement, deps: PhotosDeps, today: string): void {
     const label = btn?.textContent ?? '';
     if (btn) {
       btn.disabled = true;
-      btn.textContent = 'שומר…';
+      btn.textContent = tr(M).msg.saving;
     }
     const prepare = deps.prepare ?? preparePhoto;
     void prepare(file, PHOTO_MAX_DIM)
       .then((p) => save(p, fields))
       .then((ok) => {
         if (!ok) {
-          if (msg) msg.textContent = 'לא הצלחנו לשמור את התמונה — נסו תמונה אחרת.';
+          if (msg) msg.textContent = tr(M).msg.saveFailed;
           return;
         }
-        toast('התמונה נשמרה 📸');
+        toast(tr(M).msg.saved);
         again();
       })
       .catch(() => {
-        if (msg) msg.textContent = 'לא הצלחנו לקרוא את התמונה — נסו תמונה אחרת.';
+        if (msg) msg.textContent = tr(M).msg.readFailed;
       })
       .finally(() => {
         if (btn) {
@@ -789,8 +819,8 @@ function wire(main: HTMLElement, deps: PhotosDeps, today: string): void {
     if (!shot || !fields) return;
     void save(shot.photo, fields).then((ok) => {
       closeCamera();
-      if (ok) toast('התמונה נשמרה 📸');
-      else if (msg) msg.textContent = 'לא הצלחנו לשמור את התמונה — נסו שוב.';
+      if (ok) toast(tr(M).msg.saved);
+      else if (msg) msg.textContent = tr(M).msg.saveRetry;
       again();
     });
   });
@@ -826,8 +856,11 @@ function wire(main: HTMLElement, deps: PhotosDeps, today: string): void {
   // The two ranges move the LIVE box — no re-render per pixel of a drag.
   const wipe = main.querySelector<HTMLInputElement>('#phWipe');
   wipe?.addEventListener('input', () => {
-    wipePos = Number(wipe.value);
-    main.querySelector<HTMLElement>('.ph-cmp-wipe')?.style.setProperty('--pos', `${wipePos}%`);
+    // In English the slider IS the handle's position (the older photo's share);
+    // `wipePos` keeps meaning "how much of the newer" in both directions.
+    const v = Number(wipe.value);
+    wipePos = isRtl() ? v : 100 - v;
+    main.querySelector<HTMLElement>('.ph-cmp-wipe')?.style.setProperty('--pos', `${v}%`);
   });
   const alpha = main.querySelector<HTMLInputElement>('#phAlpha');
   alpha?.addEventListener('input', () => {
@@ -861,12 +894,12 @@ function wire(main: HTMLElement, deps: PhotosDeps, today: string): void {
     btn.addEventListener('click', () => {
       const id = btn.dataset['del'];
       if (!id) return;
-      if (!confirm('למחוק את התמונה? היא תוסר מהמכשיר ולא ניתן לשחזר אותה.')) return;
+      if (!confirm(tr(M).msg.confirmDelete)) return;
       viewerId = null;
       picked = picked.filter((p) => p !== id);
       void deletePhoto(deps.store, deps.blobs, id).then(() => {
         revoke(id);
-        toast('התמונה נמחקה');
+        toast(tr(M).msg.deleted);
         again();
       });
     });
@@ -880,7 +913,7 @@ function wire(main: HTMLElement, deps: PhotosDeps, today: string): void {
     const manifest = buildPhotoManifest(state, Date.now());
     exportBtn.disabled = true;
     const label = exportBtn.textContent ?? '';
-    exportBtn.textContent = 'אורז…';
+    exportBtn.textContent = tr(M).backup.packing;
     void (async () => {
       const entries = [{ name: PHOTO_MANIFEST_NAME, data: new TextEncoder().encode(JSON.stringify(manifest, null, 2)) }];
       let missing = 0;
@@ -901,12 +934,12 @@ function wire(main: HTMLElement, deps: PhotosDeps, today: string): void {
       if (backupMsg) {
         backupMsg.textContent =
           missing > 0
-            ? `הקובץ ירד. ${missing} תמונות לא נמצאו במכשיר הזה ולכן לא נכללו.`
-            : `הקובץ ירד — ${manifest.photos.length} תמונות, ${fmtBytes(zip.size)}.`;
+            ? tr(M).backup.doneMissing(missing)
+            : tr(M).backup.done(manifest.photos.length, fmtBytes(zip.size));
       }
     })()
       .catch(() => {
-        if (backupMsg) backupMsg.textContent = 'הייצוא נכשל — נסו שוב.';
+        if (backupMsg) backupMsg.textContent = tr(M).backup.exportFailed;
       })
       .finally(() => {
         exportBtn.disabled = false;
@@ -923,7 +956,7 @@ function wire(main: HTMLElement, deps: PhotosDeps, today: string): void {
       const manifestEntry = entries?.find((e) => e.name === PHOTO_MANIFEST_NAME);
       const manifest = manifestEntry ? parsePhotoManifest(JSON.parse(new TextDecoder().decode(manifestEntry.data))) : null;
       if (!entries || !manifest) {
-        if (backupMsg) backupMsg.textContent = 'זה לא קובץ גיבוי תמונות של האפליקציה — הייבוא בוטל.';
+        if (backupMsg) backupMsg.textContent = tr(M).backup.notBackup;
         return;
       }
       const files = new Map<string, Blob>();
@@ -931,10 +964,10 @@ function wire(main: HTMLElement, deps: PhotosDeps, today: string): void {
       const res = await importPhotoBackup(deps.store, deps.blobs, manifest, files);
       // Bytes may have come back for photos whose tiles were marked missing.
       for (const p of manifest.photos) revoke(p.id);
-      toast(res.added + res.restored > 0 ? `נוספו ${res.added} תמונות, שוחזרו ${res.restored} ✓` : 'הכל כבר קיים במכשיר');
+      toast(res.added + res.restored > 0 ? tr(M).backup.imported(res.added, res.restored) : tr(M).backup.nothingNew);
       again();
     })().catch(() => {
-      if (backupMsg) backupMsg.textContent = 'לא הצלחנו לקרוא את הקובץ — הייבוא בוטל.';
+      if (backupMsg) backupMsg.textContent = tr(M).backup.readFailed;
     });
     zipInp.value = '';
   });
@@ -944,7 +977,7 @@ function wire(main: HTMLElement, deps: PhotosDeps, today: string): void {
     const name = (main.querySelector<HTMLInputElement>('#phPoseName')?.value ?? '').trim();
     if (name === n.customPoseName) return;
     namePose(deps.store, name);
-    toast(name ? 'שם הפוזה נשמר' : 'השם הוסר');
+    toast(name ? tr(M).msg.poseSaved : tr(M).msg.poseCleared);
     again();
   });
 }

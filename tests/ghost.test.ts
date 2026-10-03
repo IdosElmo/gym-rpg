@@ -204,15 +204,16 @@ describe('the שם לוחם', () => {
     expect(checkHandle('בן גוריון').ok).toBe(true);
   });
 
-  it('derives a first name from the account without leaking the address', () => {
-    expect(defaultHandle('yossi@example.com', 'u-1')).toBe('yossi');
-    // Nothing after the @ ever appears.
-    expect(defaultHandle('yossi@example.com', 'u-1')).not.toContain('example');
-    // An unusable local part falls back to a Hebrew name plus a short id.
-    const fallback = defaultHandle('a@example.com', 'abc-123-def');
-    expect(fallback.startsWith('לוחם-')).toBe(true);
-    expect(checkHandle(fallback).ok).toBe(true);
-    expect(checkHandle(defaultHandle(null, '')).ok).toBe(true);
+  it('derives the default name from the user id only — never from the email', () => {
+    // The handle is public; an address-derived default leaked a stranger's
+    // email local part on their first sync.
+    const he = defaultHandle('abc-123-def');
+    expect(he).toBe('לוחם-abc123');
+    expect(checkHandle(he).ok).toBe(true);
+    const en = defaultHandle('abc-123-def', 'warrior');
+    expect(en).toBe('warrior-abc123');
+    expect(checkHandle(en).ok).toBe(true);
+    expect(checkHandle(defaultHandle('')).ok).toBe(true);
   });
 
   it('keys the ledger by (date, opponent) in canonical form', () => {

@@ -1,15 +1,15 @@
 {
-  "name": "היפרטרופיה 3 ימים · Gym RPG",
-  "short_name": "Gym RPG",
-  "description": "אפליקציית אימוני היפרטרופיה 3 ימים — עובדת 100% אופליין, הנתונים נשמרים במכשיר בלבד",
+  "name": "Ori · אימונים שהופכים למשחק",
+  "short_name": "Ori",
+  "description": "Ori — אפליקציית אימונים שהופכת כל סט למשחק · עובדת 100% אופליין, הנתונים נשמרים במכשיר בלבד",
   "lang": "he",
   "dir": "rtl",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#121824",
-  "theme_color": "#121824",
+  "background_color": "#0d1b36",
+  "theme_color": "#0d1b36",
   "icons": [
     {
       "src": "./icon.svg",

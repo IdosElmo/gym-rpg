@@ -1,0 +1,18 @@
+# Cloudflare response headers (Workers static assets and Pages both read this file).
+# Copied verbatim to dist/ by Vite; GitHub Pages serves it as an inert file.
+
+# The app shell and the PWA files must revalidate on every load, or a phone keeps
+# running last week's build. The service worker still serves them offline.
+/
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache
+/sw.js
+  Cache-Control: no-cache
+/manifest.webmanifest
+  Cache-Control: no-cache
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY

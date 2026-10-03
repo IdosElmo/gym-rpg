@@ -17,6 +17,11 @@
  */
 
 import { BODY_PARTS, isDayKey, isReservedViewKey, type BodyPart, type DayKey } from '../data/program.ts';
+import { isLocale } from '../i18n/locale.ts';
+import { applyProfileEvent, normalizeProfile } from '../core/profile.ts';
+import { isUnitSystem } from '../i18n/units.ts';
+import { isTheme } from '../ui/theme.ts';
+import { isPrizeMode } from '../data/leaguePools.ts';
 import { characterById, resolveCharacterId, skinOf, type SkinDef } from '../data/characters.ts';
 import { EQUIPMENT_SLOTS, bossById, equipmentById } from '../data/gameContent.ts';
 import {
@@ -117,8 +122,18 @@ export const LEGACY_UI_KEY = 'hyp3_ui_v1';
  * as presets: a v7 build could not create note events locally, an empty cache
  * costs nothing, and notes that round-tripped through the cloud fold back into
  * it on the next rebuild — the log, not this blob, is the source of truth.
+ * v9 (onboarding): `profile` joined the state. Same argument once more: a v8
+ * build could not answer the questionnaire, `null` is the honest value, and a
+ * `profile_set` that round-tripped through the cloud folds back in on the next
+ * rebuild.
+ * v10 (stage ז, the food database): `nutrition` grew `templates` /
+ * `templateDeleted` — the user's own saved meals. A pure addition inside an
+ * existing slot (the v7 argument): a v9 blob has none, `normalizeNutrition`
+ * fills both empty, and any `meal_template_*` events that round-tripped
+ * through the cloud fold back in on the next rebuild. (Carbs / fat on meals
+ * and targets are optional fields of existing records — no step needed.)
  */
-export const CURRENT_STATE_VERSION = 8;
+export const CURRENT_STATE_VERSION = 10;
 /**
  * Bump when the shape of `EventLog` changes.
  * v2 (merge-safe core): events may carry an optional `device` stamp and the log
@@ -141,6 +156,11 @@ export interface StorageLike {
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/** A non-empty string no longer than a warrior name could ever be. */
+function isHandleish(v: unknown): v is string {
+  return typeof v === 'string' && v.trim().length > 0 && v.length <= 40;
 }
 
 /** Preserve meaning of a legacy value that may be a string or a number. */
@@ -174,6 +194,7 @@ export function emptyState(now: number = Date.now()): AppState {
     ui: emptyUi(new Date(now)),
     game: null,
     plan: null,
+    profile: null,
     planPresets: {},
     nutrition: emptyNutrition(),
     exerciseNotes: {},
@@ -647,7 +668,17 @@ function normalizeUi(raw: unknown, now: Date = new Date(), plan: PlanDoc | null 
   }
   const known = isTabView(resolveProgram(plan), view);
   const v: ViewKey = isReservedViewKey(view) || known ? (view as ViewKey) : defaultTabView(plan, now);
-  return { view: v, open };
+  const ui: UiState = { view: v, open };
+  // Device preferences: kept when valid, dropped (= the default) otherwise.
+  if (isLocale(raw['locale'])) ui.locale = raw['locale'];
+  if (isUnitSystem(raw['units'])) ui.units = raw['units'];
+  if (isTheme(raw['theme'])) ui.theme = raw['theme'];
+  if (isPrizeMode(raw['prizes'])) ui.prizes = raw['prizes'];
+  // League bookkeeping: a handle-sized string or nothing. Its real validation
+  // (`checkHandle`, not-yourself, exists) runs when it is used, not here.
+  if (isHandleish(raw['rival'])) ui.rival = raw['rival'];
+  if (isHandleish(raw['invite'])) ui.invite = raw['invite'];
+  return ui;
 }
 
 /* ---------------------------------------------------------- state routing */
@@ -695,7 +726,14 @@ const STATE_MIGRATIONS: ReadonlyArray<(blob: Record<string, unknown>) => Record<
   // `normalizeExerciseNotes` anyway, so a blob that somehow carries one is
   // validated rather than trusted (same argument as presets above).
   (blob) => ({ ...blob, exerciseNotes: normalizeExerciseNotes(blob['exerciseNotes']), schemaVersion: 8 }),
-  // 8 -> 9: (future) add your step here and bump CURRENT_STATE_VERSION.
+  // 8 -> 9: the onboarding profile. A v8 blob has none (`null`); a blob that
+  // somehow carries one is validated rather than trusted.
+  (blob) => ({ ...blob, profile: normalizeProfile(blob['profile']), schemaVersion: 9 }),
+  // 9 -> 10: the user's saved meals. A v9 nutrition slot has no `templates`;
+  // routing it through `normalizeNutrition` adds the two empty fields, and a
+  // blob that somehow carries them is validated rather than trusted.
+  (blob) => ({ ...blob, nutrition: normalizeNutrition(blob['nutrition']), schemaVersion: 10 }),
+  // 10 -> 11: (future) add your step here and bump CURRENT_STATE_VERSION.
 ];
 
 function readVersion(blob: Record<string, unknown>): number {
@@ -741,6 +779,7 @@ export function migrateState(raw: unknown, now: number = Date.now()): AppState {
     ui: normalizeUi(blob['ui'], new Date(now), plan),
     game: normalizeGame(blob['game']),
     plan,
+    profile: normalizeProfile(blob['profile']),
     planPresets: normalizeUserPresets(blob['planPresets']),
     nutrition: normalizeNutrition(blob['nutrition']),
     exerciseNotes: normalizeExerciseNotes(blob['exerciseNotes']),
@@ -1194,9 +1233,14 @@ export function rebuildFromEvents(events: readonly AppEvent[], now: number = Dat
         // fresh install: the plan is data, and this event erases data — and so
         // are the meal tracker and the user's saved presets.
         state.plan = null;
+        state.profile = null;
         state.planPresets = {};
         state.nutrition = emptyNutrition();
         state.exerciseNotes = {};
+        break;
+      // Who the user is — LWW, the same total-order argument as the plan below.
+      case 'profile_set':
+        applyProfileEvent(state, p);
         break;
       /**
        * The training plan is LAST-WRITER-WINS: the whole document travels in
@@ -1221,6 +1265,9 @@ export function rebuildFromEvents(events: readonly AppEvent[], now: number = Dat
       case 'meal_deleted':
       case 'nutrition_targets_set':
       case 'nutrition_day_closed':
+      // …the user's own saved meals ("הארוחות שלי"): LWW per id, tombstones…
+      case 'meal_template_saved':
+      case 'meal_template_deleted':
       // …and the ⚖️ weight log, which shares the slot and the fold.
       case 'weight_logged':
       case 'weight_deleted':

@@ -23,3 +23,14 @@ export function esc(v: unknown): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+
+/**
+ * `esc`, plus a direction isolate around every Latin parenthetical — the
+ * built-in Hebrew names carry their English term in parentheses ("חתירה
+ * חד־זרועית (Hand Row)"), and at the end of a right-to-left line the bidi
+ * algorithm hands the closing parenthesis to the Hebrew side, printing
+ * "Hand) … (Row". `<bdi>` keeps "(Hand Row)" whole; the text is unchanged.
+ */
+export function escBidi(v: unknown): string {
+  return esc(v).replace(/\(([A-Za-z][^()]*)\)/g, '<bdi>($1)</bdi>');
+}
