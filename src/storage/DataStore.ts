@@ -14,6 +14,7 @@
 
 import type { EquipmentSlot } from '../data/gameContent.ts';
 import type { Locale } from '../i18n/locale.ts';
+import type { Profile } from '../core/profile.ts';
 import type { UnitSystem } from '../i18n/units.ts';
 import type { Theme } from '../ui/theme.ts';
 import type { LeagueItemKind, PrizeMode } from '../data/leaguePools.ts';
@@ -552,6 +553,13 @@ export interface AppState {
    */
   plan: PlanDoc | null;
   /**
+   * Who the user is — the onboarding answers (core/profile.ts), or `null` for
+   * an install that never answered (everybody from before onboarding existed).
+   * A CACHE of the log like `plan`: folded from `profile_set` (LWW), reset by
+   * `data_cleared`.
+   */
+  profile: Profile | null;
+  /**
    * Presets the USER saved ("התוכניות שלי") — their own plans, frozen under a
    * name, offered in the editor's presets sheet beside the built-in ones.
    *
@@ -663,6 +671,9 @@ export type EventType =
   | 'weight_logged'
   | 'weight_deleted'
   | 'weight_target_set'
+  // Onboarding — the questionnaire's answers, the WHOLE profile per event
+  // (last-writer-wins like the plan). Grants nothing; see core/profile.ts.
+  | 'profile_set'
   // Phase 15 — 📸 progress photos. The EVENT carries only the metadata (id,
   // date, pose, dimensions, byte size); the pixels live in the `BlobStore`
   // under the same id and never enter the log. Same three laws: one photo per

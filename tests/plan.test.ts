@@ -629,16 +629,18 @@ describe('the plan_updated fold', () => {
 
 /* ------------------------------------------------------------- persistence */
 
-describe('state schema v8', () => {
-  it('is at version 8 and carries a plan slot and an empty preset shelf', () => {
+describe('state schema v9', () => {
+  it('is at version 9 and carries a plan slot and an empty preset shelf', () => {
     // v7 added the ⚖️ weight log inside the nutrition slot (tests/weight.test.ts);
-    // v8 the 📝 exercise notes beside it (tests/notes.test.ts)
-    expect(CURRENT_STATE_VERSION).toBe(8);
+    // v8 the 📝 exercise notes beside it (tests/notes.test.ts); v9 the onboarding
+    // profile (tests/profile.test.ts)
+    expect(CURRENT_STATE_VERSION).toBe(9);
     const store = new LocalStore(fakeStorage());
     expect(store.getState().plan).toBeNull();
     expect(store.getState().planPresets).toEqual({});
     expect(store.getState().exerciseNotes).toEqual({});
-    expect(store.getState().schemaVersion).toBe(8);
+    expect(store.getState().profile).toBeNull();
+    expect(store.getState().schemaVersion).toBe(9);
   });
 
   it('migrates an old v2 blob (no plan field) to the current version with plan: null', () => {

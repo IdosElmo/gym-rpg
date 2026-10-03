@@ -18,6 +18,7 @@
 
 import { BODY_PARTS, isDayKey, isReservedViewKey, type BodyPart, type DayKey } from '../data/program.ts';
 import { isLocale } from '../i18n/locale.ts';
+import { applyProfileEvent, normalizeProfile } from '../core/profile.ts';
 import { isUnitSystem } from '../i18n/units.ts';
 import { isTheme } from '../ui/theme.ts';
 import { isPrizeMode } from '../data/leaguePools.ts';
@@ -121,8 +122,12 @@ export const LEGACY_UI_KEY = 'hyp3_ui_v1';
  * as presets: a v7 build could not create note events locally, an empty cache
  * costs nothing, and notes that round-tripped through the cloud fold back into
  * it on the next rebuild — the log, not this blob, is the source of truth.
+ * v9 (onboarding): `profile` joined the state. Same argument once more: a v8
+ * build could not answer the questionnaire, `null` is the honest value, and a
+ * `profile_set` that round-tripped through the cloud folds back in on the next
+ * rebuild.
  */
-export const CURRENT_STATE_VERSION = 8;
+export const CURRENT_STATE_VERSION = 9;
 /**
  * Bump when the shape of `EventLog` changes.
  * v2 (merge-safe core): events may carry an optional `device` stamp and the log
@@ -183,6 +188,7 @@ export function emptyState(now: number = Date.now()): AppState {
     ui: emptyUi(new Date(now)),
     game: null,
     plan: null,
+    profile: null,
     planPresets: {},
     nutrition: emptyNutrition(),
     exerciseNotes: {},
@@ -714,7 +720,10 @@ const STATE_MIGRATIONS: ReadonlyArray<(blob: Record<string, unknown>) => Record<
   // `normalizeExerciseNotes` anyway, so a blob that somehow carries one is
   // validated rather than trusted (same argument as presets above).
   (blob) => ({ ...blob, exerciseNotes: normalizeExerciseNotes(blob['exerciseNotes']), schemaVersion: 8 }),
-  // 8 -> 9: (future) add your step here and bump CURRENT_STATE_VERSION.
+  // 8 -> 9: the onboarding profile. A v8 blob has none (`null`); a blob that
+  // somehow carries one is validated rather than trusted.
+  (blob) => ({ ...blob, profile: normalizeProfile(blob['profile']), schemaVersion: 9 }),
+  // 9 -> 10: (future) add your step here and bump CURRENT_STATE_VERSION.
 ];
 
 function readVersion(blob: Record<string, unknown>): number {
@@ -760,6 +769,7 @@ export function migrateState(raw: unknown, now: number = Date.now()): AppState {
     ui: normalizeUi(blob['ui'], new Date(now), plan),
     game: normalizeGame(blob['game']),
     plan,
+    profile: normalizeProfile(blob['profile']),
     planPresets: normalizeUserPresets(blob['planPresets']),
     nutrition: normalizeNutrition(blob['nutrition']),
     exerciseNotes: normalizeExerciseNotes(blob['exerciseNotes']),
@@ -1213,9 +1223,14 @@ export function rebuildFromEvents(events: readonly AppEvent[], now: number = Dat
         // fresh install: the plan is data, and this event erases data — and so
         // are the meal tracker and the user's saved presets.
         state.plan = null;
+        state.profile = null;
         state.planPresets = {};
         state.nutrition = emptyNutrition();
         state.exerciseNotes = {};
+        break;
+      // Who the user is — LWW, the same total-order argument as the plan below.
+      case 'profile_set':
+        applyProfileEvent(state, p);
         break;
       /**
        * The training plan is LAST-WRITER-WINS: the whole document travels in
