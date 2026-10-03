@@ -102,7 +102,7 @@ function boot(): void {
   // exactly as it always did.
   if (sync.closesWeeksNow()) closeDueWeeks(store);
   else sync.closeWeeksWhenReady();
-  const app = createApp(store, timer, { ...sync.hooks, photos: { blobs, camera: browserCamera() } });
+  const app = createApp(store, timer, { ...sync.hooks, photos: { blobs, camera: browserCamera() }, onboarding: true });
   sync.attach(app);
   initImportInput(store, () => app.render(), {
     isSignedIn: sync.isSignedIn,

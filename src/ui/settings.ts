@@ -23,6 +23,7 @@
  */
 
 import { isDefaultPlan, resolveProgram } from '../core/plan.ts';
+import { needsPlanChoice } from '../core/profile.ts';
 import { todayISO } from '../core/workout.ts';
 import type { AppState, DataStore } from '../storage/DataStore.ts';
 import { mergeImport } from '../storage/merge.ts';
@@ -35,7 +36,9 @@ import { LOCALES, LOCALE_NATIVE_NAME, isLocale, locale, tr } from '../i18n/local
 import { UNIT_SYSTEMS, isUnitSystem, units } from '../i18n/units.ts';
 import { shell } from '../i18n/messages/shell.ts';
 import { settings as M } from '../i18n/messages/settings.ts';
+import { onboarding as OB } from '../i18n/messages/onboarding.ts';
 import { DEFAULT_THEME, THEMES, isTheme, type Theme } from './theme.ts';
+import { profileRows } from './onboarding.ts';
 
 /**
  * Shown on the app-info line. Kept in sync with `package.json` by a test rather
@@ -65,10 +68,30 @@ export interface SettingsDeps {
    * hint that there is one — the same rule the account card follows.
    */
   dev?: DevPanelDeps;
+  /**
+   * The 👤 profile card. `open` re-opens the questionnaire in its edit mode;
+   * `offer` adds the quiet "complete your profile" card for a user with
+   * history and no profile (only the real app sets it — see `AppHooks`).
+   * Without a profile and without `offer` there is no card at all.
+   */
+  profile?: { open: () => void; offer: boolean };
+  /** An EMPTY plan's plan card sends the user to the plan picker. */
+  choosePlan?: () => void;
 }
 
 /** The plan card — the settings screen's entry point into the editor. */
 function planCard(state: AppState): string {
+  if (needsPlanChoice(state)) {
+    const o = tr(OB).settings;
+    return `
+  <section class="game-card plan-card">
+    <h3 class="gc-title">${tr(M).plan.title}
+      <span class="gc-sub">${o.noPlanSub}</span>
+    </h3>
+    <p class="gc-note">${o.noPlanNote}</p>
+    <button class="action-btn plan-card-btn" id="btnPlanChoose">${o.choosePlan}</button>
+  </section>`;
+  }
   const custom = !isDefaultPlan(state.plan);
   const program = resolveProgram(state.plan);
   const counts = program.days.map((d) => `${d.label}: ${d.day.exercises.length}`).join(' · ');
@@ -134,10 +157,43 @@ function prefsCard(theme: Theme): string {
   </section>`;
 }
 
+/**
+ * 👤 The questionnaire's answers, and the way back into it ("edit my answers",
+ * which also recalculates the targets). A user with history and no profile —
+ * the people the app was built for — gets a quiet offer instead. Nobody else
+ * gets a card, so the screen stays what it was for a store without a profile.
+ */
+function profileCard(state: AppState, offer: boolean): string {
+  const o = tr(OB).settings;
+  if (state.profile === null) {
+    if (!offer) return '';
+    return `
+  <section class="game-card profile-card" id="profileCard">
+    <h3 class="gc-title">${o.completeTitle}</h3>
+    <p class="gc-note">${o.completeNote}</p>
+    <button class="action-btn" id="btnProfileEdit">${o.complete}</button>
+  </section>`;
+  }
+  const rows = profileRows(state.profile, new Date().getFullYear());
+  const body =
+    rows.length === 0
+      ? `<p class="gc-note">${o.skipped}</p>`
+      : `<dl class="profile-rows">${rows
+          .map(([k, v]) => `<div class="profile-row"><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`)
+          .join('')}</dl>`;
+  return `
+  <section class="game-card profile-card" id="profileCard">
+    <h3 class="gc-title">${o.title}</h3>
+    ${body}
+    <button class="action-btn" id="btnProfileEdit">${rows.length === 0 ? o.complete : o.edit}</button>
+    <p class="gc-note">${o.note}</p>
+  </section>`;
+}
+
 export function renderSettings(main: HTMLElement, deps: SettingsDeps): void {
   const state = deps.store.getState();
   main.innerHTML = `
-  ${prefsCard(state.ui.theme ?? DEFAULT_THEME)}
+  ${prefsCard(state.ui.theme ?? DEFAULT_THEME)}${deps.profile ? profileCard(state, deps.profile.offer) : ''}
   ${deps.account ? renderAccountCard(deps.account) : ''}
   ${planCard(state)}
   ${dataCard()}
@@ -203,6 +259,12 @@ function bind(main: HTMLElement, deps: SettingsDeps): void {
 
   main.querySelector<HTMLButtonElement>('#btnPlanEdit')?.addEventListener('click', () => {
     deps.editPlan?.();
+  });
+  main.querySelector<HTMLButtonElement>('#btnPlanChoose')?.addEventListener('click', () => {
+    deps.choosePlan?.();
+  });
+  main.querySelector<HTMLButtonElement>('#btnProfileEdit')?.addEventListener('click', () => {
+    deps.profile?.open();
   });
 
   main.querySelector<HTMLButtonElement>('#btnClear')?.addEventListener('click', () => {

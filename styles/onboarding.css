@@ -1,0 +1,211 @@
+/**
+ * The opening questionnaire (ui/onboarding.ts), the empty-plan picker
+ * (ui/planChoice.ts) and the 👤 profile card — the first screens in the
+ * "Pulse" structure: a big friendly question, option CARDS (icon + title +
+ * one line + radio), a thin progress bar with "3/8" and a back button on top,
+ * one primary CTA pinned at the bottom.
+ *
+ * Tokens only (both themes), logical properties only (both directions),
+ * every target ≥ 44px. Motion is a colour fade at most, and
+ * styles/responsive.css turns even that off under `prefers-reduced-motion`.
+ */
+
+/* ---------- inline icons (ui/icons.ts) ---------- */
+.ic{inline-size:20px; block-size:20px; flex:none; display:block}
+:root[dir="rtl"] .ic-flip{transform:scaleX(-1)}
+
+/* ---------- the app steps aside ---------- */
+body.onb-open{padding-bottom:0}
+body.onb-open > #tabs,
+body.onb-open > #header,
+body.onb-open > #main,
+body.onb-open > footer,
+body.onb-open > #timerBar{display:none !important}
+
+/* ---------- the frame ---------- */
+.onb{
+  min-block-size:100vh; min-block-size:100dvh;
+  display:flex; flex-direction:column;
+  max-inline-size:560px; margin-inline:auto;
+  padding-inline:16px; padding-block-start:env(safe-area-inset-top);
+}
+.onb-top{
+  display:flex; align-items:center; gap:12px;
+  position:sticky; top:0; z-index:2; padding-block:10px 6px; background:var(--bg);
+}
+.onb-icbtn{
+  inline-size:44px; block-size:44px; flex:none; border-radius:14px;
+  display:grid; place-items:center;
+  background:var(--card); color:var(--text); border:1px solid var(--line);
+}
+.onb-prog{flex:1; block-size:6px; border-radius:99px; background:var(--line); overflow:hidden}
+.onb-prog i{display:block; block-size:100%; background:var(--accent); border-radius:inherit; transition:inline-size .3s ease}
+.onb-step{min-inline-size:30px; text-align:end; font-size:13px; font-weight:700; color:var(--muted); font-variant-numeric:tabular-nums}
+
+.onb-body{flex:1; display:flex; flex-direction:column; gap:14px; padding-block:12px 18px}
+.onb[data-step="0"] .onb-body{justify-content:center}
+.onb-q{margin:6px 0 0; font-size:27px; line-height:1.15; font-weight:800; letter-spacing:-.01em; text-wrap:balance}
+.onb-q:focus, .onb-app:focus{outline:none}
+.onb-sub{margin:-6px 0 2px; color:var(--muted); font-size:15px; line-height:1.45}
+
+/* ---------- option cards ---------- */
+.onb-opts{display:grid; gap:10px}
+.onb-opt{
+  display:flex; align-items:center; gap:12px; inline-size:100%; min-block-size:66px;
+  padding:10px 12px; border-radius:16px; text-align:start; font:inherit;
+  background:var(--card); color:var(--text); border:1.5px solid var(--line);
+  transition:border-color .15s, background-color .15s;
+}
+.onb-oic{
+  inline-size:42px; block-size:42px; flex:none; border-radius:13px;
+  display:grid; place-items:center; background:var(--line); color:var(--text);
+  transition:background-color .15s, color .15s;
+}
+.onb-oic .ic{inline-size:22px; block-size:22px}
+.onb-tx{flex:1; min-inline-size:0}
+.onb-tx b{display:block; font-size:16px; font-weight:700; line-height:1.3}
+.onb-tx small{display:block; margin-block-start:2px; font-size:13px; line-height:1.35; color:var(--muted)}
+.onb-radio{
+  inline-size:22px; block-size:22px; flex:none; border-radius:50%;
+  border:2px solid color-mix(in srgb, var(--muted) 60%, transparent);
+}
+.onb-opt.sel{border-color:var(--accent-ink); background:var(--chip)}
+.onb-opt.sel .onb-oic{background:var(--accent); color:var(--on-accent)}
+.onb-opt.sel .onb-radio{border-color:var(--accent-ink); background:var(--accent-ink); box-shadow:inset 0 0 0 4px var(--chip)}
+.onb-opt:focus-visible, .onb-chip:focus-visible, .onb-cta:focus-visible, .onb-skip:focus-visible,
+.onb-icbtn:focus-visible, .onb-link:focus-visible, .pc-pick:focus-visible, .pc-build:focus-visible{
+  outline:2px solid var(--accent-ink); outline-offset:2px;
+}
+
+/* ---------- cards, chips, fields ---------- */
+.onb-card{display:grid; gap:10px; padding:14px 12px; border-radius:16px; background:var(--card); border:1px solid var(--line)}
+.onb-h{display:flex; align-items:center; gap:8px; margin:0; font-size:15px; font-weight:800}
+.onb-h .ic{color:var(--accent-ink)}
+.onb-h small, .onb-label small{font-size:12px; font-weight:600; color:var(--dim)}
+.onb-note{margin:0; font-size:13px; line-height:1.5; color:var(--muted)}
+.onb-badge{
+  display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:99px;
+  font-size:11.5px; font-weight:800; white-space:nowrap;
+  background:var(--accent-soft); color:var(--accent-ink); border:1px solid var(--accent-line);
+}
+.onb-badge .ic{inline-size:13px; block-size:13px}
+
+.onb-chips{display:flex; flex-wrap:wrap; gap:8px}
+.onb-chips-fill .onb-chip{flex:1 1 0; padding-inline:4px}
+.onb-wds{gap:4px; flex-wrap:nowrap}
+.onb-wds .onb-chip{padding-inline:0}
+.onb-chip{
+  min-block-size:44px; min-inline-size:44px; padding-inline:14px; border-radius:12px;
+  background:var(--card-2); color:var(--text); border:1.5px solid var(--line);
+  font-size:15px; font-weight:700; font-variant-numeric:tabular-nums;
+  transition:background-color .15s, border-color .15s;
+}
+.onb-chip.on{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
+.onb-count-line{margin:0; font-size:13px; font-weight:700; color:var(--muted)}
+.onb-count-line.ok{color:var(--ok)}
+
+.onb-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px 12px}
+.onb-field{display:grid; gap:6px; align-content:start}
+.onb-label{display:flex; align-items:center; gap:6px; font-size:14px; font-weight:700; color:var(--text-2)}
+.onb-label .ic{inline-size:18px; block-size:18px; color:var(--accent-ink)}
+.onb-inputs{display:flex; gap:8px}
+.onb-input{
+  flex:1; min-inline-size:0; display:flex; align-items:center; gap:6px;
+  min-block-size:52px; padding-inline:12px; border-radius:12px;
+  background:var(--input); border:1.5px solid var(--line);
+}
+.onb-input:focus-within{border-color:var(--accent-ink)}
+.onb-input input{
+  flex:1; min-inline-size:0; inline-size:100%; padding:0; border:0; outline:none; background:transparent;
+  color:var(--text); font-size:20px; font-weight:700; font-variant-numeric:tabular-nums;
+}
+.onb-unit{font-size:13px; font-weight:600; color:var(--muted); white-space:nowrap}
+.onb-err{font-size:12px; font-weight:600; color:var(--danger-ink)}
+.onb-err:empty{display:none}
+.onb-text{
+  min-block-size:52px; padding-inline:14px; border-radius:12px; inline-size:100%;
+  background:var(--input); color:var(--text); border:1.5px solid var(--line); font-size:17px;
+}
+.onb-text::placeholder, .onb-input input::placeholder{color:var(--dim)}
+.onb-text:focus{outline:none; border-color:var(--accent-ink)}
+.onb-check{display:flex; align-items:center; gap:10px; min-block-size:44px; font-size:15px; font-weight:700}
+.onb-check input{inline-size:22px; block-size:22px; margin:0; accent-color:var(--accent)}
+
+/* ---------- the footer: one CTA, pinned ---------- */
+.onb-foot{
+  position:sticky; bottom:0; z-index:2; display:grid; gap:2px;
+  margin-inline:-16px; padding-inline:16px;
+  padding-block:14px calc(12px + env(safe-area-inset-bottom));
+  background:linear-gradient(to bottom, transparent, var(--bg) 14px);
+}
+.onb-cta{
+  inline-size:100%; min-block-size:54px; border:0; border-radius:16px;
+  background:var(--accent); color:var(--on-accent); font-size:17px; font-weight:800;
+  transition:background-color .15s, color .15s;
+}
+.onb-cta:disabled{background:var(--line); color:var(--dim); cursor:not-allowed}
+.onb-skip{min-block-size:44px; border:0; background:transparent; color:var(--muted); font-size:15px; font-weight:700}
+.onb-hint{margin:0; text-align:center; font-size:12px; color:var(--dim)}
+
+/* ---------- welcome ---------- */
+.onb-hero{display:grid; justify-items:center; gap:8px; padding-block:20px 6px; text-align:center}
+.onb-logo{
+  inline-size:88px; block-size:88px; border-radius:28px; display:grid; place-items:center;
+  background:var(--accent); color:var(--on-accent);
+  box-shadow:0 14px 34px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.onb-logo .ic{inline-size:48px; block-size:48px}
+.onb-app{margin:10px 0 0; font-size:34px; font-weight:900; letter-spacing:-.02em}
+.onb-tagline{margin:0; max-inline-size:30ch; font-size:17px; font-weight:600; line-height:1.4; color:var(--text-2); text-wrap:balance}
+.onb-hero .onb-sub{margin:0; max-inline-size:34ch}
+.onb-prefs{gap:12px}
+.onb-prefs-row{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap}
+
+/* ---------- summary ---------- */
+.onb-grid.two{grid-template-columns:1fr 1fr}
+.onb-link{
+  margin-inline-start:auto; min-block-size:44px; padding-inline:10px; border:0; background:transparent;
+  color:var(--accent-ink); font-size:14px; font-weight:800;
+}
+.onb-plan .onb-h{min-block-size:44px}
+.onb-plan-main{display:grid; gap:4px; justify-items:start}
+.onb-plan-title{display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px}
+.onb-plan-name{font-size:18px; font-weight:800; line-height:1.3}
+.onb-plan-days{display:flex; align-items:center; gap:6px; margin:4px 0 0; font-size:13.5px; font-weight:700; color:var(--text-2)}
+.onb-plan-days .ic, .pc-days .ic{inline-size:16px; block-size:16px; color:var(--accent-ink)}
+.onb-plan-list{margin-block-start:4px}
+
+/* ---------- the empty plan: the training hub's plan picker ---------- */
+.pc{display:grid; gap:12px}
+.pc-intro{display:grid; justify-items:center; gap:6px; padding-block:4px 2px; text-align:center}
+.pc-mark{inline-size:56px; block-size:56px; border-radius:18px; display:grid; place-items:center; background:var(--chip); color:var(--accent-ink)}
+.pc-mark .ic{inline-size:28px; block-size:28px}
+.pc-title{margin:0; font-size:23px; font-weight:800; letter-spacing:-.01em}
+.pc-sub{margin:0; max-inline-size:34ch; font-size:14.5px; color:var(--muted)}
+.pc-card{background:var(--card); border:1px solid var(--line); border-radius:16px; padding:14px; color:var(--text)}
+.pc-main{display:grid; gap:8px; justify-items:start; border:1.5px solid var(--accent-ink); background:var(--chip)}
+.pc-name{margin:2px 0 0; font-size:20px; font-weight:800; line-height:1.25}
+.pc-desc{margin:0; font-size:14px; line-height:1.5; color:var(--text-2)}
+.pc-days{display:flex; align-items:center; gap:6px; margin:0; font-size:13.5px; font-weight:700; color:var(--text-2)}
+.pc-start{margin-block-start:6px}
+.pc-h{margin:6px 0 0; font-size:14px; font-weight:800; color:var(--muted)}
+.pc-alt{display:flex; align-items:center; gap:12px}
+.pc-alt-tx{flex:1; min-inline-size:0}
+.pc-alt-tx b{display:block; font-size:16px; font-weight:700}
+.pc-alt-tx small{display:block; margin-block-start:2px; font-size:13px; line-height:1.4; color:var(--muted)}
+.pc-pick{
+  min-block-size:44px; padding-inline:16px; flex:none; border-radius:12px;
+  background:transparent; color:var(--accent-ink); border:1.5px solid var(--accent-line);
+  font-size:15px; font-weight:800;
+}
+.pc-build{display:flex; align-items:center; gap:12px; inline-size:100%; min-block-size:66px; text-align:start; font:inherit; border-style:dashed}
+.pc-build .onb-oic{background:var(--chip); color:var(--accent-ink)}
+.pc-chev{color:var(--dim)}
+
+/* ---------- 👤 the profile card on הגדרות ---------- */
+.profile-rows{margin:0; display:grid}
+.profile-row{display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding-block:7px; border-block-end:1px solid var(--line); font-size:14px}
+.profile-row:last-child{border-block-end:0}
+.profile-row dt{color:var(--muted); flex:none}
+.profile-row dd{margin:0; font-weight:700; text-align:end; min-inline-size:0; overflow-wrap:anywhere}
+.profile-card .action-btn{inline-size:100%; min-block-size:44px; margin-block-start:10px}

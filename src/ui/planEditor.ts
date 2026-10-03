@@ -153,9 +153,11 @@ function newDayLabel(): string {
  * session always starts from what is actually saved — a stale draft from an
  * earlier visit must never be mistaken for the user's plan.
  */
-export function resetPlanDraft(): void {
-  draft = null;
-  activeDay = 'A';
+export function resetPlanDraft(seed: PlanDoc | null = null): void {
+  // `seed`: start from this document instead of the saved plan (an EMPTY plan
+  // starts the editor from one empty day — see core/onboarding.ts#blankPlanDoc).
+  draft = seed ? clonePlanDoc(seed) : null;
+  activeDay = seed?.days[0]?.key ?? 'A';
   sheet = 'closed';
   weekdayHint = '';
   picked = null;

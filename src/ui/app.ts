@@ -52,6 +52,8 @@ import {
   type ScheduleTab,
 } from '../core/plan.ts';
 import { gameOf } from '../core/game.ts';
+import { needsOnboarding, needsPlanChoice } from '../core/profile.ts';
+import { blankPlanDoc } from '../core/onboarding.ts';
 import { worldById } from '../data/gameContent.ts';
 import type { DataStore, ViewKey } from '../storage/DataStore.ts';
 import type { RestTimer } from './timer.ts';
@@ -78,6 +80,9 @@ import { renderWeight, weightHeadline } from './weight.ts';
 import { photosHeadline, renderPhotos, type PhotosDeps } from './photos.ts';
 import { MemoryBlobStore } from '../storage/MemoryBlobStore.ts';
 import { renderPlanEditor, resetPlanDraft } from './planEditor.ts';
+import { closeOnboarding, isOnboardingOpen, openOnboarding, renderOnboarding, type OnboardingOutcome } from './onboarding.ts';
+import { renderPlanChoice } from './planChoice.ts';
+import { toast } from './toast.ts';
 import { renderSettings, type SettingsDeps } from './settings.ts';
 import { renderStats } from './stats.ts';
 import { renderWorkout } from './workout.ts';
@@ -85,6 +90,8 @@ import { fmtXp } from './xpfx.ts';
 import { DEFAULT_LOCALE, dirOf, pick, setLocale, tr } from '../i18n/locale.ts';
 import { setUnits } from '../i18n/units.ts';
 import { shell } from '../i18n/messages/shell.ts';
+import { onboarding as OB } from '../i18n/messages/onboarding.ts';
+import { plan as PM } from '../i18n/messages/plan.ts';
 import { DEFAULT_THEME, THEME_CHROME } from './theme.ts';
 
 /**
@@ -165,6 +172,13 @@ export interface AppHooks {
   photos?: Pick<PhotosDeps, 'blobs' | 'prepare' | 'camera'>;
   /** Fired at the end of every full render (lets main.ts clear a deferred repaint). */
   onRender?: () => void;
+  /**
+   * Greet a FRESH install with the opening questionnaire (ui/onboarding.ts)
+   * and offer the 👤 "complete your profile" card to users with history.
+   * Only `main.ts` sets it: a shell created without it (every older test)
+   * renders exactly the app it always has.
+   */
+  onboarding?: boolean;
 }
 
 /** Views that are not the plan editor — where "close the editor" goes back to. */
@@ -187,6 +201,10 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       d.ui.prizes = prizes;
     });
   }
+  // A new shell starts with no questionnaire in progress (its answers are
+  // module state, and a previous shell's half-answered session is not ours).
+  closeOnboarding();
+
   // Opened from an invitation link (`#rival=<handle>`): straight to 🏆 ליגה,
   // which asks before anything is decided. The hash leaves the address bar.
   captureRivalInvite(store, window);
@@ -263,8 +281,10 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     if (v === 'PL') {
       if (isReturnable(current)) returnView = current;
       // Always start the editor from what is actually saved — a draft left over
-      // from a previous visit must never be mistaken for the stored plan.
-      resetPlanDraft();
+      // from a previous visit must never be mistaken for the stored plan. An
+      // EMPTY plan has nothing saved: the editor starts from one empty day.
+      const state = store.getState();
+      resetPlanDraft(needsPlanChoice(state) ? blankPlanDoc(tr(PM).newDayLabel, state.profile?.weekdays ?? []) : null);
     }
     rememberInner(v);
     store.update((draft) => {
@@ -311,6 +331,8 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     if (hub === 'GM') return named(GAME_TABS);
     if (hub === 'NU') return named(NUTRITION_TABS);
     if (hub === 'SE') return named(SETTINGS_TABS);
+    // An EMPTY plan has no workouts to tab between: the hub is the plan picker.
+    if (needsPlanChoice(store.getState())) return [];
     return scheduleTabs(resolveProgram(store.getState().plan)).map((t) => ({
       viewId: t.viewId,
       title: t.title,
@@ -352,8 +374,12 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     // seven-day plan. The four main tabs are fixed, so the thing you press to
     // change context never moves.
     tabsEl.innerHTML = `
-    <div class="hub-row" role="tablist" aria-label="${esc(tr(shell).nav.mainLabel)}">${hubRow}</div>
-    <div class="sub-row ${tabs.length > 4 ? 'scroll' : ''}" role="tablist" aria-label="${esc(hubLabel)}">${innerRow}</div>`;
+    <div class="hub-row" role="tablist" aria-label="${esc(tr(shell).nav.mainLabel)}">${hubRow}</div>${
+      tabs.length === 0
+        ? ''
+        : `
+    <div class="sub-row ${tabs.length > 4 ? 'scroll' : ''}" role="tablist" aria-label="${esc(hubLabel)}">${innerRow}</div>`
+    }`;
 
     tabsEl.querySelectorAll<HTMLButtonElement>('.hub').forEach((b) => {
       b.addEventListener('click', () => {
@@ -415,8 +441,9 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     }
     if (view === 'PL') {
       const custom = !isDefaultPlan(state.plan);
+      const which = needsPlanChoice(state) ? tr(OB).choice.headTitle : custom ? H.PL.custom : H.PL.original;
       headerEl.innerHTML = `${titleHtml(H.PL.title, H.PL.sub)}
-      <p class="day-meta">${custom ? H.PL.custom : H.PL.original} · ${H.PL.saveHint}</p>
+      <p class="day-meta">${which} · ${H.PL.saveHint}</p>
       <button class="plan-back" id="btnPlanBack">${H.PL.back}</button>`;
       headerEl.querySelector<HTMLButtonElement>('#btnPlanBack')?.addEventListener('click', () => {
         setView(returnView);
@@ -440,6 +467,12 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
       const world = worldById(game.battle.world);
       headerEl.innerHTML = `${titleHtml(H.BT.title, H.BT.sub)}
       <p class="day-meta">${H.BT.meta(pick(world), `<b>${game.battle.wave}</b>`, `<b>${game.level}</b>`)}</p>${energyPill()}`;
+      return;
+    }
+    if (needsPlanChoice(state)) {
+      const C = tr(OB).choice;
+      headerEl.innerHTML = `${titleHtml(esc(C.headTitle), esc(C.headSub))}
+      <p class="day-meta">${esc(C.headMeta)}</p>${energyPill()}`;
       return;
     }
     const program = resolveProgram(state.plan);
@@ -540,11 +573,78 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     renderPlanEditor(mainEl, { store, rerender: renderPlanScreen, close: () => setView(returnView) });
   }
 
+  /* ------------------------------------------------- the questionnaire */
+
+  /** The questionnaire's own root: first in <body>, shown instead of the app. */
+  function onboardingRoot(): HTMLElement {
+    let root = document.getElementById('onb');
+    if (!root) {
+      root = document.createElement('div');
+      root.id = 'onb';
+      root.className = 'onb';
+      document.body.insertBefore(root, document.body.firstChild);
+    }
+    return root;
+  }
+
+  function hideOnboarding(): void {
+    document.getElementById('onb')?.remove();
+    if (document.body.classList.contains('onb-open')) document.body.classList.remove('onb-open');
+  }
+
+  /** Re-open the questionnaire prefilled, from the 👤 card on הגדרות. */
+  function openProfileEdit(): void {
+    openOnboarding(store, 'edit');
+    render();
+  }
+
+  function onboardingDone(outcome: OnboardingOutcome): void {
+    closeOnboarding();
+    if (outcome.kind === 'cancelled') {
+      render();
+      return;
+    }
+    if (outcome.kind === 'finished' && outcome.mode === 'edit') {
+      setView('ST');
+      toast(tr(OB).toast.saved);
+      return;
+    }
+    // A new user lands in the training hub: on the chosen plan's workout, or
+    // in front of the plan picker when they chose (or skipped to) none.
+    setView(defaultTabView(store.getState().plan));
+    if (outcome.kind === 'finished') toast(tr(OB).toast.welcome(outcome.name));
+  }
+
+  /**
+   * The questionnaire, INSTEAD of the app: the nav, header and screen are
+   * emptied (nothing of the app runs underneath) and `body.onb-open` hides
+   * their chrome, the footer and the rest timer.
+   */
+  function renderOnboardingScreen(): void {
+    exitCharacterPreview();
+    tabsEl.innerHTML = '';
+    headerEl.innerHTML = '';
+    mainEl.innerHTML = '';
+    document.body.classList.add('onb-open');
+    renderOnboarding(onboardingRoot(), { store, rerender: render, done: onboardingDone });
+    hooks.onRender?.();
+  }
+
   function render(): void {
     applyPrefs(store);
     // Battles run ONLY while the קרב tab is on screen — every render tears the
     // previous loop down before the new screen is mounted.
     stopBattle();
+    // A fresh install is greeted by the questionnaire — only when main.ts asked
+    // for it, and never anybody with history (`needsOnboarding`).
+    if (hooks.onboarding === true && !isOnboardingOpen() && needsOnboarding(store.getState(), store.getEvents())) {
+      openOnboarding(store, 'onboard');
+    }
+    if (isOnboardingOpen()) {
+      renderOnboardingScreen();
+      return;
+    }
+    hideOnboarding();
     // Canonicalise BEFORE painting anything: the stored view can point at a day
     // the plan no longer has (a preset picked in the editor, a cloud pull that
     // deleted a day on another device, a plan saved over a store that booted on
@@ -568,7 +668,14 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
     // the arena above all — can ever draw a character the player does not own.
     if (view !== 'CH') exitCharacterPreview();
     if (view === 'ST') {
-      renderSettings(mainEl, { store, rerender: render, editPlan: () => setView('PL'), ...hooks.settings });
+      renderSettings(mainEl, {
+        store,
+        rerender: render,
+        editPlan: () => setView('PL'),
+        ...hooks.settings,
+        profile: { open: openProfileEdit, offer: hooks.onboarding === true },
+        choosePlan: () => setHub('TR'),
+      });
     } else if (view === 'H') {
       renderHistory(mainEl, { store });
     } else if (view === 'SS') {
@@ -595,6 +702,13 @@ export function createApp(store: DataStore, timer: RestTimer, hooks: AppHooks = 
         remount: renderBattleScreen,
         editPlan: () => setView('PL'),
         ...(hooks.ghost ? { ghost: hooks.ghost } : {}),
+      });
+    } else if (needsPlanChoice(store.getState())) {
+      // No plan yet: the training hub IS the plan picker.
+      renderPlanChoice(mainEl, {
+        store,
+        started: () => setView(defaultTabView(store.getState().plan)),
+        build: () => setView('PL'),
       });
     } else {
       // The workout screen — and everything it writes — is keyed by the DAY.
