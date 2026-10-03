@@ -933,7 +933,10 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
     if (!confirm(tr(P).editor.resetConfirm)) {
       return;
     }
-    savePlan(deps.store, null);
+    // `null` means "the built-in program" — except for a user who went through
+    // onboarding, for whom no plan is the EMPTY plan (core/profile.ts
+    // needsPlanChoice). They get the original program as a document instead.
+    savePlan(deps.store, deps.store.getState().profile !== null ? defaultPlanDoc() : null);
     draft = clonePlanDoc(defaultPlanDoc());
     sheet = 'closed';
     toast(tr(P).editor.resetToast);
