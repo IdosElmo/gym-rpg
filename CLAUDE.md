@@ -108,6 +108,22 @@ way (a spec, a demo, a `tests/cardio.dom.test.ts`-style check of the ladder).
   `tests/catalog.test.ts` pins the fixed meals' prices — re-pin deliberately. A pick is
   priced in code (`core/catalog.ts`) and frozen into its `meal_logged` payload, so editing
   the catalog never rewrites history. The same catalog rides to the ✨ estimator as hints.
+- **Exercise library groups**: new built-ins go in their group's marked section of
+  `EXTRA_EXERCISES` (`program.ts`), `exercisePoses.ts` and `i18n/content/program.en.ts` —
+  GYM `g*` (barbell/cable/machine), HOME `h*` (dumbbells/bands), BODYWEIGHT `w*` (home or
+  outdoors, no equipment). Re-pin the counts in `tests/exercisePoses.test.ts` and
+  `tests/i18n.content.test.ts` deliberately.
+- **Plan library** (`src/data/planLibrary.ts`, built by `src/core/planLibrary.ts`): 30 templates,
+  days 2–6 × location (`gym` / `home_dumbbells` / `home_none`) × men's/women's variation, each
+  obeying its location's equipment rule (tests enforce it). The questionnaire's goal,
+  experience, session length and injuries are applied when a plan is BUILT
+  (`buildLibraryPlan`), never stored on the template. `recommendPreset` (core/profile.ts) maps
+  a profile to a template. `builtin3` / `ab4` (`PLAN_PRESETS`) stay byte-identical.
+- **Ready meals & menus**: `READY_MEALS` (everyone) are separate from the owners' `FIXED_MEALS`
+  (shown only to an account that ate them, `myFixedMeals`). Daily sample menus are data over
+  ready meals; a user's own saved meals are `meal_template_saved` / `meal_template_deleted`
+  events folded into `NutritionState`. Carbs/fat are optional on meals and targets — unknown
+  is never 0.
 - **Equipment** (seven slots, helmet to cape): `EQUIPMENT` in `gameContent.ts`; a new slot needs a
   layer + anchor + flair spot in `ui/characterSvg.ts` (the artwork sweeps cover it); stats flow through `equippedBonus`/
   `deriveStats` (the single stat seam). Art anchors to `characterAnchors`; upgrade flair
