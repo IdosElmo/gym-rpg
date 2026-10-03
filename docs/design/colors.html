@@ -1,5 +1,5 @@
 <meta charset="utf-8">
-<title>Gym RPG Palettes</title>
+<title>Gym RPG Color Lab</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=Fredoka:wght@500;600;700&family=Heebo:wght@400;500;700;800;900&display=swap">
@@ -191,52 +191,49 @@ h3, h4 { margin: 0; }
 .tbar .tb .ic { width: 16px; height: 16px; }
 .nav { padding-block: 6px 14px; }
 
-/* ═════════ A — Pulse (the one you liked): graphite + electric blue ═════════ */
-.pulse {
-  --p-bg: #0e1118; --p-fg: #edf0f6; --p-dim: #8a93a6; --p-card: #161a23; --p-line: #232a37; --p-line2: #343d4e;
-  --p-track: #212836; --p-input: #1d2330; --p-nav: #0e1118; --p-accent: #4c8dff; --p-on-accent: #fff; --p-sel: #141d31;
-  --p-ok: #19c08a; --p-on-ok: #04140e; --p-okbg: #11261f; --p-gold: #f5b544; --p-xp: #4c8dff;
-  --p-tag: #1d2638; --p-tagfg: #a9c4ff; --p-tipbg: #141d31; --p-tbar: #121722; --p-timer: #f5b544;
+
+/* ───────── v3: one phone palette = a BASE (surfaces) + an ACCENT (the brand colour) ───────── */
+/* Accent-derived tints are mixed here, so every accent works on every base. */
+.phone {
+  --p-sel: color-mix(in srgb, var(--p-accent) 16%, var(--p-card));
+  --p-tag: color-mix(in srgb, var(--p-accent) 18%, var(--p-card));
+  --p-tagfg: var(--p-ink);
+  --p-tipbg: color-mix(in srgb, var(--p-accent) 12%, var(--p-card));
+  --p-xp: var(--p-accent);
   --p-display: "Rubik", system-ui, sans-serif; --p-body: "Rubik", system-ui, sans-serif;
   --p-dw: 700; --p-dw2: 600; --p-dtrack: -0.02em; --p-r: 16px; --p-eyecase: none; --p-eyetrack: 0;
+  background: var(--p-shell, #05070b);
 }
+.nav a.on, .tip .ic, .meal.add { color: var(--p-ink); }
+.ring .trk { stroke: var(--p-track); }
+.ring .val { stroke: var(--p-accent); }
+.light-base .ex, .light-base .meal, .light-base .ring-row, .light-base .opt { box-shadow: 0 1px 2px rgba(24,32,46,.06); }
 
-/* ═════════ B — Slate: Pulse's structure on a lighter, warmer grey ═════════ */
-.slate {
-  --p-bg: #2c3038; --p-fg: #f3f4f6; --p-dim: #aab0bb; --p-card: #373c45; --p-line: #444a55; --p-line2: #59606c;
-  --p-track: #444a55; --p-input: #30343c; --p-nav: #2a2e35; --p-accent: #6aa5ff; --p-on-accent: #0b1730; --p-sel: #343d4f;
-  --p-ok: #34d399; --p-on-ok: #052e1f; --p-okbg: #2f4740; --p-gold: #fbbf24; --p-xp: #6aa5ff;
-  --p-tag: #3d4656; --p-tagfg: #c7dbff; --p-tipbg: #343d4f; --p-tbar: #30343c; --p-timer: #fbbf24;
-  --p-display: "Rubik", system-ui, sans-serif; --p-body: "Rubik", system-ui, sans-serif;
-  --p-dw: 700; --p-dw2: 600; --p-dtrack: -0.02em; --p-r: 16px; --p-eyecase: none; --p-eyetrack: 0;
-}
-
-/* ═════════ C — Fog: light grey, white cards, the same blue ═════════ */
-.fog {
-  --p-bg: #eceef2; --p-fg: #18202e; --p-dim: #667084; --p-card: #ffffff; --p-line: #dde1e8; --p-line2: #c4cad4;
-  --p-track: #e4e7ed; --p-input: #f1f3f6; --p-nav: #ffffff; --p-accent: #2f6feb; --p-on-accent: #fff; --p-sel: #eaf1ff;
-  --p-ok: #10a874; --p-on-ok: #fff; --p-okbg: #e2f5ee; --p-gold: #b7791f; --p-xp: #2f6feb;
-  --p-tag: #eaf1ff; --p-tagfg: #2456c9; --p-tipbg: #eaf1ff; --p-tbar: #ffffff; --p-timer: #d97706;
-  --p-display: "Rubik", system-ui, sans-serif; --p-body: "Rubik", system-ui, sans-serif;
-  --p-dw: 700; --p-dw2: 600; --p-dtrack: -0.02em; --p-r: 16px; --p-eyecase: none; --p-eyetrack: 0;
-}
-.phone.fog-shell { background: #cfd4dc; }
-.fog .ex, .fog .meal, .fog .ring-row, .fog .opt { box-shadow: 0 1px 2px rgba(24,32,46,.06); }
-
-/* ═════════ D — Navy: deep navy blue, sky-blue accent, gold for the game ═════════ */
-.navy {
-  --p-bg: #0d1b36; --p-fg: #eef3ff; --p-dim: #94a6c9; --p-card: #142649; --p-line: #1f3563; --p-line2: #2f4a80;
-  --p-track: #1d335e; --p-input: #10213f; --p-nav: #0b1730; --p-accent: #4fb3ff; --p-on-accent: #04192e; --p-sel: #17335e;
-  --p-ok: #2dd4a0; --p-on-ok: #03241a; --p-okbg: #133a44; --p-gold: #ffc35a; --p-xp: #ffc35a;
-  --p-tag: #1b3460; --p-tagfg: #bfe3ff; --p-tipbg: #17335e; --p-tbar: #0f1f3d; --p-timer: #ffc35a;
-  --p-display: "Rubik", system-ui, sans-serif; --p-body: "Rubik", system-ui, sans-serif;
-  --p-dw: 700; --p-dw2: 600; --p-dtrack: -0.02em; --p-r: 16px; --p-eyecase: none; --p-eyetrack: 0;
-}
-
-.notes { margin-top: 28px; border: 1px solid var(--line); background: var(--panel); border-radius: 14px; padding: 16px 18px; }
-.notes h2 { margin: 0 0 6px; font-size: 18px; }
-.notes ul { margin: 0; padding-inline-start: 18px; }
-.notes li { margin: 4px 0; }
+/* ───────── the picker ───────── */
+.picker { display: grid; gap: 18px; margin-top: 24px; }
+.ctl-label { font-size: 12px; font-weight: 700; letter-spacing: .06em; color: var(--muted); margin-bottom: 8px; }
+.bases { display: flex; flex-wrap: wrap; gap: 8px; }
+.base-btn { font: inherit; font-size: 14px; font-weight: 600; min-height: 44px; padding-inline: 14px; border-radius: 12px; border: 1.5px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+.base-btn i { width: 18px; height: 18px; border-radius: 6px; border: 1px solid rgba(127,127,127,.35); flex: none; }
+.base-btn[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
+.families { display: grid; gap: 12px; }
+.fam { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 10px; align-items: start; }
+.fam-name { font-size: 13px; font-weight: 700; padding-top: 12px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.sw { font: inherit; cursor: pointer; border-radius: 14px; border: 1.5px solid var(--line); background: var(--panel); color: var(--fg); padding: 6px 10px 6px 6px; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; }
+[dir="rtl"] .sw { padding: 6px 6px 6px 10px; }
+.sw .dot { width: 30px; height: 30px; border-radius: 10px; flex: none; position: relative; }
+.sw .dot::after { content: ""; position: absolute; inset: 9px; border-radius: 50%; background: var(--on); opacity: .85; }
+.sw span { display: grid; text-align: start; line-height: 1.2; }
+.sw b { font-size: 13px; font-weight: 600; }
+.sw small { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; direction: ltr; text-align: start; }
+.sw[aria-pressed="true"] { border-color: var(--fg); box-shadow: 0 0 0 2px color-mix(in srgb, var(--fg) 25%, transparent); }
+.sw:focus-visible, .base-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.current { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin-top: 4px; }
+.current h2 { margin: 0; font-size: 22px; }
+.current p { margin: 0; color: var(--muted); }
+.stage { position: sticky; top: env(safe-area-inset-top, 0px); }
+@media (max-width: 520px) { .fam { grid-template-columns: minmax(0, 1fr); gap: 4px; } .fam-name { padding-top: 0; } }
 @media (prefers-reduced-motion: no-preference) {
   .rest .t { animation: pulse 2s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: .65; } }
@@ -267,12 +264,11 @@ h3, h4 { margin: 0; }
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
   <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18" cy="12" r="1.3"/></symbol>
 </svg>
-
 <div class="page" dir="rtl" lang="he">
   <header class="top">
     <div>
-      <h1>כיווני עיצוב, סבב 2</h1>
-      <p>Pulse לצד שלוש פלטות חדשות: אפור בהיר יותר, בהיר, וכחול נייבי. המבנה זהה בכולן, אז ההשוואה היא רק על הצבעים. כל הנתונים לדוגמה.</p>
+      <h1>מעבדת צבעים</h1>
+      <p>בוחרים רקע ואז צבע, ושלושת המסכים נצבעים מחדש. אותו מבנה כמו בסבב הקודם, כולל הטיימר המלא ו"אימון קודם" מתחת לקלט. הבחירה האחרונה נשמרת אם תחזרו לדף.</p>
     </div>
     <div class="lang" role="group" aria-label="שפת המסכים">
       <button type="button" id="lang-he" aria-pressed="true">עברית</button>
@@ -280,63 +276,24 @@ h3, h4 { margin: 0; }
     </div>
   </header>
 
-  <section class="dir">
-    <div class="dir-head">
-      <span class="tag">מה השתנה מהסבב הקודם</span>
-      <ul>
-        <li><b>טיימר המנוחה</b> שומר את כל מה שיש היום: ‎−15/+15‎ שניות, השהה, איפוס וסגירה. הוא עובר לפס קבוע מעל הניווט, עם פס התקדמות בראשו.</li>
-        <li><b>"אימון קודם"</b> נשאר מתחת לקוביות הקלט, כמו היום, ולא בעמודה משלו. גם המספרים מהפעם הקודמת עדיין ממולאים מראש בצבע חיוור, כך שסט שחוזר על עצמו נרשם בלחיצת ✓.</li>
-        <li><b>שאלון הפתיחה</b> קיבל אפשרות שישית: "משהו אחר".</li>
-      </ul>
+  <div class="picker">
+    <div>
+      <div class="ctl-label">רקע</div>
+      <div class="bases" id="bases"></div>
     </div>
-  </section>
-
-  <section class="dir">
-    <div class="dir-head">
-      <span class="tag">A · הכיוון שבחרת</span>
-      <h2>Pulse</h2>
-      <p>גרפיט כמעט שחור עם כחול חשמלי. הכי דרמטי, והכי קרוב לאפליקציה של היום.</p>
+    <div>
+      <div class="ctl-label">צבע</div>
+      <div class="families" id="families"></div>
     </div>
-    <div class="rail" data-concept="pulse"></div>
-  </section>
-
-  <section class="dir">
-    <div class="dir-head">
-      <span class="tag">B · חדש</span>
-      <h2>Slate</h2>
-      <p>אותו Pulse על אפור בינוני וחם יותר. פחות "לילה", נוח יותר לעין באור יום, ועדיין נראה כמו אפליקציית כושר כהה.</p>
-    </div>
-    <div class="rail" data-concept="slate"></div>
-  </section>
-
-  <section class="dir">
-    <div class="dir-head">
-      <span class="tag">C · חדש</span>
-      <h2>Fog</h2>
-      <p>אפור בהיר עם כרטיסים לבנים ואותו כחול. נקי ואוורירי, קריא מאוד בחדר כושר מואר. אם תבחרו כיוון כהה, זה יכול להיות מצב התצוגה הבהיר שלו.</p>
-    </div>
-    <div class="rail" data-concept="fog"></div>
-  </section>
-
-  <section class="dir">
-    <div class="dir-head">
-      <span class="tag">D · חדש</span>
-      <h2>Navy</h2>
-      <p>כחול נייבי עמוק עם תכלת כצבע מבטא וזהב למשחק (XP, אנרגיה, טיימר). חם ואישי יותר מגרפיט, ומקבל זהות משלו.</p>
-    </div>
-    <div class="rail" data-concept="navy"></div>
-  </section>
-
-  <div class="notes">
-    <h2>רשמתי לשלבים הבאים</h2>
-    <ul>
-      <li><b>יעד "אחר" בשאלון (שלב ד׳):</b> למי שלא מוצא את עצמו ביעדים. מקבל תוכנית בסיס כללית לפי ימים ומקום אימון, ושדה טקסט קצר "מה המטרה שלך?" שנשמר בפרופיל.</li>
-      <li><b>תוכניות לגבר ולאישה (שלב ה׳):</b> כל תוכנית מוכנה תגיע בשתי וריאציות. אותו שלד, ודגשים שונים בבחירת התרגילים, בנפח לפי קבוצת שריר ובמשקלי הפתיחה המוצעים. הווריאציה נבחרת לפי המין בשאלון, ואפשר להחליף בלחיצה.</li>
-    </ul>
   </div>
 
+  <section class="dir">
+    <div class="current"><h2 id="cur-name"></h2><p class="ltr" id="cur-hex"></p></div>
+    <div class="rail" id="rail"></div>
+  </section>
+
   <footer class="note">
-    הצבעים כאן הם הצעה ראשונה, ואפשר לכוונן כל אחד מהם. באפליקציה עצמה הגופנים יוטמעו בקובץ, כך שהיא תישאר אופליין לגמרי.
+    בכל צבע יש שלושה גוונים. הגוון הבוהק משמש למילויים, לטבעות ולפסים. גוון כהה יותר משמש לטקסט על רקע בהיר, כדי שיישאר קריא. וגוון שלישי משמש לטקסט שעל הצבע עצמו. ירוק (סט שהושלם) וזהב (טיימר ואנרגיה) נשארים קבועים, כי יש להם משמעות. אם תבחרו בירוק, הוא ייפרד מהירוק של "הושלם" בעיצוב הסופי.
   </footer>
 </div>
 
@@ -425,11 +382,11 @@ h3, h4 { margin: 0; }
       nav('tr') + '</div>';
   }
 
-  var RING = { pulse: ['#4c8dff', '#212836'], slate: ['#6aa5ff', '#444a55'], fog: ['#2f6feb', '#e4e7ed'], navy: ['#4fb3ff', '#1d335e'] };
-  var MAC = { pulse: ['#19c08a', '#f5b544', '#ff6f9c'], slate: ['#34d399', '#fbbf24', '#fb7aa5'], fog: ['#10a874', '#d08a0f', '#e5487c'], navy: ['#2dd4a0', '#ffc35a', '#ff7fa8'] };
+  var MAC = ['#19c08a', '#f5b544', '#ff6f9c'];
+  var MAC_LIGHT = ['#10a874', '#d08a0f', '#e5487c'];
 
-  function nutrition(c) {
-    var ring = RING[c], mc = MAC[c];
+  function nutrition(light) {
+    var mc = light ? MAC_LIGHT : MAC;
     var macros = [[T('חלבון', 'Protein'), 112, 150, mc[0]], [T('פחמימות', 'Carbs'), 140, 220, mc[1]], [T('שומן', 'Fat'), 45, 70, mc[2]]];
     var circ = 2 * Math.PI * 46, frac = 1420 / 2150;
     var meals = [
@@ -440,7 +397,7 @@ h3, h4 { margin: 0; }
     return '<div class="scr">' + statusbar() +
       '<div class="body">' +
         '<div class="dayhead"><div><div class="eyebrow">' + T('יום שלישי, 2 באוקטובר', 'Tuesday, Oct 2') + '</div><div class="title">' + T('תזונה', 'Nutrition') + '</div></div><span class="chip">' + ic('target') + '<span>' + T('בניית שריר', 'Build muscle') + '</span></span></div>' +
-        '<div class="ring-row"><div class="ring"><svg viewBox="0 0 112 112" aria-hidden="true"><circle cx="56" cy="56" r="46" fill="none" stroke="' + ring[1] + '" stroke-width="11"/><circle cx="56" cy="56" r="46" fill="none" stroke="' + ring[0] + '" stroke-width="11" stroke-linecap="round" stroke-dasharray="' + (circ * frac).toFixed(1) + ' ' + circ.toFixed(1) + '"/></svg>' +
+        '<div class="ring-row"><div class="ring"><svg viewBox="0 0 112 112" aria-hidden="true"><circle class="trk" cx="56" cy="56" r="46" fill="none" stroke-width="11"/><circle class="val" cx="56" cy="56" r="46" fill="none" stroke-width="11" stroke-linecap="round" stroke-dasharray="' + (circ * frac).toFixed(1) + ' ' + circ.toFixed(1) + '"/></svg>' +
           '<div class="c"><b class="num">730</b><small>' + T('קק״ל נותרו', 'kcal left') + '</small><small class="num ltr">1,420 / 2,150</small></div></div>' +
           '<div class="macros">' + macros.map(function (m) {
             return '<div class="mac"><div class="l"><span>' + m[0] + '</span><span class="num">' + m[1] + '/' + m[2] + T(' ג׳', ' g') + '</span></div><div class="bar"><i style="width:' + Math.round(100 * m[1] / m[2]) + '%;background:' + m[3] + '"></i></div></div>';
@@ -453,17 +410,121 @@ h3, h4 { margin: 0; }
       '</div>' + nav('nu') + '</div>';
   }
 
+  /* Surfaces. `light` bases draw accent TEXT with the accent's deep shade. */
+  var BASES = [
+    { id: 'graphite', he: 'גרפיט', en: 'Graphite', light: false, swatch: '#0e1118', v: {
+      bg: '#0e1118', fg: '#edf0f6', dim: '#8a93a6', card: '#161a23', line: '#232a37', line2: '#343d4e', track: '#212836', input: '#1d2330', nav: '#0e1118', tbar: '#121722',
+      ok: '#19c08a', 'on-ok': '#04140e', okbg: '#11261f', gold: '#f5b544', timer: '#f5b544', shell: '#05070b' } },
+    { id: 'slate', he: 'אפור', en: 'Slate', light: false, swatch: '#2c3038', v: {
+      bg: '#2c3038', fg: '#f3f4f6', dim: '#aab0bb', card: '#373c45', line: '#444a55', line2: '#59606c', track: '#444a55', input: '#30343c', nav: '#2a2e35', tbar: '#30343c',
+      ok: '#34d399', 'on-ok': '#052e1f', okbg: '#2f4740', gold: '#fbbf24', timer: '#fbbf24', shell: '#05070b' } },
+    { id: 'navy', he: 'נייבי', en: 'Navy', light: false, swatch: '#0d1b36', v: {
+      bg: '#0d1b36', fg: '#eef3ff', dim: '#94a6c9', card: '#142649', line: '#1f3563', line2: '#2f4a80', track: '#1d335e', input: '#10213f', nav: '#0b1730', tbar: '#0f1f3d',
+      ok: '#2dd4a0', 'on-ok': '#03241a', okbg: '#133a44', gold: '#ffc35a', timer: '#ffc35a', shell: '#05070b' } },
+    { id: 'light', he: 'בהיר', en: 'Light', light: true, swatch: '#eceef2', v: {
+      bg: '#eceef2', fg: '#18202e', dim: '#667084', card: '#ffffff', line: '#dde1e8', line2: '#c4cad4', track: '#e4e7ed', input: '#f1f3f6', nav: '#ffffff', tbar: '#ffffff',
+      ok: '#10a874', 'on-ok': '#ffffff', okbg: '#e2f5ee', gold: '#b7791f', timer: '#d97706', shell: '#cfd4dc' } },
+    { id: 'tint', he: 'בהיר בגוון הצבע', en: 'Light, tinted', light: true, tinted: true, swatch: 'linear-gradient(135deg,#fde7f1,#e6f4ff)', v: {
+      fg: '#18202e', dim: '#5f6878', card: '#ffffff', nav: '#ffffff', tbar: '#ffffff',
+      ok: '#10a874', 'on-ok': '#ffffff', okbg: '#e2f5ee', gold: '#b7791f', timer: '#d97706', shell: '#cfd4dc' } }
+  ];
+
+  /* Accents: main = the bright colour (fills, rings, bars); deep = the same hue dark
+     enough to read as TEXT on a light surface; on = text drawn ON a main-colour fill. */
+  var FAMILIES = [
+    { he: 'כחול ותכלת', en: 'Blue & sky', list: [
+      { id: 'electric', he: 'כחול חשמלי', en: 'Electric', main: '#4c8dff', deep: '#2563eb', on: '#ffffff', note: T0('הכחול של Pulse', 'Pulse’s blue') },
+      { id: 'azure', he: 'כחול בוהק', en: 'Azure', main: '#2f9bff', deep: '#0b6bd6', on: '#ffffff' },
+      { id: 'sky', he: 'תכלת', en: 'Sky', main: '#5cc8ff', deep: '#0284c7', on: '#04263a' },
+      { id: 'ice', he: 'תכלת קרח', en: 'Ice', main: '#8adcff', deep: '#0369a1', on: '#062a3d' },
+      { id: 'cyan', he: 'טורקיז', en: 'Cyan', main: '#22d3ee', deep: '#0e7490', on: '#032a31' }
+    ] },
+    { he: 'ירוק', en: 'Green', list: [
+      { id: 'mint', he: 'מנטה', en: 'Mint', main: '#34e0a1', deep: '#059669', on: '#03281b' },
+      { id: 'emerald', he: 'אמרלד', en: 'Emerald', main: '#10c47e', deep: '#047857', on: '#03241a' },
+      { id: 'lime', he: 'ירוק ליים', en: 'Lime', main: '#8ee05a', deep: '#3f7d12', on: '#142a05' }
+    ] },
+    { he: 'כתום', en: 'Orange', list: [
+      { id: 'tangerine', he: 'מנדרינה', en: 'Tangerine', main: '#ff8a3d', deep: '#c2410c', on: '#2b1100' },
+      { id: 'amber', he: 'ענבר', en: 'Amber', main: '#ffb020', deep: '#b45309', on: '#2b1c00' },
+      { id: 'coral', he: 'אלמוג', en: 'Coral', main: '#ff6b5e', deep: '#c2352a', on: '#2d0b08' }
+    ] },
+    { he: 'סגול', en: 'Purple', list: [
+      { id: 'violet', he: 'סגול', en: 'Violet', main: '#8b6cff', deep: '#6d28d9', on: '#ffffff' },
+      { id: 'lavender', he: 'לבנדר', en: 'Lavender', main: '#b79cff', deep: '#7c3aed', on: '#1f1147' },
+      { id: 'grape', he: 'ענב', en: 'Grape', main: '#a855f7', deep: '#7e22ce', on: '#ffffff' }
+    ] },
+    { he: 'ורוד', en: 'Pink', list: [
+      { id: 'rose', he: 'ורוד', en: 'Rose', main: '#ff5c9a', deep: '#db2777', on: '#ffffff' },
+      { id: 'bubblegum', he: 'מסטיק', en: 'Bubblegum', main: '#ff8cc6', deep: '#be185d', on: '#3a0c22' },
+      { id: 'fuchsia', he: 'פוקסיה', en: 'Fuchsia', main: '#f050e0', deep: '#a21caf', on: '#ffffff' }
+    ] }
+  ];
+  function T0(he, en) { return { he: he, en: en }; }
+
+  function accentById(id) {
+    for (var i = 0; i < FAMILIES.length; i++) for (var j = 0; j < FAMILIES[i].list.length; j++) if (FAMILIES[i].list[j].id === id) return FAMILIES[i].list[j];
+    return FAMILIES[0].list[0];
+  }
+  function baseById(id) { for (var i = 0; i < BASES.length; i++) if (BASES[i].id === id) return BASES[i]; return BASES[0]; }
+
+  function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } return null; }
+  var state = { base: store('pal.base') || 'graphite', accent: store('pal.accent') || 'electric' };
+
+  function phoneVars(base, acc) {
+    var v = {}, k;
+    for (k in base.v) v[k] = base.v[k];
+    if (base.tinted) {
+      v.bg = 'color-mix(in srgb, ' + acc.main + ' 10%, #f6f7f9)';
+      v.line = 'color-mix(in srgb, ' + acc.main + ' 18%, #e3e6eb)';
+      v.line2 = 'color-mix(in srgb, ' + acc.main + ' 30%, #c9cfd8)';
+      v.track = 'color-mix(in srgb, ' + acc.main + ' 16%, #eef0f3)';
+      v.input = 'color-mix(in srgb, ' + acc.main + ' 7%, #f3f4f6)';
+      v.shell = 'color-mix(in srgb, ' + acc.main + ' 25%, #cfd4dc)';
+    }
+    v.accent = acc.main;
+    v['on-accent'] = acc.on;
+    v.ink = base.light ? acc.deep : acc.main;
+    var css = '';
+    for (k in v) css += '--p-' + k + ':' + v[k] + ';';
+    return css;
+  }
+
+  function renderPicker() {
+    var b = document.getElementById('bases');
+    b.innerHTML = BASES.map(function (x) {
+      return '<button type="button" class="base-btn" data-base="' + x.id + '" aria-pressed="' + (x.id === state.base) + '"><i style="background:' + x.swatch + '"></i>' + (lang === 'he' ? x.he : x.en) + '</button>';
+    }).join('');
+    var f = document.getElementById('families');
+    f.innerHTML = FAMILIES.map(function (fam) {
+      return '<div class="fam"><div class="fam-name">' + (lang === 'he' ? fam.he : fam.en) + '</div><div class="swatches">' + fam.list.map(function (a) {
+        return '<button type="button" class="sw" data-accent="' + a.id + '" aria-pressed="' + (a.id === state.accent) + '"><i class="dot" style="background:' + a.main + ';--on:' + a.on + '"></i><span><b>' + (lang === 'he' ? a.he : a.en) + '</b><small>' + a.main + '</small></span></button>';
+      }).join('') + '</div></div>';
+    }).join('');
+  }
+
   function render() {
-    document.querySelectorAll('.rail[data-concept]').forEach(function (rail) {
-      var c = rail.getAttribute('data-concept');
-      var screens = [[workout(c), T('אימון + טיימר', 'Workout + timer')], [onboarding(c), T('שאלון פתיחה', 'Onboarding')], [nutrition(c), T('תזונה', 'Nutrition')]];
-      rail.innerHTML = screens.map(function (s) {
-        return '<figure><div class="phone ' + c + (c === 'fog' ? ' fog-shell' : '') + '" dir="' + (lang === 'he' ? 'rtl' : 'ltr') + '" lang="' + lang + '">' + s[0] + '</div><figcaption>' + s[1] + '</figcaption></figure>';
-      }).join('');
-    });
+    var base = baseById(state.base), acc = accentById(state.accent);
+    renderPicker();
+    document.getElementById('cur-name').textContent = (lang === 'he' ? acc.he + ' על ' + base.he : acc.en + ' on ' + base.en);
+    document.getElementById('cur-hex').textContent = acc.main;
+    var rail = document.getElementById('rail');
+    var vars = phoneVars(base, acc);
+    var screens = [[workout(), T('אימון + טיימר', 'Workout + timer')], [onboarding(), T('שאלון פתיחה', 'Onboarding')], [nutrition(base.light), T('תזונה', 'Nutrition')]];
+    rail.innerHTML = screens.map(function (s) {
+      return '<figure><div class="phone' + (base.light ? ' light-base' : '') + '" style="' + vars + '" dir="' + (lang === 'he' ? 'rtl' : 'ltr') + '" lang="' + lang + '">' + s[0] + '</div><figcaption>' + s[1] + '</figcaption></figure>';
+    }).join('');
     document.getElementById('lang-he').setAttribute('aria-pressed', String(lang === 'he'));
     document.getElementById('lang-en').setAttribute('aria-pressed', String(lang === 'en'));
   }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest ? e.target.closest('[data-base],[data-accent]') : null;
+    if (!t) return;
+    if (t.dataset.base) { state.base = t.dataset.base; store('pal.base', state.base); }
+    if (t.dataset.accent) { state.accent = t.dataset.accent; store('pal.accent', state.accent); }
+    render();
+  });
   document.getElementById('lang-he').addEventListener('click', function () { lang = 'he'; render(); });
   document.getElementById('lang-en').addEventListener('click', function () { lang = 'en'; render(); });
   render();
