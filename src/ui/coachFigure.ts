@@ -94,6 +94,14 @@ export interface Pose {
   readonly hipRoll?: number;
   /** Shoulder elevation along the spine (a shrug). Positive = shoulders up. */
   readonly shrug?: number;
+  /**
+   * FRONT (and three-quarter) view only: how much of each ARM's length survives
+   * the projection. 1 (the default) is an arm in the picture plane; less is an
+   * arm reaching AT the camera, which a front view can only draw short — a band
+   * pull-apart starts with both arms straight out in front at shoulder height,
+   * and a full-length arm there would have to hang down to the belly instead.
+   */
+  readonly reach?: number;
 }
 
 export interface SideJoints {
@@ -225,8 +233,8 @@ function legChain(hip: Vec, l: LegAngles, mirror: 1 | -1, k: number): Pick<SideJ
   return { hip, knee, ankle, toe: step(ankle, f, RIG.foot * k) };
 }
 
-function side(shoulder: Vec, hip: Vec, a: ArmAngles, l: LegAngles, mirror: 1 | -1, k = 1): SideJoints {
-  return { ...armChain(shoulder, a, mirror, k), ...legChain(hip, l, mirror, k) };
+function side(shoulder: Vec, hip: Vec, a: ArmAngles, l: LegAngles, mirror: 1 | -1, k = 1, armK = k): SideJoints {
+  return { ...armChain(shoulder, a, mirror, armK), ...legChain(hip, l, mirror, k) };
 }
 
 /** Pose → every joint position. The one place the skeleton is assembled. */
@@ -248,6 +256,7 @@ export function forwardKinematics(pose: Pose, view: View = 'side'): Joints {
     const spread = q ? Q.spread : 1;
     const scale = q ? Q.foreshorten : 1;
     const on = (p: Vec, d: Vec): Vec => (q ? { x: p.x + d.x, y: p.y + d.y } : p);
+    const reach = pose.reach ?? 1;
     return {
       pelvis,
       neck,
@@ -259,6 +268,8 @@ export function forwardKinematics(pose: Pose, view: View = 'side'): Joints {
         pose.arm,
         pose.leg,
         1,
+        1,
+        reach,
       ),
       far: side(
         on(step(shoulders, roll + 180, RIG.shoulderHalf * spread), Q.far),
@@ -267,6 +278,7 @@ export function forwardKinematics(pose: Pose, view: View = 'side'): Joints {
         pose.legF,
         -1,
         scale,
+        scale * reach,
       ),
     };
   }
@@ -314,6 +326,7 @@ export function lerpPose(a: Pose, b: Pose, t: number): Pose {
     roll: mix(a.roll ?? 0, b.roll ?? 0, t),
     hipRoll: mix(a.hipRoll ?? 0, b.hipRoll ?? 0, t),
     shrug: mix(a.shrug ?? 0, b.shrug ?? 0, t),
+    reach: mix(a.reach ?? 1, b.reach ?? 1, t),
   };
 }
 
@@ -685,7 +698,13 @@ export type Hold =
   /** An abduction machine's pads, one outside each knee (front view). */
   | { readonly k: 'kneePads' }
   /** A cable from `from` to a cuff on the near ANKLE (a cable kickback). */
-  | { readonly k: 'ankleCable'; readonly from: readonly [number, number] };
+  | { readonly k: 'ankleCable'; readonly from: readonly [number, number] }
+  /** A resistance band stretched between the two fists (a pull-apart). */
+  | { readonly k: 'band' }
+  /** A band from a fixed anchor `from` (a door, a post) to both fists (a band row). */
+  | { readonly k: 'bandAnchored'; readonly from: readonly [number, number] }
+  /** A mini-band loop around both legs at the knees (a lateral walk). */
+  | { readonly k: 'bandLoop' };
 
 function mid(a: Vec, b: Vec): Vec {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -740,6 +759,14 @@ export function holdAnchors(hold: Hold, j: Joints): Vec[] {
       return [j.near.knee];
     case 'ankleCable':
       return [j.near.ankle];
+    // a band is held in two fists, so both of them anchor it
+    case 'band':
+      return [j.near.grip, j.far.grip];
+    case 'bandAnchored':
+      return [mid(j.near.grip, j.far.grip)];
+    // the loop runs knee to knee; the near knee is the one the eye follows
+    case 'bandLoop':
+      return [j.near.knee];
   }
 }
 
@@ -921,5 +948,27 @@ export function holdSvg(hold: Hold, j: Joints): string {
         `<path class="cd-iron cd-bar" d="${line(step(cuff, a + 90, 3), step(cuff, a - 90, 3))}"/>`
       );
     }
+    // A BAND is the load, so it takes the iron's colour — but it is drawn as
+    // what it is: one elastic strand, never a bar. Between the fists for a
+    // pull-apart; from its anchor to the fists, with a short handle across
+    // them, for a band row; knee to knee for a mini-band loop.
+    case 'band':
+      return bandSvg(j.far.grip, j.near.grip);
+    case 'bandAnchored': {
+      const from: Vec = { x: hold.from[0] ?? 0, y: hold.from[1] ?? 0 };
+      const hands = mid(j.near.grip, j.far.grip);
+      const a = angleOf(from, hands);
+      return (
+        bandSvg(from, hands) +
+        `<path class="cd-iron cd-bar" d="${line(step(hands, a + 90, 4), step(hands, a - 90, 4))}"/>`
+      );
+    }
+    case 'bandLoop':
+      return bandSvg(j.far.knee, j.near.knee);
   }
+}
+
+/** One resistance band: an elastic strand in the load's colour. */
+function bandSvg(a: Vec, b: Vec): string {
+  return `<path class="cd-iron cd-band" d="${line(a, b)}"/>`;
 }

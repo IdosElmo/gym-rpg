@@ -164,8 +164,8 @@ const eachFrame = (d: DemoVariant, fn: (j: Joints, pose: Pose, i: number) => voi
 describe('coverage', () => {
   it('demonstrates every built-in exercise, exactly once, and nothing else', () => {
     const builtIn = builtInExercises().map((e) => e.id);
-    // 53 program + library exercises; the gym library (g1–g12) added 12
-    expect(builtIn).toHaveLength(65);
+    // 53 program + library exercises; the gym (g1–g12) and home (h1–h12) libraries added 24
+    expect(builtIn).toHaveLength(77);
     expect(EXERCISE_DEMOS.map((d) => d.id).sort()).toEqual([...builtIn].sort());
     expect(new Set(EXERCISE_DEMOS.map((d) => d.id)).size).toBe(EXERCISE_DEMOS.length);
     for (const d of EXERCISE_DEMOS) expect(findExercise(d.id)).not.toBeNull();
@@ -192,7 +192,7 @@ describe('coverage', () => {
       if (d.variants.length === 1) expect(d.variants[0]?.caption, d.id).toBeUndefined();
       else for (const v of d.variants) expect(v.caption, d.id).toBeTruthy();
     }
-    expect(ALL).toHaveLength(71);
+    expect(ALL).toHaveLength(83);
     // two variants of one exercise are two DIFFERENT pictures, never a copy
     for (const d of EXERCISE_DEMOS) {
       if (d.variants.length < 2) continue;
@@ -1637,7 +1637,7 @@ describe('a turned pose has two arms, and they agree with each other', () => {
   it('has exactly the three demos the turned view exists for', () => {
     // the flye, the face pull, and the hex press — the third for the flye's
     // reason: two bells squeezed together are one bell from the side
-    expect(turned.map((e) => e.tag)).toEqual(['a4', 'x7', 'x35']);
+    expect(turned.map((e) => e.tag)).toEqual(['a4', 'x7', 'x35', 'h7']);
   });
 
   for (const { tag, v: d } of turned) {
@@ -1690,7 +1690,7 @@ describe('the views are chosen per movement, not by habit', () => {
     // x26 is the side plank: a body on its side is seen square-on, which is
     // the only camera that shows the lifted hip
     // g8 (cable lateral raise) and g11 (hip abduction) open in the frontal plane too
-    expect(front).toEqual(['b6', 'c6', 'g11', 'g8', 'x16', 'x26', 'x4', 'x8']);
+    expect(front).toEqual(['b6', 'c6', 'g11', 'g8', 'h10', 'h12', 'h6', 'x16', 'x26', 'x4', 'x8']);
     // a4 and x7 are TWO-SIDED movements too — the sagittal camera stacks their
     // two hands into one no matter what the angles say — but neither belongs
     // square-on either: a flye seen from straight above is a plank with a head,
@@ -1699,7 +1699,7 @@ describe('the views are chosen per movement, not by habit', () => {
     // for existing; x35, the hex press, joins them because its whole point —
     // two bells pressed against each other — is one bell from the side.
     const quarter = ALL.filter((e) => e.v.view === 'threeQuarter').map((e) => e.tag).sort();
-    expect(quarter).toEqual(['a4', 'x35', 'x7']);
+    expect(quarter).toEqual(['a4', 'h7', 'x35', 'x7']);
     // …and every one of them is a movement whose plane is frontal
     for (const id of front) expect(findExercise(id)).not.toBeNull();
   });
