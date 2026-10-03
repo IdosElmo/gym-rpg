@@ -663,6 +663,20 @@ export const EXERCISE_EN: Readonly<Record<string, ExerciseCopy>> = {
     cue: "Squeezing the dumbbells together is the exercise — don't let up for a moment, even on the way down.",
     mistake: 'Common mistake: the dumbbells drifting apart on the way up, or elbows flaring away from your body, which turns it into a regular chest press.',
   },
+  // ════════════════ LIBRARY · GYM (barbell, cable) — ids g1… ════════════════
+  // (append this group's entries below this line, in id order)
+
+  // ──────────────── end of GYM (barbell, cable) ────────────────
+
+  // ════════════════ LIBRARY · HOME (dumbbells, bands) — ids h1… ════════════════
+  // (append this group's entries below this line, in id order)
+
+  // ──────────────── end of HOME (dumbbells, bands) ────────────────
+
+  // ════════════════ LIBRARY · BODYWEIGHT (home / outdoors) — ids w1… ════════════════
+  // (append this group's entries below this line, in id order)
+
+  // ──────────────── end of BODYWEIGHT (home / outdoors) ────────────────
 };
 
 /** The built-in days' header lines. */

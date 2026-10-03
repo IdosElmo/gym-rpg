@@ -39,7 +39,7 @@ export const BODY_PART_HE: Readonly<Record<BodyPart, string>> = {
  */
 export type BodyPartSplit = Partial<Record<BodyPart, number>>;
 
-export type EquipmentKey = 'Smith Machine' | 'Dumbbells' | 'Bodyweight' | 'Machine';
+export type EquipmentKey = 'Smith Machine' | 'Dumbbells' | 'Bodyweight' | 'Machine' | 'Barbell' | 'Cable' | 'Bands';
 
 export interface Exercise {
   readonly id: string;
@@ -1340,6 +1340,21 @@ export const EXTRA_EXERCISES: readonly Exercise[] = [
     bodyPart: 'chest',
     split: { chest: 0.7, arms: 0.3 },
   },
+
+  // ════════════════ LIBRARY · GYM (barbell, cable) — ids g1… ════════════════
+  // (append this group's entries below this line, in id order)
+
+  // ──────────────── end of GYM (barbell, cable) ────────────────
+
+  // ════════════════ LIBRARY · HOME (dumbbells, bands) — ids h1… ════════════════
+  // (append this group's entries below this line, in id order)
+
+  // ──────────────── end of HOME (dumbbells, bands) ────────────────
+
+  // ════════════════ LIBRARY · BODYWEIGHT (home / outdoors) — ids w1… ════════════════
+  // (append this group's entries below this line, in id order)
+
+  // ──────────────── end of BODYWEIGHT (home / outdoors) ────────────────
 ];
 
 export const DAY_ORDER: readonly BuiltInDayKey[] = ['A', 'B', 'C'] as const;
@@ -1477,6 +1492,9 @@ const EQUIP_HE: Readonly<Record<string, string>> = {
   Dumbbells: 'משקולות',
   Bodyweight: 'משקל גוף',
   Machine: 'מכונה',
+  Barbell: 'מוט',
+  Cable: 'כבלים',
+  Bands: 'גומיות',
 };
 
 /**

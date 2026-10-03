@@ -1414,6 +1414,22 @@ const X35: ExerciseDemo = one('x35', {
   hold: { k: 'db', axis: 'spine' },
 });
 
+
+// ════════════════ LIBRARY · GYM demos — ids G1… ════════════════
+// (append this group's entries below this line, in id order)
+
+// ──────────────── end of GYM demos ────────────────
+
+// ════════════════ LIBRARY · HOME demos — ids H1… ════════════════
+// (append this group's entries below this line, in id order)
+
+// ──────────────── end of HOME demos ────────────────
+
+// ════════════════ LIBRARY · BODYWEIGHT demos — ids W1… ════════════════
+// (append this group's entries below this line, in id order)
+
+// ──────────────── end of BODYWEIGHT demos ────────────────
+
 /** Every demonstration, in program order. */
 export const EXERCISE_DEMOS: readonly ExerciseDemo[] = [
   A1, A2, A3, A4, A5, A6,
@@ -1423,6 +1439,12 @@ export const EXERCISE_DEMOS: readonly ExerciseDemo[] = [
   X11, X12, X13, X14, X15, X16, X17, X18, X19, X20, X21,
   X22, X23, X24, X25, X26, X27, X28, X29,
   X30, X31, X32, X33, X34, X35,
+  // gym library (G…)
+
+  // home library (H…)
+
+  // bodyweight library (W…)
+
 ];
 
 const BY_ID: ReadonlyMap<string, ExerciseDemo> = new Map(EXERCISE_DEMOS.map((d) => [d.id, d]));

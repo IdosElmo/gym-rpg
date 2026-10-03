@@ -148,8 +148,16 @@ export function bodyPartName(bp: BodyPart): string {
 }
 
 const EQUIP: Readonly<Record<'he' | 'en', Readonly<Record<string, string>>>> = {
-  he: { 'Smith Machine': 'סמית׳', Dumbbells: 'משקולות', Bodyweight: 'משקל גוף', Machine: 'מכונה' },
-  en: { 'Smith Machine': 'Smith machine', Dumbbells: 'Dumbbells', Bodyweight: 'Bodyweight', Machine: 'Machine' },
+  he: { 'Smith Machine': 'סמית׳', Dumbbells: 'משקולות', Bodyweight: 'משקל גוף', Machine: 'מכונה', Barbell: 'מוט', Cable: 'כבלים', Bands: 'גומיות' },
+  en: {
+    'Smith Machine': 'Smith machine',
+    Dumbbells: 'Dumbbells',
+    Bodyweight: 'Bodyweight',
+    Machine: 'Machine',
+    Barbell: 'Barbell',
+    Cable: 'Cable',
+    Bands: 'Bands',
+  },
 };
 
 /** An equipment key's label ("משקולות" / "Dumbbells"). Unknown keys pass through. */

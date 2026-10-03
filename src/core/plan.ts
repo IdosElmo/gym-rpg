@@ -143,6 +143,9 @@ export const EQUIPMENT_KEYS: readonly EquipmentKey[] = [
   'Dumbbells',
   'Bodyweight',
   'Machine',
+  'Barbell',
+  'Cable',
+  'Bands',
 ] as const;
 
 /* ---------------------------------------------------------------- helpers */
