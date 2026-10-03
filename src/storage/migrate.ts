@@ -126,8 +126,14 @@ export const LEGACY_UI_KEY = 'hyp3_ui_v1';
  * build could not answer the questionnaire, `null` is the honest value, and a
  * `profile_set` that round-tripped through the cloud folds back in on the next
  * rebuild.
+ * v10 (stage ז, the food database): `nutrition` grew `templates` /
+ * `templateDeleted` — the user's own saved meals. A pure addition inside an
+ * existing slot (the v7 argument): a v9 blob has none, `normalizeNutrition`
+ * fills both empty, and any `meal_template_*` events that round-tripped
+ * through the cloud fold back in on the next rebuild. (Carbs / fat on meals
+ * and targets are optional fields of existing records — no step needed.)
  */
-export const CURRENT_STATE_VERSION = 9;
+export const CURRENT_STATE_VERSION = 10;
 /**
  * Bump when the shape of `EventLog` changes.
  * v2 (merge-safe core): events may carry an optional `device` stamp and the log
@@ -723,7 +729,11 @@ const STATE_MIGRATIONS: ReadonlyArray<(blob: Record<string, unknown>) => Record<
   // 8 -> 9: the onboarding profile. A v8 blob has none (`null`); a blob that
   // somehow carries one is validated rather than trusted.
   (blob) => ({ ...blob, profile: normalizeProfile(blob['profile']), schemaVersion: 9 }),
-  // 9 -> 10: (future) add your step here and bump CURRENT_STATE_VERSION.
+  // 9 -> 10: the user's saved meals. A v9 nutrition slot has no `templates`;
+  // routing it through `normalizeNutrition` adds the two empty fields, and a
+  // blob that somehow carries them is validated rather than trusted.
+  (blob) => ({ ...blob, nutrition: normalizeNutrition(blob['nutrition']), schemaVersion: 10 }),
+  // 10 -> 11: (future) add your step here and bump CURRENT_STATE_VERSION.
 ];
 
 function readVersion(blob: Record<string, unknown>): number {
@@ -1255,6 +1265,9 @@ export function rebuildFromEvents(events: readonly AppEvent[], now: number = Dat
       case 'meal_deleted':
       case 'nutrition_targets_set':
       case 'nutrition_day_closed':
+      // …the user's own saved meals ("הארוחות שלי"): LWW per id, tombstones…
+      case 'meal_template_saved':
+      case 'meal_template_deleted':
       // …and the ⚖️ weight log, which shares the slot and the fold.
       case 'weight_logged':
       case 'weight_deleted':

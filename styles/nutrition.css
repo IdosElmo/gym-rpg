@@ -86,6 +86,15 @@
 .nt-macro .nt-ring-sub{text-align:start}
 /* more protein than planned is rarely the problem: said, not flagged */
 .nt-macro .nt-ring-sub.over{color:var(--ok)}
+/* Carbs and fat (stage ז): one hue each, from the existing palette — gold and
+   violet read apart from protein's green in both themes. Past their target
+   the line says so in --warn (unlike protein); a total that misses some
+   meals' data is a lower bound ("≥"), its line quiet. */
+.nt-macro[data-macro="carbs"] .nt-ring-fill{background:var(--gold)}
+.nt-macro[data-macro="fat"] .nt-ring-fill{background:var(--ss)}
+.nt-macro[data-macro="carbs"] .nt-ring-sub.over,
+.nt-macro[data-macro="fat"] .nt-ring-sub.over{color:var(--warn)}
+.nt-macro-missing{font-size:10.5px}
 @keyframes ntBarFill{from{inline-size:0}}
 @media (prefers-reduced-motion: reduce){ .nt-macro .nt-ring-fill{animation:none} }
 
@@ -227,6 +236,57 @@ select.inp{text-align:start; font-weight:600; font-size:16px; font-family:inheri
 .nt-cat-total b{color:var(--text); font-variant-numeric:tabular-nums}
 .nt-cat-bad{color:var(--warn); margin:0}
 .nt-photo-clear{background:none; border:none; color:var(--danger); font-size:12px; font-weight:700; padding:4px 6px}
+.nt-cat-macros{margin:2px 0 0; font-size:12.5px; font-variant-numeric:tabular-nums}
+
+/* A meal's carbs / fat under its protein, and the ☆ that saves it as mine. */
+.nt-cf{font-size:11px; color:var(--dim)}
+.nt-star{
+  background:none; border:none; color:var(--dim); font-size:17px; line-height:1; border-radius:10px; cursor:pointer;
+  min-width:44px; min-height:44px; margin-block:-8px; margin-inline:4px -10px;
+  display:inline-flex; align-items:center; justify-content:center;
+}
+.nt-star:hover{color:var(--gold-ink)}
+.nt-star:focus-visible{outline:2px solid var(--accent-ink); outline-offset:-4px}
+.nt-star.saved{color:var(--gold-ink); cursor:default}
+
+/* ---------- ⭐ הארוחות שלי — one tap logs a saved meal into the chosen meal ---------- */
+.nt-mine{margin:2px 0 12px; padding:10px 12px 6px; background:var(--card-2); border:1px solid var(--line); border-radius:12px}
+.nt-mine-title{font-size:12.5px; font-weight:800; color:var(--text); margin-bottom:4px}
+.nt-mine .gc-note{margin:2px 0 6px}
+.nt-mine-list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column}
+.nt-mine-row{display:flex; align-items:center; gap:4px; border-top:1px solid var(--line)}
+.nt-mine-row:first-child{border-top:none}
+.nt-mine-log{
+  flex:1 1 auto; min-width:0; min-height:44px; display:flex; align-items:center; gap:8px;
+  background:none; border:none; padding:4px 2px; font:inherit; color:var(--text); text-align:start; cursor:pointer;
+  border-radius:10px;
+}
+.nt-mine-log:hover{background:var(--accent-soft)}
+.nt-mine-log:focus-visible{outline:2px solid var(--accent-ink); outline-offset:-2px}
+.nt-mine-log .nt-plus{flex:0 0 auto; font-size:16px; font-weight:800; color:var(--accent-ink)}
+.nt-mine-name{flex:1 1 auto; min-width:0; font-size:13.5px; font-weight:600; overflow-wrap:anywhere}
+.nt-mine-nums{flex:0 0 auto; font-size:11.5px; color:var(--muted); white-space:nowrap; font-variant-numeric:tabular-nums}
+.nt-mine-row .nt-del{margin-block:0; margin-inline:0 -6px}
+
+/* ---------- 🍱 תפריט לדוגמה — a sample day near the calorie target ---------- */
+.nt-menu-pick .nt-seg-row{display:grid; grid-template-columns:repeat(3, 1fr)}
+.nt-menu-list{list-style:none; margin:4px 0 0; padding:0; display:flex; flex-direction:column}
+.nt-menu-row{display:flex; align-items:center; gap:10px; min-height:48px; padding:4px 0; border-top:1px solid var(--line)}
+.nt-menu-row:first-child{border-top:none}
+.nt-menu-slot{
+  flex:0 0 auto; min-inline-size:62px; font-size:11px; font-weight:800; color:var(--accent-ink);
+  background:var(--accent-soft); border-radius:99px; padding:3px 8px; text-align:center;
+}
+.nt-menu-meal{flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:1px; font-size:13.5px; font-weight:600; overflow-wrap:anywhere}
+.nt-menu-nums{font-size:11.5px; font-weight:500; color:var(--muted); font-variant-numeric:tabular-nums}
+.nt-menu-log{
+  flex:0 0 auto; inline-size:44px; block-size:44px; border:1px solid var(--accent-line); border-radius:12px;
+  background:none; color:var(--accent-ink); font-size:18px; font-weight:800; cursor:pointer;
+}
+.nt-menu-log:hover{background:var(--accent-soft)}
+.nt-menu-log:focus-visible{outline:2px solid var(--accent-ink); outline-offset:2px}
+.nt-menu-done{flex:0 0 auto; inline-size:44px; text-align:center; color:var(--ok); font-size:17px; font-weight:800}
+.nt-menu-total{margin:8px 0 0; font-size:12.5px; font-weight:700; color:var(--text); font-variant-numeric:tabular-nums}
 
 /* The estimate's breakdown: one row per ingredient, the sum of which IS the number. */
 .nt-breakdown{list-style:none; margin:8px 0 0; padding:0; display:flex; flex-direction:column; gap:4px}

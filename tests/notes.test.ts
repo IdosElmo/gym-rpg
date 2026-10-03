@@ -158,8 +158,8 @@ describe('state migration', () => {
       meta: { legacyImported: false, createdAt: NOW, updatedAt: NOW },
     };
     const s = migrateState(v7, NOW);
-    expect(CURRENT_STATE_VERSION).toBe(9);
-    expect(s.schemaVersion).toBe(9);
+    expect(CURRENT_STATE_VERSION).toBe(10);
+    expect(s.schemaVersion).toBe(10);
     expect(s.exerciseNotes).toEqual({});
     expect(s.profile).toBeNull();
     expect(s.ui.view).toBe('A');

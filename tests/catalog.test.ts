@@ -13,6 +13,7 @@ import {
   catalogProblems,
   entriesForSlot,
   fmtQty,
+  HINT_MAX_LINES,
   parseQty,
   priceCatalog,
   PORTION,
@@ -232,9 +233,10 @@ describe('a catalog pick in the event log', () => {
 });
 
 describe('the catalog as estimator hints', () => {
-  it('has one line per food and per fixed meal, the meal spelled out in components', () => {
+  it('has one line per fixed meal (first) and per food, capped at what the function reads', () => {
     const hints = catalogHints();
-    expect(hints).toHaveLength(FOODS.length + FIXED_MEALS.length);
+    expect(hints).toHaveLength(Math.min(HINT_MAX_LINES, FOODS.length + FIXED_MEALS.length));
+    expect(hints[0]?.startsWith('ארוחה קבועה "שיבולת שועל"')).toBe(true);
     expect(hints).toContain(
       'ארוחה קבועה "שיבולת שועל" (מנה אחת) = ½ כוס שיבולת שועל דקה + ¾ כוס חלב סויה ללא סוכר + 1 כף זרעי צ׳יה + 1 סקופ אבקת חלבון',
     );

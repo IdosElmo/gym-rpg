@@ -169,8 +169,8 @@ describe('the תזונה screen', () => {
   it('saves daily targets and the rings start filling toward them', () => {
     const { store } = mount();
     openNutrition();
-    // no targets: the two main rings and the two margin rings, none can fill
-    expect(document.querySelectorAll('.nt-ring.no-target')).toHaveLength(4);
+    // no targets: the calorie ring, the three macro bars and the two margin rings — none can fill
+    expect(document.querySelectorAll('.nt-ring.no-target')).toHaveLength(6);
     expect(document.querySelectorAll('.nt-ring.margin')).toHaveLength(2);
     expect(document.querySelectorAll('.nt-ring-fill')).toHaveLength(0);
 
@@ -179,8 +179,8 @@ describe('the תזונה screen', () => {
     click('#ntTgtSave');
     expect(store.getState().nutrition.targets).toEqual({ calories: 2000, protein: 150 });
     expect(store.getEvents().filter((e) => e.type === 'nutrition_targets_set')).toHaveLength(1);
-    expect(document.querySelectorAll('.nt-ring.has-target')).toHaveLength(4);
-    expect(document.querySelectorAll('.nt-ring-fill')).toHaveLength(4);
+    expect(document.querySelectorAll('.nt-ring.has-target')).toHaveLength(6);
+    expect(document.querySelectorAll('.nt-ring-fill')).toHaveLength(6);
 
     // half the calories: the ring is half way round, and says what is left
     type('#ntName', 'צהריים');
