@@ -26,6 +26,12 @@
  *                            same rule, keyed by day), so close → reopen →
  *                            close converges. The fold accepts any date; the
  *                            driver refuses to close a day with no meals.
+ *   meal_template_saved   -> "שמירת ארוחה משלי": the WHOLE template per event,
+ *                            last writer wins PER TEMPLATE ID (the
+ *                            `nutrition_targets_set` rule, keyed by id).
+ *   meal_template_deleted -> a tombstone set, the `meal_deleted` rule: render =
+ *                            templates minus deleted, so delete-before-save and
+ *                            save-before-delete converge.
  *   data_cleared          -> resets nutrition to empty (handled by the caller's
  *                            switch, like `sessions`/`plan`).
  *   weight_*              -> the ⚖️ weight log shares this slot and this fold;
@@ -46,6 +52,9 @@ import type {
   MealRecord,
   MealSlot,
   MealSource,
+  MealTemplatePick,
+  MealTemplateRecord,
+  MealTemplateSavedPayload,
   NutritionDayClosedPayload,
   NutritionState,
   NutritionTargets,
@@ -58,6 +67,9 @@ import { applyWeightEvent, normalizeWeights } from './weight.ts';
 /** Sanity clamps — a payload is data from ANOTHER device until proven benign. */
 export const MEAL_MAX_CALORIES = 10000;
 export const MEAL_MAX_PROTEIN = 500;
+/** Carbs and fat (grams) — the same sanity clamp, per meal and per daily target. */
+export const MEAL_MAX_CARBS = 1000;
+export const MEAL_MAX_FAT = 500;
 /** A meal's name is also the text the estimator reads — room for quantities. */
 export const MEAL_MAX_NAME_LEN = 300;
 const AI_MAX_ITEMS = 10;
@@ -129,6 +141,8 @@ export function emptyNutrition(): NutritionState {
     photos: {},
     photoDeleted: {},
     customPoseName: '',
+    templates: {},
+    templateDeleted: {},
   };
 }
 
@@ -147,6 +161,21 @@ function clampInt(v: unknown, max: number): number | null {
 /** A nullable clamped integer: `null` stays `null`, garbage becomes `null`. */
 function optClamp(v: unknown, max: number): number | null {
   return v === null || v === undefined ? null : clampInt(v, max);
+}
+
+/**
+ * An OPTIONAL macro: a number is clamped, anything else (absent, `null`,
+ * garbage) is `undefined` — unknown, which is not the same as 0.
+ */
+function optMacro(v: unknown, max: number): number | undefined {
+  return clampInt(v, max) ?? undefined;
+}
+
+/** The optional carbs / fat of a payload, as spreadable fields (absent when unknown). */
+function macrosOf(payload: Readonly<Record<string, unknown>>): { carbs?: number; fat?: number } {
+  const carbs = optMacro(payload['carbs'], MEAL_MAX_CARBS);
+  const fat = optMacro(payload['fat'], MEAL_MAX_FAT);
+  return { ...(carbs !== undefined ? { carbs } : {}), ...(fat !== undefined ? { fat } : {}) };
 }
 
 /** Read one stored breakdown line, or `null` when it has no name. */
@@ -242,6 +271,7 @@ export function mealRecordOf(payload: Record<string, unknown>): { id: string; re
     name,
     calories,
     protein,
+    ...macrosOf(payload),
     time,
     source,
     ...(ai ? { ai } : {}),
@@ -257,7 +287,37 @@ export function normalizeTargets(raw: unknown): NutritionTargets {
   if (!isRecord(raw)) return out;
   out.calories = clampInt(raw['calories'], MEAL_MAX_CALORIES);
   out.protein = clampInt(raw['protein'], MEAL_MAX_PROTEIN);
+  const carbs = optMacro(raw['carbs'], MEAL_MAX_CARBS);
+  const fat = optMacro(raw['fat'], MEAL_MAX_FAT);
+  if (carbs !== undefined) out.carbs = carbs;
+  if (fat !== undefined) out.fat = fat;
   return out;
+}
+
+function pickOf(raw: unknown): MealTemplatePick | null {
+  if (!isRecord(raw)) return null;
+  const id = typeof raw['id'] === 'string' ? raw['id'].trim().slice(0, CATALOG_MAX_ID_LEN) : '';
+  const unit = typeof raw['unit'] === 'string' ? raw['unit'].trim().slice(0, CATALOG_MAX_ID_LEN) : '';
+  const qty = raw['qty'];
+  if (!id || !unit || typeof qty !== 'number' || !Number.isFinite(qty) || qty <= 0) return null;
+  return { id, unit, qty: Math.min(CATALOG_MAX_QTY, Math.round(qty * 100) / 100) };
+}
+
+/**
+ * Read a `meal_template_saved` payload into a valid template, or `null` (no
+ * id, no name, non-numeric calories/protein). One reader for the fold, the
+ * stored blob and the live driver — the `mealRecordOf` move.
+ */
+export function templateRecordOf(payload: Record<string, unknown>): { id: string; rec: MealTemplateRecord } | null {
+  const id = payload['id'];
+  const name =
+    typeof payload['name'] === 'string' ? payload['name'].replace(/\s+/g, ' ').trim().slice(0, MEAL_MAX_NAME_LEN) : '';
+  if (typeof id !== 'string' || !id || !name) return null;
+  const calories = clampInt(payload['calories'], MEAL_MAX_CALORIES);
+  const protein = clampInt(payload['protein'], MEAL_MAX_PROTEIN);
+  if (calories === null || protein === null) return null;
+  const pick = pickOf(payload['pick']);
+  return { id, rec: { name, calories, protein, ...macrosOf(payload), ...(pick ? { pick } : {}) } };
 }
 
 /** Route ANY persisted nutrition blob to a valid `NutritionState`. Never throws. */
@@ -284,6 +344,21 @@ export function normalizeNutrition(raw: unknown): NutritionState {
   if (isRecord(closed)) {
     for (const key of Object.keys(closed)) {
       if (ISO_DATE_RE.test(key) && closed[key] === true) n.closedDays[key] = true;
+    }
+  }
+  const templates = raw['templates'];
+  if (isRecord(templates)) {
+    for (const key of Object.keys(templates)) {
+      const entry = templates[key];
+      if (!isRecord(entry)) continue;
+      const read = templateRecordOf({ ...entry, id: key });
+      if (read) n.templates[key] = read.rec;
+    }
+  }
+  const tplDeleted = raw['templateDeleted'];
+  if (isRecord(tplDeleted)) {
+    for (const key of Object.keys(tplDeleted)) {
+      if (key && tplDeleted[key] === true) n.templateDeleted[key] = true;
     }
   }
   normalizeWeights(raw, n);
@@ -319,6 +394,16 @@ export function applyNutritionEvent(
     case 'nutrition_targets_set':
       n.targets = normalizeTargets(payload);
       break;
+    case 'meal_template_saved': {
+      const read = templateRecordOf(payload as Record<string, unknown>);
+      if (read) n.templates[read.id] = read.rec;
+      break;
+    }
+    case 'meal_template_deleted': {
+      const id = payload['id'];
+      if (typeof id === 'string' && id) n.templateDeleted[id] = true;
+      break;
+    }
     case 'nutrition_day_closed': {
       const date = payload['date'];
       if (typeof date !== 'string' || !ISO_DATE_RE.test(date)) break;
@@ -349,6 +434,9 @@ export interface MealInput {
   name: string;
   calories: number;
   protein: number;
+  /** Grams; absent = unknown (never 0 by default). */
+  carbs?: number;
+  fat?: number;
   /** 'HH:MM' for display, or '' when unknown. */
   time: string;
   source: MealSource;
@@ -370,6 +458,8 @@ export function logMeal(store: DataStore, input: MealInput, id: string): AppEven
     name: input.name,
     calories: input.calories,
     protein: input.protein,
+    ...(input.carbs !== undefined ? { carbs: input.carbs } : {}),
+    ...(input.fat !== undefined ? { fat: input.fat } : {}),
     time: input.time,
     source: input.source,
     ...(input.ai ? { ai: input.ai } : {}),
@@ -391,12 +481,65 @@ export function deleteMeal(store: DataStore, id: string): AppEvent | null {
   return ev;
 }
 
-/** Save the daily targets (whole object, LWW like the plan) and mirror them. */
-export function setTargets(store: DataStore, targets: { calories: number | null; protein: number | null }): AppEvent {
+/**
+ * Save the daily targets (whole object, LWW like the plan) and mirror them.
+ * Carbs / fat are optional: left out (or `null`), the screen derives them
+ * from calories + protein (core/macros.ts) — and a later save without them
+ * returns to that default, since the object travels whole.
+ */
+export function setTargets(
+  store: DataStore,
+  targets: { calories: number | null; protein: number | null; carbs?: number | null; fat?: number | null },
+): AppEvent {
   const clean = normalizeTargets(targets);
-  const payload = { calories: clean.calories, protein: clean.protein };
+  const payload = {
+    calories: clean.calories,
+    protein: clean.protein,
+    ...(clean.carbs !== undefined ? { carbs: clean.carbs } : {}),
+    ...(clean.fat !== undefined ? { fat: clean.fat } : {}),
+  };
   const ev = store.append('nutrition_targets_set', payload);
   store.update((draft) => applyNutritionEvent(draft.nutrition, 'nutrition_targets_set', payload));
+  return ev;
+}
+
+/** What the UI knows about a meal it is saving as the user's own. */
+export interface TemplateInput {
+  name: string;
+  calories: number;
+  protein: number;
+  carbs?: number;
+  fat?: number;
+  pick?: MealTemplatePick;
+}
+
+/**
+ * "שמירת ארוחה משלי": append ONE `meal_template_saved` (the whole template) and
+ * mirror it, or `null` when the input does not read as a template. The uuid
+ * comes from the caller, as for a meal.
+ */
+export function saveTemplate(store: DataStore, input: TemplateInput, id: string): AppEvent | null {
+  const payload: MealTemplateSavedPayload = {
+    id,
+    name: input.name,
+    calories: input.calories,
+    protein: input.protein,
+    ...(input.carbs !== undefined ? { carbs: input.carbs } : {}),
+    ...(input.fat !== undefined ? { fat: input.fat } : {}),
+    ...(input.pick ? { pick: input.pick } : {}),
+  };
+  if (!templateRecordOf(payload)) return null;
+  const ev = store.append('meal_template_saved', payload);
+  store.update((draft) => applyNutritionEvent(draft.nutrition, 'meal_template_saved', payload));
+  return ev;
+}
+
+/** Append the tombstone for one template id and mirror it. */
+export function deleteTemplate(store: DataStore, id: string): AppEvent | null {
+  if (!id) return null;
+  const payload = { id };
+  const ev = store.append('meal_template_deleted', payload);
+  store.update((draft) => applyNutritionEvent(draft.nutrition, 'meal_template_deleted', payload));
   return ev;
 }
 
@@ -466,6 +609,46 @@ export function dayTotals(n: NutritionState, date: string): DayTotals {
     t.meals += 1;
   }
   return t;
+}
+
+/**
+ * The day's carbs and fat — beside `dayTotals`, because they can be UNKNOWN:
+ * `carbs` / `fat` sum the meals that carry one, and `carbsMissing` /
+ * `fatMissing` count the live meals that do not. A day with any missing is a
+ * lower bound ("≥"), never a silent zero.
+ */
+export interface DayMacros {
+  carbs: number;
+  fat: number;
+  carbsMissing: number;
+  fatMissing: number;
+}
+
+export function dayMacros(n: NutritionState, date: string): DayMacros {
+  const t: DayMacros = { carbs: 0, fat: 0, carbsMissing: 0, fatMissing: 0 };
+  for (const row of mealsForDate(n, date)) {
+    if (row.carbs === undefined) t.carbsMissing += 1;
+    else t.carbs += row.carbs;
+    if (row.fat === undefined) t.fatMissing += 1;
+    else t.fat += row.fat;
+  }
+  return t;
+}
+
+export interface TemplateRow extends MealTemplateRecord {
+  id: string;
+}
+
+/** The user's live saved meals (tombstones filtered), by name then id. */
+export function liveTemplates(n: NutritionState): TemplateRow[] {
+  const out: TemplateRow[] = [];
+  for (const id of Object.keys(n.templates)) {
+    const rec = n.templates[id];
+    if (!rec || n.templateDeleted[id]) continue;
+    out.push({ id, ...rec });
+  }
+  out.sort((a, b) => (a.name === b.name ? (a.id < b.id ? -1 : 1) : a.name < b.name ? -1 : 1));
+  return out;
 }
 
 /** Shift an ISO date by whole days — pure calendar math, no clock involved. */

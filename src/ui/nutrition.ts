@@ -21,7 +21,9 @@
  *
  * THE PICTURES. The day's summary is a calorie ring (`heroRingHtml` — what is
  * left, big, in its centre) beside a list of macro bars (`macroRowHtml` —
- * protein today; carbs and fat are one more row each), and the history is a
+ * protein, carbs, fat; carbs and fat fill toward the default split of
+ * core/macros.ts unless set, "≈" on the target, and read "≥" while any meal
+ * of the day carries no value for them), and the history is a
  * bar chart of daily intake with the mean
  * over tracked days (`intakeChartSvg`) — inline SVG strings in the
  * ui/weight.ts conventions: one hue, digits-only SVG text, time right → left.
@@ -41,9 +43,19 @@
  * is a target to fill toward, and a `.nt-ring-sub` that says what is left (or
  * by how much it is over). The tests read the day through those hooks, in
  * order: the calorie ring, the macro bars, then the margin rings.
+ *
+ * STAGE ז — THE FOOD DATABASE. The catalog picker lists "ארוחות מוכנות" (ready
+ * meals, everyone's) in their own group; "⭐ הארוחות שלי" is a one-tap strip of
+ * the user's saved meals (`meal_template_saved`, saved with ☆ from a logged
+ * meal or from the description form) and the owners' fixed meals they have
+ * eaten; and a "🍱 תפריט לדוגמה" card shows the sample day closest to the
+ * calorie target (core/menus.ts), each of its meals one ＋ away from the log —
+ * a normal catalog pick. A logged catalog meal is named in the reader's
+ * language from its stored ids (`loggedMealName`).
  */
 
 import {
+  PORTION,
   catalogEntry,
   catalogHints,
   catalogMealInput,
@@ -51,20 +63,31 @@ import {
   myFixedMeals,
   parseQty,
   priceCatalog,
+  readyForSlot,
+  templateFromMeal,
+  templateMealInput,
   unitsOf,
 } from '../core/catalog.ts';
+import { macroTargets } from '../core/macros.ts';
+import { menuById, menuFor, menuTotals, priceItem } from '../core/menus.ts';
 import {
   MEAL_MAX_CALORIES,
+  MEAL_MAX_CARBS,
+  MEAL_MAX_FAT,
   MEAL_MAX_PROTEIN,
   MEAL_SLOTS,
   SAFETY_MARGINS,
+  dayMacros,
   dayTotals,
   deleteMeal,
+  deleteTemplate,
+  liveTemplates,
   intakeStats,
   isDayClosed,
   logMeal,
   mealsForDate,
   recentDays,
+  saveTemplate,
   setDayClosed,
   setTargets,
   shiftDate,
@@ -74,9 +97,11 @@ import {
   type MealInput,
   type MealRow,
   type SafetyMargin,
+  type TemplateInput,
+  type TemplateRow,
 } from '../core/nutrition.ts';
 import { fmtDate, todayISO } from '../core/workout.ts';
-import { FOODS, type CatalogEntry, type CatalogMeal } from '../data/foods.ts';
+import { DAILY_MENUS, FOODS, type CatalogEntry, type CatalogMeal, type DailyMenu } from '../data/foods.ts';
 import type { EstimateError, EstimateItem, MealEstimate, NutritionAiPort } from '../nutrition/aiPort.ts';
 import { downscalePhoto } from '../nutrition/photo.ts';
 import type { PushPort, PushResult } from '../nutrition/push.ts';
@@ -93,7 +118,15 @@ import { esc } from './dom.ts';
 import { toast } from './toast.ts';
 import { isRtl, tr } from '../i18n/locale.ts';
 import { nutrition as M } from '../i18n/messages/nutrition.ts';
-import { displayNames, entryName, unitLabel } from '../i18n/foodText.ts';
+import {
+  displayNames,
+  entryName,
+  loggedLines,
+  loggedMealName,
+  mealName,
+  storedPickName,
+  unitLabel,
+} from '../i18n/foodText.ts';
 
 export interface NutritionDeps {
   store: DataStore;
@@ -178,7 +211,11 @@ let catAll = false;
 /** "הארוחות שלי" — the fixed meals this user has logged before (`myFixedMeals`), refreshed every render. */
 let myMeals: readonly CatalogMeal[] = [];
 /** What is typed in the form, kept across re-renders (a chip tap re-renders). */
-let draft = { name: '', cal: '', prot: '', time: '' };
+let draft = { name: '', cal: '', prot: '', carbs: '', fat: '', time: '' };
+/** "⭐ לשמור גם בארוחות שלי" in the description form. */
+let saveMine = false;
+/** The sample menu picked by hand; `null` = the one closest to the calorie target. */
+let menuPick: string | null = null;
 
 /** Forget everything screen-local (tests, and a data wipe). */
 export function resetNutritionScreen(): void {
@@ -193,7 +230,9 @@ export function resetNutritionScreen(): void {
   addSlot = null;
   addMode = 'catalog';
   resetPick();
-  draft = { name: '', cal: '', prot: '', time: '' };
+  draft = { name: '', cal: '', prot: '', carbs: '', fat: '', time: '' };
+  saveMine = false;
+  menuPick = null;
 }
 
 function resetPick(): void {
@@ -300,6 +339,10 @@ export interface MacroSpec {
   readonly label: string;
   readonly value: number;
   readonly target: number | null;
+  /** The target is the default split (core/macros.ts), not one the user set — drawn "≈". */
+  readonly derived?: boolean;
+  /** How many of the day's meals carry no value for it — the value is a lower bound ("≥"). */
+  readonly missing?: number;
 }
 
 /**
@@ -311,22 +354,37 @@ export interface MacroSpec {
  */
 export function macroRowHtml(spec: MacroSpec): string {
   const { key, label, value, target } = spec;
+  const missing = spec.missing ?? 0;
   const has = target !== null && target > 0;
   const over = has && value > target;
   const pct = has ? Math.round(Math.min(1, value / target) * 1000) / 10 : 0;
   const all = tr(M);
   const m = all.ring;
-  const sub = !has
-    ? `<span class="nt-ring-sub dim">${m.noTarget}</span>`
-    : over
-      ? `<span class="nt-ring-sub over">${m.over(value - target)}</span>`
-      : `<span class="nt-ring-sub">${m.left(target - value)}</span>`;
-  const aria = has ? m.aria(label, value, target) : m.ariaNoTarget(label, value);
+  const sub =
+    missing > 0
+      ? `<span class="nt-ring-sub dim nt-macro-missing">${all.macro.missing(missing)}</span>`
+      : !has
+        ? `<span class="nt-ring-sub dim">${m.noTarget}</span>`
+        : over
+          ? `<span class="nt-ring-sub over">${m.over(value - target)}</span>`
+          : `<span class="nt-ring-sub">${m.left(target - value)}</span>`;
+  // "≥" — a lower bound while a meal of the day lacks the value; "≈" — the default split.
+  const shown = `${missing > 0 ? '≥' : ''}${value}`;
+  const tgt = has ? `${spec.derived ? '≈' : ''}${target}` : '';
+  const ariaLabel = missing > 0 ? `${label} (${all.macro.ariaPartial})` : label;
+  const aria = has ? m.aria(ariaLabel, value, target) : m.ariaNoTarget(ariaLabel, value);
+  const nums = has
+    ? spec.derived
+      ? `<bdi dir="ltr" title="${esc(all.macro.derived)}">${shown} / ${tgt}</bdi>`
+      : `<bdi dir="ltr">${shown} / ${tgt}</bdi>`
+    : missing > 0
+      ? `<bdi dir="ltr">${shown}</bdi>`
+      : shown;
   return `
       <div class="nt-ring nt-macro ${has ? 'has-target' : 'no-target'} ${over ? 'over' : ''}" data-macro="${esc(key)}" role="img" aria-label="${esc(aria)}">
         <div class="nt-macro-top">
           <span class="nt-macro-name">${esc(label)}</span>
-          <span class="nt-macro-val">${all.macro.grams(has ? `<bdi dir="ltr">${value} / ${target}</bdi>` : String(value))}</span>
+          <span class="nt-macro-val">${all.macro.grams(nums)}</span>
         </div>
         <span class="nt-macro-track">${has ? `<i class="nt-ring-fill" style="inline-size:${pct}%"></i>` : ''}</span>
         ${sub}
@@ -340,9 +398,16 @@ function totalsCard(n: NutritionState, date: string, today: string): string {
   const noTargets = g.calories === null && g.protein === null;
   const protPct = g.protein !== null && g.protein > 0 ? Math.round((t.protein / g.protein) * 100) : null;
   const m = tr(M).totals;
-  // The bars beside the ring, in order. Carbs and fat are one more entry each
-  // once the tracker logs them.
-  const macros: MacroSpec[] = [{ key: 'protein', label: tr(M).macro.protein, value: t.protein, target: g.protein }];
+  // The bars beside the ring, in order: protein, then carbs and fat — whose
+  // targets may be the default split, and whose totals may be lower bounds.
+  const mt = macroTargets(g);
+  const cf = dayMacros(n, date);
+  const mm = tr(M).macro;
+  const macros: MacroSpec[] = [
+    { key: 'protein', label: mm.protein, value: t.protein, target: g.protein },
+    { key: 'carbs', label: mm.carbs, value: cf.carbs, target: mt.carbs, derived: mt.derived.carbs, missing: cf.carbsMissing },
+    { key: 'fat', label: mm.fat, value: cf.fat, target: mt.fat, derived: mt.derived.fat, missing: cf.fatMissing },
+  ];
   const status =
     t.meals === 0
       ? m.empty
@@ -404,7 +469,7 @@ function mealDetailsHtml(row: MealRow): string {
     return `
     <details class="nt-meal-more">
       <summary class="nt-meal-sum"><span class="nt-caret" aria-hidden="true">▸</span>${tr(M).meal.fromCatalogSum(cat.lines.length)}</summary>
-      <ul class="nt-breakdown">${breakdownHtml(cat.lines)}</ul>
+      <ul class="nt-breakdown">${breakdownHtml(loggedLines(cat))}</ul>
     </details>`;
   }
   const ai = row.ai;
@@ -424,29 +489,50 @@ function mealDetailsHtml(row: MealRow): string {
     </details>`;
 }
 
-function mealRowHtml(row: MealRow, dayCalories: number, locked: boolean): string {
+/** True when a live saved meal already holds this logged meal (same name and numbers). */
+function isSaved(row: MealRow, templates: readonly TemplateRow[]): boolean {
+  return templates.some((t) => t.name === row.name && t.calories === row.calories && t.protein === row.protein);
+}
+
+/** "פחמ׳ 40 · שומן 12 ג׳" — only the parts the meal carries; '' when it carries neither. */
+function cfText(carbs: number | undefined, fat: number | undefined): string {
+  const m = tr(M).meal;
+  const parts = [carbs !== undefined ? m.carbs(carbs) : '', fat !== undefined ? m.fat(fat) : ''].filter(Boolean);
+  return parts.length > 0 ? m.cf(parts.join(' · ')) : '';
+}
+
+function mealRowHtml(row: MealRow, dayCalories: number, locked: boolean, saved = false): string {
   const conf = row.ai ? ` conf-${row.ai.confidence}` : '';
   const all = tr(M);
   const m = all.meal;
+  const name = loggedMealName(row);
+  const cf = cfText(row.carbs, row.fat);
   const mark = row.ai
     ? `<span class="nt-ai${conf}" title="${m.aiTitle(esc(row.ai.model), all.confidence[row.ai.confidence])}">🤖</span>`
     : row.source === 'catalog'
       ? `<span class="nt-ai" title="${m.catalogTitle}">📋</span>`
       : '';
   const share = dayCalories > 0 ? Math.round((row.calories / dayCalories) * 100) : 0;
+  // ☆ saves the meal as the user's own — allowed on a closed day too: it
+  // changes nothing in the day, only "הארוחות שלי".
+  const star = saved
+    ? `<span class="nt-star saved" title="${m.savedTitle}" aria-label="${m.savedTitle}">★</span>`
+    : `<button class="nt-star" type="button" data-save-tpl="${esc(row.id)}" aria-label="${m.saveAria(esc(name))}">☆</button>`;
   return `
   <li class="nt-meal">
     <div class="nt-meal-row">
       <div class="nt-meal-main">
-        <span class="nt-meal-name">${esc(row.name)}${mark}</span>
+        <span class="nt-meal-name">${esc(name)}${mark}</span>
         ${row.time ? `<span class="nt-meal-time dim">🕒 ${esc(row.time)}</span>` : ''}
       </div>
       <div class="nt-meal-nums">
         <span class="nt-meal-kc">
           <span class="nt-num nt-kcal">🔥 ${row.calories}</span>
           <span class="nt-num nt-prot">${m.protein(row.protein)}</span>
+          ${cf ? `<span class="nt-num nt-cf">${cf}</span>` : ''}
         </span>
-        ${locked ? '' : `<button class="nt-del" type="button" data-del="${esc(row.id)}" aria-label="${m.deleteAria(esc(row.name))}">🗑</button>`}
+        ${star}
+        ${locked ? '' : `<button class="nt-del" type="button" data-del="${esc(row.id)}" aria-label="${m.deleteAria(esc(name))}">🗑</button>`}
       </div>
     </div>
     <div class="nt-share" title="${m.shareTitle(share)}" aria-hidden="true"><i style="width:${share}%"></i></div>
@@ -472,6 +558,7 @@ function slotSectionHtml(
   rows: readonly MealRow[],
   dayCalories: number,
   locked: boolean,
+  templates: readonly TemplateRow[] = [],
 ): string {
   const cal = rows.reduce((s, r) => s + r.calories, 0);
   const prot = rows.reduce((s, r) => s + r.protein, 0);
@@ -498,7 +585,7 @@ function slotSectionHtml(
       <span class="nt-slot-sum">${m.slotSum(cal, prot)}</span>
       ${add}
     </div>
-    <ul class="nt-meals">${rows.map((r) => mealRowHtml(r, dayCalories, locked)).join('')}</ul>
+    <ul class="nt-meals">${rows.map((r) => mealRowHtml(r, dayCalories, locked, isSaved(r, templates))).join('')}</ul>
   </div>`;
 }
 
@@ -513,14 +600,15 @@ function mealsCard(n: NutritionState, date: string): string {
   const total = rows.reduce((s, r) => s + r.calories, 0);
   const locked = isDayClosed(n, date);
   const m = tr(M).meal;
+  const templates = liveTemplates(n);
   const sections = MEAL_SLOTS.map((def) => {
     const mine = rows.filter((r) => r.slot === def.key);
     if (locked && mine.length === 0) return '';
     const window = def.from && def.to ? `<bdi dir="ltr">${hourOf(def.from)}–${hourOf(def.to)}</bdi>` : '';
-    return slotSectionHtml(def.key, slotLabel(def.key), window, mine, total, locked);
+    return slotSectionHtml(def.key, slotLabel(def.key), window, mine, total, locked, templates);
   }).join('');
   const loose = rows.filter((r) => !r.slot);
-  const legacy = loose.length > 0 ? slotSectionHtml('none', m.unassigned, '', loose, total, locked) : '';
+  const legacy = loose.length > 0 ? slotSectionHtml('none', m.unassigned, '', loose, total, locked, templates) : '';
   const empty = rows.length === 0 ? `<p class="empty">${m.empty}</p>` : '';
   const hasAi = rows.some((r) => r.ai);
   const hasCat = rows.some((r) => r.source === 'catalog');
@@ -567,14 +655,17 @@ export function catalogPreviewHtml(id: string, unit: string, qtyRaw: string): st
   const price = priceCatalog(id, unit, qty, displayNames);
   if (!price) return '';
   const lines = price.lines.length > 1 ? `<ul class="nt-breakdown">${breakdownHtml(price.lines)}</ul>` : '';
-  return `<p class="nt-cat-total">${m.preview(`<b>${price.calories}</b>`, `<b>${price.protein}</b>`)}</p>${lines}`;
+  return `<p class="nt-cat-total">${m.preview(`<b>${price.calories}</b>`, `<b>${price.protein}</b>`)}</p>
+    <p class="nt-cat-macros dim">${m.previewMacros(price.carbs, price.fat)}</p>${lines}`;
 }
 
 /** The catalog pick: what, how much, when — priced live, in code. */
 function catalogFormHtml(slot: MealSlot | null): string {
   // No meal chosen yet (a past day): the whole catalog, nothing presumed.
   const { fits, rest } = slot ? entriesForSlot(slot, catAll, myMeals) : { fits: [...myMeals, ...FOODS], rest: [] };
-  const listed = [...fits, ...rest];
+  // Everyone's ready meals: their own group, the ones that fit first.
+  const ready = readyForSlot(slot, catAll);
+  const listed = [...fits, ...rest, ...ready.fits, ...ready.rest];
   if (!listed.some((e) => e.id === catPick)) catPick = '';
   const entry = catPick ? catalogEntry(catPick) : null;
   const units = entry ? unitsOf(entry) : [];
@@ -587,8 +678,9 @@ function catalogFormHtml(slot: MealSlot | null): string {
       <select class="inp" id="ntCatItem">
         <option value="">${m.choose}</option>
         ${group(m.groupMeals, fits.filter((e) => e.kind === 'meal'))}
+        ${group(m.groupReady, ready.fits)}
         ${group(m.groupFoods, fits.filter((e) => e.kind === 'food'))}
-        ${group(m.groupRest, rest)}
+        ${group(m.groupRest, [...ready.rest, ...rest])}
       </select>
     </label>
     ${slot ? `<label class="nt-check"><input type="checkbox" id="ntCatAll" ${catAll ? 'checked' : ''}>${m.showAll}</label>` : ''}`;
@@ -647,10 +739,70 @@ function textFormHtml(showAi: boolean): string {
         <input class="inp" id="ntTime" type="time" value="${esc(draft.time)}">
       </label>
     </div>
+    <div class="nt-field-row nt-macro-fields">
+      <label class="nt-field">${m.carbs}
+        <input class="inp" id="ntCarbs" type="text" inputmode="numeric" autocomplete="off" placeholder="—" value="${esc(draft.carbs)}">
+      </label>
+      <label class="nt-field">${m.fat}
+        <input class="inp" id="ntFat" type="text" inputmode="numeric" autocomplete="off" placeholder="—" value="${esc(draft.fat)}">
+      </label>
+    </div>
+    <label class="nt-check"><input type="checkbox" id="ntSaveMine" ${saveMine ? 'checked' : ''}>${m.saveMine}</label>
     <button class="action-btn" id="ntAdd" type="button">${m.add}</button>`;
 }
 
-function addCard(showAi: boolean, date: string, today: string, slot: MealSlot | null): string {
+/* --------------------------------------------------------- my saved meals */
+
+/** One row of "⭐ הארוחות שלי": name, numbers, a one-tap ＋ and (for a saved meal) a 🗑. */
+function mineRowHtml(kind: 'tpl' | 'fixed', id: string, name: string, cal: number, prot: number, deletable: boolean): string {
+  const m = tr(M);
+  return `
+      <li class="nt-mine-row">
+        <button class="nt-mine-log" type="button" data-mine-${kind}="${esc(id)}" aria-label="${m.mine.logAria(esc(name))}">
+          <span class="nt-plus" aria-hidden="true">＋</span>
+          <span class="nt-mine-name">${esc(name)}</span>
+          <span class="nt-mine-nums">${m.meal.slotSum(cal, prot)}</span>
+        </button>
+        ${deletable ? `<button class="nt-del" type="button" data-tpl-del="${esc(id)}" aria-label="${m.mine.deleteAria(esc(name))}">🗑</button>` : ''}
+      </li>`;
+}
+
+/** What a saved meal would log now: a saved pick re-priced from the catalog, else its own numbers. */
+function templateNums(t: TemplateRow): { calories: number; protein: number } {
+  const p = t.pick ? priceCatalog(t.pick.id, t.pick.unit, t.pick.qty) : null;
+  return p ?? { calories: t.calories, protein: t.protein };
+}
+
+/**
+ * "⭐ הארוחות שלי" — the user's saved meals and the owners' fixed meals they
+ * have eaten, each logged into the chosen meal with ONE tap. Empty, it says
+ * how to fill it.
+ */
+function mineHtml(templates: readonly TemplateRow[]): string {
+  const m = tr(M).mine;
+  const fixed = myMeals.map((meal) => {
+    const p = priceCatalog(meal.id, PORTION.id, 1);
+    return mineRowHtml('fixed', meal.id, mealName(meal), p?.calories ?? 0, p?.protein ?? 0, false);
+  });
+  const saved = templates.map((t) => {
+    const nums = templateNums(t);
+    return mineRowHtml('tpl', t.id, storedPickName(t.name, t.pick), nums.calories, nums.protein, true);
+  });
+  const rows = [...saved, ...fixed];
+  return `
+    <div class="nt-mine" id="ntMine">
+      <div class="nt-mine-title">${m.title}</div>
+      ${rows.length > 0 ? `<ul class="nt-mine-list">${rows.join('')}</ul>` : `<p class="gc-note dim">${m.empty}</p>`}
+    </div>`;
+}
+
+function addCard(
+  showAi: boolean,
+  date: string,
+  today: string,
+  slot: MealSlot | null,
+  templates: readonly TemplateRow[] = [],
+): string {
   // On a past day the card says WHERE the meal will land — a forgotten dinner
   // is logged onto yesterday, not silently onto today.
   const m = tr(M);
@@ -660,6 +812,7 @@ function addCard(showAi: boolean, date: string, today: string, slot: MealSlot | 
     <div class="gc-title">${m.form.title}${dayNote}</div>
     ${slotChipsHtml(slot)}
     ${slot ? '' : `<p class="gc-note nt-slot-need">${m.form.needSlot}</p>`}
+    ${mineHtml(templates)}
     ${seg(ADD_MODES.map((it) => ({ key: it.key, label: m.modes[it.key] })), addMode, 'mode', m.form.modeAria)}
     ${addMode === 'catalog' ? catalogFormHtml(slot) : textFormHtml(showAi)}
     <p class="gc-note" id="ntAddMsg" role="status"></p>
@@ -897,6 +1050,9 @@ function chartCard(n: NutritionState, today: string): string {
 
 function targetsCard(targets: NutritionTargets): string {
   const m = tr(M).targets;
+  // An empty carbs / fat field shows what the default split would make of it.
+  const split = macroTargets({ calories: targets.calories, protein: targets.protein });
+  const auto = (n: number | null): string => (n === null ? '—' : m.auto(n));
   return `
   <section class="game-card nt-targets">
     <div class="gc-title">${m.title} <span class="gc-sub">${m.optional}</span></div>
@@ -910,6 +1066,17 @@ function targetsCard(targets: NutritionTargets): string {
           value="${targets.protein ?? ''}" placeholder="—">
       </label>
     </div>
+    <div class="nt-field-row">
+      <label class="nt-field">${m.carbs}
+        <input class="inp" id="ntTgtCarbs" type="text" inputmode="numeric" autocomplete="off"
+          value="${targets.carbs ?? ''}" placeholder="${esc(auto(split.carbs))}">
+      </label>
+      <label class="nt-field">${m.fat}
+        <input class="inp" id="ntTgtFat" type="text" inputmode="numeric" autocomplete="off"
+          value="${targets.fat ?? ''}" placeholder="${esc(auto(split.fat))}">
+      </label>
+    </div>
+    <p class="gc-note dim">${m.splitNote}</p>
     <button class="action-btn" id="ntTgtSave" type="button">${m.save}</button>
     <p class="gc-note" id="ntTgtMsg" role="status"></p>
   </section>`;
@@ -939,6 +1106,62 @@ function remindersCard(): string {
   </section>`;
 }
 
+/* ------------------------------------------------------- the sample menu */
+
+/**
+ * "🍱 תפריט לדוגמה": the sample day closest to the calorie target (or the one
+ * picked), one row per meal of the day — its ready meal, its numbers, and a
+ * ＋ that logs it into that meal on the day on screen (a normal catalog pick).
+ * A meal of the menu already logged in its slot shows ✓ instead. On a closed
+ * day the rows are read-only.
+ */
+/** The menu on screen: the one picked by hand, else the one closest to the calorie target. */
+function currentMenu(n: NutritionState): DailyMenu | null {
+  return (menuPick ? menuById(menuPick) : null) ?? menuFor(n.targets.calories);
+}
+
+function menuCard(n: NutritionState, date: string): string {
+  const menu = currentMenu(n);
+  if (!menu) return '';
+  const all = tr(M);
+  const m = all.menu;
+  const locked = isDayClosed(n, date);
+  const rows = mealsForDate(n, date);
+  const chips = DAILY_MENUS.map((d) => ({
+    key: d.id,
+    label: d.vegetarian ? `<span title="${esc(m.vegTitle)}">${m.veg(d.kcal)}</span>` : String(d.kcal),
+  }));
+  const items = menu.items
+    .map((it, i) => {
+      const meal = catalogEntry(it.meal);
+      const p = priceItem(it);
+      if (!meal || meal.kind !== 'meal' || !p) return '';
+      const name = mealName(meal);
+      const done = rows.some((r) => r.slot === it.slot && r.catalog?.id === it.meal);
+      const action = locked
+        ? ''
+        : done
+          ? `<span class="nt-menu-done" title="${esc(m.logged)}" aria-label="${esc(m.logged)}">✓</span>`
+          : `<button class="nt-menu-log" type="button" data-menu-log="${i}" aria-label="${m.logAria(esc(name), esc(slotLabel(it.slot)))}">＋</button>`;
+      return `
+      <li class="nt-menu-row" data-menu-slot="${it.slot}">
+        <span class="nt-menu-slot">${esc(slotShort(it.slot))}</span>
+        <span class="nt-menu-meal">${esc(name)}<span class="nt-menu-nums">${all.meal.slotSum(p.calories, p.protein)}</span></span>
+        ${action}
+      </li>`;
+    })
+    .join('');
+  const t = menuTotals(menu);
+  return `
+  <section class="game-card nt-menu" id="ntMenu">
+    <div class="gc-title">${m.title} <span class="gc-sub">${m.sub(menu.kcal)}</span></div>
+    <div class="nt-menu-pick">${seg(chips, menu.id, 'menu', m.pickAria)}</div>
+    <ul class="nt-menu-list">${items}</ul>
+    <p class="nt-menu-total">${m.total(t.calories, t.protein, t.carbs, t.fat)}</p>
+    <p class="gc-note dim">${n.targets.calories !== null ? m.noteTarget : m.noteNoTarget}</p>
+  </section>`;
+}
+
 function dayNav(date: string, today: string): string {
   const m = tr(M).nav;
   return `
@@ -962,7 +1185,8 @@ export function nutritionHtml(
   ${dayNav(date, today)}
   ${totalsCard(n, date, today)}
   ${mealsCard(n, date)}
-  ${isDayClosed(n, date) ? closedCard(date, today) : addCard(showAi, date, today, slot)}
+  ${isDayClosed(n, date) ? closedCard(date, today) : addCard(showAi, date, today, slot, liveTemplates(n))}
+  ${menuCard(n, date)}
   ${chartCard(n, today)}
   ${targetsCard(n.targets)}
   ${withPush ? remindersCard() : ''}`;
@@ -999,6 +1223,18 @@ function nowHHMM(): string {
 function intOf(input: HTMLInputElement | null, max: number): number | null {
   const raw = (input?.value ?? '').trim();
   if (raw === '') return 0;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.min(Math.floor(n), max);
+}
+
+/**
+ * An OPTIONAL macro field: empty is `undefined` (unknown — never 0), a
+ * number is clamped, anything else is `null` (refuse the form).
+ */
+function optIntOf(input: HTMLInputElement | null, max: number): number | undefined | null {
+  const raw = (input?.value ?? '').trim();
+  if (raw === '') return undefined;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) return null;
   return Math.min(Math.floor(n), max);
@@ -1093,15 +1329,33 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
   const nameInp = main.querySelector<HTMLTextAreaElement>('#ntName');
   const calInp = main.querySelector<HTMLInputElement>('#ntCal');
   const protInp = main.querySelector<HTMLInputElement>('#ntProt');
+  const carbsInp = main.querySelector<HTMLInputElement>('#ntCarbs');
+  const fatInp = main.querySelector<HTMLInputElement>('#ntFat');
+  const saveBox = main.querySelector<HTMLInputElement>('#ntSaveMine');
   const timeInp = main.querySelector<HTMLInputElement>('#ntTime');
   const addMsg = main.querySelector<HTMLElement>('#ntAddMsg');
   nameInp?.addEventListener('input', () => (draft.name = nameInp.value));
   calInp?.addEventListener('input', () => (draft.cal = calInp.value));
   protInp?.addEventListener('input', () => (draft.prot = protInp.value));
+  carbsInp?.addEventListener('input', () => (draft.carbs = carbsInp.value));
+  fatInp?.addEventListener('input', () => (draft.fat = fatInp.value));
+  saveBox?.addEventListener('change', () => (saveMine = saveBox.checked));
   timeInp?.addEventListener('input', () => (draft.time = timeInp.value));
   timeInp?.addEventListener('change', () => (draft.time = timeInp.value));
   const clearDraft = (): void => {
-    draft = { name: '', cal: '', prot: '', time: '' };
+    draft = { name: '', cal: '', prot: '', carbs: '', fat: '', time: '' };
+    saveMine = false;
+  };
+  const stampNow = (): string => stampTime(timeInp?.value ?? '', date, today, now);
+  /** Log one ready-made input into the day (saved meal, fixed meal, menu item). */
+  const logReady = (input: MealInput | null, msg: string): void => {
+    const ev = input ? logMeal(deps.store, input, crypto.randomUUID()) : null;
+    if (!ev) {
+      if (addMsg) addMsg.textContent = tr(M).msg.pickFailed;
+      return;
+    }
+    toast(msg);
+    again();
   };
   const needSlot = (): boolean => {
     if (slot) return false;
@@ -1128,6 +1382,65 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
     btn.addEventListener('click', () => {
       addMode = btn.dataset['mode'] === 'text' ? 'text' : 'catalog';
       again();
+    });
+  });
+
+  /* ---- ⭐ my meals: one tap logs into the chosen meal ---- */
+  main.querySelectorAll<HTMLButtonElement>('[data-mine-tpl]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (needSlot() || !slot) return;
+      const tpl = liveTemplates(deps.store.getState().nutrition).find((t) => t.id === btn.dataset['mineTpl']);
+      if (!tpl) return;
+      logReady(templateMealInput(tpl, { date, slot, time: stampNow() }), tr(M).msg.mealLogged);
+    });
+  });
+  main.querySelectorAll<HTMLButtonElement>('[data-mine-fixed]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (needSlot() || !slot) return;
+      const id = btn.dataset['mineFixed'] ?? '';
+      logReady(catalogMealInput({ id, unit: PORTION.id, qty: 1, date, slot, time: stampNow() }), tr(M).msg.pickLogged);
+    });
+  });
+  main.querySelectorAll<HTMLButtonElement>('[data-tpl-del]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset['tplDel'];
+      if (!id || !confirm(tr(M).mine.confirmDelete)) return;
+      deleteTemplate(deps.store, id);
+      toast(tr(M).msg.templateDeleted);
+      again();
+    });
+  });
+
+  /* ---- ☆ save a logged meal as my own ---- */
+  main.querySelectorAll<HTMLButtonElement>('[data-save-tpl]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const n = deps.store.getState().nutrition;
+      const row = mealsForDate(n, date).find((r) => r.id === btn.dataset['saveTpl']);
+      if (!row) return;
+      if (isSaved(row, liveTemplates(n))) {
+        toast(tr(M).msg.templateExists);
+        return;
+      }
+      if (saveTemplate(deps.store, templateFromMeal(row), crypto.randomUUID())) toast(tr(M).msg.templateSaved);
+      again();
+    });
+  });
+
+  /* ---- 🍱 the sample menu ---- */
+  main.querySelectorAll<HTMLButtonElement>('[data-menu]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      menuPick = btn.dataset['menu'] ?? null;
+      again();
+    });
+  });
+  main.querySelectorAll<HTMLButtonElement>('[data-menu-log]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const item = currentMenu(deps.store.getState().nutrition)?.items[Number(btn.dataset['menuLog'])];
+      if (!item) return;
+      logReady(
+        catalogMealInput({ id: item.meal, unit: PORTION.id, qty: 1, date, slot: item.slot, time: stampNow() }),
+        tr(M).msg.menuLogged,
+      );
     });
   });
 
@@ -1187,6 +1500,8 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
     const name = (nameInp?.value ?? '').trim();
     const calories = intOf(calInp, MEAL_MAX_CALORIES);
     const protein = intOf(protInp, MEAL_MAX_PROTEIN);
+    const carbs = optIntOf(carbsInp, MEAL_MAX_CARBS);
+    const fat = optIntOf(fatInp, MEAL_MAX_FAT);
     if (needSlot() || !slot) return;
     if (!name) {
       if (addMsg) addMsg.textContent = tr(M).msg.needName;
@@ -1196,6 +1511,11 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
       if (addMsg) addMsg.textContent = tr(M).msg.needNumbers;
       return;
     }
+    if (carbs === null || fat === null) {
+      if (addMsg) addMsg.textContent = tr(M).msg.badMacros;
+      return;
+    }
+    const macros = { ...(carbs !== undefined ? { carbs } : {}), ...(fat !== undefined ? { fat } : {}) };
     // The estimate's byline survives only while its numbers do.
     const est = lastEstimate;
     const fromAi = est !== null && est.estimate.calories === calories && est.estimate.proteinG === protein;
@@ -1204,6 +1524,7 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
       name,
       calories,
       protein,
+      ...macros,
       time: stampTime(timeInp?.value ?? '', date, today, now),
       slot,
       source: fromAi ? est.source : 'manual',
@@ -1225,10 +1546,16 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
       if (addMsg) addMsg.textContent = tr(M).msg.mealFailed;
       return;
     }
+    // "⭐ לשמור גם בארוחות שלי": the same meal, as the user's own (its numbers).
+    const tpl: TemplateInput = { name: input.name, calories, protein, ...macros };
+    const keep = saveMine && !liveTemplates(deps.store.getState().nutrition).some(
+      (t) => t.name === tpl.name && t.calories === calories && t.protein === protein,
+    );
+    if (keep) saveTemplate(deps.store, tpl, crypto.randomUUID());
     lastEstimate = null;
     photo = null;
     clearDraft();
-    toast(tr(M).msg.mealLogged);
+    toast(keep ? tr(M).msg.templateSaved : tr(M).msg.mealLogged);
     again();
   });
 
@@ -1258,18 +1585,21 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
   /* ---- targets ---- */
   const tgtMsg = main.querySelector<HTMLElement>('#ntTgtMsg');
   main.querySelector<HTMLButtonElement>('#ntTgtSave')?.addEventListener('click', () => {
-    const calRaw = (main.querySelector<HTMLInputElement>('#ntTgtCal')?.value ?? '').trim();
-    const protRaw = (main.querySelector<HTMLInputElement>('#ntTgtProt')?.value ?? '').trim();
-    const cal = calRaw === '' ? null : Number(calRaw);
-    const prot = protRaw === '' ? null : Number(protRaw);
-    if ((cal !== null && (!Number.isFinite(cal) || cal < 0)) || (prot !== null && (!Number.isFinite(prot) || prot < 0))) {
+    const read = (sel: string): number | null | 'bad' => {
+      const raw = (main.querySelector<HTMLInputElement>(sel)?.value ?? '').trim();
+      if (raw === '') return null;
+      const v = Number(raw);
+      return Number.isFinite(v) && v >= 0 ? Math.floor(v) : 'bad';
+    };
+    const cal = read('#ntTgtCal');
+    const prot = read('#ntTgtProt');
+    const carbs = read('#ntTgtCarbs');
+    const fat = read('#ntTgtFat');
+    if (cal === 'bad' || prot === 'bad' || carbs === 'bad' || fat === 'bad') {
       if (tgtMsg) tgtMsg.textContent = tr(M).msg.badTargets;
       return;
     }
-    setTargets(deps.store, {
-      calories: cal === null ? null : Math.floor(cal),
-      protein: prot === null ? null : Math.floor(prot),
-    });
+    setTargets(deps.store, { calories: cal, protein: prot, carbs, fat });
     toast(tr(M).msg.targetsSaved);
     again();
   });
@@ -1335,6 +1665,11 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
           if (protInp) protInp.value = String(est.proteinG);
           draft.cal = String(est.calories);
           draft.prot = String(est.proteinG);
+          // Carbs / fat only when the function returned them; otherwise unknown.
+          draft.carbs = est.carbsG !== undefined ? String(est.carbsG) : '';
+          draft.fat = est.fatG !== undefined ? String(est.fatG) : '';
+          if (carbsInp) carbsInp.value = draft.carbs;
+          if (fatInp) fatInp.value = draft.fat;
           if (estMsg) {
             const names = est.items.map(itemLabel);
             const m = tr(M);

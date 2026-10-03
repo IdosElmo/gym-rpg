@@ -12,17 +12,32 @@
  * The catalog also rides along with every ✨ estimate as HINTS
  * (`catalogHints`): the estimator uses a catalog value when an ingredient
  * clearly is that food, and prices everything else on its own.
+ *
+ * Carbs and fat are priced exactly like protein (stage ז). The ready meals
+ * (`READY_MEALS`) are catalog entries like the fixed meals, offered to
+ * everyone in their own group; the user's own saved meals ("הארוחות שלי",
+ * `state.nutrition.templates`) log through `templateMealInput` — a saved pick
+ * re-prices from here, a saved free-text meal keeps its own numbers.
  */
 
-import { FIXED_MEALS, FOODS, type CatalogEntry, type CatalogFood, type CatalogMeal, type FoodUnit } from '../data/foods.ts';
-import type { MealAiItem, MealSlot, NutritionState } from '../storage/DataStore.ts';
-import { CATALOG_MAX_QTY, MEAL_SLOTS, type MealInput } from './nutrition.ts';
+import {
+  DAILY_MENUS,
+  FIXED_MEALS,
+  FOODS,
+  READY_MEALS,
+  type CatalogEntry,
+  type CatalogFood,
+  type CatalogMeal,
+  type FoodUnit,
+} from '../data/foods.ts';
+import type { MealAiItem, MealSlot, MealTemplatePick, NutritionState } from '../storage/DataStore.ts';
+import { CATALOG_MAX_QTY, MEAL_SLOTS, type MealInput, type MealRow, type TemplateInput, type TemplateRow } from './nutrition.ts';
 
 /** A fixed meal's one unit. */
 export const PORTION: FoodUnit = { id: 'portion', label: 'מנה', grams: 0 };
 
 const BY_ID: ReadonlyMap<string, CatalogEntry> = new Map<string, CatalogEntry>(
-  [...FIXED_MEALS, ...FOODS].map((e) => [e.id, e]),
+  [...FIXED_MEALS, ...READY_MEALS, ...FOODS].map((e) => [e.id, e]),
 );
 
 export function catalogEntry(id: string): CatalogEntry | null {
@@ -42,7 +57,7 @@ export function unitsOf(entry: CatalogEntry): readonly FoodUnit[] {
  * as somebody else's diary; shown to nobody, the two people who eat them every
  * morning lose a one-tap pick. Deriving them from the log does both without a
  * migration or a new event: whoever has eaten one keeps it, a stranger never
- * sees it. (Saving your OWN meals is the food-catalog stage's feature.)
+ * sees it. (The user's OWN saved meals are templates — `state.nutrition.templates`.)
  * Order: catalog order. Deleted meals still count — having eaten it is enough.
  */
 export function myFixedMeals(nutrition: Pick<NutritionState, 'meals'>): CatalogMeal[] {
@@ -66,6 +81,18 @@ export function entriesForSlot(
   const every: CatalogEntry[] = [...mine, ...FOODS];
   const fits = every.filter((e) => e.slots.includes(slot));
   const rest = all ? every.filter((e) => !e.slots.includes(slot)) : [];
+  return { fits, rest };
+}
+
+/**
+ * "ארוחות מוכנות" for a meal of the day — everyone's, in catalog order: the
+ * ones that fit, then (with `all`) the rest. A separate list from
+ * `entriesForSlot`, so the picker can give them their own group.
+ */
+export function readyForSlot(slot: MealSlot | null, all: boolean): { fits: CatalogMeal[]; rest: CatalogMeal[] } {
+  if (slot === null) return { fits: [...READY_MEALS], rest: [] };
+  const fits = READY_MEALS.filter((m) => m.slots.includes(slot));
+  const rest = all ? READY_MEALS.filter((m) => !m.slots.includes(slot)) : [];
   return { fits, rest };
 }
 
@@ -123,6 +150,8 @@ export function fmtQty(q: number): string {
 export interface CatalogPrice {
   calories: number;
   protein: number;
+  carbs: number;
+  fat: number;
   /** One line per food (one for a food, one per component for a meal). */
   lines: MealAiItem[];
 }
@@ -131,11 +160,19 @@ interface Exact {
   grams: number;
   kcal: number;
   protein: number;
+  carbs: number;
+  fat: number;
 }
 
 function exactOf(food: CatalogFood, unit: FoodUnit, qty: number): Exact {
   const grams = unit.grams * qty;
-  return { grams, kcal: (grams * food.kcal100) / 100, protein: (grams * food.protein100) / 100 };
+  return {
+    grams,
+    kcal: (grams * food.kcal100) / 100,
+    protein: (grams * food.protein100) / 100,
+    carbs: (grams * food.carbs100) / 100,
+    fat: (grams * food.fat100) / 100,
+  };
 }
 
 /**
@@ -191,14 +228,24 @@ export function priceCatalog(
   }
   let kcal = 0;
   let protein = 0;
+  let carbs = 0;
+  let fat = 0;
   const lines: MealAiItem[] = [];
   for (const p of parts) {
     const e = exactOf(p.food, p.unit, p.qty);
     kcal += e.kcal;
     protein += e.protein;
+    carbs += e.carbs;
+    fat += e.fat;
     lines.push(lineOf(p.food, p.unit, p.qty, e, names));
   }
-  return { calories: Math.round(kcal), protein: Math.round(protein), lines };
+  return {
+    calories: Math.round(kcal),
+    protein: Math.round(protein),
+    carbs: Math.round(carbs),
+    fat: Math.round(fat),
+    lines,
+  };
 }
 
 /** How a pick reads in the meal list: "½ כוס שיבולת שועל דקה", "שיבולת שועל", "2 מנות · שיבולת שועל". */
@@ -231,10 +278,58 @@ export function catalogMealInput(pick: CatalogPick): MealInput | null {
     name: catalogName(entry, unit, pick.qty),
     calories: price.calories,
     protein: price.protein,
+    carbs: price.carbs,
+    fat: price.fat,
     time: pick.time,
     source: 'catalog',
     slot: pick.slot,
     catalog: { id: entry.id, unit: unit.id, qty: pick.qty, lines: price.lines },
+  };
+}
+
+/* ------------------------------------------------------- my saved meals */
+
+/**
+ * What "שמירת ארוחה משלי" stores for a logged meal: its name and numbers, and —
+ * for a catalog pick — the pick itself, so the saved meal re-prices from the
+ * catalog every time it is logged.
+ */
+export function templateFromMeal(row: Pick<MealRow, 'name' | 'calories' | 'protein' | 'carbs' | 'fat' | 'catalog'>): TemplateInput {
+  const pick: MealTemplatePick | undefined = row.catalog
+    ? { id: row.catalog.id, unit: row.catalog.unit, qty: row.catalog.qty }
+    : undefined;
+  return {
+    name: row.name,
+    calories: row.calories,
+    protein: row.protein,
+    ...(row.carbs !== undefined ? { carbs: row.carbs } : {}),
+    ...(row.fat !== undefined ? { fat: row.fat } : {}),
+    ...(pick ? { pick } : {}),
+  };
+}
+
+/**
+ * The `MealInput` for logging a saved meal into a day's slot. A saved catalog
+ * pick is priced afresh (a `catalog` meal under the template's name); one
+ * whose pick no longer prices, or a free-text one, is logged with its own
+ * numbers as a `manual` meal.
+ */
+export function templateMealInput(
+  tpl: TemplateRow,
+  at: { date: string; slot: MealSlot; time: string },
+): MealInput {
+  const fromCatalog = tpl.pick ? catalogMealInput({ ...tpl.pick, ...at }) : null;
+  if (fromCatalog) return { ...fromCatalog, name: tpl.name };
+  return {
+    date: at.date,
+    name: tpl.name,
+    calories: tpl.calories,
+    protein: tpl.protein,
+    ...(tpl.carbs !== undefined ? { carbs: tpl.carbs } : {}),
+    ...(tpl.fat !== undefined ? { fat: tpl.fat } : {}),
+    time: at.time,
+    source: 'manual',
+    slot: at.slot,
   };
 }
 
@@ -246,10 +341,18 @@ function num(v: number): string {
 }
 
 /**
- * The catalog as prompt lines for the estimator — one per food (units in
- * grams, values per 100 g) and one per fixed meal (its components). The
- * estimate-meal function treats them as HINTS: a clear match uses them, no
- * match is priced as usual.
+ * How many hint lines one request carries — the estimate-meal function reads
+ * at most this many (its `MAX_CATALOG_LINES`) and drops the rest.
+ */
+export const HINT_MAX_LINES = 120;
+
+/**
+ * The catalog as prompt lines for the estimator — one per fixed meal of the
+ * user's (its components) and one per food (units in grams, values per
+ * 100 g), in that order, capped at `HINT_MAX_LINES`: the user's own meals
+ * first, then the foods in catalog order (staples before dishes and sweets).
+ * The estimate-meal function treats them as HINTS: a clear match uses them,
+ * no match is priced as usual.
  */
 export function catalogHints(mine: readonly CatalogMeal[] = FIXED_MEALS): string[] {
   const foods = FOODS.map((f) => {
@@ -267,21 +370,27 @@ export function catalogHints(mine: readonly CatalogMeal[] = FIXED_MEALS): string
       .join(' + ');
     return `ארוחה קבועה "${m.name}" (מנה אחת) = ${parts}`;
   });
-  return [...foods, ...meals];
+  return [...meals, ...foods].slice(0, HINT_MAX_LINES);
 }
 
 /* ------------------------------------------------------------- integrity */
 
+/** How far a food's stated kcal may sit from its macros' 4/4/9 (+7 alcohol) energy. */
+const ENERGY_TOLERANCE = 0.12;
+const ENERGY_SLACK_KCAL = 12;
+
 /**
  * Everything that would make the catalog lie, as Hebrew-free test messages:
- * duplicate ids, a food without units or values, a meal naming a missing food
- * or unit, an unknown meal slot. The catalog test pins this to `[]`.
+ * duplicate ids, a food without units or values, macros that do not add up to
+ * the calories, a meal naming a missing food or unit, an unknown meal slot, a
+ * daily menu naming a missing ready meal or a meal that does not fit its slot.
+ * The catalog test pins this to `[]`.
  */
 export function catalogProblems(): string[] {
   const out: string[] = [];
   const slots = new Set<string>(MEAL_SLOTS.map((s) => s.key));
   const seen = new Set<string>();
-  for (const e of [...FIXED_MEALS, ...FOODS]) {
+  for (const e of [...FIXED_MEALS, ...READY_MEALS, ...FOODS]) {
     if (seen.has(e.id)) out.push(`duplicate id ${e.id}`);
     seen.add(e.id);
     if (!e.name.trim()) out.push(`${e.id}: no name`);
@@ -290,6 +399,14 @@ export function catalogProblems(): string[] {
     if (e.kind === 'food') {
       if (!(e.kcal100 >= 0 && e.kcal100 <= 900)) out.push(`${e.id}: kcal100 out of range`);
       if (!(e.protein100 >= 0 && e.protein100 <= 100)) out.push(`${e.id}: protein100 out of range`);
+      if (!(e.carbs100 >= 0 && e.carbs100 <= 100)) out.push(`${e.id}: carbs100 out of range`);
+      if (!(e.fat100 >= 0 && e.fat100 <= 100)) out.push(`${e.id}: fat100 out of range`);
+      const alcohol = e.alcohol100 ?? 0;
+      if (e.protein100 + e.carbs100 + e.fat100 + alcohol > 100) out.push(`${e.id}: macros exceed 100 g`);
+      const energy = 4 * e.protein100 + 4 * e.carbs100 + 9 * e.fat100 + 7 * alcohol;
+      if (Math.abs(energy - e.kcal100) > Math.max(e.kcal100 * ENERGY_TOLERANCE, ENERGY_SLACK_KCAL)) {
+        out.push(`${e.id}: kcal100 ${e.kcal100} vs macros ${Math.round(energy)}`);
+      }
       if (e.units.length === 0) out.push(`${e.id}: no units`);
       const uids = new Set<string>();
       for (const u of e.units) {
@@ -304,6 +421,21 @@ export function catalogProblems(): string[] {
         if (!food || food.kind !== 'food') out.push(`${e.id}: unknown food ${c.food}`);
         else if (!food.units.some((u) => u.id === c.unit)) out.push(`${e.id}: ${c.food} has no unit ${c.unit}`);
         if (!(c.qty > 0)) out.push(`${e.id}: ${c.food} qty must be positive`);
+      }
+    }
+  }
+  const ready = new Map<string, CatalogMeal>(READY_MEALS.map((m) => [m.id, m]));
+  const menuIds = new Set<string>();
+  for (const menu of DAILY_MENUS) {
+    if (menuIds.has(menu.id)) out.push(`duplicate menu ${menu.id}`);
+    menuIds.add(menu.id);
+    if (menu.items.length === 0) out.push(`${menu.id}: no meals`);
+    for (const it of menu.items) {
+      const m = ready.get(it.meal);
+      if (!m) out.push(`${menu.id}: unknown ready meal ${it.meal}`);
+      else {
+        if (!m.slots.includes(it.slot)) out.push(`${menu.id}: ${it.meal} does not fit ${it.slot}`);
+        if (menu.vegetarian && !m.vegetarian) out.push(`${menu.id}: ${it.meal} is not vegetarian`);
       }
     }
   }

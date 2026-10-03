@@ -664,6 +664,11 @@ export type EventType =
   // so the intake chart can average over whole days only. LWW per date (close,
   // reopen, close again); folds into `state.nutrition.closedDays`.
   | 'nutrition_day_closed'
+  // Stage ז — "שמירת ארוחה משלי": the user's own reusable meals. The WHOLE
+  // template per event, LWW per template id; deletion is a tombstone (the
+  // `meal_deleted` rule). Folded into `state.nutrition.templates`.
+  | 'meal_template_saved'
+  | 'meal_template_deleted'
   // Phase 14 — the ⚖️ weight log, the nutrition hub's second inner tab. The
   // same three laws as meals: one weigh-in per event, idempotent per entry ID;
   // deletion is a tombstone; the goal weight is LWW. Folded into
@@ -1383,6 +1388,13 @@ export interface MealLoggedPayload extends Record<string, unknown> {
   calories: number;
   /** grams */
   protein: number;
+  /**
+   * Grams of carbohydrate / fat. OPTIONAL: meals logged before full macros,
+   * and manual meals the user did not break down, have none — UNKNOWN, never
+   * read as 0 (the day's totals say "≥" while any meal lacks one).
+   */
+  carbs?: number;
+  fat?: number;
   /** 'HH:MM' for display, or ''. */
   time: string;
   source: MealSource;
@@ -1409,6 +1421,9 @@ export interface MealDeletedPayload extends Record<string, unknown> {
 export interface NutritionTargetsPayload extends Record<string, unknown> {
   calories: number | null;
   protein: number | null;
+  /** Explicit carbs / fat targets (grams); absent or `null` = the default split (core/macros.ts). */
+  carbs?: number | null;
+  fat?: number | null;
 }
 
 /**
@@ -1425,6 +1440,9 @@ export interface NutritionDayClosedPayload extends Record<string, unknown> {
 export interface NutritionTargets {
   calories: number | null;
   protein: number | null;
+  /** Present only when set explicitly; absent = derived from calories + protein (core/macros.ts). */
+  carbs?: number;
+  fat?: number;
 }
 
 /** The stored shape of one meal (the payload minus its id, post-validation). */
@@ -1433,11 +1451,55 @@ export interface MealRecord {
   name: string;
   calories: number;
   protein: number;
+  carbs?: number;
+  fat?: number;
   time: string;
   source: MealSource;
   ai?: MealAiInfo;
   slot?: MealSlot;
   catalog?: MealCatalogInfo;
+}
+
+/* --------------------------------------- stage ז: the user's own meals */
+
+/** A saved catalog pick: logging the template re-prices it from the catalog. */
+export interface MealTemplatePick {
+  /** A catalog entry id (food, fixed or ready meal). */
+  id: string;
+  unit: string;
+  qty: number;
+}
+
+/**
+ * "שמירת ארוחה משלי" — one reusable meal, carried WHOLE. `id` is a uuid minted
+ * at save time; the last `meal_template_saved` per id in the `(ts, id)` order
+ * wins. The numbers are what the meal was when saved; a template with a
+ * `pick` is re-priced from the catalog when it is logged (the catalog is the
+ * truth for catalog foods), one without is logged with its own numbers.
+ */
+export interface MealTemplateSavedPayload extends Record<string, unknown> {
+  id: string;
+  name: string;
+  calories: number;
+  protein: number;
+  carbs?: number;
+  fat?: number;
+  pick?: MealTemplatePick;
+}
+
+/** Deletion is a TOMBSTONE — the `meal_deleted` rule, verbatim. */
+export interface MealTemplateDeletedPayload extends Record<string, unknown> {
+  id: string;
+}
+
+/** The stored shape of one template (the payload minus its id, post-validation). */
+export interface MealTemplateRecord {
+  name: string;
+  calories: number;
+  protein: number;
+  carbs?: number;
+  fat?: number;
+  pick?: MealTemplatePick;
 }
 
 /* ---------------------------------------------- Phase 14 weight payloads */
@@ -1549,6 +1611,10 @@ export interface NutritionState {
   photoDeleted: Record<string, true>;
   /** The custom pose's name (LWW); '' when unnamed. */
   customPoseName: string;
+  /** "הארוחות שלי" — the user's saved meals by template id (LWW per id). */
+  templates: Record<string, MealTemplateRecord>;
+  /** Template tombstones — union-monotone, never pruned. */
+  templateDeleted: Record<string, true>;
 }
 
 /* -------------------------------------------------------------- blobs */
