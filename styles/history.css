@@ -59,32 +59,33 @@
 }
 /* A completed workout gets a corner tick and a green hairline — the same "done"
    colour the set checkboxes use, quiet enough to scan past. */
-.day-bubble.done{border-color:#10B98155}
+.day-bubble.done{border-color:var(--ok-line)}
 .day-bubble.done .db-tick{
   position:absolute; top:4px; inset-inline-end:6px;
   font-size:9px; line-height:1; color:var(--ok);
 }
 .day-bubble.open{
-  border-color:var(--accent); background:#3B82F61F; box-shadow:0 0 0 2px #3B82F633;
+  border-color:var(--accent-ink); background:var(--accent-soft); box-shadow:0 0 0 2px var(--accent-line);
 }
 .day-bubble.open .db-chip{color:var(--text)}
 /* The expanded day. `:empty` keeps the closed pane from reserving a gap. */
 .day-panel:empty{display:none}
 .day-panel{margin-top:8px}
-.day-panel .hist-day{margin-bottom:0; border-color:#3B82F644}
+.day-panel .hist-day{margin-bottom:0; border-color:var(--accent-line)}
 .hist-hint{font-size:11.5px; font-weight:600; color:var(--dim); margin-inline-start:6px}
 
 /* Export / import / clear, grouped inside the "הנתונים שלי" card on הגדרות. */
 .data-actions{display:flex; gap:10px; margin:12px 0 0}
 .action-btn{
-  flex:1; background:var(--card); border:1px solid var(--line); color:var(--accent);
+  flex:1; background:var(--card); border:1px solid var(--line); color:var(--accent-ink);
   border-radius:12px; padding:11px; font-size:14px; font-weight:700;
 }
 .action-btn.danger{color:var(--danger)}
 .toast{
   position:fixed; bottom:120px; right:50%; transform:translateX(50%);
-  background:var(--card-2); border:1px solid var(--accent); color:var(--text);
+  background:var(--card-2); border:1px solid var(--accent-ink); color:var(--text);
   padding:9px 18px; border-radius:99px; font-size:13.5px; z-index:80;
+  box-shadow:0 6px 18px var(--shadow);
   opacity:0; transition:.25s; pointer-events:none;
 }
 .toast.show{opacity:1}
@@ -100,16 +101,16 @@
 .fi-icon{flex:0 0 auto; font-size:14px}
 .fi-text{flex:1; min-width:0}
 .fi-date{flex:0 0 auto; font-size:10.5px; color:var(--dim); direction:ltr}
-.feed-item.level{border-color:#3B82F644}
-.feed-item.pr{border-color:#F59E0B44}
-.feed-item.boss{border-color:#A78BFA55}
+.feed-item.level{border-color:var(--accent-line)}
+.feed-item.pr{border-color:var(--warn-line)}
+.feed-item.boss{border-color:var(--ss-line)}
 .feed-item.wave .fi-text{color:var(--muted)}
-.feed-item.streak{border-color:#F59E0B44}
+.feed-item.streak{border-color:var(--warn-line)}
 .feed-item.shop .fi-icon{filter:saturate(1.2)}
-.feed-item.import{border-color:#10B98144}
-.feed-item.daily{border-color:#F59E0B66}
+.feed-item.import{border-color:var(--ok-line)}
+.feed-item.daily{border-color:var(--warn-strong)}
 /* A dev grant. Dashed, because the line is honest about not being training. */
-.feed-item.dev{border-style:dashed; border-color:#94A3B866}
+.feed-item.dev{border-style:dashed; border-color:var(--muted-line)}
 .feed-item.dev .fi-text{color:var(--muted)}
 
 /* ---------- Account / cloud sync card ---------- */
@@ -125,7 +126,7 @@
    title say "this is a workbench, not part of the game". Every control is a
    full-width ≥44px target like the rest of the screen — a dev panel that is
    fiddly to tap on a phone is a dev panel that gets used on a desktop only. */
-.dev-card{margin-top:12px; border-style:dashed; border-color:#94A3B855}
+.dev-card{margin-top:12px; border-style:dashed; border-color:var(--muted-line)}
 .dev-card .gc-title{color:var(--muted)}
 .dev-actions{display:flex; flex-wrap:wrap; gap:8px; margin-top:12px}
 .dev-actions .action-btn{flex:1 1 46%; min-height:44px; padding:11px 8px; font-size:13px}
@@ -134,7 +135,7 @@
 .dev-xp-row .action-btn{flex:0 0 auto; min-width:96px; min-height:44px}
 .dev-select{
   flex:1; min-width:0; min-height:44px; padding:0 10px;
-  background:var(--card-2); border:1px solid var(--line); border-radius:12px;
+  background:var(--input); border:1px solid var(--line); border-radius:12px;
   color:var(--text); font-size:14px; font-weight:700; font-family:inherit;
 }
 .dev-card .action-btn.danger{width:100%; margin-top:12px; min-height:44px}

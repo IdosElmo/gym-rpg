@@ -43,8 +43,15 @@
 }
 .cd-svg{
   display:block; width:100%; height:auto;
-  --cd-body:var(--text); --cd-far:#54627E; --cd-joint:var(--accent);
+  --cd-body:var(--text); --cd-far:#54627E; --cd-joint:var(--accent-ink);
   --cd-frame:#44567A; --cd-pad:#56698F; --cd-iron:var(--warn); --cd-cable:#7A88A3;
+  --cd-roller:#6A7EA6;
+}
+/* The station greys are the figure's own shading, tuned per backdrop: on the
+   light theme's pale stage the far limbs and the iron frame step LIGHTER than
+   the (now dark) body, so depth still reads the same way. */
+:root[data-theme="light"] .cd-svg{
+  --cd-far:#9aa5b8; --cd-frame:#a7b1c2; --cd-pad:#b9c2d1; --cd-cable:#7d889c; --cd-roller:#98a4b8;
 }
 
 /* the demonstrator */
@@ -68,7 +75,7 @@
 .cd-mat{fill:var(--cd-pad); opacity:.75}
 /* a bench seen at three quarters: a big surface, so it sits back further */
 .cd-slab{fill:var(--cd-pad); opacity:.42}
-.cd-roller{fill:#6A7EA6}
+.cd-roller{fill:var(--cd-roller)}
 /* a bike: the flywheel is a disc (a mass, so it sits back like a slab), the
    bottom bracket a small hub the crank arms turn about */
 .cd-flywheel{fill:var(--cd-pad); fill-opacity:.35; stroke-width:2.6}

@@ -24,7 +24,7 @@
 #timerBar{
   position:fixed; bottom:0; inset-inline:0; z-index:60;
   max-width:100%; overflow:hidden;
-  background:#1A2334F2; backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+  background:var(--glass); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
   border-top:1px solid var(--line);
   padding:10px 14px calc(10px + env(safe-area-inset-bottom));
   transform:translateY(110%); transition:transform .25s ease;
@@ -32,8 +32,8 @@
 #timerBar.show{transform:translateY(0)}
 #timerBar.flash{animation:flash .4s ease 5}
 @keyframes flash{
-  0%,100%{background:#1A2334F2}
-  50%{background:#10B981E0}
+  0%,100%{background:var(--glass)}
+  50%{background:color-mix(in srgb, var(--ok) 88%, transparent)}
 }
 .t-progress{
   position:absolute; top:0; inset-inline-start:0; height:3px; background:var(--warn);
@@ -54,7 +54,7 @@
   border-radius:10px; padding:8px 10px; font-size:13px; font-weight:700;
   min-width:44px; min-height:40px;
 }
-.t-btn.warn{color:var(--warn); border-color:#F59E0B44}
+.t-btn.warn{color:var(--warn); border-color:var(--warn-line)}
 .t-btn.close{color:var(--muted)}
 /* The done state hides השהה/המשך outright (`ui/timer.ts` sets `hidden`): the
    flex row must not override the UA's `display:none` for it. */

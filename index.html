@@ -3,9 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#121824">
-<!-- The app is already dark: this opts out of forced dark mode (Samsung Internet
-     "dark pages", Chrome auto-dark). Also declared in styles/base.css. -->
+<meta name="theme-color" content="#0d1b36">
+<!-- The default theme is dark: this opts out of forced dark mode (Samsung Internet
+     "dark pages", Chrome auto-dark) before any CSS lands. The light theme
+     (<html data-theme="light">) overrides it with `color-scheme:only light` in
+     styles/base.css, which also keeps those engines from darkening it. -->
 <meta name="color-scheme" content="dark">
 <meta name="description" content="אפליקציית אימוני היפרטרופיה 3 ימים — עובדת 100% אופליין">
 <meta name="apple-mobile-web-app-capable" content="yes">

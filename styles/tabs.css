@@ -38,7 +38,7 @@ nav.tabs{
   font-size:12.5px; font-weight:800; letter-spacing:-.01em;
   max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
-.hub.active{background:var(--accent); border-color:var(--accent); color:#fff}
+.hub.active{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
 
 /* ---------- row 2: the inner tabs ---------- */
 .sub-row{display:flex; gap:6px}
@@ -59,7 +59,7 @@ nav.tabs{
   display:block; font-size:10.5px; margin-top:1px; line-height:1.2;
   max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
-.tab.active{background:var(--card); border-color:var(--accent); color:var(--accent)}
+.tab.active{background:var(--card); border-color:var(--accent-ink); color:var(--accent-ink)}
 .tab.active .d{font-weight:800}
 .tab.active .w{color:var(--muted)}
 

@@ -118,7 +118,8 @@ for (const m of html.matchAll(/@import\s+url\(|url\(\s*["']?(?!data:)(https?:|\/
   problems.push(`external css url() at ${m.index}`);
 }
 
-if (!/<style[^>]*>[\s\S]*--accent:#3B82F6/i.test(html)) problems.push('CSS was not inlined');
+// sentinel: the design tokens (styles/tokens.css) made it into an inline <style> — any accent value
+if (!/<style[^>]*>[\s\S]*--accent:#[0-9a-f]{6}/i.test(html)) problems.push('CSS was not inlined');
 if (!/PROGRAM|היפרטרופיה/.test(html)) problems.push('app content missing');
 if (!/<script[^>]*>[\s\S]{2000,}<\/script>/.test(html)) problems.push('JS was not inlined');
 

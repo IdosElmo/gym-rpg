@@ -17,30 +17,30 @@
   font-size:11.5px; padding:3px 9px; border-radius:99px; font-weight:600;
   border:1px solid var(--line); color:var(--muted); background:var(--card-2);
 }
-.badge.muscle{color:#93C5FD; border-color:#3B82F640; background:#3B82F614}
-.badge.scheme{color:var(--warn); border-color:#F59E0B33; background:#F59E0B10}
+.badge.muscle{color:var(--accent-ink); border-color:var(--accent-line); background:var(--accent-soft)}
+.badge.scheme{color:var(--warn); border-color:var(--warn-line); background:var(--warn-soft)}
 .badge.equip::before{content:"⛭ "; opacity:.7}
 
 /* collapsible form panel */
 .form-toggle{
-  width:100%; text-align:start; background:none; border:none; color:var(--accent);
+  width:100%; text-align:start; background:none; border:none; color:var(--accent-ink);
   font-size:13.5px; font-weight:700; padding:10px 14px; display:flex; justify-content:space-between; align-items:center;
   border-top:1px dashed var(--line);
 }
 .form-toggle .chev{transition:.2s; color:var(--dim)}
 .ex-card.open .form-toggle .chev{transform:rotate(180deg)}
-.form-panel{display:none; padding:0 14px 14px; font-size:13.5px; color:#C4CDDD}
+.form-panel{display:none; padding:0 14px 14px; font-size:13.5px; color:var(--text-2)}
 .ex-card.open .form-panel{display:block}
 .form-panel h4{margin:10px 0 4px; font-size:12px; color:var(--dim); letter-spacing:.06em}
 .form-panel ol{margin:0; padding-inline-start:18px}
 .form-panel li{margin-bottom:3px}
 .cue{
   margin-top:10px; padding:9px 11px; border-radius:10px;
-  background:#3B82F612; border-inline-start:3px solid var(--accent); font-size:13px;
+  background:var(--accent-soft); border-inline-start:3px solid var(--accent-ink); font-size:13px;
 }
 .mistake{
   margin-top:8px; padding:9px 11px; border-radius:10px;
-  background:#EF444410; border-inline-start:3px solid var(--danger); font-size:13px; color:#FCA5A5;
+  background:var(--danger-soft); border-inline-start:3px solid var(--danger); font-size:13px; color:var(--danger-ink);
 }
 
 /* ---------- Log table ---------- */
@@ -54,15 +54,15 @@
   font-size:13px; font-weight:800; color:var(--muted); text-align:center;
   background:var(--card-2); border-radius:8px; padding:6px 0;
 }
-.log-row.checked .set-num{background:#10B98122; color:var(--ok)}
+.log-row.checked .set-num{background:var(--ok-soft); color:var(--ok)}
 .inp-wrap{position:relative}
 .inp{
-  width:100%; background:var(--bg); border:1px solid var(--line); color:var(--text);
+  width:100%; background:var(--input); border:1px solid var(--line); color:var(--text);
   border-radius:10px; padding:9px 10px 9px; font-size:16px; font-weight:700; text-align:center;
   -moz-appearance:textfield; appearance:textfield;
 }
 .inp::-webkit-inner-spin-button{display:none}
-.inp:focus{outline:none; border-color:var(--accent)}
+.inp:focus{outline:none; border-color:var(--accent-ink)}
 /* A value carried over from the previous session — a suggestion until the user
    types (replacing it) or checks the set (adopting it). Dimmed, so what was
    typed today and what the app remembered for you never look the same. */
@@ -76,7 +76,7 @@
   display:flex; align-items:center; justify-content:center; margin:0 auto; transition:.15s;
   position:relative;
 }
-.chk.on{background:var(--ok); border-color:var(--ok); color:#06281D}
+.chk.on{background:var(--ok); border-color:var(--ok); color:var(--on-ok)}
 .rest-hint{font-size:11px; color:var(--dim); text-align:center; margin-top:4px}
 
 /* ---------- Superset: two cards welded into one group ----------
@@ -86,28 +86,28 @@
 .ss-group{
   position:relative; margin-bottom:14px; padding:5px;
   border:1.5px solid var(--ss); border-radius:calc(var(--radius) + 4px);
-  background:#8B5CF608;
+  background:var(--ss-faint);
 }
 .ss-group .ex-card{margin-bottom:0; border-color:transparent}
 .ss-group.done-all{border-color:var(--ok)}
 .ss-head{display:flex; align-items:center; gap:8px; padding:8px 10px 6px; flex-wrap:wrap}
 .ss-chip{
-  background:var(--ss); color:#fff; font-size:11px; font-weight:900;
+  background:var(--ss); color:var(--on-ss); font-size:11px; font-weight:900;
   border-radius:99px; padding:3px 12px; letter-spacing:.04em;
 }
 .ss-sub{font-size:11px; color:var(--ss-soft); font-weight:600}
 .ss-joint{display:flex; align-items:center; gap:8px; padding:7px 8px}
-.ss-joint::before,.ss-joint::after{content:""; flex:1; height:1px; background:#8B5CF640}
+.ss-joint::before,.ss-joint::after{content:""; flex:1; height:1px; background:var(--ss-line)}
 .ss-joint span{
   font-size:10.5px; font-weight:800; color:var(--ss-soft);
-  background:#8B5CF61A; border:1px solid #8B5CF640; border-radius:99px; padding:3px 11px;
+  background:var(--ss-tint); border:1px solid var(--ss-line); border-radius:99px; padding:3px 11px;
 }
 .ss-rest{font-size:11px; color:var(--ss-soft); text-align:center; padding:7px 0 5px; font-weight:600}
-.badge.superset{color:var(--ss-soft); border-color:#8B5CF640; background:#8B5CF614}
+.badge.superset{color:var(--ss-soft); border-color:var(--ss-line); background:var(--ss-tint)}
 /* a checkbox that was completed BY its twin carries the little link mark */
 .chk .twin{
   position:absolute; top:-7px; inset-inline-end:-7px; width:17px; height:17px;
-  border-radius:50%; background:var(--ss); color:#fff; font-size:9px;
+  border-radius:50%; background:var(--ss); color:var(--on-ss); font-size:9px;
   display:grid; place-items:center; pointer-events:none;
 }
 
@@ -122,7 +122,7 @@
    full-width ≥44px target, and both leave with the card's done-all state. */
 .stage-start,.hold-start{
   display:block; width:100%; margin-top:8px; min-height:44px; border-radius:12px;
-  border:1px solid #3B82F640; background:#3B82F614; color:#93C5FD;
+  border:1px solid var(--accent-line); background:var(--accent-soft); color:var(--accent-ink);
   font-size:14px; font-weight:800;
 }
 .stage-start[hidden],.hold-start[hidden]{display:none}
@@ -148,10 +148,10 @@
 .ex-notes.open .notes-body{display:block}
 .notes-inp{
   display:block; width:100%; min-height:44px; overflow:hidden; resize:none;
-  background:var(--bg); border:1px solid var(--line); color:var(--text); border-radius:10px;
+  background:var(--input); border:1px solid var(--line); color:var(--text); border-radius:10px;
   padding:9px 10px; font-size:15px; font-weight:500; line-height:1.45; font-family:inherit;
   text-align:start; appearance:none; -moz-appearance:none;
 }
 .notes-inp::placeholder{color:var(--dim)}
-.notes-inp:focus{outline:none; border-color:var(--accent)}
+.notes-inp:focus{outline:none; border-color:var(--accent-ink)}
 .notes-hint{font-size:11px; color:var(--dim); margin-top:5px}
