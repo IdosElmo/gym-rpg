@@ -87,7 +87,7 @@ import { closeDueWeeks, onSetCompleted, onWorkoutFinished, type GrantResult } fr
 import type { AppState, DataStore } from '../storage/DataStore.ts';
 import { fmtClock, type RestTimer } from './timer.ts';
 import { queuePartPulse } from './character.ts';
-import { esc } from './dom.ts';
+import { esc, escBidi } from './dom.ts';
 import { demoSvg, mountExerciseDemo, stillPose, type DemoHandle } from './exerciseDemo.ts';
 import { demoFor } from '../data/exercisePoses.ts';
 import { toast } from './toast.ts';
@@ -320,7 +320,7 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
     <div class="ex-head">
       <div class="ex-head-tx">
         <div class="ex-order">${M.order(idx + 1, p.exercises.length)}</div>
-        <h2 class="ex-title">${esc(exName(ex))}</h2>
+        <h2 class="ex-title">${escBidi(exName(ex))}</h2>
         ${sub ? `<div class="ex-title-en">${esc(sub)}</div>` : ''}
       </div>
       ${thumb}

@@ -75,7 +75,7 @@ import {
 } from '../core/plan.ts';
 import { PLAN_PRESETS, presetById } from '../data/presets.ts';
 import type { DataStore } from '../storage/DataStore.ts';
-import { esc } from './dom.ts';
+import { esc, escBidi } from './dom.ts';
 import { mountExerciseDemo, type DemoHandle } from './exerciseDemo.ts';
 import { toast } from './toast.ts';
 import { locale, tr } from '../i18n/locale.ts';
@@ -475,7 +475,7 @@ function libraryList(doc: PlanDoc): string {
       const open = ex.id === picked;
       return `<li${open ? ' class="pl-lib-open"' : ''}>
       <button class="pl-lib" data-pick="${esc(ex.id)}" aria-expanded="${open ? 'true' : 'false'}">
-        <b>${esc(exName(ex))}</b>
+        <b>${escBidi(exName(ex))}</b>
         <span>${esc([exSubName(ex), exMuscle(ex)].filter(Boolean).join(' · '))}</span>
         ${isCustomId(ex.id) ? `<span class="pl-badge">${tr(P).row.custom}</span>` : ''}
       </button>
