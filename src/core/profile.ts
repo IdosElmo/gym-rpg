@@ -20,6 +20,7 @@
 import { PLAN_DOC_VERSION, type PlanDay, type PlanDoc } from '../data/planTypes.ts';
 import type { AppEvent, AppState, DataStore } from '../storage/DataStore.ts';
 import { deriveWeeklyTarget } from './plan.ts';
+import { libraryId, type LibraryDays, type LibrarySex } from '../data/planLibrary.ts';
 
 export type Sex = 'male' | 'female' | 'other';
 export type Goal = 'lose_fat' | 'build_muscle' | 'recomp' | 'strength' | 'general' | 'other';
@@ -259,16 +260,51 @@ export function targetsForProfile(profile: Profile, weightKg: number | null, yea
  * The ready-made plan a profile suggests, as a preset id from
  * `data/presets.ts`, plus the alternatives worth offering beside it.
  *
- * THE RULES TABLE IS THE EXTENSION POINT: the goal-based plan library (one per
- * days × location, each with a men's and a women's variation) plugs in here,
- * and nothing else in onboarding has to change. Today it knows the two shipped
- * plans: three days → the original A/B/C, four or more → the A/B four-day split.
+ * THE GOAL-BASED LIBRARY (`data/planLibrary.ts`) is the answer:
+ *   days      — `daysPerWeek` (or how many weekdays were picked), clamped to
+ *               the library's 2–6 (one day → the 2-day plan, seven → 6);
+ *   location  — gym / home with dumbbells / no equipment (default: gym);
+ *   variation — female → the women's, male / other / unanswered → the men's.
+ * Goal, experience, session length and injuries do not pick a DIFFERENT plan:
+ * they shape the chosen one when it is built (core/planLibrary.ts).
+ *
+ * Alternatives: the other variation, the same location at one day fewer and
+ * one day more, and — for the gym — the original plan with the same day count
+ * (`builtin3` at three days, `ab4` at four).
+ *
+ * Two fallbacks keep the original behaviour where the library cannot answer:
+ * a profile that says nothing a plan depends on (no days, no weekdays, no
+ * location — a skipped questionnaire) gets the app's own original plan, and a
+ * caller whose `available` list lacks the library gets the old rule (three
+ * days → the original A/B/C, four or more → the A/B split).
  */
 export function recommendPreset(profile: Profile, available: readonly string[]): { id: string; alternatives: string[] } {
-  const days = profile.daysPerWeek ?? profile.weekdays?.length ?? 3;
-  const wanted = days >= 4 ? 'ab4' : 'builtin3';
-  const id = available.includes(wanted) ? wanted : (available[0] ?? wanted);
-  return { id, alternatives: available.filter((a) => a !== id) };
+  const has = (id: string): boolean => available.includes(id);
+  const answeredDays = profile.daysPerWeek ?? (profile.weekdays && profile.weekdays.length > 0 ? profile.weekdays.length : undefined);
+  const legacy = (): { id: string; alternatives: string[] } => {
+    const days = answeredDays ?? 3;
+    const wanted = days >= 4 ? 'ab4' : 'builtin3';
+    const id = has(wanted) ? wanted : (available[0] ?? wanted);
+    return { id, alternatives: available.filter((a) => a !== id) };
+  };
+  if (answeredDays === undefined && profile.location === undefined && has('builtin3')) {
+    const alternatives = ['ab4', libraryId(3, 'gym', 'm'), libraryId(3, 'gym', 'f')].filter(has);
+    return { id: 'builtin3', alternatives };
+  }
+  const days = Math.min(6, Math.max(2, answeredDays ?? 3)) as LibraryDays;
+  const location = profile.location ?? 'gym';
+  const sex: LibrarySex = profile.sex === 'female' ? 'f' : 'm';
+  const id = libraryId(days, location, sex);
+  if (!has(id)) return legacy();
+  const near = (d: number): string | null => (d >= 2 && d <= 6 ? libraryId(d as LibraryDays, location, sex) : null);
+  const alternatives = [
+    libraryId(days, location, sex === 'f' ? 'm' : 'f'),
+    near(days - 1),
+    near(days + 1),
+    location === 'gym' && days === 3 ? 'builtin3' : null,
+    location === 'gym' && days === 4 ? 'ab4' : null,
+  ].filter((a): a is string => a !== null && a !== id && has(a));
+  return { id, alternatives };
 }
 
 /**

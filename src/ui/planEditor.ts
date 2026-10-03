@@ -73,7 +73,10 @@ import {
   userPresetList,
   type SupersetPair,
 } from '../core/plan.ts';
-import { PLAN_PRESETS, presetById } from '../data/presets.ts';
+import { ALL_PRESETS, LIBRARY_PRESETS, PLAN_PRESETS, presetById, type PlanPreset } from '../data/presets.ts';
+import { LIBRARY_LOCATIONS } from '../data/planLibrary.ts';
+import { planOptionsOf } from '../core/planLibrary.ts';
+import { recommendPreset, type Location } from '../core/profile.ts';
 import type { DataStore } from '../storage/DataStore.ts';
 import { esc, escBidi } from './dom.ts';
 import { mountExerciseDemo, type DemoHandle } from './exerciseDemo.ts';
@@ -92,6 +95,7 @@ import {
   unitWord,
 } from '../i18n/content.ts';
 import { plan as P } from '../i18n/messages/plan.ts';
+import { planLibrary as PLM } from '../i18n/messages/planLibrary.ts';
 import { workout as W } from '../i18n/messages/workout.ts';
 
 export interface PlanEditorDeps {
@@ -418,13 +422,41 @@ function sheetHtml(doc: PlanDoc, store: DataStore): string {
   </section>`;
 }
 
+/** One card of the library: the full name, then the description. */
+function libraryCard(p: PlanPreset, recommended: boolean): string {
+  const L = tr(PLM).sheet;
+  return `<li>
+      <button class="pl-lib pl-preset" data-lib-preset="${esc(p.id)}">
+        <b>${esc(p.name)}${recommended ? ` <em class="pl-preset-rec">${esc(L.recommended)}</em>` : ''}</b>
+        <span>${esc(p.description)}</span>
+      </button>
+    </li>`;
+}
+
+/** A collapsible group of library cards. */
+function libraryGroup(title: string, presets: readonly PlanPreset[], open: boolean, recId: string | null, note = ''): string {
+  const L = tr(PLM).sheet;
+  return `<details class="pl-group"${open ? ' open' : ''}>
+    <summary class="pl-group-sum"><span class="pl-group-title">${esc(title)}</span><span class="pl-group-count">${esc(L.count(presets.length))}</span></summary>
+    ${note ? `<p class="pl-group-note">${esc(note)}</p>` : ''}
+    <ul class="pl-lib-list">${presets.map((p) => libraryCard(p, p.id === recId)).join('')}</ul>
+  </details>`;
+}
+
 /**
  * The ready-made plans, and below them the user's OWN saved ones. Picking
  * either REPLACES the draft (after a confirm); the ⭐ button freezes the
  * current draft under a name, so "my plan" becomes a preset too.
+ *
+ * Thirty-two ready-made plans do not fit one list, so the sheet groups them:
+ *   1. the original plans (`PLAN_PRESETS`: builtin3, ab4) — always open;
+ *   2. "plans for you" — the library at the profile's location, the
+ *      recommended one first (only when the questionnaire named a location);
+ *   3. the rest of the library, one collapsed group per location.
  */
 function presetList(store: DataStore): string {
   const T = tr(P).presets;
+  const L = tr(PLM);
   const items = PLAN_PRESETS.map(
     (p) => `<li>
       <button class="pl-lib pl-preset" data-preset="${esc(p.id)}">
@@ -433,6 +465,25 @@ function presetList(store: DataStore): string {
       </button>
     </li>`,
   ).join('');
+  const profile = store.getState().profile;
+  const mineLoc: Location | null = profile?.location ?? null;
+  let groups = '';
+  let recId: string | null = null;
+  if (profile && mineLoc) {
+    recId = recommendPreset(profile, ALL_PRESETS.map((p) => p.id)).id;
+    const sex = profile.sex === 'female' ? 'f' : 'm';
+    const here = LIBRARY_PRESETS.filter((p) => p.library?.location === mineLoc);
+    const ordered = [
+      ...here.filter((p) => p.id === recId),
+      ...here.filter((p) => p.id !== recId && p.library?.sex === sex),
+      ...here.filter((p) => p.id !== recId && p.library?.sex !== sex),
+    ];
+    groups += libraryGroup(`${L.sheet.forYou} · ${L.location[mineLoc]}`, ordered, true, recId, L.sheet.forYouNote);
+  }
+  for (const loc of LIBRARY_LOCATIONS) {
+    if (loc === mineLoc) continue;
+    groups += libraryGroup(L.sheet.byLocation(L.location[loc]), LIBRARY_PRESETS.filter((p) => p.library?.location === loc), false, recId);
+  }
   const mine = userPresetList(store.getState())
     .map(
       ({ id, preset }) => `<li class="pl-mypreset">
@@ -444,7 +495,9 @@ function presetList(store: DataStore): string {
     </li>`,
     )
     .join('');
-  return `<ul class="pl-lib-list">${items}</ul>
+  return `<h4 class="pl-group-head">${esc(L.sheet.original)}</h4>
+    <ul class="pl-lib-list">${items}</ul>
+    ${groups}
     ${mine ? `<h4 class="pl-mine-title">${T.mineTitle}</h4><ul class="pl-lib-list">${mine}</ul>` : ''}
     <button class="action-btn pl-save-preset" id="plSavePreset">${T.saveCurrent}</button>
     <p class="gc-note dim">${T.note}</p>`;
@@ -844,14 +897,17 @@ function bind(main: HTMLElement, deps: PlanEditorDeps): void {
     sheet = 'presets';
     refresh();
   });
-  main.querySelectorAll<HTMLButtonElement>('[data-preset]').forEach((b) => {
+  main.querySelectorAll<HTMLButtonElement>('[data-preset], [data-lib-preset]').forEach((b) => {
     b.addEventListener('click', () => {
-      const preset = presetById(b.dataset['preset'] ?? '');
+      const preset = presetById(b.dataset['preset'] ?? b.dataset['libPreset'] ?? '');
       if (!preset) return;
       // A preset REPLACES the whole draft, so it asks first — and it still only
       // touches the draft: the plan on disk changes when 💾 is pressed, not now.
       if (!confirm(tr(P).presets.replaceConfirm(preset.name))) return;
-      draft = clonePlanDoc(preset.build());
+      // A library plan is built for the user's profile (goal, experience,
+      // session length, injuries, weekdays); the originals are what they are.
+      const profile = deps.store.getState().profile;
+      draft = clonePlanDoc(preset.library && profile ? preset.build(planOptionsOf(profile)) : preset.build());
       activeDay = draft.days[0]?.key ?? '';
       sheet = 'closed';
       weekdayHint = '';

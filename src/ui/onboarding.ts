@@ -47,7 +47,7 @@ import {
 import { finishOnboarding, profileOf, skipOnboarding, type OnboardingAnswers, type PlanChoice } from '../core/onboarding.ts';
 import { WEIGHT_MAX_KG, WEIGHT_MIN_KG, weightEntries } from '../core/weight.ts';
 import { todayISO } from '../core/workout.ts';
-import { PLAN_PRESETS, presetById } from '../data/presets.ts';
+import { ALL_PRESETS, presetById } from '../data/presets.ts';
 import type { DataStore } from '../storage/DataStore.ts';
 import { LOCALES, LOCALE_NATIVE_NAME, isLocale, locale, tr } from '../i18n/locale.ts';
 import { CM_PER_IN, UNIT_SYSTEMS, displayToKg, fmtHeight, ftInToCm, isUnitSystem, kgToDisplay, units, weightUnit } from '../i18n/units.ts';
@@ -300,7 +300,7 @@ function targetNum(text: string | null, fallback: number): number | null {
   return Math.round(v);
 }
 
-const PRESET_IDS = (): string[] => PLAN_PRESETS.map((p) => p.id);
+const PRESET_IDS = (): string[] => ALL_PRESETS.map((p) => p.id);
 
 /** The plan the summary shows when the user has not picked one. */
 function defaultPlan(d: Draft): PlanChoice {

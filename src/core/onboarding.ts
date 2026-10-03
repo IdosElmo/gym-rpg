@@ -11,9 +11,11 @@
  *   3. `weight_target_set`      — the goal weight, when one was given;
  *   4. `nutrition_targets_set`  — the daily targets, when the user kept them;
  *   5. `character_selected`     — the character's body, for male / female;
- *   6. `plan_updated`           — the chosen preset, re-laid on the user's own
- *                                 weekdays; the EMPTY plan and "keep my plan"
- *                                 append nothing.
+ *   6. `plan_updated`           — the chosen preset, built for the profile
+ *                                 (a library plan takes the goal, experience,
+ *                                 session length and injuries) and laid on the
+ *                                 user's own weekdays; the EMPTY plan and "keep
+ *                                 my plan" append nothing.
  *
  * RE-ANSWERING IS IDEMPOTENT. The same flow re-opens from הגדרות in an edit
  * mode, prefilled with what the store already says. Each step above is skipped
@@ -26,12 +28,12 @@
  */
 
 import type { DataStore } from '../storage/DataStore.ts';
-import { presetById } from '../data/presets.ts';
+import { buildPresetFor, presetById } from '../data/presets.ts';
 import { selectBody } from './game.ts';
 import { setTargets } from './nutrition.ts';
 import { PLAN_DOC_VERSION, type PlanDoc } from '../data/planTypes.ts';
 import { deriveWeeklyTarget, makePlanDay, newDayKey, savePlan } from './plan.ts';
-import { normalizeProfile, onWeekdays, setProfile, type Profile } from './profile.ts';
+import { normalizeProfile, setProfile, type Profile } from './profile.ts';
 import { logWeight, setWeightTarget, weightEntries } from './weight.ts';
 
 /** What the questionnaire hands over. Weights in KILOGRAMS, height (in `profile`) in cm. */
@@ -132,8 +134,9 @@ export function finishOnboarding(
   if (typeof choice === 'object') {
     const preset = presetById(choice.preset);
     if (preset) {
-      const doc = profile.weekdays ? onWeekdays(preset.build(), profile.weekdays) : preset.build();
-      savePlan(store, doc, ctx.now.getTime());
+      // A library plan is BUILT for this profile (goal, experience, session
+      // length, injuries, weekdays); an original plan is laid on the weekdays.
+      savePlan(store, buildPresetFor(preset, profile), ctx.now.getTime());
     }
   }
   return profile;

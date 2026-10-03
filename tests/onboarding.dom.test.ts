@@ -193,7 +193,7 @@ describe('the Hebrew flow', () => {
     expect(step()).toBe('8/8');
     expect(q('.onb-targets').textContent).toContain('המלצה — אפשר לשנות');
     expect((q('#onbCal') as HTMLInputElement).value).toBe('1850'); // goal "other": maintenance, rounded to 50
-    expect(q('.onb-plan').textContent).toContain('היפרטרופיה 3 ימים');
+    expect(q('.onb-plan').textContent).toContain('פול באדי · 3 ימים · חדר כושר · נשים');
     expect(q('.onb-plan').textContent).toContain('ראשון · שלישי · חמישי');
     type('#onbPro', '120');
     expect(q('#onbNext').textContent).toBe('יאללה, מתחילים!');
@@ -264,13 +264,13 @@ describe('the English flow', () => {
     click('#onbNext');
     click('#onbSkip'); // activity
     expect(title()).toBe('You’re all set');
-    expect(q('.onb-plan').textContent).toContain('A/B plan — 4 days');
+    expect(q('.onb-plan').textContent).toContain('Upper/Lower · 4 days · Gym · Men');
     click('#onbNext');
 
     const s = store.getState();
     expect(s.profile?.heightCm).toBe(180); // 5′11″ = 180.3 cm
     expect(weightEntries(s.nutrition)[0]?.kg).toBeCloseTo(81.65, 1); // 180 lb
-    expect(s.plan?.days.map((d) => d.weekdays ?? [])).toEqual([[1, 4], [2], [5]]);
+    expect(s.plan?.days.map((d) => d.weekdays ?? [])).toEqual([[1], [2], [4], [5]]);
     expect(document.documentElement.getAttribute('dir')).toBe('ltr');
     expect(q('#toast').textContent).toBe('Welcome! 💪');
   });

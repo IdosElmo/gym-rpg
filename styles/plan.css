@@ -186,6 +186,30 @@
 .pl-preset{min-height:64px}
 .pl-preset span{line-height:1.45; margin-top:2px}
 
+.pl-group-head{margin:2px 0 8px; font-size:13px; font-weight:800; color:var(--muted)}
+
+/* The plan library in the presets sheet: one collapsible group per location
+   ("plans for you" first and open). The summary row is a full-width,
+   thumb-sized toggle; the chevron turns with the group. */
+.pl-group{margin:0 0 10px; border:1px solid var(--line); border-radius:12px; background:var(--card)}
+.pl-group-sum{
+  display:flex; align-items:center; gap:8px; min-height:44px; padding:8px 12px;
+  cursor:pointer; list-style:none; font-size:13.5px; font-weight:800; color:var(--text);
+}
+.pl-group-sum::-webkit-details-marker{display:none}
+.pl-group-sum::after{content:'▾'; flex:none; font-size:14px; color:var(--muted); transition:transform .15s ease}
+.pl-group[open] > .pl-group-sum::after{transform:rotate(180deg)}
+.pl-group-title{flex:1; min-width:0}
+.pl-group-count{font-size:11px; font-weight:700; color:var(--muted)}
+.pl-group-note{margin:0 12px 8px; font-size:11.5px; line-height:1.45; color:var(--muted)}
+.pl-group > .pl-lib-list{padding:0 8px 8px; margin:0}
+.pl-preset-rec{
+  display:inline-block; margin-inline-start:6px; padding:1px 7px; border-radius:999px;
+  font-style:normal; font-size:10.5px; font-weight:800; vertical-align:middle;
+  background:var(--accent); color:var(--on-accent);
+}
+@media (prefers-reduced-motion: reduce){.pl-group-sum::after{transition:none}}
+
 /* The user's own saved presets ("התוכניות שלי") -------------------------- */
 .pl-mine-title{margin:2px 0 8px; font-size:13px; font-weight:800; color:var(--muted)}
 /* one row = the pick card, with the 🗑 riding beside it at full thumb size */

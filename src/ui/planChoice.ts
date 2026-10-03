@@ -16,8 +16,8 @@
  */
 
 import { savePlan } from '../core/plan.ts';
-import { onWeekdays, recommendPreset } from '../core/profile.ts';
-import { PLAN_PRESETS, presetById, type PlanPreset } from '../data/presets.ts';
+import { recommendPreset } from '../core/profile.ts';
+import { ALL_PRESETS, buildPresetFor, presetById, type PlanPreset } from '../data/presets.ts';
 import type { DataStore } from '../storage/DataStore.ts';
 import { tr } from '../i18n/locale.ts';
 import { weekdayName, weekdayOrder } from '../i18n/format.ts';
@@ -42,20 +42,22 @@ function weekdaysLine(days: readonly number[]): string {
     .join(' · ');
 }
 
-/** Save `preset` as the user's plan, on their own weekdays when they gave some. */
+/**
+ * Save `preset` as the user's plan, built for their profile (a library plan
+ * takes the goal, experience, session length and injuries) and laid on their
+ * own weekdays when they gave some.
+ */
 export function startPreset(store: DataStore, presetId: string, now: number = Date.now()): PlanPreset | null {
   const preset = presetById(presetId);
   if (!preset) return null;
-  const weekdays = store.getState().profile?.weekdays;
-  const doc = weekdays && weekdays.length > 0 ? onWeekdays(preset.build(), weekdays) : preset.build();
-  const res = savePlan(store, doc, now);
+  const res = savePlan(store, buildPresetFor(preset, store.getState().profile), now);
   return res.ok ? preset : null;
 }
 
 export function renderPlanChoice(main: HTMLElement, deps: PlanChoiceDeps): void {
   const C = tr(O).choice;
   const profile = deps.store.getState().profile ?? {};
-  const rec = recommendPreset(profile, PLAN_PRESETS.map((p) => p.id));
+  const rec = recommendPreset(profile, ALL_PRESETS.map((p) => p.id));
   const top = presetById(rec.id);
   const days = profile.weekdays && profile.weekdays.length > 0 ? weekdaysLine(profile.weekdays) : '';
   const others = rec.alternatives.map((id) => presetById(id)).filter((p): p is PlanPreset => p !== null);

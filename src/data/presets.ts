@@ -33,9 +33,13 @@
  */
 
 import { defaultPlanDoc, deriveWeeklyTarget, makePlanDay, newDayKey } from '../core/plan.ts';
+import { buildLibraryPlan, planOptionsOf, type LibraryBuildOptions } from '../core/planLibrary.ts';
+import { onWeekdays, type Location, type Profile } from '../core/profile.ts';
 import { PLAN_DOC_VERSION, type PlanDay, type PlanDoc, type PlanExercise } from './planTypes.ts';
+import { PLAN_TEMPLATES, type LibraryDays, type LibrarySex, type PlanTemplate } from './planLibrary.ts';
 import { tr } from '../i18n/locale.ts';
 import { plan as P } from '../i18n/messages/plan.ts';
+import { planLibrary as PL } from '../i18n/messages/planLibrary.ts';
 
 /** One entry of the "תוכניות מוכנות" sheet. */
 export interface PlanPreset {
@@ -47,8 +51,17 @@ export interface PlanPreset {
   readonly description: string;
   /** Number of workout days, for the card. Asserted against `build()` in tests. */
   readonly days: number;
-  /** A fresh, complete document — safe to hand straight to the draft. */
-  readonly build: () => PlanDoc;
+  /**
+   * A fresh, complete document — safe to hand straight to the draft.
+   *
+   * A LIBRARY preset (`library` set) is built for the profile it is given:
+   * goal, experience, session length, injuries and weekdays (see
+   * core/planLibrary.ts). The two original plans ignore the options — they are
+   * exactly what they always were.
+   */
+  readonly build: (opts?: LibraryBuildOptions) => PlanDoc;
+  /** Where a library template sits in the grid; absent on the original plans. */
+  readonly library?: { readonly days: LibraryDays; readonly location: Location; readonly sex: LibrarySex };
 }
 
 /** Rest, in seconds: compounds get the long rest, isolation the short one. */
@@ -152,6 +165,49 @@ export const PLAN_PRESETS: readonly PlanPreset[] = [
   },
 ];
 
+/** One library template as a preset: name and description generated in the reader's language. */
+function libraryPreset(t: PlanTemplate): PlanPreset {
+  return {
+    id: t.id,
+    get name() {
+      const L = tr(PL);
+      return L.name(L.split[t.days], t.days, L.location[t.location], L.sex[t.sex]);
+    },
+    get description() {
+      const L = tr(PL);
+      return `${L.splitDesc[t.days]} ${L.locationDesc[t.location]} ${L.sexDesc[t.sex]}`;
+    },
+    days: t.week.length,
+    build: (opts?: LibraryBuildOptions) => buildLibraryPlan(t.id, opts),
+    library: { days: t.days, location: t.location, sex: t.sex },
+  };
+}
+
+/**
+ * The goal-based library (`data/planLibrary.ts`): 30 templates, days 2–6 ×
+ * gym / home with dumbbells / no equipment × men's / women's variation.
+ */
+export const LIBRARY_PRESETS: readonly PlanPreset[] = PLAN_TEMPLATES.map(libraryPreset);
+
+/**
+ * EVERY ready-made plan: the two originals first, unchanged, then the library.
+ * `PLAN_PRESETS` stays the originals only — the sheet's first group, and the
+ * list the original plans' tests pin.
+ */
+export const ALL_PRESETS: readonly PlanPreset[] = [...PLAN_PRESETS, ...LIBRARY_PRESETS];
+
 export function presetById(id: string): PlanPreset | null {
-  return PLAN_PRESETS.find((p) => p.id === id) ?? null;
+  return ALL_PRESETS.find((p) => p.id === id) ?? null;
+}
+
+/**
+ * Build `preset` for a user: a library plan with the profile's options (its
+ * weekdays included); an original plan as it is, re-laid on the profile's
+ * weekdays when they gave some.
+ */
+export function buildPresetFor(preset: PlanPreset, profile: Profile | null | undefined): PlanDoc {
+  const opts = planOptionsOf(profile);
+  if (preset.library) return preset.build(opts);
+  const doc = preset.build();
+  return opts.weekdays && opts.weekdays.length > 0 ? onWeekdays(doc, opts.weekdays) : doc;
 }
