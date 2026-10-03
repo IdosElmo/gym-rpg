@@ -35,10 +35,14 @@ npm run verify          # zero external references (allowlist in scripts/verify-
   content is an overlay beside them (`src/i18n/content/*.en.ts`). Language and units are
   device preferences in `UiState`, never in an event; storage is always metric
   (`src/i18n/units.ts`). CSS uses logical properties only. Full rules: `docs/i18n.md`.
-- **UI design**: design tokens (`--bg:#121824`, `--card:#1E2638`, `--accent:#3B82F6`,
-  `--ok:#10B981`, `--warn:#F59E0B`), touch targets ≥44px, `prefers-reduced-motion`
-  respected, `color-scheme: dark` declared (forced-dark defense), `text-size-adjust`
-  pinned (Android font boosting).
+- **UI design**: two themes, every colour a token in `styles/tokens.css` defined for both —
+  DARK (default: navy `--bg:#0d1b36` + sky `--accent:#5cc8ff`) and LIGHT
+  (`<html data-theme="light">`: `--bg:#eceef2`, white cards, same sky). Accent as a FILL is
+  `--accent` with `--on-accent` text; accent as TEXT/icon/stroke is `--accent-ink` (deep sky
+  in light — #5cc8ff is unreadable on white). Game stages (arena, character, photo viewer)
+  stay dark in both. The theme is a device preference (`UiState.theme`, `ui/theme.ts`).
+  Touch targets ≥44px, `prefers-reduced-motion` respected, `color-scheme` declared
+  (forced-dark defense), `text-size-adjust` pinned (Android font boosting).
 - **All storage through `DataStore`** (`src/storage/`). UI never touches `localStorage`.
   Auth/sync bookkeeping lives in `src/sync/` (Supabase; ships dark unless configured).
   Bytes too big for the log (📸 progress photos) go through `BlobStore` (`IdbBlobStore`
