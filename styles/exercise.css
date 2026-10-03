@@ -1,29 +1,68 @@
-/* ---------- Exercise card ---------- */
+/* ---------- The day's progress strip ----------
+   One segment per exercise, in card order: done (every set ✓'d) is --ok, the
+   exercise you are on is --accent, the rest are the track. Decorative chrome
+   over the page background, so the empty segment is a neutral hairline tint
+   that reads in both themes. */
+.wk-strip{
+  display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:4px;
+  margin:2px 0 12px;
+}
+.wk-seg{display:block; height:4px; border-radius:99px; background:var(--muted-line); transition:background-color .2s}
+.wk-seg.done{background:var(--ok)}
+.wk-seg.cur{background:var(--accent)}
+
+/* ---------- Exercise card ----------
+   eyebrow ("תרגיל 2 / 6"), the name big, the second-language name small, the
+   demo's still on the end side; then the muscle/equipment chips, the target
+   line (scheme · rest), the "how to do it" drawer, the sets and the notes. */
 .ex-card{
   background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
   margin-bottom:14px; overflow:hidden;
 }
 .ex-card.done-all{border-color:var(--ok)}
-.ex-head{padding:14px 14px 8px}
-.ex-order{
-  font-size:11px; font-weight:700; color:var(--dim); letter-spacing:.1em;
-}
-.ex-title{margin:1px 0 2px; font-size:17.5px; font-weight:800; letter-spacing:-.01em}
+.ex-head{display:flex; align-items:flex-start; gap:12px; padding:14px 14px 0}
+.ex-head-tx{flex:1 1 auto; min-width:0}
+.ex-order{font-size:11px; font-weight:600; color:var(--dim)}
+.ex-card.done-all .ex-order{color:var(--ok)}
+.ex-title{margin:2px 0 1px; font-size:18px; font-weight:800; line-height:1.25; letter-spacing:-.01em}
 .ex-title-en{font-size:12px; color:var(--muted); direction:ltr; text-align:right}
 /* an LTR run that lines up with the title above it: the right edge in Hebrew, the left in English */
 :root[dir="ltr"] .ex-title-en{text-align:left}
-.badges{display:flex; flex-wrap:wrap; gap:6px; margin-top:9px}
-.badge{
-  font-size:11.5px; padding:3px 9px; border-radius:99px; font-weight:600;
-  border:1px solid var(--line); color:var(--muted); background:var(--card-2);
+
+/* The demo's still: a ≥44px shortcut to the drawer with the moving demo. */
+.ex-thumb{
+  flex:0 0 auto; inline-size:92px; block-size:69px; padding:0; overflow:hidden;
+  display:grid; place-items:center;
+  background:var(--card-2); border:1px solid var(--line); border-radius:12px;
+  cursor:pointer; transition:border-color .15s;
 }
-.badge.muscle{color:var(--accent-ink); border-color:var(--accent-line); background:var(--accent-soft)}
-.badge.scheme{color:var(--warn); border-color:var(--warn-line); background:var(--warn-soft)}
-.badge.equip::before{content:"⛭ "; opacity:.7}
+.ex-thumb .cd-svg{inline-size:100%; block-size:100%}
+.ex-thumb:focus-visible{outline:2px solid var(--accent-ink); outline-offset:2px}
+.ex-card.open .ex-thumb{border-color:var(--accent-strong)}
+
+/* tags: what it trains and what it needs, tinted with the accent */
+.badges{display:flex; flex-wrap:wrap; gap:6px; padding:10px 14px 0}
+.badge{
+  font-size:11.5px; padding:3px 10px; border-radius:99px; font-weight:600;
+  border:1px solid transparent; color:var(--muted); background:var(--card-2);
+}
+.badge.muscle,.badge.equip{color:var(--accent-ink); background:var(--chip)}
+
+/* the target line: "3 סטים × 8–10 · מנוחה 1:30" */
+.ex-target{
+  display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px;
+  padding:9px 14px 10px; font-size:12.5px; color:var(--muted);
+}
+.ex-target .badge.scheme{
+  padding:0; border:none; background:none; border-radius:0;
+  font-size:13.5px; font-weight:700; color:var(--text); font-variant-numeric:tabular-nums;
+}
+.ex-rest{font-variant-numeric:tabular-nums}
+.ex-rest::before{content:"·"; margin-inline-end:10px; color:var(--dim)}
 
 /* collapsible form panel */
 .form-toggle{
-  width:100%; text-align:start; background:none; border:none; color:var(--accent-ink);
+  width:100%; min-height:44px; text-align:start; background:none; border:none; color:var(--accent-ink);
   font-size:13.5px; font-weight:700; padding:10px 14px; display:flex; justify-content:space-between; align-items:center;
   border-top:1px dashed var(--line);
 }
@@ -43,41 +82,65 @@
   background:var(--danger-soft); border-inline-start:3px solid var(--danger); font-size:13px; color:var(--danger-ink);
 }
 
-/* ---------- Log table ---------- */
-.log{padding:4px 12px 14px}
+/* ---------- The sets ----------
+   [badge] [weight] [reps] [✓] on one line; "אימון קודם: 60 ק״ג × 8" on the
+   line under the two inputs, spanning both. The markup keeps each input in its
+   `.inp-wrap` with its `.prev` beside it; the wraps dissolve into the row's
+   grid (`display:contents`) so the line can span the two columns. The badge
+   says where you are: --ok once ✓'d, --accent on the first set still to do. */
+.log{padding:2px 14px 14px; border-top:1px solid var(--line)}
 .log-row{
-  display:grid; grid-template-columns:34px 1fr 1fr 46px; gap:8px; align-items:center;
-  padding:7px 0;
+  display:grid; grid-template-columns:30px 1fr 1fr 44px; column-gap:8px; row-gap:3px; align-items:center;
+  padding:4px 0;
 }
-.log-row.head{font-size:11px; color:var(--dim); padding-bottom:2px; font-weight:700}
+.log-row.head{font-size:11px; color:var(--dim); padding:8px 0 0; font-weight:600}
+.log-row .inp-wrap{display:contents}
+.log-row .set-num{grid-column:1; grid-row:1}
+.log-row .inp[data-f="w"]{grid-column:2; grid-row:1}
+.log-row .inp[data-f="r"]{grid-column:3; grid-row:1}
+.log-row .chk{grid-column:4; grid-row:1}
+.log-row .prev{grid-column:2 / 4; grid-row:2}
 .set-num{
-  font-size:13px; font-weight:800; color:var(--muted); text-align:center;
-  background:var(--card-2); border-radius:8px; padding:6px 0;
+  inline-size:28px; block-size:28px; justify-self:center; display:grid; place-items:center;
+  font-size:12.5px; font-weight:800; color:var(--muted); background:var(--card-2);
+  border:1px solid var(--line); border-radius:8px; font-variant-numeric:tabular-nums;
 }
-.log-row.checked .set-num{background:var(--ok-soft); color:var(--ok)}
+.log-row.current .set-num{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
+.log-row.checked .set-num{background:var(--ok); border-color:var(--ok); color:var(--on-ok)}
 .inp-wrap{position:relative}
 .inp{
   width:100%; background:var(--input); border:1px solid var(--line); color:var(--text);
   border-radius:10px; padding:9px 10px 9px; font-size:16px; font-weight:700; text-align:center;
   -moz-appearance:textfield; appearance:textfield;
 }
+.log-row .inp{min-height:44px; padding-block:8px; font-variant-numeric:tabular-nums; transition:background-color .15s, border-color .15s}
 .inp::-webkit-inner-spin-button{display:none}
 .inp:focus{outline:none; border-color:var(--accent-ink)}
+.log-row.current .inp{border-color:var(--accent-line)}
+.log-row.current .inp:focus{border-color:var(--accent-ink)}
+/* a ✓'d set: its numbers sit on a quiet --ok wash */
+.log-row.checked .inp{background:var(--ok-soft); border-color:var(--ok-line)}
 /* A value carried over from the previous session — a suggestion until the user
    types (replacing it) or checks the set (adopting it). Dimmed, so what was
    typed today and what the app remembered for you never look the same. */
 .inp.prefill{color:var(--muted); font-weight:500}
 .prev{
-  display:block; text-align:center; font-size:10.5px; color:var(--dim); margin-top:2px; min-height:13px;
+  display:block; text-align:start; font-size:11px; color:var(--dim); padding-inline:4px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums;
 }
+.prev:empty{display:none}
 .chk{
-  width:38px; height:38px; border-radius:11px; border:2px solid var(--line);
+  width:44px; height:44px; border-radius:11px; border:2px solid var(--line);
   background:var(--card-2); color:transparent; font-size:18px; font-weight:900;
   display:flex; align-items:center; justify-content:center; margin:0 auto; transition:.15s;
   position:relative;
 }
+.chk:focus-visible{outline:2px solid var(--accent-ink); outline-offset:2px}
 .chk.on{background:var(--ok); border-color:var(--ok); color:var(--on-ok)}
-.rest-hint{font-size:11px; color:var(--dim); text-align:center; margin-top:4px}
+.rest-hint{font-size:11px; color:var(--dim); text-align:center; margin-top:8px}
+@media (prefers-reduced-motion: reduce){
+  .wk-seg, .ex-thumb, .chk, .log-row .inp, .form-toggle .chev{transition:none}
+}
 
 /* ---------- Superset: two cards welded into one group ----------
    The group owns what the pair shares — the chip, the "no rest between"

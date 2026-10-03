@@ -19,8 +19,10 @@
  * so the meal list can unfold it again later; edit either number and it is
  * yours — `manual` again, nothing stored.
  *
- * THE PICTURES. The day's summary is two rings that fill toward the targets
- * (`ringHtml`), and the history is a bar chart of daily intake with the mean
+ * THE PICTURES. The day's summary is a calorie ring (`heroRingHtml` — what is
+ * left, big, in its centre) beside a list of macro bars (`macroRowHtml` —
+ * protein today; carbs and fat are one more row each), and the history is a
+ * bar chart of daily intake with the mean
  * over tracked days (`intakeChartSvg`) — inline SVG strings in the
  * ui/weight.ts conventions: one hue, digits-only SVG text, time right → left.
  *
@@ -30,7 +32,15 @@
  * moves by accident. The chart can average over closed days only, hiding the
  * half-logged ones. And because estimates run low (oil, sauces, portions), the
  * day's calories are also drawn at +10% and +20% (`SAFETY_MARGINS`) — two more
- * rings, and a chart lens — display-only, nothing stored changes.
+ * rings folded under a toggle, and a chart lens — display-only, nothing stored
+ * changes.
+ *
+ * ONE METER CONTRACT. The ring and the bar are two drawings of the same thing —
+ * a value filling toward a target — so both carry the same hooks: `.nt-ring`
+ * with `has-target` / `no-target` / `over`, a `.nt-ring-fill` only when there
+ * is a target to fill toward, and a `.nt-ring-sub` that says what is left (or
+ * by how much it is over). The tests read the day through those hooks, in
+ * order: the calorie ring, the macro bars, then the margin rings.
  */
 
 import {
@@ -154,6 +164,8 @@ let chartMetric: IntakeMetric = 'calories';
 /** Which days the chart shows and averages, and the under-estimation lens. */
 let chartDays: IntakeDays = 'all';
 let chartMargin: SafetyMargin = 0;
+/** Whether the +10% / +20% rings are unfolded. In memory only, like the chart's lens. */
+let marginsOpen = false;
 /** The meal the form adds to; `null` = the default (today: by the clock; a past day: none). */
 let addSlot: MealSlot | null = null;
 /** Catalog pick or free text. The catalog is the measured way, so it opens first. */
@@ -177,6 +189,7 @@ export function resetNutritionScreen(): void {
   chartMetric = 'calories';
   chartDays = 'all';
   chartMargin = 0;
+  marginsOpen = false;
   addSlot = null;
   addMode = 'catalog';
   resetPick();
@@ -238,6 +251,88 @@ export function ringHtml(kind: 'cal' | 'prot', value: number, target: number | n
     </div>`;
 }
 
+/**
+ * THE day's calorie ring: what is LEFT, big, in the centre, read as one phrase
+ * around the number ("נותרו / 730 / קק״ל"), and the eaten / target pair small
+ * under it. Past the target the number is the surplus and the ring turns
+ * `--warn`; without a target the number is what was eaten, the track is
+ * dashed and the centre says there is no target. The share of the target sits
+ * under the dial (`.nt-ring-pct`).
+ */
+export function heroRingHtml(value: number, target: number | null): string {
+  const has = target !== null && target > 0;
+  const over = has && value > target;
+  const pct = has ? Math.min(1, value / target) : 0;
+  const offset = Math.round(RING_CIRC * (1 - pct) * 10) / 10;
+  const all = tr(M);
+  const m = all.ring;
+  const phrase = !has ? all.hero.eaten : over ? all.hero.over : all.hero.left;
+  const big = !has ? String(value) : over ? `+${value - target}` : String(target - value);
+  const word = (w: string): string => (w ? `<span class="nt-hero-w">${w}</span>` : '');
+  const of = has
+    ? `<span class="nt-hero-of"><bdi dir="ltr">${value} / ${target}</bdi></span>`
+    : `<span class="nt-hero-of">${m.noTarget}</span>`;
+  const aria = has ? m.aria(m.cal, value, target) : m.ariaNoTarget(m.cal, value);
+  return `
+    <div class="nt-ring nt-hero ${has ? 'has-target' : 'no-target'} ${over ? 'over' : ''}" role="img" aria-label="${esc(aria)}">
+      <div class="nt-hero-dial">
+        <svg viewBox="0 0 100 100" class="nt-ring-svg" aria-hidden="true">
+          <circle class="nt-ring-track" cx="50" cy="50" r="${RING_R}"/>
+          ${
+            has
+              ? `<circle class="nt-ring-fill" cx="50" cy="50" r="${RING_R}"
+            style="--circ:${RING_CIRC};stroke-dasharray:${RING_CIRC};stroke-dashoffset:${offset}"/>`
+              : ''
+          }
+        </svg>
+        <div class="nt-hero-c">
+          <span class="nt-ring-sub nt-hero-sub ${over ? 'over' : ''}">${word(phrase.before)}${phrase.before ? ' ' : ''}<b class="nt-hero-num"><bdi dir="ltr">${big}</bdi></b> ${word(phrase.after)}</span>
+          ${of}
+        </div>
+      </div>
+      ${has ? `<span class="nt-ring-pct">${Math.round((value / target) * 100)}%</span>` : ''}
+    </div>`;
+}
+
+/** One macro bar: a name, eaten / target in grams, the bar, and what is left. */
+export interface MacroSpec {
+  readonly key: string;
+  readonly label: string;
+  readonly value: number;
+  readonly target: number | null;
+}
+
+/**
+ * A macro as a bar — the ring's meter contract drawn flat (see the header):
+ * `.nt-ring` + target state, a `.nt-ring-fill` only toward a target, and the
+ * `.nt-ring-sub` line. Protein over its target is not a warning (eating more
+ * protein than planned is rarely the problem), so the bar keeps its colour and
+ * only the line says by how much.
+ */
+export function macroRowHtml(spec: MacroSpec): string {
+  const { key, label, value, target } = spec;
+  const has = target !== null && target > 0;
+  const over = has && value > target;
+  const pct = has ? Math.round(Math.min(1, value / target) * 1000) / 10 : 0;
+  const all = tr(M);
+  const m = all.ring;
+  const sub = !has
+    ? `<span class="nt-ring-sub dim">${m.noTarget}</span>`
+    : over
+      ? `<span class="nt-ring-sub over">${m.over(value - target)}</span>`
+      : `<span class="nt-ring-sub">${m.left(target - value)}</span>`;
+  const aria = has ? m.aria(label, value, target) : m.ariaNoTarget(label, value);
+  return `
+      <div class="nt-ring nt-macro ${has ? 'has-target' : 'no-target'} ${over ? 'over' : ''}" data-macro="${esc(key)}" role="img" aria-label="${esc(aria)}">
+        <div class="nt-macro-top">
+          <span class="nt-macro-name">${esc(label)}</span>
+          <span class="nt-macro-val">${all.macro.grams(has ? `<bdi dir="ltr">${value} / ${target}</bdi>` : String(value))}</span>
+        </div>
+        <span class="nt-macro-track">${has ? `<i class="nt-ring-fill" style="inline-size:${pct}%"></i>` : ''}</span>
+        ${sub}
+      </div>`;
+}
+
 function totalsCard(n: NutritionState, date: string, today: string): string {
   const t = dayTotals(n, date);
   const closed = isDayClosed(n, date);
@@ -245,6 +340,9 @@ function totalsCard(n: NutritionState, date: string, today: string): string {
   const noTargets = g.calories === null && g.protein === null;
   const protPct = g.protein !== null && g.protein > 0 ? Math.round((t.protein / g.protein) * 100) : null;
   const m = tr(M).totals;
+  // The bars beside the ring, in order. Carbs and fat are one more entry each
+  // once the tracker logs them.
+  const macros: MacroSpec[] = [{ key: 'protein', label: tr(M).macro.protein, value: t.protein, target: g.protein }];
   const status =
     t.meals === 0
       ? m.empty
@@ -264,16 +362,18 @@ function totalsCard(n: NutritionState, date: string, today: string): string {
     <div class="gc-title">${m.title(date === today)} <span class="gc-sub">${t.meals === 0 ? m.noMeals : m.meals(t.meals)}</span>${
       closed ? ` <span class="nt-closed-chip">${m.closedChip}</span>` : ''
     }</div>
-    <div class="nt-rings">
-      ${ringHtml('cal', t.calories, g.calories)}
-      ${ringHtml('prot', t.protein, g.protein)}
+    <div class="nt-summary">
+      ${heroRingHtml(t.calories, g.calories)}
+      <div class="nt-macros">
+        ${macros.map(macroRowHtml).join('')}
+      </div>
     </div>
-    <div class="nt-margins">
-      <p class="nt-margins-title">${m.marginsTitle}</p>
+    <details class="nt-margins" id="ntMargins" ${marginsOpen ? 'open' : ''}>
+      <summary class="nt-margins-title"><span class="nt-caret" aria-hidden="true">▸</span>${m.marginsTitle}</summary>
       <div class="nt-rings">
         ${SAFETY_MARGINS.map((m) => ringHtml('cal', withMargin(t.calories, m), g.calories, m)).join('')}
       </div>
-    </div>
+    </details>
     <p class="gc-note nt-status">${status}</p>
     ${
       t.meals > 0 && !closed
@@ -342,8 +442,10 @@ function mealRowHtml(row: MealRow, dayCalories: number, locked: boolean): string
         ${row.time ? `<span class="nt-meal-time dim">🕒 ${esc(row.time)}</span>` : ''}
       </div>
       <div class="nt-meal-nums">
-        <span class="nt-num">🔥 ${row.calories}</span>
-        <span class="nt-num">${m.protein(row.protein)}</span>
+        <span class="nt-meal-kc">
+          <span class="nt-num nt-kcal">🔥 ${row.calories}</span>
+          <span class="nt-num nt-prot">${m.protein(row.protein)}</span>
+        </span>
         ${locked ? '' : `<button class="nt-del" type="button" data-del="${esc(row.id)}" aria-label="${m.deleteAria(esc(row.name))}">🗑</button>`}
       </div>
     </div>
@@ -357,7 +459,12 @@ function hourOf(hhmm: string): string {
   return hhmm.startsWith('0') ? hhmm.slice(1) : hhmm;
 }
 
-/** One meal of the day: its heading, subtotal, ＋ and its items. */
+/**
+ * One meal of the day as a card: the meal as an eyebrow (name, window, its
+ * subtotal and a ＋), then its items. A meal with nothing in it yet is a
+ * dashed card that IS the ＋ — the day reads as a menu of what is eaten and
+ * what is still to come.
+ */
 function slotSectionHtml(
   key: string,
   label: string,
@@ -369,18 +476,29 @@ function slotSectionHtml(
   const cal = rows.reduce((s, r) => s + r.calories, 0);
   const prot = rows.reduce((s, r) => s + r.protein, 0);
   const m = tr(M).meal;
-  const add =
-    locked || key === 'none'
-      ? ''
-      : `<button class="nt-slot-add" type="button" data-slot-add="${key}" aria-label="${m.slotAddAria(esc(label))}">＋</button>`;
+  const canAdd = !locked && key !== 'none';
+  const name = `<span class="nt-slot-name">${esc(label)}${window ? ` <span class="nt-slot-win">${window}</span>` : ''}</span>`;
+  if (rows.length === 0) {
+    return `
+  <div class="nt-slot empty" data-slot-sec="${key}">
+    ${
+      canAdd
+        ? `<button class="nt-slot-add nt-slot-addcard" type="button" data-slot-add="${key}" aria-label="${m.slotAddAria(esc(label))}"><span class="nt-plus" aria-hidden="true">＋</span>${name}</button>`
+        : `<div class="nt-slot-head">${name}</div>`
+    }
+  </div>`;
+  }
+  const add = canAdd
+    ? `<button class="nt-slot-add" type="button" data-slot-add="${key}" aria-label="${m.slotAddAria(esc(label))}">＋</button>`
+    : '';
   return `
-  <div class="nt-slot ${rows.length === 0 ? 'empty' : ''}" data-slot-sec="${key}">
+  <div class="nt-slot ${rows.length === 1 ? 'single' : ''}" data-slot-sec="${key}">
     <div class="nt-slot-head">
-      <span class="nt-slot-name">${esc(label)}${window ? ` <span class="nt-slot-win dim">${window}</span>` : ''}</span>
-      ${rows.length > 0 ? `<span class="nt-slot-sum">${m.slotSum(cal, prot)}</span>` : ''}
+      ${name}
+      <span class="nt-slot-sum">${m.slotSum(cal, prot)}</span>
       ${add}
     </div>
-    ${rows.length > 0 ? `<ul class="nt-meals">${rows.map((r) => mealRowHtml(r, dayCalories, locked)).join('')}</ul>` : ''}
+    <ul class="nt-meals">${rows.map((r) => mealRowHtml(r, dayCalories, locked)).join('')}</ul>
   </div>`;
 }
 
@@ -408,8 +526,8 @@ function mealsCard(n: NutritionState, date: string): string {
   const hasCat = rows.some((r) => r.source === 'catalog');
   const legend = [hasAi ? m.legendAi : '', hasCat ? m.legendCatalog : ''].filter(Boolean).join(' · ');
   return `
-  <section class="game-card nt-day-meals">
-    <div class="gc-title">${m.title}${legend ? ` <span class="gc-sub">${legend}</span>` : ''}</div>
+  <section class="nt-day-meals">
+    <div class="gc-title nt-meals-title">${m.title}${legend ? ` <span class="gc-sub">${legend}</span>` : ''}</div>
     ${empty}
     ${sections}
     ${legacy}
@@ -825,9 +943,9 @@ function dayNav(date: string, today: string): string {
   const m = tr(M).nav;
   return `
   <div class="nt-daynav">
-    <button class="action-btn ghost" id="ntPrev" type="button">${m.prev}</button>
+    <button class="nt-navbtn" id="ntPrev" type="button">${m.prev}</button>
     <span class="nt-date"><b>${date === today ? m.today : esc(fmtDate(date))}</b></span>
-    <button class="action-btn ghost" id="ntNext" type="button" ${date === today ? 'disabled' : ''}>${m.next}</button>
+    <button class="nt-navbtn" id="ntNext" type="button" ${date === today ? 'disabled' : ''}>${m.next}</button>
   </div>`;
 }
 
@@ -911,6 +1029,12 @@ function wire(main: HTMLElement, deps: NutritionDeps, date: string, today: strin
     viewDate = next >= today ? null : next;
     addSlot = null;
     again();
+  });
+
+  /* ---- the +10% / +20% fold remembers itself across re-renders ---- */
+  const marginsEl = main.querySelector<HTMLDetailsElement>('#ntMargins');
+  marginsEl?.addEventListener('toggle', () => {
+    marginsOpen = marginsEl.open;
   });
 
   /* ---- chart window + metric ---- */

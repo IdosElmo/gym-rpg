@@ -1,16 +1,26 @@
 /* ---------- 🍽️ תזונה — the meal tracker screen ---------- */
 
-/* Day navigation: two arrows around the date, all thumb-sized. */
-.nt-daynav{display:flex; align-items:center; justify-content:space-between; gap:8px; margin:2px 0 12px}
-.nt-daynav .action-btn{flex:0 0 auto; width:auto; min-width:96px; min-height:44px; margin:0}
-.nt-daynav .action-btn.ghost{color:var(--muted)}
-.nt-daynav .action-btn[disabled]{opacity:.4}
-.nt-date{font-size:14px; font-weight:700}
+/* Day navigation: one compact pill — the day before · the date · the day after.
+   Each arrow is a ≥44px target; the one past today is disabled. */
+.nt-daynav{
+  display:flex; align-items:center; gap:4px; margin:2px 0 12px; padding:2px;
+  background:var(--card); border:1px solid var(--line); border-radius:99px;
+}
+.nt-navbtn{
+  flex:0 0 auto; min-height:44px; padding:0 14px; border:none; border-radius:99px;
+  background:none; color:var(--muted); font:inherit; font-size:13px; font-weight:700; cursor:pointer;
+  transition:background-color .15s, color .15s;
+}
+.nt-navbtn:not([disabled]):hover{background:var(--card-2); color:var(--text)}
+.nt-navbtn:focus-visible{outline:2px solid var(--accent-ink); outline-offset:-2px}
+.nt-navbtn[disabled]{opacity:.4; cursor:default}
+.nt-date{flex:1 1 auto; min-width:0; text-align:center; font-size:14px; font-weight:700}
 
-/* The day's summary: two rings that fill toward the targets. One hue for the
-   fill (`--accent`); past the target the ring turns `--warn` — over target IS
-   "attention". The number sits inside as SVG digits (bidi-proof); the Hebrew
-   label is HTML beneath. */
+/* THE METER — a value filling toward a daily target, drawn as a ring. Shared
+   with ⚖️ משקל's journey ring (ui/weight.ts), and the base the day's calorie
+   ring and the +10%/+20% rings build on. One hue for the fill (`--accent`);
+   past the target the ring turns `--warn` — over target IS "attention". The
+   number sits inside as SVG digits (bidi-proof); the label is HTML beneath. */
 .nt-rings{display:flex; justify-content:space-around; gap:8px; margin-top:4px}
 .nt-ring{display:flex; flex-direction:column; align-items:center; gap:2px; flex:1 1 0; min-width:0}
 .nt-ring-svg{width:118px; height:118px; max-width:100%; display:block}
@@ -31,11 +41,66 @@
 .nt-ring-lab{font-size:12.5px; font-weight:700; text-align:center}
 .nt-ring-sub{font-size:11px; color:var(--muted); text-align:center}
 .nt-ring-sub.over{color:var(--warn); font-weight:700}
+@keyframes ringFill{from{stroke-dashoffset:var(--circ)}}
+@media (prefers-reduced-motion: reduce){ .nt-ring-fill{animation:none} }
+
+/* ---------- The day's summary ----------
+   The calorie ring on the start side — what is LEFT, big, in its centre — and
+   the macro bars beside it (protein today; carbs and fat are one more row of
+   the same list). */
+.nt-summary{display:flex; align-items:center; gap:16px}
+.nt-ring.nt-hero{flex:0 0 auto; gap:6px}
+.nt-hero-dial{position:relative; inline-size:136px; block-size:136px}
+.nt-hero .nt-ring-svg{inline-size:100%; block-size:100%; width:auto; height:auto; max-width:none}
+.nt-hero .nt-ring-track{stroke:var(--track); stroke-width:9}
+.nt-hero.no-target .nt-ring-track{stroke:var(--line); stroke-width:3}
+.nt-hero .nt-ring-fill{stroke-width:9}
+.nt-hero-c{
+  position:absolute; inset:0; padding:20px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center;
+}
+/* "נותרו / 730 / קק״ל" — one phrase, read top to bottom around the number */
+.nt-hero-sub{display:flex; flex-direction:column; align-items:center; line-height:1.15}
+.nt-hero-w{font-size:11px; font-weight:600; color:var(--muted)}
+.nt-hero-num{font-size:30px; font-weight:800; color:var(--text); letter-spacing:-.02em; line-height:1.05; font-variant-numeric:tabular-nums}
+.nt-hero.over .nt-hero-num{color:var(--warn)}
+.nt-hero-of{margin-top:3px; font-size:10.5px; font-weight:600; color:var(--dim); font-variant-numeric:tabular-nums}
+.nt-hero .nt-ring-pct{
+  font-size:11px; font-weight:800; color:var(--accent-ink); background:var(--accent-soft);
+  border-radius:99px; padding:2px 9px; font-variant-numeric:tabular-nums;
+}
+.nt-hero.over .nt-ring-pct{color:var(--warn); background:var(--warn-soft)}
+
+.nt-macros{flex:1 1 auto; min-width:0; display:grid; gap:14px}
+.nt-ring.nt-macro{display:grid; gap:5px; align-items:stretch; justify-items:stretch; flex:none}
+.nt-macro-top{display:flex; justify-content:space-between; align-items:baseline; gap:8px}
+.nt-macro-name{font-size:13px; font-weight:700}
+.nt-macro-val{font-size:11.5px; color:var(--muted); white-space:nowrap; font-variant-numeric:tabular-nums}
+.nt-macro-track{display:block; block-size:8px; border-radius:99px; background:var(--track); overflow:hidden}
+.nt-macro.no-target .nt-macro-track{background:none; border:1px dashed var(--line)}
+/* protein is the bar that means "good" — --ok, like the design's macro list */
+.nt-macro .nt-ring-fill{
+  display:block; block-size:100%; border-radius:inherit; background:var(--ok);
+  transform:none; animation:ntBarFill .7s cubic-bezier(.2,.7,.2,1) both;
+}
+.nt-macro .nt-ring-sub{text-align:start}
+/* more protein than planned is rarely the problem: said, not flagged */
+.nt-macro .nt-ring-sub.over{color:var(--ok)}
+@keyframes ntBarFill{from{inline-size:0}}
+@media (prefers-reduced-motion: reduce){ .nt-macro .nt-ring-fill{animation:none} }
+
 .nt-status{text-align:center}
-/* The under-estimation lens: the day's calories at +10% / +20%, as two smaller
-   rings under the main pair — same hue, same --warn past the target. */
-.nt-margins{margin-top:10px; padding-top:8px; border-top:1px dashed var(--line)}
-.nt-margins-title{margin:0 0 2px; font-size:12px; font-weight:700; color:var(--muted); text-align:center}
+/* The under-estimation lens: the day's calories at +10% / +20%, folded under a
+   toggle beneath the summary — same hue, same --warn past the target. */
+.nt-margins{margin-top:12px; border-top:1px dashed var(--line)}
+.nt-margins-title{
+  list-style:none; cursor:pointer; user-select:none;
+  display:flex; align-items:center; gap:6px; min-height:44px;
+  font-size:12px; font-weight:700; color:var(--muted);
+}
+.nt-margins-title::-webkit-details-marker{display:none}
+.nt-margins[open] .nt-margins-title{color:var(--text)}
+.nt-margins[open] .nt-caret{transform:rotate(90deg)}
 .nt-ring.margin .nt-ring-svg{width:92px; height:92px}
 .nt-ring.margin .nt-ring-val{font-size:20px}
 /* "סגרתי את היום": the chip beside the title, the button under the status, and
@@ -47,44 +112,66 @@
 /* 🔔 reminders: the state line and one full-width button. */
 .nt-remind-state{font-weight:700; color:var(--text)}
 .nt-remind .action-btn{width:100%; margin-top:10px; min-height:46px}
-@keyframes ringFill{from{stroke-dashoffset:var(--circ)}}
-@media (prefers-reduced-motion: reduce){ .nt-ring-fill{animation:none} }
 
-/* The day as meals: a heading per meal (name, window, subtotal, ＋), its
-   items under it. An empty meal is just its heading — the menu, at a glance. */
-.nt-slot{padding:8px 0 4px; border-bottom:1px solid var(--line)}
-.nt-slot:last-child{border-bottom:none}
-.nt-slot-head{display:flex; align-items:center; gap:8px; min-height:44px}
-.nt-slot-name{flex:1 1 auto; min-width:0; font-size:14px; font-weight:800}
-.nt-slot.empty .nt-slot-name{color:var(--muted); font-weight:700}
-.nt-slot-win{font-size:11.5px; font-weight:600; font-variant-numeric:tabular-nums}
-.nt-slot-sum{flex:0 0 auto; font-size:12px; color:var(--muted); white-space:nowrap; font-variant-numeric:tabular-nums}
+/* ---------- The day as meals ----------
+   One card per meal of the day: the meal as an eyebrow (name, window,
+   subtotal, ＋), then its items — name and time on the start side, calories
+   and protein on the end. A meal with nothing in it is a dashed card that IS
+   the ＋: the day reads as a menu of what was eaten and what is still to come. */
+.nt-day-meals{margin-bottom:14px}
+.nt-meals-title{margin:4px 2px 10px}
+.nt-day-meals .empty{padding:4px 12px 12px; font-size:12.5px}
+.nt-slot{
+  background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  padding:10px 14px 4px; margin-bottom:8px;
+}
+.nt-slot-head{display:flex; align-items:center; gap:8px; min-height:22px}
+.nt-slot-name{flex:1 1 auto; min-width:0; font-size:11.5px; font-weight:700; color:var(--dim)}
+.nt-slot-win{font-size:11px; font-weight:600; color:var(--dim); font-variant-numeric:tabular-nums}
+.nt-slot-sum{flex:0 0 auto; font-size:11.5px; color:var(--muted); white-space:nowrap; font-variant-numeric:tabular-nums}
+/* one item: its own numbers already say the meal's total */
+.nt-slot.single .nt-slot-sum{display:none}
 .nt-slot-add{
-  flex:0 0 auto; min-width:44px; min-height:44px; border-radius:10px;
-  border:1px solid var(--line); background:var(--card-2); color:var(--accent-ink); font-size:18px; font-weight:800;
+  flex:0 0 auto; inline-size:44px; block-size:44px; margin-block:-11px; margin-inline-end:-10px;
+  border:none; border-radius:12px; background:none; color:var(--accent-ink); font-size:18px; font-weight:800;
+  cursor:pointer;
 }
-.nt-slot .nt-meals{margin-top:2px; margin-bottom:6px}
-/* The meal list. Each meal is a card: the name row, a hairline showing its
-   share of the day's calories, and — for an estimated meal — the estimate
-   folded under a ▸. */
-.nt-meals{list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:8px}
-.nt-meal{
-  display:flex; flex-direction:column; gap:6px;
-  background:var(--card-2); border:1px solid var(--line); border-radius:11px;
-  padding:9px 12px;
+.nt-slot-add:focus-visible{outline:2px solid var(--accent-ink); outline-offset:-4px}
+/* an empty meal: the dashed add card */
+.nt-slot.empty{padding:0; background:none; border:1.5px dashed var(--muted-line)}
+.nt-slot-add.nt-slot-addcard{
+  display:flex; align-items:center; gap:10px; inline-size:100%; block-size:auto; min-height:46px; margin:0;
+  padding:6px 14px; border-radius:inherit; font:inherit; text-align:start;
 }
+.nt-slot-addcard .nt-plus{font-size:17px; font-weight:800; color:var(--accent-ink)}
+.nt-slot-addcard .nt-slot-name{font-size:13.5px; font-weight:700; color:var(--accent-ink)}
+.nt-slot-addcard .nt-slot-win{color:var(--muted)}
+.nt-slot-addcard:hover{background:var(--accent-soft)}
+.nt-slot.empty .nt-slot-head{padding:12px 14px}
+
+/* The items of a meal: flat rows inside its card, a hairline between them,
+   and a 2px bar under each — its share of the day's calories. An estimated or
+   catalog meal unfolds what stands behind its numbers under a ▸. */
+.nt-meals{list-style:none; margin:4px 0 0; padding:0; display:flex; flex-direction:column}
+.nt-meal{display:flex; flex-direction:column; gap:5px; padding:8px 0 10px; border-top:1px solid var(--line)}
+.nt-meal:first-child{border-top:none; padding-top:2px}
 .nt-meal-row{display:flex; align-items:center; justify-content:space-between; gap:10px}
 .nt-meal-main{display:flex; flex-direction:column; gap:2px; min-width:0}
-.nt-meal-name{font-size:14px; font-weight:600; overflow-wrap:anywhere}
+.nt-meal-name{font-size:14.5px; font-weight:600; overflow-wrap:anywhere}
 .nt-meal-time{font-size:11.5px; font-variant-numeric:tabular-nums}
 .nt-ai{font-size:12px; margin-inline-start:6px}
-.nt-meal-nums{display:flex; align-items:center; gap:8px; flex:0 0 auto; font-size:12.5px; color:var(--muted)}
+.nt-meal-nums{display:flex; align-items:center; gap:4px; flex:0 0 auto}
+.nt-meal-kc{display:flex; flex-direction:column; align-items:flex-end; gap:1px}
 .nt-num{white-space:nowrap; font-variant-numeric:tabular-nums}
+.nt-kcal{font-size:14px; font-weight:800; color:var(--text)}
+.nt-prot{font-size:11.5px; color:var(--muted)}
 .nt-del{
-  background:none; border:none; color:var(--danger); font-size:16px;
-  min-width:44px; min-height:44px; margin-block:-8px; margin-inline:-10px 0;
+  background:none; border:none; color:var(--dim); font-size:15px; border-radius:10px; cursor:pointer;
+  min-width:44px; min-height:44px; margin-block:-8px; margin-inline:0 -12px;
 }
-.nt-share{height:3px; border-radius:99px; background:var(--card); overflow:hidden}
+.nt-del:hover{color:var(--danger)}
+.nt-del:focus-visible{outline:2px solid var(--accent-ink); outline-offset:-4px}
+.nt-share{height:2px; border-radius:99px; background:var(--track); overflow:hidden}
 .nt-share i{display:block; height:100%; background:var(--accent); opacity:.7; border-radius:99px}
 .nt-meal-more{margin-top:2px}
 .nt-meal-sum{
@@ -100,10 +187,10 @@
 .nt-items{margin:2px 0 4px; padding-inline-start:18px; display:flex; flex-wrap:wrap; gap:6px}
 .nt-chip{
   display:inline-block; padding:3px 9px; border-radius:99px; font-size:11.5px;
-  background:var(--card); border:1px solid var(--line); color:var(--text);
+  background:var(--card-2); border:1px solid var(--line); color:var(--text);
 }
 .nt-reason{margin-top:4px; padding-inline-start:18px}
-@media (prefers-reduced-motion: reduce){ .nt-caret{transition:none} }
+@media (prefers-reduced-motion: reduce){ .nt-caret, .nt-navbtn{transition:none} }
 
 /* The add form. */
 .nt-add .nt-field{display:block; font-size:12.5px; color:var(--muted); margin-top:10px}

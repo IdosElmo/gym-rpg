@@ -54,6 +54,21 @@ const he = {
     aria: (label: string, value: number, target: number) => `${label}: ${value} מתוך ${target}`,
     ariaNoTarget: (label: string, value: number) => `${label}: ${value}`,
   },
+  /**
+   * The calorie ring's centre, read top to bottom around the big number:
+   * "נותרו / 730 / קק״ל". `before` may be empty (English puts it all after).
+   */
+  hero: {
+    left: { before: 'נותרו', after: 'קק״ל' },
+    over: { before: '', after: 'קק״ל מעל היעד' },
+    eaten: { before: '', after: 'קק״ל' },
+  },
+  /** The macro bars beside the ring (protein today; carbs and fat can join the list). */
+  macro: {
+    protein: 'חלבון',
+    /** `nums` is markup: "112", or the LTR-isolated "112 / 150". */
+    grams: (nums: string) => `${nums} ג׳`,
+  },
   totals: {
     empty: 'עוד לא תועדו ארוחות ביום הזה',
     closed: 'היום נסגר — הוא נספר בממוצע של ימים מלאים בגרף',
@@ -242,6 +257,15 @@ const en: typeof he = {
     left: (n: number) => `${n} left`,
     aria: (label: string, value: number, target: number) => `${label}: ${value} of ${target}`,
     ariaNoTarget: (label: string, value: number) => `${label}: ${value}`,
+  },
+  hero: {
+    left: { before: '', after: 'kcal left' },
+    over: { before: '', after: 'kcal over target' },
+    eaten: { before: '', after: 'kcal' },
+  },
+  macro: {
+    protein: 'Protein',
+    grams: (nums: string) => `${nums} g`,
   },
   totals: {
     empty: 'No meals logged on this day yet',

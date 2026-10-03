@@ -34,6 +34,10 @@ const he = {
     label: (name: string) => `הערות לתרגיל ${name}`,
     hint: 'נשמר אוטומטית · ההערה נשארת עם התרגיל בכל אימון',
   },
+  /** The card's target line, beside the scheme ("3 סטים × 8–10 · מנוחה 1:30"). */
+  restShort: (clock: string) => `מנוחה ${clock}`,
+  /** The day's progress strip, read aloud. */
+  strip: (done: number, total: number) => `${done} מתוך ${total} תרגילים הושלמו`,
   restHint: (sec: number) => `⏱ מנוחה מומלצת: ${sec} שניות (מתחיל אוטומטית בסימון סט)`,
   stageHint: (clock: string) => `⏱ כל שלב ${clock} דק׳ · סימון ✓ בסוף שלב מפעיל את הטיימר של השלב הבא`,
   superset: {
@@ -97,6 +101,8 @@ const en: typeof he = {
     label: (name: string) => `Notes for ${name}`,
     hint: 'Saved automatically · the note stays with this exercise every workout',
   },
+  restShort: (clock: string) => `Rest ${clock}`,
+  strip: (done: number, total: number) => `${done} of ${total} exercises done`,
   restHint: (sec: number) => `⏱ Suggested rest: ${sec} seconds (starts automatically when you tick a set)`,
   stageHint: (clock: string) => `⏱ Each stage ${clock} min · ticking ✓ at the end of a stage starts the next stage’s timer`,
   superset: {

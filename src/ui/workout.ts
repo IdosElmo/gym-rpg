@@ -5,6 +5,11 @@
  * / scheme / equipment badges, a collapsible "הסבר ודגשי ביצוע" panel with the
  * numbered steps + cue + common-mistake blocks, the 3-column log table with
  * previous-performance hints, the rest hint, and the green `done-all` state.
+ * Dressed since in the app's card design: a progress strip over the day (one
+ * segment per exercise), an eyebrow + big name + the demo's still on the end
+ * side of each head, accent chips, a "scheme · rest" target line, and set rows
+ * whose numbered badge marks the done sets (--ok) and the one you are on
+ * (--accent, `.log-row.current`) — all kept in step by the ✓ handler.
  *
  * All writes go through the `DataStore` — this module never touches storage.
  *
@@ -83,7 +88,8 @@ import type { AppState, DataStore } from '../storage/DataStore.ts';
 import { fmtClock, type RestTimer } from './timer.ts';
 import { queuePartPulse } from './character.ts';
 import { esc } from './dom.ts';
-import { mountExerciseDemo, type DemoHandle } from './exerciseDemo.ts';
+import { demoSvg, mountExerciseDemo, stillPose, type DemoHandle } from './exerciseDemo.ts';
+import { demoFor } from '../data/exercisePoses.ts';
 import { toast } from './toast.ts';
 import { flyXp, fmtXp } from './xpfx.ts';
 import { tr } from '../i18n/locale.ts';
@@ -213,6 +219,8 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
     /** What each row visibly shows in its second column — the hold timer reads it. */
     const shownR: string[] = [];
     let done = 0;
+    /** The first set not yet ✓'d — the row whose badge says "you are here". */
+    let current = -1;
     const cardio = ex.cardio ?? null;
     // a hold: logged in seconds, and not a cardio ladder (which has its own clock)
     const hold = !cardio && isTimed(ex);
@@ -224,6 +232,7 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
     for (let i = 0; i < ex.sets; i++) {
       const d = getSetData(state, view, ex.id, i, false, today) ?? { w: '', r: '', done: false };
       if (d.done) done++;
+      else if (current < 0) current = i;
       let prevTxt = '';
       const ps = prev?.sets[i];
       if (ps && (ps.w !== '' || ps.r !== '')) {
@@ -256,7 +265,7 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
       const kgAttr = !cardio && units() === 'imperial' && fillW !== d.w ? ` data-kg="${esc(fillW)}"` : '';
       shownR.push(fillR);
       rows.push(`
-    <div class="log-row ${d.done ? 'checked' : ''}">
+    <div class="log-row ${d.done ? 'checked' : ''} ${current === i ? 'current' : ''}">
       <div class="set-num">${i + 1}</div>
       <div class="inp-wrap">
         <input class="inp ${fillW !== d.w ? 'prefill' : ''}" type="number" inputmode="decimal" step="0.5" min="0" placeholder='${cardio ? esc(loadUnit) : weightUnit()}'
@@ -302,18 +311,32 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
         <div class="notes-hint">${M.notes.hint}</div>
       </div>
     </div>`;
+    // 🎬 The demo's thumbnail on the end side of the head: a shortcut to the
+    // drawer (the full, moving demo lives there), so it exists only where the
+    // drawer does.
+    const thumb = hasGuide ? thumbHtml(ex) : '';
     return `
   <section class="ex-card ${open} ${allDone}" id="card-${esc(ex.id)}">
     <div class="ex-head">
-      <div class="ex-order">${M.order(idx + 1, p.exercises.length)}</div>
-      <h2 class="ex-title">${esc(exName(ex))}</h2>
-      ${sub ? `<div class="ex-title-en">${esc(sub)}</div>` : ''}
-      <div class="badges">
-        ${partner ? `<span class="badge superset">${esc(M.supersetWith(exName(partner)))}</span>` : ''}
-        <span class="badge muscle">🎯 ${esc(exMuscle(ex))}</span>
-        <span class="badge scheme">${ex.sets} ${cardio ? M.stages : M.sets} × ${esc(repsText(ex.reps))}</span>
-        ${ex.equip.map((e) => `<span class="badge equip">${esc(equipName(e))}</span>`).join('')}
+      <div class="ex-head-tx">
+        <div class="ex-order">${M.order(idx + 1, p.exercises.length)}</div>
+        <h2 class="ex-title">${esc(exName(ex))}</h2>
+        ${sub ? `<div class="ex-title-en">${esc(sub)}</div>` : ''}
       </div>
+      ${thumb}
+    </div>
+    <div class="badges">
+      ${partner ? `<span class="badge superset">${esc(M.supersetWith(exName(partner)))}</span>` : ''}
+      <span class="badge muscle">${esc(exMuscle(ex))}</span>
+      ${ex.equip.map((e) => `<span class="badge equip">${esc(equipName(e))}</span>`).join('')}
+    </div>
+    <div class="ex-target">
+      <span class="badge scheme">${ex.sets} ${cardio ? M.stages : M.sets} × ${esc(repsText(ex.reps))}</span>
+      ${
+        // A superset's rest belongs to the pair (its group says it once); a
+        // cardio card's "rest" is the stage length, which its own hint names.
+        partner || cardio ? '' : `<span class="ex-rest">${M.restShort(fmtClock(ex.rest))}</span>`
+      }
     </div>
     ${guide}
     <div class="log">
@@ -358,7 +381,7 @@ export function renderWorkout(main: HTMLElement, view: DayKey, deps: WorkoutDeps
       i += 1;
     } else break;
   }
-  main.innerHTML = blocks.join('');
+  main.innerHTML = stripHtml(state, p.exercises, today) + blocks.join('');
 
   bind(main, view, deps, today, program, pairs);
 }
@@ -376,6 +399,65 @@ function livePairs(exercises: readonly Exercise[], pairs: readonly SupersetPair[
     if (i >= 0 && exercises[i + 1]?.id === pair[1]) out.push(pair);
   }
   return out;
+}
+
+/**
+ * THE DAY AT A GLANCE: one segment per exercise, in card order — done (every
+ * set ✓'d), current (the first exercise that is not) and the rest still ahead.
+ * Painted from the same `doneCount` the cards use, and kept in step by the ✓
+ * handler (`syncStrip`) without a re-render.
+ */
+function stripHtml(state: AppState, exercises: readonly Exercise[], date: string): string {
+  const segs = stripStates(state, exercises, date);
+  const done = segs.filter((s) => s === 'done').length;
+  return `<div class="wk-strip" role="img" aria-label="${esc(tr(W).strip(done, exercises.length))}">${exercises
+    .map((e, i) => `<i class="wk-seg ${segs[i] ?? ''}" data-seg="${esc(e.id)}"></i>`)
+    .join('')}</div>`;
+}
+
+function stripStates(state: AppState, exercises: readonly Exercise[], date: string): ('done' | 'cur' | '')[] {
+  let cur = false;
+  return exercises.map((e) => {
+    if (doneCount(state, e.id, date) >= e.sets) return 'done';
+    if (cur) return '';
+    cur = true;
+    return 'cur';
+  });
+}
+
+function syncStrip(main: HTMLElement, state: AppState, exercises: readonly Exercise[], date: string): void {
+  const strip = main.querySelector<HTMLElement>('.wk-strip');
+  if (!strip) return;
+  const segs = stripStates(state, exercises, date);
+  exercises.forEach((e, i) => {
+    const seg = strip.querySelector(`.wk-seg[data-seg="${cssId(e.id)}"]`);
+    seg?.classList.toggle('done', segs[i] === 'done');
+    seg?.classList.toggle('cur', segs[i] === 'cur');
+  });
+  strip.setAttribute('aria-label', tr(W).strip(segs.filter((s) => s === 'done').length, exercises.length));
+}
+
+/** Move a card's "you are here" badge to its first set not yet ✓'d. */
+function syncCurrent(exId: string): void {
+  let found = false;
+  document.getElementById('card-' + exId)?.querySelectorAll('.log-row:not(.head)').forEach((row) => {
+    const here = !found && !row.classList.contains('checked');
+    if (here) found = true;
+    row.classList.toggle('current', here);
+  });
+}
+
+/**
+ * The still on the end side of a card's head: the first variant's mid-rep
+ * pose (the same still a reduced-motion user gets in the drawer). Tapping it
+ * opens — or closes — the drawer with the moving demo, exactly as the "how to
+ * do it" toggle does. No poses (a custom exercise): no thumbnail.
+ */
+function thumbHtml(ex: Exercise): string {
+  const v = demoFor(ex.id)?.variants[0];
+  if (!v) return '';
+  const label = tr(W).demo.labelOf(exName(ex));
+  return `<button class="ex-thumb" type="button" data-thumb="${esc(ex.id)}" aria-label="${esc(label)}">${demoSvg(v, stillPose(v), label)}</button>`;
 }
 
 /** True when every set of BOTH halves of a superset is checked (group done-all). */
@@ -530,6 +612,13 @@ function bind(
       const ex = findEx(program, view, id);
       if (ex && card?.classList.contains('open')) openDemo(card, ex);
       else closeDemo(id);
+    });
+  });
+
+  // 🎬 The thumbnail is a second handle on the same drawer.
+  main.querySelectorAll<HTMLButtonElement>('.ex-thumb').forEach((b) => {
+    b.addEventListener('click', () => {
+      b.closest('.ex-card')?.querySelector<HTMLButtonElement>('.form-toggle')?.click();
     });
   });
 
@@ -722,7 +811,9 @@ function bind(
         document
           .getElementById('card-' + l.ex.id)
           ?.classList.toggle('done-all', doneCount(state, l.ex.id, today) === l.ex.sets);
+        syncCurrent(l.ex.id);
       }
+      syncStrip(main, state, dayOf(program, view)?.exercises ?? [], today);
       if (pair) {
         const a = findEx(program, view, pair[0]);
         const b = findEx(program, view, pair[1]);
